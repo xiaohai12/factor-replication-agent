@@ -165,6 +165,48 @@ class CCMLinker:
 # --- Main Data Layer Facade ---
 
 
+class TimeAvailComputer:
+    """Computes point-in-time available date (time_avail_m) for accounting data.
+
+    Follows C&Z convention: lag is handled at the data layer so that
+    signal plugins only do formula computation on already-lagged data.
+    Ablation experiments change lag via config without regenerating plugins.
+    """
+
+    def compute_time_avail_m(
+        self,
+        df: pd.DataFrame,
+        date_col: str = "datadate",
+        lag_months: int = 6,
+    ) -> pd.DataFrame:
+        """Add time_avail_m column: earliest month the data is usable.
+
+        Args:
+            df: DataFrame with accounting data dates
+            date_col: Column containing the fiscal period end date
+            lag_months: Minimum months to wait (accounting lag)
+
+        Returns:
+            DataFrame with added 'time_avail_m' column (YYYYMM int format)
+        """
+        # TODO: Implement time_avail_m = datadate + lag_months, converted to YYYYMM
+        raise NotImplementedError
+
+    def build_signal_master_table(
+        self,
+        crsp_df: pd.DataFrame,
+        compustat_df: pd.DataFrame,
+        lag_months: int = 6,
+    ) -> pd.DataFrame:
+        """Build merged panel keyed on [permno, time_avail_m].
+
+        This is the intermediate table that signal plugins read from.
+        Analogous to C&Z's SignalMasterTable.parquet.
+        """
+        # TODO: Merge CRSP + Compustat via CCM, compute time_avail_m
+        raise NotImplementedError
+
+
 class DataLayer:
     """Unified data access layer for all pipeline modules.
 
@@ -172,6 +214,7 @@ class DataLayer:
     - Data dictionary for field validation (Extractor, Review Gate)
     - Snapshot management for reproducible data (Engine)
     - CCM linking (Engine)
+    - time_avail_m computation (separates lag from signal logic)
     """
 
     def __init__(self, data_path: str = "./data"):
@@ -179,6 +222,7 @@ class DataLayer:
         self.dictionary = DataDictionary()
         self.snapshots = SnapshotManager(base_path=str(self.data_path / "snapshots"))
         self.ccm_linker = CCMLinker()
+        self.time_avail = TimeAvailComputer()
 
     def load_dictionary(self, yaml_path: str) -> None:
         """Load data dictionary from YAML."""
@@ -187,3 +231,17 @@ class DataLayer:
     def get_snapshot_data(self, snapshot_id: str, table: str) -> pd.DataFrame:
         """Load a table from a specific snapshot."""
         return self.snapshots.load_table(snapshot_id, table)
+
+    def get_signal_master_table(
+        self, snapshot_id: str, lag_months: int = 6
+    ) -> pd.DataFrame:
+        """Get the merged panel ready for signal computation.
+
+        Returns DataFrame keyed on [permno, time_avail_m] with all
+        Compustat and CRSP fields merged and lag-adjusted.
+        """
+        crsp = self.get_snapshot_data(snapshot_id, "crsp_msf")
+        compustat = self.get_snapshot_data(snapshot_id, "compustat_funda")
+        return self.time_avail.build_signal_master_table(
+            crsp, compustat, lag_months=lag_months
+        )

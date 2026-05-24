@@ -1,9 +1,12 @@
 """Semantic Extractor - Extract MethodSpec from papers and reference materials.
 
 Implements multi-source triangulation (architecture.md Section 4.2):
-1. Structured source first (C&Z metadata, OSAP code)
-2. Paper fill-in for missing/ambiguous fields
-3. Ambiguity tagging for unresolved fields
+1. Paper text as primary source (LLM extracts factor definition)
+2. Ambiguity tagging for unresolved fields
+
+IMPORTANT: SignalDoc.csv is NOT used as Extractor input (information leakage).
+SignalDoc is only used post-hoc for extraction accuracy evaluation.
+See cz-reference.md Section 1 for details.
 """
 
 from __future__ import annotations

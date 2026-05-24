@@ -1,3 +1,12 @@
+---
+type: architecture
+status: draft
+project: factor-replication-agent
+created: 2026-05-12
+updated: 2026-05-24
+version: 2
+tags: [architecture, thesis, factor-replication, agent, quant, harness, meta-coder]
+---
 
 # Factor Replication Agent Architecture
 
@@ -161,6 +170,21 @@ Data Layer 是所有模块的底层依赖，为 Semantic Extractor（字段校�
 
 数据通过 WRDS (Wharton Research Data Services) 获取。
 
+#### Point-in-Time Available Date (`time_avail_m`) / 时点可用日期
+
+借鉴 C&Z `SignalMasterTable.py` 的核心设计：Data Layer 在预处理阶段为每条 Compustat 记录计算 `time_avail_m`（该记录最早可被投资者合法使用的月份），将 accounting lag 统一内化到数据层。
+
+好处：
+- signal plugin 只需按 `[permno, time_avail_m]` merge 并计算 formula，**不需要自行处理 lag**；
+- 消除了因 plugin 各自实现 lag 导致的不一致性和 look-ahead bias 风险；
+- lag 作为 implementation choice 由 Lifecycle Engine / MethodSpec config 控制，便于 ablation。
+
+```
+原始 Compustat 记录: gvkey=001234, datadate=2020-12-31, ceq=500
+                ↓ accounting lag = 6 months
+time_avail_m = 2021-06  （最早可用于 portfolio formation 的月份）
+```
+
 #### Data Snapshot / 数据快照策略
 
 每次正式实验使用 **frozen data snapshot**，确保结果可复现：
@@ -227,6 +251,8 @@ Data Layer 维护一份 **field registry**，Semantic Extractor 和 Review Gate 
 
 > 为 LLM 和后续审查提供因子定义、变量说明、组合构造规则和参考实现。
 
+C&Z 资源的完整说明（SignalDoc.csv 字段、代码结构、数据集、编程接口、与架构模块的映射）见 [[cz-reference]]。
+
 ---
 
 ### 4.2 Semantic Extractor / 语义提取器
@@ -262,13 +288,18 @@ Data Layer 维护一份 **field registry**，Semantic Extractor 和 Review Gate 
 
 #### 提取策略 / Extraction Strategy
 
-Semantic Extractor 采用 **multi-source triangulation**：不依赖单一来源，而是同时读取论文原文、C&Z metadata 和 OSAP reference code，交叉校验字段定义。
+Semantic Extractor 采用 **paper-first extraction**：LLM 仅从论文原文提取 MethodSpec，不在提取阶段参考 C&Z metadata 或 reference code。C&Z SignalDoc.csv 保留为 **evaluation ground truth**，用于量化提取准确率。
 
 提取分三步：
 
-1. **Structured source first.** 优先从 C&Z metadata 和 OSAP reference code 中提取，因为这些已经是半结构化的，extraction accuracy 高。
-2. **Paper fill-in.** 对于 metadata 中缺失或模糊的字段（如 missing-value policy、exact lag、skip month），回到论文原文中查找。
-3. **Ambiguity tagging.** 如果论文本身也没有明确说明，该字段标记为 `source: inferred` 或 `source: unspecified`，并写入 `ambiguous_fields` 列表，供 Review Gate 审查。
+1. **Paper extraction.** LLM 从论文原文中提取所有 MethodSpec 字段。输入仅限论文文本 + data dictionary（字段名校验）。不提供 SignalDoc.csv 或 OSAP reference code，避免信息泄漏。
+2. **Ambiguity tagging.** 论文中未明确说明的字段标记为 `source: inferred` 或 `source: unspecified`，写入 `ambiguous_fields` 列表，供 Review Gate 审查。
+3. **Evaluation against C&Z.** 提取完成后，将 MethodSpec 与 SignalDoc.csv 对应行逐字段比对，计算 extraction accuracy。差异记入 eval report，但**不回灌修正 MethodSpec**——差异本身是研究数据（LLM extraction 能力的度量）。
+
+这个设计的好处：
+- **测试 LLM 真实提取能力**：从非结构化学术文本到结构化 MethodSpec 的完整链路；
+- **C&Z 作为 ground truth 而非 shortcut**：避免 "用答案当输入" 的循环论证；
+- **extraction accuracy 本身是 thesis contribution**：量化 LLM 对因子定义的理解程度。
 
 #### MethodSpec 输出格式 / MethodSpec Schema
 
@@ -316,16 +347,19 @@ ambiguous_fields:
 
 #### 提取质量评估 / Extraction Validation
 
-对 pilot factors，使用 C&Z metadata 作为 ground truth，评估 extraction accuracy：
+对 pilot factors，将 LLM 提取的 MethodSpec 与 C&Z `SignalDoc.csv` 逐字段比对：
 
 | 评估维度 | 方法 |
 |---|---|
 | 字段覆盖率 | MethodSpec 中非空字段数 / 总字段数 |
-| 字段准确率 | 与 C&Z metadata 一致的字段数 / 可比较字段数 |
+| 字段准确率 | 与 C&Z SignalDoc 一致的字段数 / 可比较字段数 |
 | 歧义率 | `ambiguous_fields` 数量 / 总字段数 |
 | 关键字段命中 | `formula`, `lag`, `breakpoints`, `weighting` 四个核心字段的准确率 |
+| 差异分类 | 每个不一致字段标注原因：论文模糊 / LLM 误读 / C&Z 自行补充 / 合理分歧 |
 
 Phase 1 的 acceptance criteria：核心字段准确率 ≥ 80%（pilot factors）。如果达不到，需要增加 structured prompting 或 few-shot examples。
+
+**注意：** evaluation 是事后比对，不是实时纠正。差异分类本身是论文的分析素材——可以回答 "LLM 在哪些类型的因子定义上提取最容易出错"。
 
 ---
 
