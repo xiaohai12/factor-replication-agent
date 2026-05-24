@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from typing import Optional
+
 from pydantic import BaseModel, Field
 
 
@@ -24,6 +26,3 @@ class FactorSpec(BaseModel):
     plugin_ids: list[str] = Field(
         default_factory=list, description="Associated plugin IDs"
     )
-
-
-from typing import Optional  # noqa: E402

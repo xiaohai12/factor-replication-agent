@@ -1,11 +1,3 @@
----
-type: architecture
-status: draft
-project: factor-replication-agent
-created: 2026-05-12
-updated: 2026-05-20
-tags: [architecture, thesis, factor-replication, agent, quant, harness, meta-coder]
----
 
 # Factor Replication Agent Architecture
 
@@ -103,6 +95,116 @@ Input Sources
 分解 replication gap，解释差异来自哪些 implementation choices
 ```
 
+### 3.1 Feedback Loops / 反馈回路
+
+线性流程之外，以下情况会触发 **backtrack**：
+
+```text
+[4. Sandbox] ──technical error──► [3. Meta-Coder]     (bounded repair, max 3 retries)
+[4. Sandbox] ──empirical issue──► [2. Review Gate]     (lag/missing/leakage 需重审)
+[2. Review Gate] ──blocked──────► [1. Extractor]       (重新提取或请求 human input)
+[9. Attribution] ──anomaly─────► [2. Review Gate]      (结果异常，可能 MethodSpec 有误)
+[6. Lifecycle] ──data error────► [Data Layer]          (字段缺失、linking 问题)
+```
+
+触发条件与处置：
+
+| 触发点 | 条件 | 回退目标 | 处置 |
+|---|---|---|---|
+| Sandbox → Meta-Coder | syntax error, schema mismatch, type error | Meta-Coder | LLM bounded repair, ≤3 次；超过 → Review Gate |
+| Sandbox → Review Gate | temporal leakage, lag violation, forbidden pattern (empirical) | Review Gate | MethodSpec 可能有误，需要重新审查 |
+| Review Gate → Extractor | 字段 conflicting 或 unspecified 且 high-impact | Extractor | 重新读取论文/code，或升级 `needs_human_confirmation` |
+| Attribution → Review Gate | original_method 结果与论文 reported 值偏差 >50%（or t-stat 符号翻转） | Review Gate | 可能 MethodSpec 提取错误，复查 signal definition 和 timing |
+| Lifecycle → Data Layer | 字段不存在、CCM link 覆盖率异常低、数据量级不合理 | Data Layer | 检查 data dictionary mapping、snapshot 完整性 |
+
+**Max backtrack depth:** 任何单个 factor 的 backtrack 链不超过 3 轮。超过 3 轮 → 标记 `status: needs_manual_intervention`，暂停该 factor 的自动化流程。
+
+### 3.2 Data Layer / 数据层
+
+Data Layer 是所有模块的底层依赖，为 Semantic Extractor（字段校验）、Lifecycle Engine（回测执行）和 Evidence Store（snapshot 记录）提供数据服务。
+
+```text
+┌─────────────────────────────────────────────────────┐
+│                    Data Layer                        │
+│                                                      │
+│  ┌──────────┐  ┌───────────┐  ┌──────────────────┐  │
+│  │  CRSP    │  │ Compustat │  │   CCM Linktable  │  │
+│  │ (msf,   │  │ (funda,   │  │  (gvkey↔permno,  │  │
+│  │  msenames,│ │  fundq)   │  │   linkdt range)  │  │
+│  │  dlret)  │  │           │  │                  │  │
+│  └────┬─────┘  └─────┬─────┘  └────────┬─────────┘  │
+│       │              │                 │             │
+│       └──────────────┼─────────────────┘             │
+│                      ▼                               │
+│         ┌────────────────────────┐                   │
+│         │  Data Dictionary Layer │                   │
+│         │  字段名 → 含义/单位/日期 │                   │
+│         └────────────┬───────────┘                   │
+│                      │                               │
+│         ┌────────────▼───────────┐                   │
+│         │   Snapshot Manager     │                   │
+│         │  versioned data pulls  │                   │
+│         └────────────────────────┘                   │
+└─────────────────────────────────────────────────────┘
+```
+
+#### 数据来源 / Data Sources
+
+| 数据集 | 内容 | 用途 |
+|---|---|---|
+| CRSP `msf` | 月度股票价格、收益率、市值 | return computation, market cap weighting |
+| CRSP `msenames` | 股票名称、交易所、share code | universe filtering (common shares, exchange) |
+| CRSP `dlret` | 退市收益率 | delisting-adjusted returns |
+| Compustat `funda` | 年度财报 (assets, BE, sales, earnings...) | signal construction (annual factors) |
+| Compustat `fundq` | 季度财报 | signal construction (quarterly factors) |
+| CCM `ccmxpf_linkhist` | gvkey ↔ permno link table with date ranges | CRSP-Compustat merge |
+
+数据通过 WRDS (Wharton Research Data Services) 获取。
+
+#### Data Snapshot / 数据快照策略
+
+每次正式实验使用 **frozen data snapshot**，确保结果可复现：
+
+```yaml
+snapshot_id: "snap-2026-05-01"
+pull_date: "2026-05-01"
+crsp_end_date: "2024-12-31"
+compustat_end_date: "2024-12-31"
+storage: "data/snapshots/snap-2026-05-01/"
+format: parquet
+hash: "sha256:abc123..."
+```
+
+- **Phase 1（开发阶段）：** 使用 WRDS query + 本地 parquet 缓存，snapshot = 一次 pull 的结果。
+- **Phase 2+（正式实验）：** snapshot freeze，所有 runs 使用同一份数据。数据变更需要 new snapshot + new snapshot_id。
+
+#### CCM Linking 规则 / CCM Link Handling
+
+CCM linking 由 Lifecycle Engine 统一处理，不由 signal plugin 自行实现：
+
+- 使用 `linktype IN ('LC', 'LU')`，`linkprim IN ('P', 'C')`；
+- 按 `linkdt` / `linkenddt` 范围匹配，确保 point-in-time correctness；
+- 一个 `permno` 在同一时间只匹配一个 `gvkey`（优先 `linkprim = 'P'`）；
+- duplicate links 和 link gap 的处理 logged in evidence store。
+
+#### Data Dictionary Integration / 数据字典集成
+
+Data Layer 维护一份 **field registry**，Semantic Extractor 和 Review Gate 用它来校验 MethodSpec 中的字段名：
+
+```yaml
+# 示例 entry
+- field: ceq
+  dataset: compustat
+  table: funda
+  description: "Total Common/Ordinary Equity"
+  unit: millions_usd
+  frequency: annual
+  available_from: 1950
+  notes: "may be negative; check for missing vs. zero"
+```
+
+如果 MethodSpec 引用的字段不在 registry 中 → Review Gate 自动 flag 为 `needs_llm_review`。
+
 ---
 
 ## 4. 各模块作用 / Module Responsibilities
@@ -114,7 +216,11 @@ Input Sources
 - original paper text；
 - Chen-Zimmermann metadata；
 - Open Source Asset Pricing reference code；
-- CRSP / Compustat / CCM data dictionaries；
+- CRSP / Compustat / CCM data dictionaries； 
+  - **CRSP**：美国股票价格、收益率、市值、退市收益等市场数据；
+  - **Compustat**：公司财报和基本面数据，如 assets、sales、book equity、earnings；
+  - **CCM**：CRSP/Compustat Merged link table，用于把 Compustat 的 `gvkey` 和 CRSP 的 `permno` 正确连接起来；
+  - **data dictionary**：字段说明书，用于确认变量含义、单位、日期定义、缺失值和可用字段，防止 LLM 猜字段。
 - researcher notes。
 
 作用：
@@ -154,13 +260,80 @@ Input Sources
 
 > **结构化方法说明 MethodSpec。**
 
+#### 提取策略 / Extraction Strategy
+
+Semantic Extractor 采用 **multi-source triangulation**：不依赖单一来源，而是同时读取论文原文、C&Z metadata 和 OSAP reference code，交叉校验字段定义。
+
+提取分三步：
+
+1. **Structured source first.** 优先从 C&Z metadata 和 OSAP reference code 中提取，因为这些已经是半结构化的，extraction accuracy 高。
+2. **Paper fill-in.** 对于 metadata 中缺失或模糊的字段（如 missing-value policy、exact lag、skip month），回到论文原文中查找。
+3. **Ambiguity tagging.** 如果论文本身也没有明确说明，该字段标记为 `source: inferred` 或 `source: unspecified`，并写入 `ambiguous_fields` 列表，供 Review Gate 审查。
+
+#### MethodSpec 输出格式 / MethodSpec Schema
+
+```yaml
+factor_id: "hml"
+factor_name: "High Minus Low (Book-to-Market)"
+paper_ref: "Fama and French (1993)"
+
+# --- 信号定义 ---
+signal:
+  formula: "book_equity / market_equity"
+  required_fields: [ceq, at, lt, txditc, pstkrv, pstkl, pstk, csho, prcc_f]
+  field_sources:
+    ceq: {dataset: compustat, table: funda, description: "common equity"}
+    prcc_f: {dataset: compustat, table: funda, description: "fiscal year-end price"}
+  timing:
+    formation_month: 6          # June
+    rebalance_frequency: annual
+    holding_period: 12           # months
+    accounting_lag: 6            # months minimum
+    skip_month: null
+  missing_policy:
+    action: drop                 # drop | fill_zero | fill_median | winsorize
+    threshold: null              # max missing ratio before dropping firm-year
+
+# --- 组合构造 ---
+portfolio:
+  universe: "NYSE + AMEX + NASDAQ, common shares only"
+  breakpoints: {source: NYSE, quantiles: [30, 70]}
+  weighting: value_weighted
+  long_leg: high
+  short_leg: low
+
+# --- 元数据 ---
+extraction_sources:
+  - {type: paper, ref: "Fama and French (1993)", sections: ["Section III"]}
+  - {type: cz_metadata, ref: "SignalDoc.csv", row: "bm"}
+  - {type: osap_code, ref: "bm.sas"}
+ambiguous_fields:
+  - field: missing_policy
+    reason: "paper does not specify; OSAP code drops missing BE"
+    source: inferred
+    confidence: medium
+```
+
+#### 提取质量评估 / Extraction Validation
+
+对 pilot factors，使用 C&Z metadata 作为 ground truth，评估 extraction accuracy：
+
+| 评估维度 | 方法 |
+|---|---|
+| 字段覆盖率 | MethodSpec 中非空字段数 / 总字段数 |
+| 字段准确率 | 与 C&Z metadata 一致的字段数 / 可比较字段数 |
+| 歧义率 | `ambiguous_fields` 数量 / 总字段数 |
+| 关键字段命中 | `formula`, `lag`, `breakpoints`, `weighting` 四个核心字段的准确率 |
+
+Phase 1 的 acceptance criteria：核心字段准确率 ≥ 80%（pilot factors）。如果达不到，需要增加 structured prompting 或 few-shot examples。
+
 ---
 
 ### 4.3 Review Gate / 审查关卡
 
 作用：
 
-> 防止 LLM 把不确定或错误的提取结果直接变成 empirical truth。
+> 由一个默认非常严格、picky 的 **LLM Reviewer** 主导审查，防止不确定或错误的提取结果直接变成 empirical truth。
 
 Review Gate 需要检查：
 
@@ -172,11 +345,82 @@ Review Gate 需要检查：
 - lag 和 reporting-date alignment 是否合理；
 - paper、metadata 和 reference code 是否冲突。
 
+LLM Reviewer 的默认策略是：
+
+> 宁可 reject / ask for clarification，也不要默认通过有歧义的 empirical assumption。
+
 重要原则：
 
 > missing-value imputation、winsorization、sample restriction、lag choice 和 field substitution 都是 empirical choices，不是普通 bug fix。
 
-这些内容必须写入 `MethodSpec`，并经过 review 后才能进入代码生成阶段。
+这些内容必须写入 `MethodSpec`，并通过 picky review 后才能进入代码生成阶段。LLM Reviewer 可以批准常规一致性检查；但当证据不足或相互冲突，且假设会 materially affect empirical results 时，必须升级为 `needs_human_confirmation`。
+
+#### Review Decision Matrix / 审查决策矩阵
+
+每个 MethodSpec 字段按 **empirical impact** 和 **evidence quality** 两个维度分类，决定 LLM Reviewer 的处置方式：
+
+| Evidence \ Impact | Low impact | High impact |
+|---|---|---|
+| **Clear evidence** (paper + code agree) | `auto_approve` | `auto_approve` |
+| **Single source** (only paper or only code) | `auto_approve` with flag | `needs_llm_review` |
+| **Inferred** (neither paper nor code explicit) | `approve_with_default` + flag | `needs_human_confirmation` |
+| **Conflicting** (paper vs. code disagree) | `needs_llm_review` | `needs_human_confirmation` |
+
+**High-impact fields**（改变会 materially affect empirical results）：
+- `signal.formula`
+- `signal.timing.accounting_lag`
+- `signal.missing_policy`
+- `portfolio.breakpoints`
+- `portfolio.weighting`
+- `portfolio.universe`（microcap treatment）
+- `portfolio.long_leg` / `portfolio.short_leg`
+
+**Low-impact fields**（通常不影响核心结论）：
+- `factor_name`, `paper_ref`
+- `signal.required_fields`（只要 formula 正确，字段名对错是 technical issue）
+- `signal.timing.formation_month`（多数因子是 June，偏差通常可检测）
+
+#### 处置定义 / Disposition Definitions
+
+| 处置 | 行为 |
+|---|---|
+| `auto_approve` | LLM Reviewer 直接通过，无需人工介入 |
+| `auto_approve` with flag | 通过，但在 MethodSpec 的 `review_notes` 中标记，供后续审计 |
+| `approve_with_default` | 使用 sensible default（如 lag=6m, missing=drop），标记 `source: default`，写入 `ambiguous_fields` |
+| `needs_llm_review` | LLM Reviewer 需要给出 reasoning 并做出判断，记录 rationale |
+| `needs_human_confirmation` | **Hard block.** 生成 review ticket，暂停 pipeline 等待人工确认 |
+
+#### Sensible Defaults / 合理默认值
+
+当论文和 reference code 都没有明确说明时，使用以下 defaults（基于 HXZ / C&Z 惯例）：
+
+| 字段 | Default | 来源 |
+|---|---|---|
+| `accounting_lag` | 6 months | HXZ convention |
+| `missing_policy` | drop | C&Z common practice |
+| `formation_month` | June (annual) | FF convention |
+| `breakpoints` | NYSE | HXZ standardized |
+| `weighting` | value_weighted | HXZ standardized |
+| `rebalance_frequency` | annual | FF convention |
+
+**注意：** 这些 defaults 只在 `source: unspecified` 时使用，且只应用于 `standardized_hxz` track。`original_method` track 中如果关键字段 unspecified，必须升级为 `needs_human_confirmation`。
+
+#### Review 输出格式
+
+```yaml
+review_id: "rev-hml-001"
+methodspec_version: "v1"
+reviewer: llm          # llm | human
+disposition: approved   # approved | revision_required | blocked
+review_notes:
+  - field: missing_policy
+    status: approve_with_default
+    reason: "paper silent on missing BE; OSAP drops; using drop as default"
+  - field: breakpoints
+    status: auto_approve
+    reason: "paper Table III and OSAP code both use NYSE 30/70"
+blocked_fields: []      # list of fields requiring human confirmation
+```
 
 ---
 

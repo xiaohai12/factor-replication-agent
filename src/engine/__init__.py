@@ -71,16 +71,18 @@ class BacktestEngine:
     def _build_config(self, spec: MethodSpec, overrides: dict | None) -> dict:
         """Build run config from MethodSpec + optional overrides."""
         config = {
-            "breakpoint_rule": spec.breakpoint_rule.value,
+            "breakpoint_source": spec.breakpoint_source.value,
+            "breakpoint_quantiles": spec.portfolio.breakpoints.quantiles,
             "weighting_rule": spec.weighting_rule.value,
-            "n_quantiles": spec.n_quantiles,
             "rebalance_frequency": spec.rebalance_frequency.value,
             "holding_period_months": spec.holding_period_months,
             "accounting_lag_months": spec.accounting_lag_months,
-            "missing_policy": spec.missing_policy.value,
-            "universe_filters": spec.universe_filters,
+            "missing_action": spec.missing_action.value,
+            "universe": spec.universe_description,
             "formation_month": spec.formation_month,
             "skip_month": spec.skip_month,
+            "long_leg": spec.portfolio.long_leg,
+            "short_leg": spec.portfolio.short_leg,
         }
         if overrides:
             config.update(overrides)

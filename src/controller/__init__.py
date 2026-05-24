@@ -13,14 +13,14 @@ from src.models.run_record import RunRecord
 
 # Standard HXZ-style settings for the standardized track
 HXZ_STANDARD_CONFIG = {
-    "breakpoint_rule": "nyse",
+    "breakpoint_source": "nyse",
+    "breakpoint_quantiles": [10, 20, 30, 40, 50, 60, 70, 80, 90],
     "weighting_rule": "vw",
-    "n_quantiles": 10,
     "rebalance_frequency": "monthly",
     "holding_period_months": 1,
     "accounting_lag_months": 6,
-    "missing_policy": "drop",
-    "universe_filters": ["exchcd_in_123", "shrcd_in_10_11"],
+    "missing_action": "drop",
+    "universe": "NYSE + AMEX + NASDAQ, exchcd in (1,2,3), shrcd in (10,11)",
 }
 
 
@@ -88,10 +88,11 @@ class DualTrackController:
         """Get config override for a single ablation switch."""
         # Flip one setting from original to standardized (or vice versa)
         ablation_map = {
-            "breakpoint": {"breakpoint_rule": HXZ_STANDARD_CONFIG["breakpoint_rule"]},
+            "breakpoint": {"breakpoint_source": HXZ_STANDARD_CONFIG["breakpoint_source"]},
             "weighting": {"weighting_rule": HXZ_STANDARD_CONFIG["weighting_rule"]},
             "lag": {"accounting_lag_months": HXZ_STANDARD_CONFIG["accounting_lag_months"]},
-            "missing": {"missing_policy": HXZ_STANDARD_CONFIG["missing_policy"]},
+            "missing": {"missing_action": HXZ_STANDARD_CONFIG["missing_action"]},
             "rebalance": {"rebalance_frequency": HXZ_STANDARD_CONFIG["rebalance_frequency"]},
+            "universe": {"universe": HXZ_STANDARD_CONFIG["universe"]},
         }
         return ablation_map.get(switch, {})
