@@ -1,8 +1,25 @@
 # Changelog
 
+## [0.4.0] - 2025-05-25
+
+### Added
+- Semantic Extractor 完整实现：paper-first LLM extraction pipeline (`_call_llm_extract`, `_build_method_spec_from_llm`)
+- Extraction system prompt (`EXTRACTION_SYSTEM_PROMPT`) 和 user template，结构化 JSON 输出
+- `_get_data_fields_context()` 提供 data dictionary context 给 LLM
+- `_parse_enum()` 安全 enum 解析（大小写不敏感 + fallback）
+- `_values_match()` fuzzy 比对用于 evaluation
+- Ambiguity auto-tagging：LLM 返回 "unspecified" 字段自动标记为 `AmbiguousField`
+- `tests/test_extractor.py`：22 个单元测试覆盖 MethodSpec 构建、enum 解析、evaluation metrics、端到端提取、data dictionary context
+- `TestSignalDocGroundTruth`：7 个集成测试使用真实 SignalDoc.csv 作为 ground truth，验证 evaluation pipeline（BM perfect score、negative sign factors、batch pilot、imperfect detection、全量 parse）
+
+### Changed
+- Extractor 架构调整为 paper-first（移除 multi-source triangulation 作为输入），符合 architecture.md Section 4.2 设计
+- `evaluate_extraction()` 改进：新增 field_coverage 计算、fuzzy matching、更多 field_map 条目
+
 ## [0.3.0] - 2026-05-24
 
 ### Added
+- `scripts/download_papers.py`：从 Semantic Scholar 下载 SignalDoc.csv 中引用的论文 PDF（open-access），下载不到的记录到 `data/papers/missing.txt`
 - `README.md`：项目概述、架构图、目录结构、数据源表、设计决策、引用格式
 - `src/evaluation/` 模块：`Evaluator` 类实现三层评估（extraction vs SignalDoc、signal vs C&Z firm-level、portfolio vs C&Z LS returns）
 - `TimeAvailComputer` 类：Data Layer 中统一处理 `time_avail_m` point-in-time 可用日期

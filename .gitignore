@@ -1,0 +1,20 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+dist/
+build/
+*.egg
+
+# Virtual environment
+.venv/
+
+# Data (downloaded, not committed)
+data/
+
+# IDE
+.idea/
+.vscode/
+
+# OS
+.DS_Store
