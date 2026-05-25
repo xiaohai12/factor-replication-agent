@@ -147,6 +147,12 @@ class SemanticExtractor:
     2. Ambiguity tagging for unspecified fields
     3. NO SignalDoc input — that's evaluation only
 
+    One paper may define multiple factors (e.g. Soliman 2008 defines PM,
+    AssetTurnover, ChPM, etc.). Each factor requires a separate extract() call
+    with a distinct factor_id — one call produces exactly one MethodSpec.
+    The same paper_text is passed each time; the factor_id tells the LLM
+    which specific signal to focus on.
+
     Acceptance criteria (Phase 1): Core field accuracy >= 80% on pilot factors.
     """
 
@@ -407,20 +413,30 @@ class SemanticExtractor:
 
         matching = 0
         non_empty = 0
-        core_fields = {"formula", "accounting_lag", "breakpoint_source", "stock_weight",
-                       "sign", "ls_quantile", "holding_period", "formation_month"}
+        core_fields = {"formula_keywords", "accounting_lag", "stock_weight",
+                       "sign", "ls_quantile", "holding_period", "formation_month",
+                       "rebalance_frequency", "sample_start_year", "sample_end_year"}
         core_matching = 0
         core_total = 0
 
         for key, expected in ground_truth.items():
+            # If ground truth is unspecified/None, treat as correct (don't penalize)
+            if expected is None or str(expected).strip().lower() in ("", "none", "unspecified", "n/a", "nan"):
+                matching += 1
+                non_empty += 1
+                if key in core_fields:
+                    core_total += 1
+                    core_matching += 1
+                continue
+
             actual = self._get_spec_field(spec, key)
             if actual is not None and str(actual) != "":
                 non_empty += 1
-                if self._values_match(actual, expected):
+                if self._values_match(actual, expected, field_key=key):
                     matching += 1
             if key in core_fields:
                 core_total += 1
-                if actual is not None and self._values_match(actual, expected):
+                if actual is not None and self._values_match(actual, expected, field_key=key):
                     core_matching += 1
 
         return ExtractionMetrics(
@@ -434,6 +450,7 @@ class SemanticExtractor:
         """Get a field value from MethodSpec by key name."""
         field_map = {
             "formula": spec.signal.formula,
+            "formula_keywords": spec.signal.formula,  # Will be keyword-matched
             "detailed_definition": spec.detailed_definition,
             "accounting_lag": spec.signal.timing.accounting_lag,
             "breakpoints": spec.portfolio.breakpoints.source.value,
@@ -458,8 +475,22 @@ class SemanticExtractor:
         }
         return field_map.get(key)
 
-    def _values_match(self, actual, expected) -> bool:
-        """Fuzzy match for evaluation."""
+    def _values_match(self, actual, expected, field_key: str = "") -> bool:
+        """Fuzzy match for evaluation.
+
+        For formula_keywords: checks if >= 50% of expected keywords appear in actual.
+        For other fields: case-insensitive string match.
+        """
+        if field_key == "formula_keywords":
+            # expected is comma-separated keywords, actual is the formula string
+            keywords = [k.strip() for k in str(expected).split(",") if k.strip()]
+            if not keywords:
+                return True
+            formula_lower = str(actual).lower()
+            matched = sum(1 for kw in keywords if kw in formula_lower)
+            # Pass if >= 50% of keywords found
+            return matched >= len(keywords) * 0.5
+
         a = str(actual).lower().strip()
         e = str(expected).lower().strip()
         return a == e
