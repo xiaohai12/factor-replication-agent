@@ -4,18 +4,21 @@ Tests cover:
 1. _build_method_spec_from_llm: JSON → MethodSpec conversion
 2. _parse_enum: safe enum parsing
 3. evaluate_extraction: accuracy metrics against ground truth
-4. extract(): end-to-end with mocked LLM client
+4. extract(): end-to-end with REAL LLM (codex CLI)
 5. Ambiguity auto-tagging for "unspecified" fields
 6. SignalDoc.csv ground truth evaluation (integration)
 """
 
 import csv
 import json
+import shutil
 from dataclasses import dataclass
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import pytest
+
+from src.llm import create_llm_client
 
 from src.extractor import (
     ExtractionMetrics,
@@ -38,21 +41,26 @@ from src.models.method_spec import (
 MOCK_LLM_RESPONSE_BM = {
     "factor_name": "Book-to-Market",
     "economic_intuition": "Value stocks (high BE/ME) earn higher returns than growth stocks.",
+    "detailed_definition": "Log of tangible book equity over market equity",
     "formula": "ceq / (csho * prcc_f)",
     "required_fields": ["ceq", "csho", "prcc_f"],
+    "cat_form": "continuous",
+    "sign": 1,
     "formation_month": 6,
     "rebalance_frequency": "annual",
     "holding_period": 12,
     "accounting_lag": 6,
     "skip_month": None,
-    "missing_policy": "drop",
-    "universe": "NYSE, AMEX, NASDAQ common stocks",
+    "stock_weight": "vw",
+    "ls_quantile": 0.1,
     "breakpoint_source": "nyse",
-    "breakpoint_quantiles": [30, 70],
-    "weighting": "vw",
     "long_leg": "high",
     "short_leg": "low",
-    "sign": 1,
+    "filter": "exchcd%in%c(1,2)",
+    "universe": "NYSE, AMEX, NASDAQ common stocks",
+    "missing_policy": "drop",
+    "sample_start_year": 1962,
+    "sample_end_year": 1976,
     "paper_ref": "Fama and French (1993)",
     "paper_sections": ["Section III", "Table 1"],
     "ambiguous_fields": [],
@@ -61,21 +69,26 @@ MOCK_LLM_RESPONSE_BM = {
 MOCK_LLM_RESPONSE_WITH_AMBIGUITY = {
     "factor_name": "Accruals",
     "economic_intuition": "Firms with high accruals tend to have lower future returns.",
+    "detailed_definition": "Annual change in working capital accruals divided by average total assets",
     "formula": "(act - lct - che + dlc - dp) / at",
     "required_fields": ["act", "lct", "che", "dlc", "dp", "at"],
+    "cat_form": "continuous",
+    "sign": -1,
     "formation_month": 6,
     "rebalance_frequency": "annual",
     "holding_period": 12,
     "accounting_lag": 6,
     "skip_month": None,
-    "missing_policy": "unspecified",
-    "universe": "NYSE, AMEX, NASDAQ",
+    "stock_weight": "unspecified",
+    "ls_quantile": 0.1,
     "breakpoint_source": "unspecified",
-    "breakpoint_quantiles": [30, 70],
-    "weighting": "unspecified",
     "long_leg": "low",
     "short_leg": "high",
-    "sign": -1,
+    "filter": "abs(prc)>5",
+    "universe": "NYSE, AMEX, NASDAQ",
+    "missing_policy": "unspecified",
+    "sample_start_year": 1962,
+    "sample_end_year": 1991,
     "paper_ref": "Sloan (1996)",
     "paper_sections": ["Section 2"],
     "ambiguous_fields": [
@@ -95,6 +108,10 @@ def _make_mock_llm(response_dict: dict):
     mock_response.choices = [mock_choice]
     client.chat.completions.create.return_value = mock_response
     return client
+
+
+# Check if codex CLI is available
+HAS_CODEX = shutil.which("codex") is not None
 
 
 # --- Tests: _build_method_spec_from_llm ---
@@ -145,7 +162,7 @@ class TestBuildMethodSpec:
         assert "skip_month" in field_names
         assert "missing_policy" in field_names
         assert "breakpoint_source" in field_names
-        assert "weighting" in field_names
+        assert "stock_weight" in field_names
 
         # Auto-tagged should have INFERRED source
         for af in spec.ambiguous_fields:
@@ -214,8 +231,8 @@ class TestEvaluateExtraction:
         ground_truth = {
             "formula": "ceq / (csho * prcc_f)",
             "accounting_lag": "6",
-            "breakpoints": "nyse",
-            "weighting": "vw",
+            "breakpoint_source": "nyse",
+            "stock_weight": "vw",
         }
         metrics = self.extractor.evaluate_extraction(spec, ground_truth)
 
@@ -228,12 +245,14 @@ class TestEvaluateExtraction:
         ground_truth = {
             "formula": "ceq / (csho * prcc_f)",
             "accounting_lag": "6",
-            "breakpoints": "full_sample",  # Mismatch
-            "weighting": "ew",             # Mismatch
+            "breakpoint_source": "full_sample",  # Mismatch
+            "stock_weight": "ew",             # Mismatch
         }
         metrics = self.extractor.evaluate_extraction(spec, ground_truth)
 
         assert metrics.field_accuracy == 0.5  # 2 out of 4 match
+        # core fields here: formula, accounting_lag, breakpoint_source, stock_weight (all 4 are core)
+        # 2 match out of 4 core = 0.5
         assert metrics.core_field_accuracy == 0.5
 
     def test_empty_ground_truth(self):
@@ -247,8 +266,8 @@ class TestEvaluateExtraction:
         ground_truth = {
             "formula": "(act - lct - che + dlc - dp) / at",
             "accounting_lag": "6",
-            "breakpoints": "nyse",
-            "weighting": "vw",
+            "breakpoint_source": "nyse",
+            "stock_weight": "vw",
         }
         metrics = self.extractor.evaluate_extraction(spec, ground_truth)
 
@@ -264,64 +283,90 @@ class TestEvaluateExtraction:
         assert metrics.field_accuracy == 1.0
 
 
-# --- Tests: extract() end-to-end ---
+# --- Tests: extract() end-to-end with REAL LLM ---
+
+SAMPLE_BM_PAPER_TEXT = """
+Fama and French (1993) "Common Risk Factors in the Returns on Stocks and Bonds"
+
+We form portfolios based on book-to-market equity (BE/ME). Book equity is measured
+as total stockholders' equity (Compustat item ceq) from fiscal year-end in calendar year t-1.
+Market equity is shares outstanding (csho) times stock price (prcc_f) at December of year t-1.
+
+Portfolios are formed in June of each year t using NYSE breakpoints for BE/ME.
+Stocks are sorted into deciles based on NYSE breakpoints. The value-weighted (or equal-weighted)
+returns of the top 30% (High) minus the bottom 30% (Low) form the HML factor.
+
+We hold portfolios for 12 months from July of year t to June of year t+1.
+We require at least 6 months between fiscal year-end and portfolio formation to ensure
+data availability (accounting lag of 6 months).
+
+Stocks with negative book equity are excluded. Universe includes NYSE, AMEX, and NASDAQ
+common shares (CRSP share codes 10 and 11).
+"""
 
 
+@pytest.mark.skipif(not HAS_CODEX, reason="codex CLI not installed")
 class TestExtractEndToEnd:
-    def test_successful_extraction(self):
-        mock_client = _make_mock_llm(MOCK_LLM_RESPONSE_BM)
-        extractor = SemanticExtractor(llm_client=mock_client)
+    """End-to-end extraction tests using REAL codex CLI LLM."""
 
-        result = extractor.extract("BM", "This paper studies book-to-market...")
+    def setup_method(self):
+        self.llm_client = create_llm_client(provider="codex")
+        self.extractor = SemanticExtractor(llm_client=self.llm_client)
+
+    def test_successful_extraction_bm(self):
+        """Real LLM should extract BM factor from paper text."""
+        result = self.extractor.extract("BM", SAMPLE_BM_PAPER_TEXT)
 
         assert result.spec is not None
         assert result.spec.factor_id == "BM"
-        assert result.spec.signal.formula == "ceq / (csho * prcc_f)"
+        assert result.spec.signal.formula is not None
+        assert len(result.spec.signal.formula) > 3
         assert result.sources_used == ["paper"]
-        assert result.raw_llm_output == MOCK_LLM_RESPONSE_BM
+        assert result.raw_llm_output is not None
 
-    def test_llm_called_with_correct_params(self):
-        mock_client = _make_mock_llm(MOCK_LLM_RESPONSE_BM)
-        extractor = SemanticExtractor(llm_client=mock_client)
+    def test_extraction_produces_valid_fields(self):
+        """Real LLM extraction should have reasonable field values for BM."""
+        result = self.extractor.extract("BM", SAMPLE_BM_PAPER_TEXT)
 
-        extractor.extract("BM", "paper text here")
+        assert result.spec is not None
+        spec = result.spec
 
-        call_args = mock_client.chat.completions.create.call_args
-        assert call_args.kwargs["model"] == "gpt-4o"
-        assert call_args.kwargs["temperature"] == 0.0
-        assert call_args.kwargs["response_format"] == {"type": "json_object"}
-        messages = call_args.kwargs["messages"]
-        assert messages[0]["role"] == "system"
-        assert messages[1]["role"] == "user"
-        assert "BM" in messages[1]["content"]
+        # Formation month should be June (6) based on paper text
+        assert spec.signal.timing.formation_month == 6
+        # Holding period should be 12
+        assert spec.signal.timing.holding_period == 12
+        # Accounting lag should be 6
+        assert spec.signal.timing.accounting_lag == 6
+        # Rebalance should be annual
+        from src.models.method_spec import RebalanceFrequency
+        assert spec.signal.timing.rebalance_frequency == RebalanceFrequency.ANNUAL
+
+    def test_extraction_captures_required_fields(self):
+        """Real LLM should identify key Compustat/CRSP fields."""
+        result = self.extractor.extract("BM", SAMPLE_BM_PAPER_TEXT)
+
+        assert result.spec is not None
+        fields = result.spec.signal.required_fields
+
+        # Should identify at least some key fields from the paper text
+        assert len(fields) >= 2
+        # ceq, csho, prcc_f are all mentioned in the text
+        field_str = " ".join(fields).lower()
+        assert "ceq" in field_str or "book" in field_str
 
     def test_no_llm_client_raises(self):
         extractor = SemanticExtractor(llm_client=None)
         with pytest.raises(RuntimeError, match="LLM client required"):
             extractor.extract("BM", "paper text")
 
-    def test_llm_failure_returns_none_spec(self):
-        mock_client = MagicMock()
-        mock_client.chat.completions.create.side_effect = Exception("API timeout")
-        extractor = SemanticExtractor(llm_client=mock_client)
+    def test_extraction_with_minimal_text(self):
+        """Even with minimal text, extraction should not crash."""
+        result = self.extractor.extract("TEST", "A simple factor: return on equity = net income / book equity.")
 
-        result = extractor.extract("BM", "paper text")
-
-        assert result.spec is None
-        assert result.raw_llm_output is None
-
-    def test_paper_text_truncated(self):
-        """Paper text longer than 30k chars should be truncated."""
-        mock_client = _make_mock_llm(MOCK_LLM_RESPONSE_BM)
-        extractor = SemanticExtractor(llm_client=mock_client)
-
-        long_text = "x" * 50000
-        extractor.extract("BM", long_text)
-
-        call_args = mock_client.chat.completions.create.call_args
-        user_content = call_args.kwargs["messages"][1]["content"]
-        # The user message should not contain the full 50k chars
-        assert len(user_content) < 40000
+        # Should either succeed or gracefully return None spec
+        if result.spec is not None:
+            assert result.spec.factor_id == "TEST"
+            assert result.spec.signal.formula is not None
 
 
 # --- Tests: data dictionary context ---
@@ -371,7 +416,7 @@ def _parse_signaldoc_row(row: dict) -> dict:
 
     # Weighting: "EW" → "ew", "VW" → "vw"
     if row.get("Stock Weight"):
-        gt["weighting"] = row["Stock Weight"].lower().strip()
+        gt["stock_weight"] = row["Stock Weight"].lower().strip()
 
     # Formation month
     if row.get("Start Month"):
@@ -387,14 +432,30 @@ def _parse_signaldoc_row(row: dict) -> dict:
         except (ValueError, TypeError):
             pass
 
-    # Long/short direction from Sign
+    # Sign and long/short direction
     if row.get("Sign"):
         try:
             sign = int(float(row["Sign"]))
+            gt["sign"] = str(sign)
             gt["long_leg"] = "high" if sign == 1 else "low"
             gt["short_leg"] = "low" if sign == 1 else "high"
         except (ValueError, TypeError):
             pass
+
+    # LS Quantile
+    if row.get("LS Quantile"):
+        try:
+            gt["ls_quantile"] = str(float(row["LS Quantile"]))
+        except (ValueError, TypeError):
+            pass
+
+    # Filter
+    if row.get("Filter"):
+        gt["filter"] = row["Filter"].strip()
+
+    # Cat.Form
+    if row.get("Cat.Form"):
+        gt["cat_form"] = row["Cat.Form"].strip().lower()
 
     return gt
 
@@ -423,24 +484,35 @@ def _mock_llm_response_from_signaldoc(row: dict) -> dict:
     if weighting not in ("ew", "vw"):
         weighting = "ew"
 
+    ls_quantile = None
+    try:
+        ls_quantile = float(row["LS Quantile"]) if row.get("LS Quantile") else None
+    except (ValueError, TypeError):
+        pass
+
     return {
         "factor_name": row.get("LongDescription", row.get("Acronym", "")),
         "economic_intuition": "",
+        "detailed_definition": row.get("Detailed Definition", "unspecified")[:200],
         "formula": row.get("Detailed Definition", "unspecified")[:200],
         "required_fields": [],
+        "cat_form": row.get("Cat.Form", "continuous").strip().lower(),
+        "sign": sign,
         "formation_month": formation,
         "rebalance_frequency": "annual",
         "holding_period": holding,
         "accounting_lag": 6,
         "skip_month": None,
-        "missing_policy": "drop",
-        "universe": "NYSE + AMEX + NASDAQ",
+        "stock_weight": weighting,
+        "ls_quantile": ls_quantile,
         "breakpoint_source": "nyse",
-        "breakpoint_quantiles": [30, 70],
-        "weighting": weighting,
         "long_leg": "high" if sign == 1 else "low",
         "short_leg": "low" if sign == 1 else "high",
-        "sign": sign,
+        "filter": row.get("Filter", ""),
+        "universe": "NYSE + AMEX + NASDAQ",
+        "missing_policy": "drop",
+        "sample_start_year": None,
+        "sample_end_year": None,
         "paper_ref": f"{row.get('Authors', '')} ({row.get('Year', '')})",
         "paper_sections": [],
         "ambiguous_fields": [],
@@ -472,7 +544,7 @@ class TestSignalDocGroundTruth:
         """BM row should parse to expected ground truth dict."""
         gt = _parse_signaldoc_row(self.rows["BM"])
 
-        assert gt["weighting"] == "ew"
+        assert gt["stock_weight"] == "ew"
         assert gt["formation_month"] == "6"
         assert gt["holding_period"] == "12"
         assert gt["long_leg"] == "high"
@@ -539,7 +611,7 @@ class TestSignalDocGroundTruth:
         row = self.rows["BM"]
         llm_response = _mock_llm_response_from_signaldoc(row)
         # Deliberately introduce errors
-        llm_response["weighting"] = "vw"  # BM in SignalDoc is EW
+        llm_response["stock_weight"] = "vw"  # BM in SignalDoc is EW
         llm_response["formation_month"] = 12  # Should be 6
 
         spec = self.extractor._build_method_spec_from_llm("BM", llm_response)

@@ -76,6 +76,73 @@ src/
 - **Max backtrack depth**: 3 levels (e.g., Attribution→Review→Extractor).
 - **Plugin output schema**: `[permno, yyyymm, signal]` — standardized across all factors.
 
+## What a Good MethodSpec Looks Like
+
+`MethodSpec` is the central artifact flowing through the pipeline. Here's a concrete example for the **Book-to-Market (BM)** factor:
+
+```yaml
+factor_id: "BM"
+factor_name: "Book-to-Market"
+paper_ref: "Fama and French (1992)"
+version: 1
+economic_intuition: "High book-to-market firms are undervalued relative to fundamentals"
+detailed_definition: "Book equity (ceq) divided by market equity (csho * prcc_f)"
+cat_form: "continuous"
+sign: 1                      # high BM → high expected returns
+sample_start_year: 1963
+sample_end_year: 2024
+
+signal:
+  formula: "ceq / (csho * prcc_f)"
+  required_fields: ["ceq", "csho", "prcc_f"]
+  field_sources:
+    ceq:  { dataset: compustat, table: funda, description: "Common Equity" }
+    csho: { dataset: compustat, table: funda, description: "Shares Outstanding" }
+    prcc_f: { dataset: compustat, table: funda, description: "Price - Fiscal Year Close" }
+  timing:
+    formation_month: 6         # June
+    rebalance_frequency: annual
+    holding_period: 12         # hold July t → June t+1
+    accounting_lag: 6          # use fiscal year-end from Dec t-1
+    skip_month: null
+  missing_policy:
+    action: drop
+    threshold: null
+
+portfolio:
+  universe: "NYSE + AMEX + NASDAQ, common shares only"
+  breakpoints:
+    source: nyse               # NYSE-only breakpoints (avoid micro-cap influence)
+    ls_quantile: 0.1           # decile sort → top 10% vs bottom 10%
+    quantiles: [10, 90]        # derived from ls_quantile
+  weighting: vw                # value-weighted within each leg
+  long_leg: high               # long high-BM (value) stocks
+  short_leg: low               # short low-BM (growth) stocks
+  filter: ""                   # no additional stock-level filter
+
+ambiguous_fields: []           # all fields clearly stated in paper
+review_status: approved
+```
+
+### What Makes It Good
+
+| Criterion | Why It Matters |
+|-----------|---------------|
+| **Formula is explicit** | `ceq / (csho * prcc_f)` — Meta-Coder can translate directly to code |
+| **Timing is complete** | formation_month + holding_period + accounting_lag fully determine when to trade |
+| **Breakpoints specified** | NYSE source + ls_quantile tells the engine exactly how to sort |
+| **Sign is declared** | Engine knows high signal = long leg without guessing |
+| **No ambiguous fields** | Review Gate can auto-approve; no human intervention needed |
+| **Field sources mapped** | Data Layer knows exactly which Compustat tables to query |
+
+### Common Pitfalls (What a Bad MethodSpec Looks Like)
+
+- `formula: "book to market ratio"` — natural language instead of computable expression
+- `accounting_lag: 0` — no lag means look-ahead bias
+- `ls_quantile` missing — engine doesn't know decile vs quintile sort
+- `sign` wrong — flips long/short legs, inverts the factor return
+- `ambiguous_fields` not empty but `review_status: approved` — inconsistent state
+
 ## Setup
 
 ```bash

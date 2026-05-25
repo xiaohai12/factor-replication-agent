@@ -38,7 +38,8 @@ from src.models.method_spec import (
 
 EXTRACTION_SYSTEM_PROMPT = """\
 You are an expert financial economist. Your task is to extract a structured factor \
-specification (MethodSpec) from an academic paper.
+specification from an academic paper, following the Chen & Zimmermann (2022) Open Source \
+Asset Pricing framework.
 
 Extract the following fields from the paper text. If a field is not clearly stated, \
 mark it as "unspecified" rather than guessing.
@@ -47,30 +48,40 @@ Output a JSON object with exactly these keys:
 {
   "factor_name": "string - human-readable factor name",
   "economic_intuition": "string - brief economic rationale (1-2 sentences)",
-  "formula": "string - signal construction formula using variable names",
-  "required_fields": ["list of Compustat/CRSP field names used"],
-  "formation_month": null or int (e.g. 6 for June),
+  "detailed_definition": "string - exact signal formula in words, referencing variable names",
+  "formula": "string - signal formula using Compustat/CRSP variable names (e.g. 'ceq / (csho * prcc_f)')",
+  "required_fields": ["list of Compustat/CRSP field names used in the formula"],
+  "cat_form": "continuous" | "discrete",
+  "sign": 1 or -1 (1 = high signal predicts high returns, -1 = high signal predicts low returns),
+  "formation_month": null or int (month when portfolios are formed, e.g. 6 for June),
   "rebalance_frequency": "annual" | "quarterly" | "monthly",
-  "holding_period": int (months),
-  "accounting_lag": int (months, minimum lag before data is available),
-  "skip_month": null or int,
-  "missing_policy": "drop" | "fill_zero" | "fill_median" | "fill_forward" | "unspecified",
-  "universe": "string describing sample universe",
+  "holding_period": int (months the portfolio is held, typically 1 or 12),
+  "accounting_lag": int (months minimum between fiscal year-end and portfolio formation),
+  "skip_month": null or int (months skipped between signal measurement and portfolio formation),
+  "stock_weight": "ew" | "vw" | "unspecified" (equal-weighted or value-weighted returns),
+  "ls_quantile": float (fraction for long-short cutoff, e.g. 0.1 for deciles, 0.2 for quintiles, 0.3 for terciles),
   "breakpoint_source": "nyse" | "full_sample" | "unspecified",
-  "breakpoint_quantiles": [list of int percentiles, e.g. [30, 70] or [10, 90]],
-  "weighting": "ew" | "vw" | "unspecified",
-  "long_leg": "high" | "low" | description,
-  "short_leg": "high" | "low" | description,
-  "sign": 1 or -1 (long-short direction),
-  "paper_sections": ["sections where key info was found"],
+  "long_leg": "high" | "low" (which quantile is the long portfolio),
+  "short_leg": "high" | "low" (which quantile is the short portfolio),
+  "filter": "string - stock-level filters applied (e.g. 'abs(prc)>5', 'exchcd%in%c(1,2)')" or "unspecified",
+  "universe": "string - sample universe description",
+  "missing_policy": "drop" | "fill_zero" | "fill_median" | "fill_forward" | "unspecified",
+  "sample_start_year": null or int,
+  "sample_end_year": null or int,
+  "paper_ref": "string - paper citation",
+  "paper_sections": ["sections/tables where key info was found"],
   "ambiguous_fields": [{"field": "name", "reason": "why ambiguous"}]
 }
 
 Rules:
 - Only extract what is EXPLICITLY stated or clearly implied in the text.
-- For accounting lag: if paper uses "fiscal year-end data available by June", lag = 6.
-- For missing policy: if paper doesn't specify, mark "unspecified".
-- Use Compustat field names where possible (ceq, at, lt, sale, ni, etc.).
+- For sign: +1 means high signal → high returns (value, profitability). -1 means high signal → low returns (investment, accruals).
+- For ls_quantile: deciles = 0.1, quintiles = 0.2, terciles = 0.3 (roughly), median = 0.5.
+- For stock_weight: "ew" = equal-weighted, "vw" = value-weighted.
+- For filter: express as R-style conditions (e.g. abs(prc)>5, exchcd%in%c(1,2)).
+- For holding_period: 1 = monthly rebalancing, 12 = annual buy-and-hold.
+- For accounting_lag: if paper says "fiscal year-end data used by June formation", lag = 6.
+- Use Compustat field names where possible (ceq, at, lt, sale, ni, prcc_f, csho, etc.).
 - Do NOT infer from common practice if paper is silent on a detail.
 """
 
@@ -195,15 +206,24 @@ class SemanticExtractor:
     ) -> MethodSpec:
         """Convert raw LLM JSON output to a validated MethodSpec."""
 
+        def _safe_int(val, default=None):
+            """Convert value to int, returning default if not a valid integer."""
+            if val is None or val == "unspecified" or val == "":
+                return default
+            try:
+                return int(val)
+            except (ValueError, TypeError):
+                return default
+
         # Parse timing
         timing = SignalTiming(
-            formation_month=raw.get("formation_month"),
+            formation_month=_safe_int(raw.get("formation_month")),
             rebalance_frequency=self._parse_enum(
                 RebalanceFrequency, raw.get("rebalance_frequency"), RebalanceFrequency.ANNUAL
             ),
-            holding_period=raw.get("holding_period", 12),
-            accounting_lag=raw.get("accounting_lag", 6),
-            skip_month=raw.get("skip_month"),
+            holding_period=_safe_int(raw.get("holding_period"), 12),
+            accounting_lag=_safe_int(raw.get("accounting_lag"), 6),
+            skip_month=_safe_int(raw.get("skip_month")),
         )
 
         # Parse missing policy
@@ -224,17 +244,41 @@ class SemanticExtractor:
         bp_source = self._parse_enum(
             BreakpointSource, raw.get("breakpoint_source"), BreakpointSource.NYSE
         )
+        # Convert ls_quantile to quantile percentiles list for backward compat
+        ls_quantile = raw.get("ls_quantile")
+        if ls_quantile is not None and ls_quantile != "unspecified":
+            try:
+                ls_quantile = float(ls_quantile)
+            except (ValueError, TypeError):
+                ls_quantile = None
+        else:
+            ls_quantile = None
+
         quantiles = raw.get("breakpoint_quantiles", [30, 70])
+        if not isinstance(quantiles, list):
+            # Derive from ls_quantile if available
+            if ls_quantile:
+                low_pct = int(ls_quantile * 100)
+                quantiles = [low_pct, 100 - low_pct]
+            else:
+                quantiles = [30, 70]
+
         weighting = self._parse_enum(
-            WeightingRule, raw.get("weighting"), WeightingRule.VALUE_WEIGHTED
+            WeightingRule, raw.get("stock_weight", raw.get("weighting")), WeightingRule.VALUE_WEIGHTED
         )
+
+        # Parse filter
+        raw_filter = raw.get("filter", "")
+        if raw_filter == "unspecified":
+            raw_filter = ""
 
         portfolio = PortfolioSpec(
             universe=raw.get("universe", "NYSE + AMEX + NASDAQ, common shares only"),
-            breakpoints=BreakpointSpec(source=bp_source, quantiles=quantiles),
+            breakpoints=BreakpointSpec(source=bp_source, quantiles=quantiles, ls_quantile=ls_quantile),
             weighting=weighting,
             long_leg=raw.get("long_leg", "high"),
             short_leg=raw.get("short_leg", "low"),
+            filter=raw_filter,
         )
 
         # Parse ambiguous fields
@@ -260,9 +304,9 @@ class SemanticExtractor:
                 reason="Paper does not specify breakpoint universe",
                 source=EvidenceSource.INFERRED,
             ))
-        if raw.get("weighting") == "unspecified":
+        if raw.get("stock_weight", raw.get("weighting")) == "unspecified":
             ambiguous.append(AmbiguousField(
-                field="weighting",
+                field="stock_weight",
                 reason="Paper does not specify portfolio weighting",
                 source=EvidenceSource.INFERRED,
             ))
@@ -276,11 +320,23 @@ class SemanticExtractor:
             )
         ]
 
+        # Parse sign
+        sign_val = raw.get("sign", 1)
+        try:
+            sign_val = int(sign_val)
+        except (ValueError, TypeError):
+            sign_val = 1
+
         return MethodSpec(
             factor_id=factor_id,
             factor_name=raw.get("factor_name", factor_id),
             paper_ref=raw.get("paper_ref", ""),
             economic_intuition=raw.get("economic_intuition", ""),
+            detailed_definition=raw.get("detailed_definition", ""),
+            cat_form=raw.get("cat_form", "continuous"),
+            sign=sign_val,
+            sample_start_year=_safe_int(raw.get("sample_start_year")),
+            sample_end_year=_safe_int(raw.get("sample_end_year")),
             signal=signal,
             portfolio=portfolio,
             extraction_sources=sources,
@@ -344,7 +400,8 @@ Common CRSP fields (msf): ret (monthly return), prc (price), shrout (shares outs
 
         matching = 0
         non_empty = 0
-        core_fields = {"formula", "accounting_lag", "breakpoints", "weighting"}
+        core_fields = {"formula", "accounting_lag", "breakpoint_source", "stock_weight",
+                       "sign", "ls_quantile", "holding_period", "formation_month"}
         core_matching = 0
         core_total = 0
 
@@ -370,16 +427,27 @@ Common CRSP fields (msf): ret (monthly return), prc (price), shrout (shares outs
         """Get a field value from MethodSpec by key name."""
         field_map = {
             "formula": spec.signal.formula,
+            "detailed_definition": spec.detailed_definition,
             "accounting_lag": spec.signal.timing.accounting_lag,
             "breakpoints": spec.portfolio.breakpoints.source.value,
+            "breakpoint_source": spec.portfolio.breakpoints.source.value,
             "weighting": spec.portfolio.weighting.value,
+            "stock_weight": spec.portfolio.weighting.value,
             "formation_month": spec.signal.timing.formation_month,
+            "start_month": spec.signal.timing.formation_month,
             "missing_policy": spec.signal.missing_policy.action.value,
             "holding_period": spec.signal.timing.holding_period,
+            "portfolio_period": spec.signal.timing.holding_period,
             "rebalance_frequency": spec.signal.timing.rebalance_frequency.value,
             "long_leg": spec.portfolio.long_leg,
             "short_leg": spec.portfolio.short_leg,
             "universe": spec.portfolio.universe,
+            "sign": spec.sign,
+            "ls_quantile": spec.portfolio.breakpoints.ls_quantile,
+            "filter": spec.portfolio.filter,
+            "cat_form": spec.cat_form,
+            "sample_start_year": spec.sample_start_year,
+            "sample_end_year": spec.sample_end_year,
         }
         return field_map.get(key)
 

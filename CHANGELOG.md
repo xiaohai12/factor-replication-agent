@@ -3,6 +3,13 @@
 ## [0.4.0] - 2025-05-25
 
 ### Added
+- `README.md`：添加 "What a Good MethodSpec Looks Like" 章节（BM factor 完整示例 + 评判标准 + 常见错误）
+- `src/models/method_spec.py`：为所有 class 和 enum 添加详细 docstring（含 SignalDoc 统计数据、示例、pipeline 角色说明）
+- `app.py`：Streamlit dashboard，PDF-first 流程（上传 PDF → 自动匹配 SignalDoc factor → 提取 → ground truth 对比）
+- `src/llm.py`：LLM client 抽象层，支持 Codex CLI（默认 model 5.5）和 OpenRouter 两种后端
+- `streamlit>=1.30`, `pymupdf>=1.24` 加入 pyproject.toml dependencies
+- `match_factor_from_text()` 自动从 PDF 文本匹配 SignalDoc factor（基于 author names + year + keywords）
+- 移除 sidebar factor selector，改为 PDF 上传驱动的自动识别 + 手动确认
 - Semantic Extractor 完整实现：paper-first LLM extraction pipeline (`_call_llm_extract`, `_build_method_spec_from_llm`)
 - Extraction system prompt (`EXTRACTION_SYSTEM_PROMPT`) 和 user template，结构化 JSON 输出
 - `_get_data_fields_context()` 提供 data dictionary context 给 LLM
@@ -13,8 +20,26 @@
 - `TestSignalDocGroundTruth`：7 个集成测试使用真实 SignalDoc.csv 作为 ground truth，验证 evaluation pipeline（BM perfect score、negative sign factors、batch pilot、imperfect detection、全量 parse）
 
 ### Changed
-- Extractor 架构调整为 paper-first（移除 multi-source triangulation 作为输入），符合 architecture.md Section 4.2 设计
-- `evaluate_extraction()` 改进：新增 field_coverage 计算、fuzzy matching、更多 field_map 条目
+- **LLM output schema 重构**：对齐 SignalDoc.csv 字段结构
+  - `weighting` → `stock_weight` (ew/vw)
+  - `breakpoint_quantiles` → `ls_quantile` (float: 0.1=decile, 0.2=quintile, 0.3=tercile)
+  - 新增 `filter` (stock-level filters, e.g. abs(prc)>5, exchcd%in%c(1,2))
+  - 新增 `cat_form` (continuous/discrete)
+  - 新增 `sign` (+1/-1 预测方向)
+  - 新增 `detailed_definition` (文字描述 formula)
+  - 新增 `sample_start_year` / `sample_end_year`
+- `MethodSpec` model 新增字段：`detailed_definition`, `cat_form`, `sign`, `sample_start_year`, `sample_end_year`
+- `PortfolioSpec` 新增 `filter` 字段；`BreakpointSpec` 新增 `ls_quantile`
+- `EXTRACTION_SYSTEM_PROMPT` 重写：新增 sign/ls_quantile/filter/cat_form 解释和提取指导
+- `_build_method_spec_from_llm()` 支持 `stock_weight`、`ls_quantile`→quantiles 转换、`filter` 解析
+- `evaluate_extraction()` core_fields 扩展为 8 个核心字段，field_map 支持所有 SignalDoc 字段
+- `_parse_signaldoc_row()` (app.py + tests) 新增 `sign`, `ls_quantile`, `filter`, `cat_form` 解析
+- `TestExtractEndToEnd`: 替换 mock LLM 为真实 codex CLI 调用，5 个 E2E 测试验证完整提取流程
+- `_build_method_spec_from_llm()`: 添加 `_safe_int()` 处理 LLM 返回 "unspecified" 或非数字字段
+- `app.py` 结果页面重构：LLM 提取结果与 SignalDoc ground truth 左右并排显示，取消 tabs 布局
+
+### Removed
+- `app.py`: 移除 mock LLM 选项和 `_build_mock_response()` 函数，Streamlit 现在仅使用真实 codex CLI 提取
 
 ## [0.3.0] - 2026-05-24
 
