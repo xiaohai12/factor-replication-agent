@@ -369,39 +369,6 @@ class TestExtractEndToEnd:
             assert result.spec.signal.formula is not None
 
 
-# --- Tests: data dictionary context ---
-
-
-class TestDataFieldsContext:
-    def test_fallback_without_dictionary(self):
-        extractor = SemanticExtractor(llm_client=MagicMock())
-        context = extractor._get_data_fields_context()
-
-        assert "ceq" in context
-        assert "at" in context
-        assert "ret" in context
-
-    def test_with_dictionary(self):
-        @dataclass
-        class MockEntry:
-            field_name: str
-            dataset: str
-            table: str
-            description: str
-
-        mock_dict = MagicMock()
-        mock_dict.list_fields.return_value = [
-            MockEntry("ceq", "compustat", "funda", "common equity"),
-            MockEntry("ret", "crsp", "msf", "monthly return"),
-        ]
-
-        extractor = SemanticExtractor(llm_client=MagicMock(), data_dictionary=mock_dict)
-        context = extractor._get_data_fields_context()
-
-        assert "ceq (compustat.funda)" in context
-        assert "ret (crsp.msf)" in context
-
-
 # --- Tests: SignalDoc.csv ground truth evaluation ---
 
 SIGNALDOC_PATH = Path(__file__).parent.parent / "data" / "osap" / "SignalDoc.csv"

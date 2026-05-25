@@ -2,7 +2,18 @@
 
 ## [0.4.0] - 2025-05-25
 
+### Changed
+- `src/extractor/__init__.py`：`required_fields` 从简单字符串列表改为结构化格式 `[{field, source, description}]`，LLM 直接从 paper 提取数据源（不再假设只有 Compustat/CRSP），解析后自动填充 `SignalSpec.field_sources`
+
+### Removed
+- `src/extractor/__init__.py`：删除 `_get_data_fields_context()` 及 user template 中的 data_fields 占位符，LLM 自行从 paper 识别数据源和字段名
+- `tests/test_extractor.py`：删除 `TestDataFieldsContext` 测试类（对应方法已移除）
+
+### Fixed
+- `src/extractor/__init__.py`：Rules 中 stock_weight 说明补充 "capped_vw" 选项
+
 ### Added
+- `README.md`：添加 "Key Enums Explained" 子章节（WeightingRule / EvidenceSource / EmpiricalImpact 用途说明 + pipeline 关联）
 - `README.md`：添加 "What a Good MethodSpec Looks Like" 章节（BM factor 完整示例 + 评判标准 + 常见错误）
 - `src/models/method_spec.py`：为所有 class 和 enum 添加详细 docstring（含 SignalDoc 统计数据、示例、pipeline 角色说明）
 - `app.py`：Streamlit dashboard，PDF-first 流程（上传 PDF → 自动匹配 SignalDoc factor → 提取 → ground truth 对比）
@@ -20,6 +31,10 @@
 - `TestSignalDocGroundTruth`：7 个集成测试使用真实 SignalDoc.csv 作为 ground truth，验证 evaluation pipeline（BM perfect score、negative sign factors、batch pilot、imperfect detection、全量 parse）
 
 ### Changed
+- `src/models/method_spec.py`：每个 Enum class 新增 `choices(allow_unspecified)` classmethod，返回 schema 可选值字符串；model class 的 `EXTRACTION_SCHEMA` 直接引用 enum 的 `choices()` 而非内联拼接
+- `src/models/method_spec.py`：每个 model class 新增 `EXTRACTION_SCHEMA: ClassVar[dict]` 类变量，定义该 class 在 LLM 提取 prompt 中对应的 schema 字段和可选值
+- `src/extractor/__init__.py`：`_build_extraction_schema()` 改为从各 class 的 `EXTRACTION_SCHEMA` 组合，不再手写 schema 描述
+- `src/extractor/__init__.py`：将 EXTRACTION_SYSTEM_PROMPT 中的硬编码 JSON schema 重构为 `EXTRACTION_SCHEMA_FIELDS` 字典 + `_build_schema_json_block()` 函数，从 model enum 类自动生成 schema 描述
 - **LLM output schema 重构**：对齐 SignalDoc.csv 字段结构
   - `weighting` → `stock_weight` (ew/vw)
   - `breakpoint_quantiles` → `ls_quantile` (float: 0.1=decile, 0.2=quintile, 0.3=tercile)

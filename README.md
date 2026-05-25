@@ -143,6 +143,38 @@ review_status: approved
 - `sign` wrong — flips long/short legs, inverts the factor return
 - `ambiguous_fields` not empty but `review_status: approved` — inconsistent state
 
+### Key Enums Explained
+
+#### `WeightingRule` — How stocks are weighted within each portfolio leg
+
+| Value | Meaning | When to use |
+|-------|---------|-------------|
+| `ew` | Equal-weighted (1/N) | Most common (210/242 in SignalDoc). Simple, gives small stocks equal influence |
+| `vw` | Value-weighted (by market cap) | Reduces micro-cap noise, closer to investable strategy |
+| `capped_vw` | Value-weighted with max cap | Prevents single mega-cap from dominating |
+
+#### `EvidenceSource` — Confidence tag on each extracted field
+
+Used in `AmbiguousField.source` to record how certain the Extractor is about a field value:
+
+| Value | Meaning | Pipeline Impact |
+|-------|---------|-----------------|
+| `clear` | Explicitly stated in the paper | Review Gate auto-approves |
+| `single` | Mentioned once, reasonable confidence | Likely auto-approved |
+| `inferred` | Not stated — guessed from context/conventions | Flagged for review; may trigger ablation |
+| `conflicting` | Multiple sources disagree | Review Gate blocks → requires human resolution |
+
+#### `EmpiricalImpact` — Does this ambiguity matter for replication?
+
+Used in the **Factorial Attribution Layer** to tag whether an ambiguous field choice materially changes results:
+
+| Value | Meaning | Example |
+|-------|---------|---------|
+| `high` | Different choices → meaningfully different returns/t-stats | `weighting: ew` vs `vw` for micro-cap-heavy factors |
+| `low` | Result is robust to this choice | `formation_month: 6` vs `7` for most annual factors |
+
+The Attribution Layer runs ablation experiments on ambiguous fields. If flipping a choice changes the long-short return by >20% or flips t-stat significance, it's tagged `HIGH`. This tells the researcher which implementation details actually explain the replication gap.
+
 ## Setup
 
 ```bash

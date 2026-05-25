@@ -36,52 +36,73 @@ from src.models.method_spec import (
 
 # --- System prompt for paper extraction ---
 
-EXTRACTION_SYSTEM_PROMPT = """\
+
+def _enum_choices(enum_cls) -> str:
+    """Return pipe-separated enum values, e.g. '"annual" | "quarterly" | "monthly"'."""
+    return " | ".join(f'"{m.value}"' for m in enum_cls)
+
+
+# Schema field definitions — single source of truth for the extraction prompt.
+# Each tuple: (key, type_description)
+EXTRACTION_SCHEMA_FIELDS: list[tuple[str, str]] = [
+    ("factor_name", "string - human-readable factor name"),
+    ("economic_intuition", "string - brief economic rationale (1-2 sentences)"),
+    ("detailed_definition", "string - exact signal formula in words, referencing variable names"),
+    ("formula", "string - signal formula using database variable names (e.g. 'ceq / (csho * prcc_f)')"),
+    ("required_fields", '[{"field": "variable name", "source": "dataset.table as stated in paper (e.g. compustat.funda, crsp.msf, ibes.detail)", "description": "what it represents"}]'),
+    ("cat_form", '"continuous" | "discrete"'),
+    ("sign", "1 or -1 (1 = high signal predicts high returns, -1 = low returns)"),
+    ("formation_month", "null or int (month when portfolios are formed, e.g. 6 for June)"),
+    ("rebalance_frequency", f'{_enum_choices(RebalanceFrequency)} | "unspecified"'),
+    ("holding_period", "int (months the portfolio is held, typically 1 or 12)"),
+    ("accounting_lag", "int (months between fiscal year-end and portfolio formation)"),
+    ("skip_month", "null or int (months skipped between signal and formation)"),
+    ("stock_weight", f'{_enum_choices(WeightingRule)} | "unspecified"'),
+    ("ls_quantile", "float (long-short cutoff: 0.1=deciles, 0.2=quintiles, 0.3=terciles)"),
+    ("breakpoint_source", f'{_enum_choices(BreakpointSource)} | "unspecified"'),
+    ("long_leg", '"high" | "low"'),
+    ("short_leg", '"high" | "low"'),
+    ("filter", 'string - stock-level filters (e.g. \'abs(prc)>5\') or "unspecified"'),
+    ("universe", "string - sample universe description"),
+    ("missing_policy", f'{_enum_choices(MissingAction)} | "unspecified"'),
+    ("sample_start_year", "null or int"),
+    ("sample_end_year", "null or int"),
+    ("paper_ref", "string - paper citation"),
+    ("paper_sections", '["sections/tables where key info was found"]'),
+    ("ambiguous_fields", '[{"field": "name", "reason": "why ambiguous"}]'),
+]
+
+
+def _build_extraction_schema() -> str:
+    """Build the JSON schema block from EXTRACTION_SCHEMA_FIELDS."""
+    lines = ["{"]
+    for key, desc in EXTRACTION_SCHEMA_FIELDS:
+        lines.append(f'  "{key}": {desc},')
+    # Remove trailing comma on last entry
+    lines[-1] = lines[-1].rstrip(",")
+    lines.append("}")
+    return "\n".join(lines)
+
+
+EXTRACTION_SYSTEM_PROMPT = f"""\
 You are an expert financial economist. Your task is to extract a structured factor \
-specification from an academic paper, following the Chen & Zimmermann (2022) Open Source \
-Asset Pricing framework.
+specification from an academic paper.
 
 Extract the following fields from the paper text. If a field is not clearly stated, \
 mark it as "unspecified" rather than guessing.
 
 Output a JSON object with exactly these keys:
-{
-  "factor_name": "string - human-readable factor name",
-  "economic_intuition": "string - brief economic rationale (1-2 sentences)",
-  "detailed_definition": "string - exact signal formula in words, referencing variable names",
-  "formula": "string - signal formula using Compustat/CRSP variable names (e.g. 'ceq / (csho * prcc_f)')",
-  "required_fields": ["list of Compustat/CRSP field names used in the formula"],
-  "cat_form": "continuous" | "discrete",
-  "sign": 1 or -1 (1 = high signal predicts high returns, -1 = high signal predicts low returns),
-  "formation_month": null or int (month when portfolios are formed, e.g. 6 for June),
-  "rebalance_frequency": "annual" | "quarterly" | "monthly",
-  "holding_period": int (months the portfolio is held, typically 1 or 12),
-  "accounting_lag": int (months minimum between fiscal year-end and portfolio formation),
-  "skip_month": null or int (months skipped between signal measurement and portfolio formation),
-  "stock_weight": "ew" | "vw" | "unspecified" (equal-weighted or value-weighted returns),
-  "ls_quantile": float (fraction for long-short cutoff, e.g. 0.1 for deciles, 0.2 for quintiles, 0.3 for terciles),
-  "breakpoint_source": "nyse" | "full_sample" | "unspecified",
-  "long_leg": "high" | "low" (which quantile is the long portfolio),
-  "short_leg": "high" | "low" (which quantile is the short portfolio),
-  "filter": "string - stock-level filters applied (e.g. 'abs(prc)>5', 'exchcd%in%c(1,2)')" or "unspecified",
-  "universe": "string - sample universe description",
-  "missing_policy": "drop" | "fill_zero" | "fill_median" | "fill_forward" | "unspecified",
-  "sample_start_year": null or int,
-  "sample_end_year": null or int,
-  "paper_ref": "string - paper citation",
-  "paper_sections": ["sections/tables where key info was found"],
-  "ambiguous_fields": [{"field": "name", "reason": "why ambiguous"}]
-}
+{_build_extraction_schema()}
 
 Rules:
 - Only extract what is EXPLICITLY stated or clearly implied in the text.
+- For required_fields: extract the data source (database + table) as described in the paper. Common sources include Compustat (funda, fundq), CRSP (msf, dsf), IBES, Thomson Reuters, etc.
 - For sign: +1 means high signal → high returns (value, profitability). -1 means high signal → low returns (investment, accruals).
-- For ls_quantile: deciles = 0.1, quintiles = 0.2, terciles = 0.3 (roughly), median = 0.5.
-- For stock_weight: "ew" = equal-weighted, "vw" = value-weighted.
+- For ls_quantile: deciles = 0.1, quintiles = 0.2, terciles = 0.3, median = 0.5.
+- For stock_weight: "ew" = equal-weighted, "vw" = value-weighted, "capped_vw" = value-weighted with max weight cap.
 - For filter: express as R-style conditions (e.g. abs(prc)>5, exchcd%in%c(1,2)).
 - For holding_period: 1 = monthly rebalancing, 12 = annual buy-and-hold.
 - For accounting_lag: if paper says "fiscal year-end data used by June formation", lag = 6.
-- Use Compustat field names where possible (ceq, at, lt, sale, ni, prcc_f, csho, etc.).
 - Do NOT infer from common practice if paper is silent on a detail.
 """
 
@@ -89,9 +110,6 @@ EXTRACTION_USER_TEMPLATE = """\
 Paper text for factor "{factor_id}":
 
 {paper_text}
-
-Available data fields for reference (from data dictionary):
-{data_fields}
 
 Extract the MethodSpec as JSON.
 """
@@ -125,21 +143,19 @@ class SemanticExtractor:
     """Extracts structured MethodSpec from unstructured paper text.
 
     Strategy: Paper-first extraction (architecture.md Section 4.2)
-    1. LLM extracts from paper text + data dictionary (field name validation)
+    1. LLM extracts from paper text (factor definition, data sources, portfolio rules)
     2. Ambiguity tagging for unspecified fields
     3. NO SignalDoc input — that's evaluation only
 
     Acceptance criteria (Phase 1): Core field accuracy >= 80% on pilot factors.
     """
 
-    def __init__(self, llm_client=None, data_dictionary=None):
+    def __init__(self, llm_client=None):
         """
         Args:
             llm_client: OpenAI-compatible client (must have .chat.completions.create)
-            data_dictionary: DataDictionary instance for field validation
         """
         self.llm_client = llm_client
-        self.data_dictionary = data_dictionary
 
     def extract(
         self,
@@ -163,11 +179,8 @@ class SemanticExtractor:
 
         result = ExtractionResult(sources_used=["paper"])
 
-        # Build data dictionary context for field validation
-        data_fields = self._get_data_fields_context()
-
         # Call LLM for extraction
-        raw = self._call_llm_extract(factor_id, paper_text, data_fields)
+        raw = self._call_llm_extract(factor_id, paper_text)
         result.raw_llm_output = raw
 
         if raw:
@@ -176,13 +189,12 @@ class SemanticExtractor:
         return result
 
     def _call_llm_extract(
-        self, factor_id: str, paper_text: str, data_fields: str
+        self, factor_id: str, paper_text: str
     ) -> dict | None:
         """Call LLM to extract structured fields from paper text."""
         user_msg = EXTRACTION_USER_TEMPLATE.format(
             factor_id=factor_id,
             paper_text=paper_text[:30000],  # Truncate to fit context
-            data_fields=data_fields,
         )
 
         try:
@@ -232,10 +244,28 @@ class SemanticExtractor:
         )
         missing_policy = MissingPolicy(action=missing_action)
 
-        # Parse signal spec
+        # Parse signal spec — extract field_sources from structured required_fields
+        raw_fields = raw.get("required_fields", [])
+        field_names: list[str] = []
+        field_sources: dict[str, FieldSource] = {}
+        for item in raw_fields:
+            if isinstance(item, dict):
+                name = item.get("field", "")
+                field_names.append(name)
+                source_str = item.get("source", "")
+                parts = source_str.split(".", 1)
+                field_sources[name] = FieldSource(
+                    dataset=parts[0] if parts else "",
+                    table=parts[1] if len(parts) > 1 else "",
+                    description=item.get("description", ""),
+                )
+            elif isinstance(item, str):
+                field_names.append(item)
+
         signal = SignalSpec(
             formula=raw.get("formula", "unspecified"),
-            required_fields=raw.get("required_fields", []),
+            required_fields=field_names,
+            field_sources=field_sources,
             timing=timing,
             missing_policy=missing_policy,
         )
@@ -343,29 +373,6 @@ class SemanticExtractor:
             ambiguous_fields=ambiguous,
             review_status="pending",
         )
-
-    def _get_data_fields_context(self) -> str:
-        """Get data dictionary fields as context for LLM."""
-        if self.data_dictionary:
-            # Return formatted field list from dictionary
-            entries = self.data_dictionary.list_fields()
-            lines = []
-            for entry in entries[:100]:  # Limit to avoid context overflow
-                lines.append(
-                    f"- {entry.field_name} ({entry.dataset}.{entry.table}): {entry.description}"
-                )
-            return "\n".join(lines)
-
-        # Fallback: common Compustat/CRSP fields
-        return """\
-Common Compustat fields (funda): at (total assets), ceq (common equity), lt (total liabilities),
-  sale (revenue), ni (net income), oiadp (operating income), dp (depreciation), xrd (R&D),
-  capx (capital expenditure), act (current assets), lct (current liabilities), che (cash),
-  txditc (deferred taxes), pstkrv/pstkl/pstk (preferred stock), csho (shares outstanding),
-  prcc_f (fiscal year-end price), dltt (long-term debt), dlc (current debt)
-Common CRSP fields (msf): ret (monthly return), prc (price), shrout (shares outstanding),
-  vol (volume), cfacpr (price adjustment factor), cfacshr (share adjustment factor)
-"""
 
     def _parse_enum(self, enum_cls, value, default):
         """Safely parse a string into an enum value."""

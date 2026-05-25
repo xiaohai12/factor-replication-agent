@@ -129,7 +129,7 @@ class SignalTiming(BaseModel):
     skip_month: Optional[int] = Field(default=None)
 
 
-class MissingPolicy(BaseModel):
+class MissingPolicy(BaseModel): 
     """Missing-value handling policy.
 
     Determines how the pipeline handles firms with missing signal values.
@@ -235,7 +235,7 @@ class MethodSpec(BaseModel):
     factor_id: str = Field(..., description="Unique factor identifier")
     factor_name: str = Field(..., description="Human-readable factor name")
     paper_ref: str = Field(..., description="Original paper citation")
-    version: int = Field(default=1, description="MethodSpec version number")
+    version: int = Field(default=1, description="Increments when Extractor/Review Gate revises the spec; used by Review Gate and Plugin Registry for audit trail")
     economic_intuition: str = Field(default="", description="Brief economic rationale")
     detailed_definition: str = Field(default="", description="Detailed signal definition in words")
     cat_form: str = Field(default="continuous", description="continuous or discrete")
