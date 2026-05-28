@@ -1,11 +1,65 @@
 # Changelog
 
+## [0.5.3] - 2025-05-28
+
+### Added
+- `src/extractor/__init__.py`: `extract_batch()` method — extracts all factors from the same paper in a single LLM call (saves tokens and API calls for multi-factor papers)
+- `src/extractor/__init__.py`: `RateLimitExhausted` exception — raised immediately on rate limit so caller can checkpoint and stop (no retry, since quota recovery takes hours)
+- `app.py`: Checkpoint/resume system for batch evaluation — saves progress after each paper to `data/eval_history/_checkpoint.json`; on next run, skips already-completed papers
+- `app.py`: "Clear Checkpoint" button to start fresh
+
+### Changed
+- `app.py`: Batch evaluation uses `extract_batch()` — one LLM call per paper instead of one per factor
+- `app.py`: On rate limit, stops gracefully with saved progress instead of retrying
+
+## [0.5.2] - 2025-05-27
+
+### Added
+- `scripts/convert_papers_to_md.py`: PDF→Markdown conversion script using pymupdf4llm (preserves headings, tables, equations); outputs to `data/papers_md/`
+- `src/evaluation/helpers.py`: `extract_pdf_text()` now prefers pre-converted MD files from `data/papers_md/`, falls back to PyMuPDF extraction
+- `src/extractor/__init__.py`: LLM extraction now requires `reasons` field — a dict mapping each extracted field to the verbatim quote from the paper supporting that value
+- `src/extractor/__init__.py`: `ExtractionResult.reasons` field stores per-field citations from LLM output
+- `src/evaluation/helpers.py`: New shared module with evaluation utilities (no pytest dependency) — used by both `app.py` and tests
+
+### Changed
+- `app.py`: Per-Factor Results table columns renamed from "Expected"/"Actual" to "Ground Truth"/"Extracted", added "Reason" column showing paper citations
+- `app.py`: Imports evaluation utilities from `src.evaluation.helpers` instead of `tests.test_extractor` (fixes Streamlit import error)
+- `src/evaluation/helpers.py`: `build_field_details()` now accepts optional `reasons` dict and includes reason in each field detail
+- `tests/test_extractor.py`: Refactored to import shared utilities from `src.evaluation.helpers` instead of duplicating code
+
+## [0.5.1] - 2025-05-25
+
+### Changed
+- `src/pdf_mapper.py`: Complete rewrite — replaced complex author-based matching with simple Paper title matching from SignalDoc.csv (55/56 PDFs → 67 factors mapped)
+
+### Added
+- `tests/test_pdf_mapper.py`: Comprehensive test suite for pdf_mapper (33 tests) — covers normalization, title loading, integration with real data, cache behavior, edge cases, and known mapping spot checks
+
 ## [0.5.0] - 2025-05-25
+
+### Added
+- `src/pdf_mapper.py`: New content-based PDF-to-factor mapping utility — reads first page of each PDF via PyMuPDF, matches author last names against SignalDoc entries using word-boundary regex, year matching, and confidence scoring
+- `src/pdf_mapper.py`: Caching system (`.pdf_factor_map_cache.json`) to avoid re-scanning unchanged PDFs
+- `src/pdf_mapper.py`: `build_pdf_factor_map()`, `get_factor_to_pdf()`, `invalidate_cache()` public API
+
+### Changed
+- `tests/test_extractor.py`: Replaced hardcoded `PDF_FACTOR_MAP` dict with dynamic mapping via `src.pdf_mapper.build_pdf_factor_map()` — works with any PDF filenames
+
+### Fixed
+- `scripts/download_papers.py`: Rewrote CrossRef search to use all author last names + journal keywords (instead of just first author + partial description), with scored result validation (threshold 0.5) to avoid matching wrong papers
+- `scripts/download_papers.py`: Added `_validate_crossref_item()` scoring (author match 40%, year 30%, journal 20%, title presence 10%) to rank and filter search results
+- `scripts/download_papers.py`: Added post-download `validate_pdf_content()` that checks PDF contains expected author names in raw text
+
+### Added
+- `scripts/download_papers.py`: `--force` flag to re-download papers even if file already exists
+- `scripts/download_papers.py`: `--revalidate` mode to check all existing PDFs contain expected author names without downloading
+- `scripts/download_papers.py`: Logs DOI found for each paper during download; reports invalid PDFs to `data/papers/invalid_pdfs.txt`
 
 ### Changed
 - `app.py`: Replaced tabs with left sidebar navigation (pipeline steps); batch eval page now renders independently without `st.stop()` interference
 - `app.py`: Batch Evaluation page — added multi-select paper picker (radio: "All PDFs" / "Select specific PDFs"), progress status text, and explicit "Run Evaluation" button
 - `app.py`: Fixed `use_container_width` deprecation; progress now shows "3/60 done — processing X.pdf → FactorID ..."
+- `app.py`: Added "Evaluation History" page — reports auto-saved to `data/eval_history/` after each batch run; browse, view full details, download, or delete past reports from the sidebar
 - `app.py`: Added per-field accuracy summary table in batch eval results
 - `src/extractor/__init__.py`: `evaluate_extraction()` now treats unspecified/None/N/A ground truth as correct (no penalty)
 - `tests/test_extractor.py`: `_build_field_details()` also treats unspecified ground truth as correct

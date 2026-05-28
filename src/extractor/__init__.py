@@ -13,6 +13,7 @@ See cz-reference.md Section 1 for details.
 from __future__ import annotations
 
 import json
+import time
 from dataclasses import dataclass, field
 from typing import Optional
 
@@ -70,6 +71,7 @@ EXTRACTION_SCHEMA_FIELDS: list[tuple[str, str]] = [
     ("paper_ref", "string - paper citation"),
     ("paper_sections", '["sections/tables where key info was found"]'),
     ("ambiguous_fields", '[{"field": "name", "reason": "why ambiguous"}]'),
+    ("reasons", '{"field_name": "exact quote from paper supporting this value", ...} — for EVERY extracted field, provide the verbatim sentence(s) from the paper'),
 ]
 
 
@@ -96,6 +98,7 @@ Output a JSON object with exactly these keys:
 
 Rules:
 - Only extract what is EXPLICITLY stated or clearly implied in the text.
+- For "reasons": for EVERY field you extract, provide the exact sentence(s) from the paper that supports your choice. If inferred from context rather than explicit text, write "Inferred: <brief explanation>".
 - For required_fields: extract the data source (database + table) as described in the paper. Common sources include Compustat (funda, fundq), CRSP (msf, dsf), IBES, Thomson Reuters, etc.
 - For sign: +1 means high signal → high returns (value, profitability). -1 means high signal → low returns (investment, accruals).
 - For ls_quantile: deciles = 0.1, quintiles = 0.2, terciles = 0.3, median = 0.5.
@@ -113,6 +116,26 @@ Paper text for factor "{factor_id}":
 
 Extract the MethodSpec as JSON.
 """
+
+BATCH_EXTRACTION_USER_TEMPLATE = """\
+Paper text:
+
+{paper_text}
+
+This paper defines the following factors: {factor_ids}
+
+Extract a MethodSpec for EACH factor listed above. Output a JSON object with factor IDs \
+as top-level keys, each containing the full extraction schema.
+
+Example output structure:
+{{
+  "FactorA": {{ ... full schema ... }},
+  "FactorB": {{ ... full schema ... }}
+}}
+"""
+
+# Rate limiting defaults
+DEFAULT_CALL_DELAY = 1.0  # seconds between successful calls
 
 
 @dataclass
@@ -137,6 +160,7 @@ class ExtractionResult:
     sources_used: list[str] = field(default_factory=list)
     conflicts: list[str] = field(default_factory=list)
     raw_llm_output: Optional[dict] = None
+    reasons: dict[str, str] = field(default_factory=dict)  # field_name -> quote from paper
 
 
 class SemanticExtractor:
@@ -153,15 +177,21 @@ class SemanticExtractor:
     The same paper_text is passed each time; the factor_id tells the LLM
     which specific signal to focus on.
 
+    For batch processing, use extract_batch() to extract all factors from
+    a paper in a single LLM call (saves tokens and avoids rate limits).
+
     Acceptance criteria (Phase 1): Core field accuracy >= 80% on pilot factors.
     """
 
-    def __init__(self, llm_client=None):
+    def __init__(self, llm_client=None, call_delay: float = DEFAULT_CALL_DELAY):
         """
         Args:
             llm_client: OpenAI-compatible client (must have .chat.completions.create)
+            call_delay: Delay between successful API calls (seconds)
         """
         self.llm_client = llm_client
+        self.call_delay = call_delay
+        self._last_call_time: float = 0
 
     def extract(
         self,
@@ -191,33 +221,121 @@ class SemanticExtractor:
 
         if raw:
             result.spec = self._build_method_spec_from_llm(factor_id, raw)
+            result.reasons = raw.get("reasons", {})
 
         return result
+
+    def extract_batch(
+        self,
+        factor_ids: list[str],
+        paper_text: str,
+    ) -> dict[str, ExtractionResult]:
+        """Extract MethodSpecs for multiple factors from the same paper in one LLM call.
+
+        This is more efficient when a paper defines multiple factors — one API call
+        instead of N separate calls. Saves tokens and reduces rate limit risk.
+
+        Args:
+            factor_ids: List of factor IDs defined in this paper
+            paper_text: Raw paper text
+
+        Returns:
+            Dict mapping factor_id -> ExtractionResult
+        """
+        if not self.llm_client:
+            raise RuntimeError("LLM client required for extraction")
+
+        # If only 1 factor, use regular extract
+        if len(factor_ids) == 1:
+            result = self.extract(factor_ids[0], paper_text)
+            return {factor_ids[0]: result}
+
+        # Call LLM for batch extraction
+        raw_batch = self._call_llm_extract_batch(factor_ids, paper_text)
+
+        results: dict[str, ExtractionResult] = {}
+        for factor_id in factor_ids:
+            result = ExtractionResult(sources_used=["paper"])
+            if raw_batch and factor_id in raw_batch:
+                raw = raw_batch[factor_id]
+                result.raw_llm_output = raw
+                result.spec = self._build_method_spec_from_llm(factor_id, raw)
+                result.reasons = raw.get("reasons", {})
+            elif raw_batch:
+                # Try case-insensitive lookup
+                for key, val in raw_batch.items():
+                    if key.lower() == factor_id.lower():
+                        result.raw_llm_output = val
+                        result.spec = self._build_method_spec_from_llm(factor_id, val)
+                        result.reasons = val.get("reasons", {})
+                        break
+            results[factor_id] = result
+
+        return results
 
     def _call_llm_extract(
         self, factor_id: str, paper_text: str
     ) -> dict | None:
-        """Call LLM to extract structured fields from paper text."""
+        """Call LLM to extract structured fields from paper text (with retry)."""
         user_msg = EXTRACTION_USER_TEMPLATE.format(
             factor_id=factor_id,
             paper_text=paper_text[:30000],  # Truncate to fit context
         )
+        messages = [
+            {"role": "system", "content": EXTRACTION_SYSTEM_PROMPT},
+            {"role": "user", "content": user_msg},
+        ]
+        return self._call_llm_with_retry(messages)
+
+    def _call_llm_extract_batch(
+        self, factor_ids: list[str], paper_text: str
+    ) -> dict | None:
+        """Call LLM to extract multiple factors from one paper (with retry)."""
+        user_msg = BATCH_EXTRACTION_USER_TEMPLATE.format(
+            factor_ids=", ".join(factor_ids),
+            paper_text=paper_text[:30000],
+        )
+        messages = [
+            {"role": "system", "content": EXTRACTION_SYSTEM_PROMPT},
+            {"role": "user", "content": user_msg},
+        ]
+        return self._call_llm_with_retry(messages)
+
+    def _call_llm_with_retry(self, messages: list[dict]) -> dict | None:
+        """Call LLM with inter-call delay. Raises RateLimitError on quota exhaustion."""
+        # Respect call_delay between requests
+        elapsed = time.time() - self._last_call_time
+        if elapsed < self.call_delay:
+            time.sleep(self.call_delay - elapsed)
 
         try:
             response = self.llm_client.chat.completions.create(
                 model="gpt-4o",
-                messages=[
-                    {"role": "system", "content": EXTRACTION_SYSTEM_PROMPT},
-                    {"role": "user", "content": user_msg},
-                ],
+                messages=messages,
                 temperature=0.0,
                 response_format={"type": "json_object"},
             )
+            self._last_call_time = time.time()
             content = response.choices[0].message.content
             return json.loads(content)
         except Exception as e:
+            error_str = str(e).lower()
+            is_rate_limit = (
+                "rate_limit" in error_str
+                or "rate limit" in error_str
+                or "429" in error_str
+                or "quota" in error_str
+                or "too many requests" in error_str
+            )
+            if is_rate_limit:
+                raise RateLimitExhausted(str(e)) from e
             print(f"  [WARN] LLM extraction failed: {e}")
             return None
+
+
+class RateLimitExhausted(Exception):
+    """Raised when API quota/rate limit is hit — caller should checkpoint and stop."""
+    pass
 
     def _build_method_spec_from_llm(
         self, factor_id: str, raw: dict

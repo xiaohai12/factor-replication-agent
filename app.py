@@ -30,7 +30,7 @@ PAPERS_DIR = PROJECT_ROOT / "data" / "papers"
 st.sidebar.title("Pipeline Steps")
 page = st.sidebar.radio(
     "Navigate",
-    ["Extractor — Single Paper", "Extractor — Batch Evaluation"],
+    ["Extractor — Single Paper", "Extractor — Batch Evaluation", "Evaluation History"],
     index=0,
 )
 st.sidebar.markdown("---")
@@ -41,6 +41,31 @@ st.sidebar.markdown("- Sandbox 🚧")
 st.sidebar.markdown("- Evaluation 🚧")
 
 st.title("Factor Replication Agent")
+
+# --- History storage ---
+HISTORY_DIR = PROJECT_ROOT / "data" / "eval_history"
+HISTORY_DIR.mkdir(parents=True, exist_ok=True)
+
+
+def _save_checkpoint(checkpoint_path: Path, results: list, completed_pdfs: set) -> None:
+    """Save batch evaluation progress to a checkpoint file for resumable runs."""
+    from dataclasses import asdict
+    serializable_results = []
+    for r in results:
+        d = {"factor_id": r.factor_id, "pdf_file": r.pdf_file, "error": r.error,
+             "extraction_success": r.extraction_success, "score": r.score,
+             "passed": r.passed, "field_details": r.field_details}
+        if r.metrics:
+            d["metrics"] = {"field_coverage": r.metrics.field_coverage,
+                            "field_accuracy": r.metrics.field_accuracy,
+                            "ambiguity_rate": r.metrics.ambiguity_rate,
+                            "core_field_accuracy": r.metrics.core_field_accuracy}
+        else:
+            d["metrics"] = None
+        serializable_results.append(d)
+    data = {"completed_pdfs": sorted(completed_pdfs), "results": serializable_results}
+    with open(checkpoint_path, "w") as f:
+        json.dump(data, f, indent=2)
 
 
 # --- Load SignalDoc ---
@@ -355,11 +380,13 @@ elif page == "Extractor — Batch Evaluation":
     st.header("Batch Evaluation")
     st.markdown("Run extraction evaluation across PDFs in `data/papers/` and compare with SignalDoc ground truth.")
 
-    # Import test_extractor utilities
-    from tests.test_extractor import (
-        PDF_FACTOR_MAP, FACTOR_TO_PDF, _extract_pdf_text,
-        _parse_signaldoc_ground_truth, _build_field_details,
-        _compute_score, PASS_THRESHOLD, FactorEvalResult, EvalReport,
+    # Import evaluation utilities
+    from src.evaluation.helpers import (
+        PDF_FACTOR_MAP, FACTOR_TO_PDF, extract_pdf_text as _extract_pdf_text,
+        parse_signaldoc_ground_truth as _parse_signaldoc_ground_truth,
+        build_field_details as _build_field_details,
+        compute_score as _compute_score, PASS_THRESHOLD,
+        FactorEvalResult, EvalReport,
     )
 
     # Show available PDFs and their factor mappings
@@ -400,20 +427,62 @@ elif page == "Extractor — Batch Evaluation":
     # Run button
     run_batch = st.button("▶️ Run Evaluation", type="primary", disabled=len(selected_pdfs) == 0)
 
+    # Checkpoint file for resumable runs
+    CHECKPOINT_PATH = HISTORY_DIR / "_checkpoint.json"
+
+    # Load existing checkpoint
+    checkpoint: dict = {}
+    if CHECKPOINT_PATH.exists():
+        try:
+            with open(CHECKPOINT_PATH, "r") as f:
+                checkpoint = json.load(f)
+        except (json.JSONDecodeError, OSError):
+            checkpoint = {}
+
+    completed_pdfs = set(checkpoint.get("completed_pdfs", []))
+    if completed_pdfs:
+        remaining = [p for p in selected_pdfs if p not in completed_pdfs]
+        st.warning(
+            f"**Checkpoint found**: {len(completed_pdfs)} PDFs already done, "
+            f"{len(remaining)} remaining. Click Run to resume."
+        )
+        col_resume, col_reset = st.columns(2)
+        with col_reset:
+            if st.button("🗑️ Clear Checkpoint (start fresh)"):
+                CHECKPOINT_PATH.unlink(missing_ok=True)
+                st.rerun()
+
     if run_batch:
-        from src.extractor import SemanticExtractor
+        from src.extractor import SemanticExtractor, RateLimitExhausted
         from src.llm import create_llm_client
 
         with st.spinner("Running extraction evaluation..."):
             client = create_llm_client()
             extractor = SemanticExtractor(llm_client=client)
 
+            # Load previous results from checkpoint
             results = []
+            for r in checkpoint.get("results", []):
+                metrics = None
+                if r.get("metrics"):
+                    from src.extractor import ExtractionMetrics
+                    metrics = ExtractionMetrics(**r["metrics"])
+                results.append(FactorEvalResult(
+                    factor_id=r["factor_id"], pdf_file=r["pdf_file"],
+                    error=r.get("error"), extraction_success=r.get("extraction_success", False),
+                    score=r.get("score", 0.0), passed=r.get("passed", False),
+                    metrics=metrics, field_details=r.get("field_details"),
+                ))
+
             progress_bar = st.progress(0)
             status_text = st.empty()
-            done = 0
+            done = len(results)
+            rate_limited = False
 
             for pdf_name in selected_pdfs:
+                if pdf_name in completed_pdfs:
+                    continue
+
                 pdf_path = PAPERS_DIR / pdf_name
                 status_text.markdown(f"**{done}/{total_factors_selected}** done — processing `{pdf_name}` ...")
 
@@ -424,6 +493,7 @@ elif page == "Extractor — Batch Evaluation":
                         ))
                         done += 1
                         progress_bar.progress(done / total_factors_selected)
+                    completed_pdfs.add(pdf_name)
                     continue
 
                 try:
@@ -435,25 +505,45 @@ elif page == "Extractor — Batch Evaluation":
                         ))
                         done += 1
                         progress_bar.progress(done / total_factors_selected)
+                    completed_pdfs.add(pdf_name)
                     continue
 
-                for factor_id in PDF_FACTOR_MAP[pdf_name]:
-                    status_text.markdown(f"**{done}/{total_factors_selected}** done — processing `{pdf_name}` → `{factor_id}` ...")
+                # Use batch extraction: one LLM call for all factors in same paper
+                factor_ids = PDF_FACTOR_MAP[pdf_name]
+                status_text.markdown(f"**{done}/{total_factors_selected}** done — extracting `{pdf_name}` → {len(factor_ids)} factors ...")
+
+                try:
+                    batch_results = extractor.extract_batch(factor_ids, paper_text_batch)
+                except RateLimitExhausted as e:
+                    status_text.error(f"⚠️ Rate limit hit after {done} factors. Progress saved — run again to resume.")
+                    rate_limited = True
+                    break
+                except Exception as e:
+                    for fid in factor_ids:
+                        results.append(FactorEvalResult(
+                            factor_id=fid, pdf_file=pdf_name, error=str(e)
+                        ))
+                        done += 1
+                        progress_bar.progress(done / total_factors_selected)
+                    completed_pdfs.add(pdf_name)
+                    continue
+
+                for factor_id in factor_ids:
                     eval_result = FactorEvalResult(factor_id=factor_id, pdf_file=pdf_name)
+                    extraction = batch_results.get(factor_id)
                     try:
-                        result = extractor.extract(factor_id, paper_text_batch)
-                        if result.spec is None:
+                        if extraction is None or extraction.spec is None:
                             eval_result.error = "Extraction returned None"
                         else:
                             eval_result.extraction_success = True
                             row = signaldoc.get(factor_id)
                             if row:
                                 gt = _parse_signaldoc_ground_truth(row)
-                                metrics = extractor.evaluate_extraction(result.spec, gt)
+                                metrics = extractor.evaluate_extraction(extraction.spec, gt)
                                 eval_result.metrics = metrics
                                 eval_result.score = _compute_score(metrics)
                                 eval_result.passed = eval_result.score >= PASS_THRESHOLD
-                                eval_result.field_details = _build_field_details(extractor, result.spec, gt)
+                                eval_result.field_details = _build_field_details(extractor, extraction.spec, gt, extraction.reasons)
                             else:
                                 eval_result.error = "Factor not in SignalDoc"
                     except Exception as e:
@@ -463,8 +553,21 @@ elif page == "Extractor — Batch Evaluation":
                     done += 1
                     progress_bar.progress(done / total_factors_selected)
 
+                completed_pdfs.add(pdf_name)
+
+                # Save checkpoint after each paper
+                _save_checkpoint(CHECKPOINT_PATH, results, completed_pdfs)
+
             progress_bar.empty()
-            status_text.success(f"Done! Evaluated **{done}** factors.")
+
+            if rate_limited:
+                _save_checkpoint(CHECKPOINT_PATH, results, completed_pdfs)
+                st.warning(f"Processed **{done}/{total_factors_selected}** factors before rate limit. "
+                           f"Run again to continue from where you left off.")
+            else:
+                status_text.success(f"Done! Evaluated **{done}** factors.")
+                # Clear checkpoint on completion
+                CHECKPOINT_PATH.unlink(missing_ok=True)
 
             # Build report
             report = EvalReport(
@@ -482,6 +585,19 @@ elif page == "Extractor — Batch Evaluation":
             report.compute_aggregates()
 
             st.session_state["batch_report"] = report
+
+            # Save to history
+            from datetime import datetime
+            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+            pdfs_label = selected_pdfs[0].replace(".pdf", "") if len(selected_pdfs) == 1 else f"{len(selected_pdfs)}pdfs"
+            history_file = HISTORY_DIR / f"{timestamp}_{pdfs_label}.json"
+            history_entry = {
+                "timestamp": timestamp,
+                "label": f"{pdfs_label} — {report.avg_score:.0f}/100 ({report.pass_rate:.0%} pass)",
+                "report": report.to_json(),
+            }
+            with open(history_file, "w") as f:
+                json.dump(history_entry, f, indent=2)
 
     # Display results
     if "batch_report" in st.session_state:
@@ -531,8 +647,9 @@ elif page == "Extractor — Batch Evaluation":
                     for field_name, detail in r.field_details.items():
                         detail_data.append({
                             "Field": field_name,
-                            "Expected": str(detail["expected"]),
-                            "Actual": str(detail["actual"]),
+                            "Extracted": str(detail["actual"]),
+                            "Ground Truth": str(detail["expected"]),
+                            "Reason": str(detail.get("reason", "")),
                             "Match": "✅" if detail["match"] else "❌",
                         })
                     st.table(detail_data)
@@ -545,3 +662,108 @@ elif page == "Extractor — Batch Evaluation":
             file_name="batch_eval_report.json",
             mime="application/json",
         )
+
+# --- Evaluation History Page ---
+elif page == "Evaluation History":
+    st.header("📜 Evaluation History")
+    st.markdown("Browse past evaluation runs. Reports are saved automatically after each batch evaluation.")
+
+    # List history files
+    history_files = sorted(HISTORY_DIR.glob("*.json"), reverse=True)
+
+    if not history_files:
+        st.info("No evaluation history yet. Run a batch evaluation first.")
+    else:
+        # Show list of past runs
+        history_labels = []
+        for hf in history_files:
+            try:
+                with open(hf) as f:
+                    entry = json.load(f)
+                ts = entry.get("timestamp", hf.stem)
+                label = entry.get("label", hf.stem)
+                display = f"{ts[:4]}-{ts[4:6]}-{ts[6:8]} {ts[9:11]}:{ts[11:13]}:{ts[13:15]} — {label}"
+                history_labels.append((display, hf))
+            except Exception:
+                history_labels.append((hf.stem, hf))
+
+        selected_history = st.selectbox(
+            "Select a past evaluation run:",
+            range(len(history_labels)),
+            format_func=lambda i: history_labels[i][0],
+        )
+
+        if selected_history is not None:
+            hf_path = history_labels[selected_history][1]
+            with open(hf_path) as f:
+                history_data = json.load(f)
+
+            report_data = history_data["report"]
+
+            # Aggregate metrics
+            st.subheader("📊 Aggregate Metrics")
+            mcol1, mcol2, mcol3, mcol4, mcol5 = st.columns(5)
+            mcol1.metric("Avg Score", f"{report_data.get('avg_score', 0):.1f}/100")
+            mcol2.metric("Pass Rate", f"{report_data.get('pass_rate', 0):.0%}")
+            mcol3.metric("Passed", f"{report_data.get('passed_count', 0)}/{report_data.get('total_factors', 0)}")
+            mcol4.metric("Avg Field Accuracy", f"{report_data.get('avg_field_accuracy', 0):.0%}")
+            mcol5.metric("Avg Core Accuracy", f"{report_data.get('avg_core_accuracy', 0):.0%}")
+
+            # Per-field accuracy summary
+            st.subheader("📋 Per-Field Accuracy")
+            field_stats = {}
+            for r in report_data.get("per_factor", []):
+                if r.get("field_details"):
+                    for field_name, detail in r["field_details"].items():
+                        if field_name not in field_stats:
+                            field_stats[field_name] = {"total": 0, "matched": 0}
+                        field_stats[field_name]["total"] += 1
+                        if detail.get("match"):
+                            field_stats[field_name]["matched"] += 1
+            if field_stats:
+                field_summary = []
+                for fname, stats in sorted(field_stats.items(), key=lambda x: x[1]["matched"] / max(x[1]["total"], 1)):
+                    acc = stats["matched"] / stats["total"] if stats["total"] else 0
+                    field_summary.append({
+                        "Field": fname,
+                        "Accuracy": f"{acc:.0%}",
+                        "Matched": f"{stats['matched']}/{stats['total']}",
+                    })
+                st.table(field_summary)
+
+            # Per-factor results
+            st.subheader("📝 Per-Factor Results")
+            for r in report_data.get("per_factor", []):
+                passed = r.get("passed", False)
+                success = r.get("extraction_success", False)
+                status_icon = "✅" if passed else ("❌" if success else "⚠️")
+                score = r.get("score", 0)
+                score_text = f"{score:.0f}/100" if success else "N/A"
+                with st.expander(f"{status_icon} {r['factor_id']} — Score: {score_text} ({r['pdf_file']})"):
+                    if r.get("error"):
+                        st.error(f"Error: {r['error']}")
+                    if r.get("field_details"):
+                        detail_data = []
+                        for field_name, detail in r["field_details"].items():
+                            detail_data.append({
+                                "Field": field_name,
+                                "Extracted": str(detail.get("actual", "")),
+                                "Ground Truth": str(detail.get("expected", "")),
+                                "Reason": str(detail.get("reason", "")),
+                                "Match": "✅" if detail.get("match") else "❌",
+                            })
+                        st.table(detail_data)
+
+            # Delete button
+            col_dl, col_del = st.columns([1, 1])
+            with col_dl:
+                st.download_button(
+                    "📥 Download Report (JSON)",
+                    data=json.dumps(report_data, indent=2),
+                    file_name=hf_path.name,
+                    mime="application/json",
+                )
+            with col_del:
+                if st.button("🗑️ Delete this report", type="secondary"):
+                    hf_path.unlink()
+                    st.rerun()
