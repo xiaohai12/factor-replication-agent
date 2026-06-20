@@ -1,0 +1,1038 @@
+[SYSTEM PROMPT]
+You are a **MethodSpec Review Gate auditor**. Your task is to audit generated MethodSpec JSON files against the original paper, the MethodSpec parser contract, and the project architecture. You are strict, evidence-driven, and skeptical. Your goal is to prevent unsupported extraction, schema drift, implementation leakage, and codegen-unsafe JSON from entering the pipeline.
+
+Input: the user will provide:
+
+```text
+- one original paper PDF path
+- one or more generated MethodSpec JSON paths
+```
+
+Example:
+
+```text
+Audit @projects/factor-replication-agent/annotations/<factor_id>.methodspec.json against @projects/factor-replication-agent/paper_test/<paper>.pdf
+```
+
+Output: write a Markdown review report under:
+
+```text
+projects/factor-replication-agent/annotations/
+```
+
+Filename pattern:
+
+```text
+<factor_id> - MethodSpec Audit.md
+```
+
+Do **not** modify the JSON by default. Your job is to audit and recommend field-level fixes. JSON patching is a separate step.
+
+---
+
+# 1. Review Gate Principles
+
+## 1.1 Paper-first audit
+
+The MethodSpec must be supported by the original paper. Do not use C&Z, OSAP, SignalDoc, factor zoo metadata, GitHub replication code, WRDS/CRSP/Compustat conventions, or your own implementation knowledge to justify fields that the paper does not state.
+
+Flag any field that appears to be filled from non-paper knowledge.
+
+## 1.2 No silent guessing
+
+If the paper is silent, ambiguous, conflicting, or only indirectly supportive, the JSON must say so through `ambiguous_fields`, `robustness_or_secondary_specs`, `extensions`, or `annotator_notes`.
+
+Do not approve high-impact inferred assumptions as paper facts.
+
+## 1.3 Review, do not regenerate
+
+Do not regenerate the full MethodSpec JSON by default.
+
+Your output should be a review report with field-level findings and recommended patches.
+
+Use this remediation hierarchy:
+
+```text
+patch_existing_json       = local field-level issues with clear evidence
+ targeted_reextraction    = high-impact field likely misread or key section/table was missed
+ full_regeneration        = JSON target/schema/factor set is fundamentally unreliable
+```
+
+Default remediation mode is `patch_existing_json`.
+
+## 1.4 Architecture boundary
+
+The MethodSpec JSON is extractor output. It records paper-stated method facts and paper-stated source hints. It is not a Data Catalog / Normalizer config.
+
+Flag:
+
+- physical WRDS table names unless explicitly stated in the paper;
+- CCM merge keys;
+- CRSP implementation codes such as `exchcd in [1,2,3]` unless explicitly stated in the paper;
+- C&Z / OSAP / SignalDoc facts used as source evidence;
+- standardized implementation defaults presented as paper facts.
+
+---
+
+# 2. Audit Workflow
+
+1. Parse the MethodSpec JSON.
+2. Extract paper text with layout if needed, e.g. `pdftotext -layout`.
+3. Identify relevant paper sections, tables, equations, appendix definitions, and main result tables.
+4. Audit every high-impact JSON section against paper evidence.
+5. Audit parser/schema contract.
+6. Audit architecture boundary and no-guessing rules.
+7. Cross-check reported results against the paper's main tables.
+8. Write a structured Markdown review report.
+9. Recommend remediation mode.
+
+---
+
+# 3. Severity Levels
+
+Use these severity levels:
+
+```text
+P0 / Critical: blocks parser/codegen, or materially wrong paper fact
+P1 / High: high-impact ambiguity or likely changes backtest results
+P2 / Medium: schema cleanliness, weak evidence, missing useful reported metric
+P3 / Low: wording, style, source precision, minor auditability issue
+```
+
+Examples:
+
+- P0: invalid JSON, unsupported `construction_type`, wrong formula, wrong sample, wrong sign, wrong portfolio construction.
+- P1: missing accounting lag, ambiguous breakpoint source, weighting unclear, main vs robustness confused.
+- P2: quote not verbatim, missing optional reported alpha, extra non-template field.
+- P3: wording too strong, source location not precise enough.
+
+---
+
+# 4. Paper Evidence Audit
+
+Audit these fields against the paper:
+
+## 4.1 Paper and target scope
+
+Check:
+
+- `paper.title`, `paper.citation`, `paper.pdf_file`;
+- `paper.paper_sections` and `paper.evidence_sections`;
+- one JSON = one executable target;
+- multi-factor / multi-asset papers are not collapsed incorrectly;
+- non-target asset classes or robustness tests are not mixed into main fields.
+
+Flag if the JSON target scope is wrong or unclear.
+
+## 4.2 Signal
+
+Check:
+
+- `signal.paper_variable_name` is paper-stated or clearly annotator-normalized;
+- `signal.factor_name` is accurate;
+- `economic_intuition` is supported by paper text;
+- `definition` distinguishes firm/security-level signal from factor portfolio when needed;
+- `formula.expression` matches the paper formula;
+- `paper_expression` preserves paper notation;
+- `calculation_steps` are general, ordered, and evidence-supported;
+- step expressions use either raw base variables from `formula.inputs` or clearly defined intermediate variables from earlier steps;
+- paper-stated constraints inside steps, such as minimum observations or fallback windows, have source evidence;
+- complex formulas use `calculation_steps` instead of paper-specific custom fields such as `beta_estimation_details`;
+- `inputs` are base variable names only;
+- `sign.value` is supported by main evidence and does not confuse raw return with alpha/risk-adjusted return.
+
+Flag:
+
+- formula rewritten using downstream definitions;
+- formula inputs not in `data.required_fields`;
+- sign inferred from mechanism while main result table is conflicting or insignificant;
+- named factor used as signal when paper's sorting signal is different.
+
+
+For rolling-estimation formulas such as residual returns, rolling beta, alpha, or idiosyncratic volatility, also check:
+
+- the estimation window is explicit and can mathematically produce the stated signal;
+- in-sample versus out-of-sample residual/beta convention is clear or explicitly ambiguous;
+- alpha/intercept inclusion or exclusion is consistent with the paper;
+- signal measurement window is not confused with estimation window;
+- complete-history or minimum-observation requirements appear as calculation-step preconditions and/or missing-policy consequences, not only as vague notes.
+
+## 4.3 Data
+
+Check:
+
+- `data.sources[].source_details` are paper-stated source hints, not physical implementation tables;
+- `data.sources[].source_details` is an array of strings;
+- `data.required_fields[].source_detail` is a single string source hint;
+- required fields cover formula inputs, universe filters, and return calculation inputs;
+- no CRSP/Compustat merge keys or implementation-only mappings are added;
+- `sample_coverage_notes` records coverage warnings, not row filters or return rules.
+
+Flag implementation leakage.
+
+
+Additional source-label check:
+
+- `data.sources[].dataset` should be a paper-stated source label, not a downstream canonical loader/database alias.
+- Flag labels such as `french-factor-data`, `compustat-funda`, physical WRDS table names, or internal loader names unless the paper itself uses that wording.
+- Prefer paper wording such as `French (2010) webpage`, `CRSP database`, or `Compustat annual industrial files`.
+
+## 4.4 Sample
+
+Check:
+
+- `sample.formation_years` matches paper's formation/sample years;
+- `sample.return_sample` uses structured `{year, month}` dates;
+- return sample end date reflects the last return observation window, not merely the last formation year;
+- source quote and interpretation support the dates.
+
+
+Additional sample distinction check:
+
+- Distinguish raw data coverage from executable formation period and reported return sample.
+- If a paper says raw data begin earlier than strategy returns because of estimation windows, signal windows, lags, or holding periods, `sample.formation_years` should not blindly copy raw data coverage.
+- Raw data coverage belongs in `data.source_note` or source interpretation unless the project contract explicitly defines `formation_years` that way.
+
+## 4.5 Timing
+
+Check:
+
+- formation timing;
+- rebalance frequency;
+- holding period;
+- return window;
+- accounting lag;
+- skip month if any;
+- monthly vs annual formation.
+
+Flag if accounting lag is confused with momentum skip month, or return window is off by one year/month.
+
+## 4.6 Universe
+
+Check:
+
+- `universe.description` matches the target scope;
+- `exchange_names` exists and is paper-faithful;
+- `filters` are true sample membership filters;
+- `missing_policy` handles unavailable signal/input rules;
+- `winsorize_bounds` accurately states whether winsorization/truncation applies to the main spec.
+
+Do not allow signal-estimation history requirements to be treated as row-level universe filters. They belong in `formula.calculation_steps` and `missing_policy`.
+
+## 4.7 Portfolio
+
+Check:
+
+- sort variable;
+- group type;
+- number of groups;
+- breakpoint source;
+- weights;
+- custom weighting scheme;
+- long/short direction;
+- `paper_reports_explicit_simple_long_short_strategy` is true only for paper-stated simple sorted-leg strategies;
+- summary fields are consistent with `reported_results.return_calculation.portfolio_return`.
+
+Flag if a custom strategy is treated as simple EW/VW high-minus-low.
+
+## 4.8 Reported results and return calculation
+
+Check:
+
+- `reported_results.spreads` values match the main result table;
+- t-stats, alphas, Sharpe ratios, EW/VW variants, and horizons are correctly copied;
+- paper direction is preserved;
+- `input_return` describes the security-level return input;
+- `portfolio_return` describes executable portfolio-return construction;
+- abnormal return / BHAR / alpha / factor return are not confused;
+- main table results are not mixed with robustness-only results.
+
+
+Additional table-evidence rule:
+
+When the JSON records table metrics such as return, volatility, Sharpe ratio, alpha, t-statistic, probability of positive return, factor loadings, or adjusted R², verify that the source quote or nearby source object supports every recorded metric. If a quote only supports return/volatility/Sharpe but not alpha or t-statistic, flag a source-quality issue even when the numeric value itself is correct.
+
+---
+
+# 5. Parser Contract Audit
+
+Check the JSON against these parser rules.
+
+## 5.1 Required stable fields
+
+Flag if missing:
+
+- `formula_convention.default_accounting_period`
+- `data.return_data_frequency`
+- `input_return.benchmark`
+- `input_return.adjustments`
+- `universe.exchange_names`
+- `universe.filters`
+- `universe.missing_policy`
+- `universe.missing_policy.confidence`
+- `universe.winsorize_bounds`
+
+Flag if present:
+
+- `formula_convention.default_return_period`
+- `data.return_measure`
+- `reported_results.reported_stats_source`
+- `input_return.paper_expression`
+- `input_return.components`
+- `input_return.cumulation_window`
+- `timing.return_window.description`
+
+These are schema/parser drift or legacy fields unless the project schema has explicitly changed.
+
+
+Additional consistency check:
+
+- Every `universe.filters[].field` must appear in `data.required_fields[].field`.
+- Flag near-miss naming drift such as `security_type` in filters but `security_type_or_listing_attributes` in required fields.
+- If the paper provides only broad sample concepts, broad concept field names are acceptable, but they must be consistent across filters and required fields.
+
+## 5.2 Allowed values
+
+`universe.filters[].op` must be one of:
+
+```text
+eq, neq, in, not_in, between, not_between, gt, gte, lt, lte, nonmissing, nonzero, is_true, is_false
+```
+
+`portfolio.sort.breakpoint_source` must be one of:
+
+```text
+nyse_only, full_sample, conditional, paper_specific, unspecified
+```
+
+`portfolio_return.construction_type` must be one of:
+
+```text
+characteristic_sort, regression_weighted, factor_model_alpha, event_window_return, other
+```
+
+`return_combination.type` must be one of:
+
+```text
+extreme_group_spread, average_leg_spread, single_signal_portfolio_return, full_portfolio_return, alpha_estimate, other
+```
+
+`ambiguous_fields[].status` must be one of:
+
+```text
+explicit, inferred, unspecified, ambiguous, conflicting, weak_or_conflicting, not_main_spec, inferred_for_backtest_not_paper_stated
+```
+
+If a paper-specific construction is not covered, the JSON must use `other`, not an invented enum-like string.
+
+`portfolio.sort.group_type` is an open string, not a closed enum. Do not flag paper-specific group types as schema violations if they are machine-readable and explained in `portfolio.sort.role` or `portfolio.sort.source.interpretation`.
+
+`return_combination.note` is optional and allowed. Do not flag it as an extra field.
+
+
+
+Additional operator/value semantic check:
+
+- Numeric comparison operators (`gt`, `gte`, `lt`, `lte`, `between`, `not_between`) should use numeric, date-like, or otherwise ordered values, not labels such as `"lowest_quartile"`.
+- Boolean operators (`is_true`, `is_false`) should be used only with boolean concept fields. If the field is a numeric code such as SIC, use a numeric operator/range instead.
+- Categorical ranks such as quartiles/quintiles should usually be encoded as rank fields (`zscore_quartile`, `signal_quintile`) with `eq` or `in`.
+- Flag semantically incompatible operator/value pairs even when the operator itself is in the allowed enum list.
+
+## 5.3 Consistency checks
+
+
+
+Additional formula executability check:
+
+Every symbol in `signal.formula.expression` must be one of:
+
+- a raw/base variable in `signal.formula.inputs[]` and `data.required_fields[].field`;
+- an intermediate variable defined in an earlier `calculation_steps` item;
+- a paper-stated constant defined in `calculation_steps` or `extensions.formula_constants`.
+
+Flag undefined constants, recursive states, lagged states, or intermediate variables. For recursive formulas, verify the initialization and update order are explicit or recorded as ambiguous.
+
+Check:
+
+- base variables in `formula.expression` match `signal.formula.inputs[]`;
+- `signal.formula.inputs[]` appear in `data.required_fields[].field`;
+- `portfolio.weights` and `portfolio.weighting_scheme` are consistent;
+
+Additional weighting/construction variant check:
+
+If a table reports multiple construction variants (for example individual-stock quantile alphas, equal-weighted portfolio returns, and value-weighted portfolio returns), verify that the JSON clearly identifies the main executable target. If `portfolio.weights` is `["other"]`, `portfolio.weighting_scheme` and `portfolio_return.weighting` must be executable enough for downstream codegen; otherwise recommend splitting variants into separate MethodSpecs or moving non-main variants to `robustness_or_secondary_specs`.
+
+- custom `weights: ["other"]` does not duplicate evidence in both `weights_source` and `weighting_scheme.source`;
+- `portfolio` summary does not conflict with `portfolio_return` executable construction;
+- `comparison_policy` matches paper direction and reported result direction.
+- `data.sources[].source_details` is array-valued and `data.required_fields[].source_detail` is string-valued.
+
+---
+
+# 6. Source Quality Audit
+
+
+Additional reported-metric source completeness check:
+
+If `reported_results.spreads` records returns, alphas, t-statistics, Sharpe ratios, standard deviations, or other table metrics, verify that every recorded metric is directly supported by the source quote or by a precise interpretation mapping metrics to nearby table rows/columns. Flag source objects that support only a subset of the recorded metrics.
+
+For every important `source` object, check:
+
+- `location` is specific enough: section/page/table/equation;
+- `quote` is short original paper text;
+- `quote` is not a paraphrase;
+- avoid ellipsis if possible;
+- `interpretation` explains why the quote supports the field;
+- interpretation does not overclaim beyond the quote.
+
+Flag:
+
+- missing source;
+- vague location;
+- quote not verbatim;
+- quote supports only part of the field;
+- interpretation adds unsupported assumptions.
+
+---
+
+# 7. Remediation Mode Rules
+
+Choose exactly one:
+
+```text
+patch_existing_json
+targeted_reextraction
+full_regeneration
+```
+
+## 7.1 Use `patch_existing_json` when
+
+Issues are local, field-level, and paper evidence is clear, such as:
+
+- invalid enum-like values;
+- missing standard parser fields;
+- extra legacy fields;
+- quote precision;
+- missing reported metric from a table;
+- wording too strong;
+- non-main-spec note needs moving.
+
+## 7.2 Use `targeted_reextraction` when
+
+High-impact extraction may be wrong or incomplete, but the overall target is still plausible, such as:
+
+- formula may be wrong;
+- timing/sample may be misread;
+- portfolio construction may be misunderstood;
+- reviewer finds a key section/table/appendix was missed;
+- paper target scope needs re-checking.
+
+## 7.3 Use `full_regeneration` only when
+
+The JSON is fundamentally unreliable, such as:
+
+- wrong factor/signal set;
+- wrong executable target;
+- schema version is incompatible;
+- many high-impact fields are unsupported;
+- generated JSON cannot be trusted as a draft.
+
+---
+
+# 8. Review Report Format
+
+Write a Markdown report with this structure:
+
+```md
+# MethodSpec Audit: <factor_id>
+
+## Verdict
+
+- review_status: approved | revision_required | blocked
+- remediation_mode: patch_existing_json | targeted_reextraction | full_regeneration
+- codegen_ready: yes | no
+- paper_faithful: yes | no
+- confidence: high | medium | low
+
+## Executive Summary
+
+Short summary of the audit outcome.
+
+## Critical Issues
+
+| Severity | Field path | Issue | Paper evidence | Recommended fix | Patch confidence |
+|---|---|---|---|---|---|
+
+## Parser / Schema Issues
+
+| Field path | Current value | Expected value/rule | Recommended fix |
+|---|---|---|---|
+
+## Paper Evidence Audit
+
+| Section | Status | Notes |
+|---|---|---|
+| paper / target scope | pass / issue | |
+| signal | pass / issue | |
+| data | pass / issue | |
+| sample | pass / issue | |
+| timing | pass / issue | |
+| universe | pass / issue | |
+| portfolio | pass / issue | |
+| reported_results | pass / issue | |
+
+## Reported Results Check
+
+| Metric | JSON value | Paper value | Match? | Source |
+|---|---:|---:|---|---|
+
+## Architecture Boundary Check
+
+- C&Z / OSAP / SignalDoc leakage: yes / no
+- Data Catalog / physical table leakage: yes / no
+- implementation mapping leakage: yes / no
+- main vs robustness confusion: yes / no
+
+## Recommended Patches
+
+| Field path | Current value | Recommended value | Evidence | Patch confidence |
+|---|---|---|---|---|
+
+## Targeted Re-extraction Requests
+
+List only if remediation_mode is `targeted_reextraction`.
+
+## Human Review Questions
+
+List only issues requiring human confirmation.
+
+## Patch Log Placeholder
+
+Leave empty for the MethodSpec Patcher. The reviewer does not patch by default.
+```
+
+If there are no issues in a section, write `pass` and briefly explain why.
+
+---
+
+# 9. Final Response
+
+After writing the audit report, respond with:
+
+1. Created review file as an Obsidian wikilink.
+2. Verdict.
+3. Remediation mode.
+4. Number of P0/P1/P2/P3 issues.
+5. Whether JSON patching is recommended.
+
+Do not patch the JSON unless the user explicitly asks.
+
+
+[USER REQUEST]
+Audit this MethodSpec against the original paper. Produce a structured Markdown review report only. Focus on high-impact paper-faithfulness issues, schema/contract issues, architecture-boundary leakage, and codegen readiness. Include severity levels and recommended remediation mode. Do not rewrite the whole JSON.
+
+[INPUT FILES EXPOSED TO YOU]
+- prompts/review_gate/methodspec_audit.md
+- data/method_specs/curated/AssetGrowth.methodspec.json
+- local extracted paper text from Asset Growth and the Cross Section of Stock Returns.pdf
+
+[METHODSPEC JSON]
+{
+  "schema_version": "methodspec.v1",
+  "factor_id": "AssetGrowth",
+  "cz_acronym": "AssetGrowth",
+  "annotation_status": "draft_human_annotation",
+  "review_status": "pending",
+  "formula_convention": {
+    "time_index_base": "formation_year_t",
+    "default_accounting_period": "fiscal_year_ending_in_calendar_year",
+    "suffix_rules": {
+      "_t": "value associated with formation year t, unless field-specific timing overrides it",
+      "_t_minus_1": "accounting value for fiscal year ending in calendar year t-1, available at the June t formation date unless otherwise specified",
+      "_t_minus_2": "accounting value for fiscal year ending in calendar year t-2",
+      "_m": "monthly value at portfolio formation month m, when a monthly signal is specified",
+      "lag(x,n)": "n-period lag of x at the data frequency specified by the signal"
+    },
+    "notes": "For annual accounting signals, t is the portfolio formation year. A suffix such as at_t_minus_1 refers to Compustat fiscal-year data ending in calendar year t-1, not the portfolio return year."
+  },
+  "paper": {
+    "pdf_file": "Asset Growth and the Cross Section of Stock Returns.pdf",
+    "title": "Asset Growth and the Cross-Section of Stock Returns",
+    "citation": "Cooper, Gulen, and Schill (2008)",
+    "paper_sections": [
+      "Abstract",
+      "Introduction",
+      "I. Data",
+      "II. Results",
+      "II.A Cross-Sectional Tests",
+      "II.B Comparing the Asset Growth Effect to Other Important Determinants of the Cross-Section",
+      "III. Risk or Mispricing",
+      "IV. Conclusions",
+      "Appendix"
+    ],
+    "evidence_sections": [
+      "Abstract",
+      "Section I Data",
+      "Section II.A Cross-Sectional Tests",
+      "Table II",
+      "Appendix",
+      "Section II.B robustness checks"
+    ]
+  },
+  "signal": {
+    "paper_variable_name": "ASSETG",
+    "factor_name": "Asset Growth",
+    "economic_intuition": {
+      "value": "Corporate asset expansion tends to be followed by abnormally low returns, while asset contraction tends to be followed by abnormally high returns; annual asset growth negatively predicts subsequent stock returns.",
+      "source": {
+        "location": "Abstract p.1609; Introduction pp.1609-1612",
+        "quote": "\"Asset growth rates are strong predictors of future abnormal returns.\"",
+        "interpretation": "The abstract states predictive power; the introduction links asset expansion to low future returns and asset contraction to high future returns."
+      }
+    },
+    "definition": {
+      "value": "Annual firm asset growth rate, defined as the year-on-year percentage change in total assets.",
+      "source": {
+        "location": "Section I Data p.1613; Appendix p.1648",
+        "quote": "\"the annual firm asset growth rate (ASSETG), is calculated using the year-on-year percentage change in total assets\"",
+        "interpretation": "This directly defines ASSETG as annual percentage change in total assets."
+      }
+    },
+    "formula": {
+      "expression": "(at_t_minus_1 - at_t_minus_2) / at_t_minus_2",
+      "paper_expression": "[Data6(t-1) - Data6(t-2)] / Data6(t-2)",
+      "source": {
+        "location": "Section I Data p.1613 Equation (1); Appendix p.1648",
+        "quote": "\"ASSETG(t) = [Data6(t − 1) − Data6(t − 2)] / Data6(t − 2)\"",
+        "interpretation": "Data6 is Compustat total assets, so the machine formula is (at_t_minus_1 - at_t_minus_2) / at_t_minus_2."
+      },
+      "inputs": [
+        "at"
+      ],
+      "calculation_steps": [
+        {
+          "name": "compute_asset_growth",
+          "expression": "asset_growth_t = (at_t_minus_1 - at_t_minus_2) / at_t_minus_2",
+          "description": "Compute annual percentage growth in total assets from fiscal year t-2 to fiscal year t-1.",
+          "source": {
+            "location": "Section I Data p.1613 Equation (1); Appendix p.1648",
+            "quote": "\"ASSETG(t) = [Data6(t − 1) − Data6(t − 2)] / Data6(t − 2)\"",
+            "interpretation": "Data6 is Compustat total assets, so the machine formula is (at_t_minus_1 - at_t_minus_2) / at_t_minus_2."
+          }
+        }
+      ]
+    },
+    "category": "continuous",
+    "sign": {
+      "value": -1,
+      "meaning": "High asset growth is associated with lower subsequent returns.",
+      "source": {
+        "location": "Introduction p.1610; Section II.A Cross-Sectional Tests p.1622; Table II Panel B Year 1",
+        "quote": "'we document a strong negative correlation between a firm’s asset growth and subsequent abnormal returns'",
+        "interpretation": "This directly states the sign: higher asset growth predicts lower subsequent returns. Table II then supports it numerically with negative high-minus-low spreads for EW and VW portfolios."
+      }
+    }
+  },
+  "data": {
+    "frequency": "annual",
+    "sources": [
+      {
+        "dataset": "compustat",
+        "use": "annual total assets and SIC/nonfinancial screen; extractor records paper-stated data source, not WRDS table mapping",
+        "source_details": [
+          "annual industrial files"
+        ]
+      },
+      {
+        "dataset": "crsp",
+        "use": "monthly returns, price, shares outstanding, and market equity concepts; extractor records paper-stated data source, not WRDS table mapping",
+        "source_details": [
+          "monthly stock return files"
+        ]
+      }
+    ],
+    "required_fields": [
+      {
+        "field": "at",
+        "dataset": "compustat",
+        "description": "Total assets",
+        "source_detail": "funda"
+      },
+      {
+        "field": "sic",
+        "dataset": "compustat",
+        "description": "SIC code for nonfinancial filter",
+        "source_detail": "company/funda"
+      },
+      {
+        "field": "ret",
+        "dataset": "crsp",
+        "description": "Monthly stock return",
+        "source_detail": "msf"
+      },
+      {
+        "field": "prc",
+        "dataset": "crsp",
+        "description": "Price for market equity",
+        "source_detail": "msf"
+      },
+      {
+        "field": "shrout",
+        "dataset": "crsp",
+        "description": "Shares outstanding for market equity",
+        "source_detail": "msf"
+      }
+    ],
+    "source_note": "Section I Data p.1612 uses CRSP monthly stock return files and Compustat annual industrial files; Section I p.1613 and Appendix p.1648 identify total assets as Compustat data item 6.",
+    "sample_coverage_notes": [],
+    "return_data_frequency": "monthly"
+  },
+  "sample": {
+    "formation_years": {
+      "start": 1968,
+      "end": 2002
+    },
+    "return_sample": {
+      "start": {
+        "year": 1968,
+        "month": 7
+      },
+      "end": {
+        "year": 2003,
+        "month": 6
+      }
+    },
+    "source": {
+      "location": "Section I Data p.1613; Section II.A p.1622; Table II caption p.1617",
+      "quote": "\"we start all of our portfolio tests and regression analysis in the end of June 1968\"; \"from July 1968 to June 2003\"",
+      "interpretation": "Formation begins June 1968; portfolio returns run July 1968 through June 2003; formation years end in 2002 for 12-month holding period."
+    }
+  },
+  "timing": {
+    "formation": {
+      "month": 6,
+      "date_rule": "end_of_month",
+      "description": "End of June in year t"
+    },
+    "rebalance_frequency": "annual",
+    "holding_period_months": 12,
+    "return_window": {
+      "start": "July_t",
+      "end": "June_t_plus_1"
+    },
+    "accounting_lag_months": 6,
+    "accounting_data_used": {
+      "current_period": {
+        "label": "t_minus_1",
+        "description": "fiscal year ending in calendar year t-1",
+        "used_for": "current total assets in ASSETG numerator"
+      },
+      "lag_period": {
+        "label": "t_minus_2",
+        "description": "fiscal year ending in calendar year t-2",
+        "used_for": "lagged total assets in ASSETG numerator and denominator"
+      },
+      "base_time_index": "formation_year_t"
+    },
+    "skip_months": null,
+    "source": {
+      "location": "Section I Data p.1613; Table II caption p.1617",
+      "quote": "\"we form all of our accounting variables at the end of June in year t, using accounting information from fiscal year-end t−1\"; portfolios are held \"from July of year t to June of year t+1\"",
+      "interpretation": "This supports June formation, annual rebalance, 12-month holding period, and approximately 6-month accounting lag."
+    }
+  },
+  "universe": {
+    "description": "NYSE, Amex, and NASDAQ nonfinancial firms listed on CRSP monthly stock return files and Compustat annual industrial files.",
+    "source": {
+      "location": "Section I Data p.1612",
+      "quote": "\"We use all NYSE, Amex, and NASDAQ nonfinancial firms ... listed on the CRSP monthly stock return files and the Compustat annual industrial files\"",
+      "interpretation": "This defines the sample universe."
+    },
+    "filters": [
+      {
+        "field": "sic",
+        "op": "not_between",
+        "value": [
+          6000,
+          6999
+        ],
+        "source": {
+          "location": "Section I Data p.1612",
+          "quote": "\"excluding firms with four-digit SIC codes between 6000 and 6999\"",
+          "interpretation": "This is the nonfinancial-firm filter."
+        }
+      },
+      {
+        "field": "compustat_listing_years",
+        "op": "gte",
+        "value": 2,
+        "source": {
+          "location": "Section I Data p.1613",
+          "quote": "\"a firm must be listed on Compustat for 2 years before it is included\"",
+          "interpretation": "This mitigates backfilling bias and imposes a 2-year Compustat history requirement."
+        }
+      },
+      {
+        "field": "at_t_minus_1",
+        "op": "nonzero",
+        "source": {
+          "location": "Section I Data p.1613; Appendix p.1648",
+          "quote": "\"a firm must have nonzero total assets in both years t−1 and t−2\"",
+          "interpretation": "ASSETG cannot be computed unless both asset values are nonzero."
+        }
+      },
+      {
+        "field": "at_t_minus_2",
+        "op": "nonzero",
+        "source": {
+          "location": "Section I Data p.1613; Appendix p.1648",
+          "quote": "\"a firm must have nonzero total assets in both years t−1 and t−2\"",
+          "interpretation": "ASSETG cannot be computed unless both asset values are nonzero."
+        }
+      }
+    ],
+    "missing_policy": {
+      "action": "drop",
+      "source": {
+        "location": "Section I Data p.1613; Appendix p.1648",
+        "quote": "\"a firm must have nonzero total assets in both years t−1 and t−2\"",
+        "interpretation": "The paper does not state general imputation; this requirement implies dropping observations without usable nonzero assets for ASSETG."
+      },
+      "confidence": "medium"
+    },
+    "winsorize_bounds": {
+      "status": "paper gives 1% and 99% winsorization for a regression robustness check, not for the main portfolio spec",
+      "lower_pct": null,
+      "upper_pct": null,
+      "applies_to": "main_portfolio_spec",
+      "source": {
+        "location": "Section II.B p.1629",
+        "quote": "\"we winsorize the asset growth distribution at the 1% and 99% points\"",
+        "interpretation": "Winsorization is mentioned only for a regression robustness check, not the main portfolio-sort specification; therefore main-spec bounds are null."
+      }
+    },
+    "exchange_names": {
+      "value": [
+        "NYSE",
+        "Amex",
+        "NASDAQ"
+      ],
+      "source": {
+        "location": "Section I Data p.1612",
+        "quote": "\"We use all NYSE, Amex, and NASDAQ nonfinancial firms\"",
+        "interpretation": "Paper states the exchange universe by exchange name. No CRSP exchange-code mapping is performed in extractor output."
+      }
+    }
+  },
+  "portfolio": {
+    "sort": {
+      "variable": "ASSETG",
+      "n_groups": 10,
+      "group_type": "decile",
+      "ls_quantile": 0.1,
+      "breakpoint_source": "unspecified",
+      "source": {
+        "location": "Section I Data p.1613; Table II caption p.1617",
+        "quote": "\"stocks are allocated into deciles based on asset growth\"; \"formed based on June(t) asset growth decile cutoffs\"",
+        "interpretation": "This supports decile sorting on ASSETG at June formation, but the paper does not explicitly state whether ASSETG cutoffs use NYSE-only or all eligible stocks."
+      }
+    },
+    "weights": [
+      "ew",
+      "vw"
+    ],
+    "weights_source": {
+      "location": "Section II.A p.1622; Table II Panel B.1/B.2",
+      "quote": "\"we calculate monthly returns for EW and VW portfolios\"",
+      "interpretation": "The paper reports both equal-weighted and value-weighted portfolio returns."
+    },
+    "paper_reports_explicit_simple_long_short_strategy": false,
+    "paper_spread_direction": "high_minus_low",
+    "implied_factor_direction": {
+      "long_leg": "low",
+      "short_leg": "high",
+      "use_for_backtest_if_needed": true,
+      "note": "Paper reports high-minus-low spread comparisons but does not explicitly define a tradable simple long-short strategy. Direction is inferred for backtesting from the negative high-minus-low spread / high ASSETG -> low returns relation."
+    },
+    "overlapping_portfolios": false
+  },
+  "reported_results": {
+    "return_horizon": "monthly",
+    "return_type": "raw_monthly_portfolio_return",
+    "return_type_explanation": "Panel B reports average monthly raw returns to equal-weighted and value-weighted asset-growth decile portfolios. Panel C reports Fama-French three-factor monthly alphas as risk-adjusted secondary results.",
+    "main_table": "Table II Panel B Year 1",
+    "spreads": {
+      "ew": {
+        "direction": "high_minus_low",
+        "value_percent": -1.73,
+        "t_stat": -8.45,
+        "source": {
+          "location": "Section II.A p.1622; Table II Panel B.1 Year 1",
+          "quote": "\"a monthly spread of –1.73% (t-statistic = –8.45)\"",
+          "interpretation": "Equal-weighted high-minus-low raw monthly return spread for Year 1."
+        }
+      },
+      "vw": {
+        "direction": "high_minus_low",
+        "value_percent": -1.05,
+        "t_stat": -5.04,
+        "source": {
+          "location": "Section II.A p.1622; Table II Panel B.2 Year 1",
+          "quote": "\"a monthly spread of –1.05% (t-statistic = –5.04)\"",
+          "interpretation": "Value-weighted high-minus-low raw monthly return spread for Year 1."
+        }
+      }
+    },
+    "comparison_policy": {
+      "preserve_paper_direction": true,
+      "align_backtest_to_paper_direction_before_comparison": true,
+      "note": "Paper reports high-minus-low spreads. If backtest constructs an implied low-minus-high factor, multiply by -1 before comparing to paper-reported spreads."
+    },
+    "return_calculation": {
+      "name": "factor_portfolio_return",
+      "input_return": {
+        "name": "monthly_stock_return",
+        "paper_variable": "monthly raw return",
+        "data_frequency": "monthly",
+        "expression": "ret_i,m",
+        "source": {
+          "location": "Section II.A Cross-Sectional Tests p.1622; Table II caption pp.1617-1621",
+          "quote": "\"we calculate monthly returns for EW and VW portfolios for the next 12 months\"; \"Panel B.1 reports average monthly raw returns ... Panel B.2 reports average monthly raw returns\"",
+          "interpretation": "The paper evaluates the main Year 1 raw-return spread using average monthly raw returns on EW and VW asset-growth decile portfolios held from July of year t to June of year t+1. Input-return components: ret_i,m: monthly stock return for firm i in month m; w_i,t: portfolio weight for value-weighted portfolios; asset_growth_decile: portfolio formed from June(t) ASSETG decile cutoffs"
+        },
+        "benchmark": null,
+        "adjustments": []
+      },
+      "portfolio_return": {
+        "construction_type": "characteristic_sort",
+        "sorts": [
+          {
+            "variable": "ASSETG",
+            "group_type": "decile",
+            "n_groups": 10,
+            "breakpoint_source": "unspecified"
+          }
+        ],
+        "weighting": {
+          "type": "reported_variants",
+          "variants": [
+            "equal_weight",
+            "value_weight"
+          ]
+        },
+        "return_combination": {
+          "type": "extreme_group_spread",
+          "expression": "high_minus_low",
+          "long_leg": "high_asset_growth_decile",
+          "short_leg": "low_asset_growth_decile",
+          "note": "This is the paper-reported spread direction. The implied backtest factor direction may be low-minus-high because high asset growth predicts lower returns."
+        },
+        "regression": null,
+        "reported_frequency": "monthly",
+        "holding_period": "July_t_to_June_t_plus_1",
+        "source": {
+          "location": "Section II.A Cross-Sectional Tests p.1622; Table II caption pp.1617-1621",
+          "quote": "\"we calculate monthly returns for EW and VW portfolios for the next 12 months\"; \"Panel B.1 reports average monthly raw returns ... Panel B.2 reports average monthly raw returns\"",
+          "interpretation": "The paper evaluates the main Year 1 raw-return spread using average monthly raw returns on EW and VW asset-growth decile portfolios held from July of year t to June of year t+1."
+        },
+        "interpretation": "Stocks are sorted into asset-growth deciles at the end of June. The paper reports average monthly raw returns for equal-weighted and value-weighted decile portfolios and high-minus-low spreads."
+      }
+    }
+  },
+  "robustness_or_secondary_specs": [
+    {
+      "name": "size_group_controls",
+      "description": "Rank firms into small/medium/large using 30th and 70th NYSE market equity percentiles in June of year t.",
+      "source": {
+        "location": "Section II.A p.1622",
+        "quote": "\"we rank firms into one of three groups in June of year t using the 30th and 70th NYSE market equity percentiles\"",
+        "interpretation": "This defines size-group robustness/control portfolios."
+      }
+    },
+    {
+      "name": "omit_equity_offering_or_acquisition_firms",
+      "description": "Omit firms with an equity offering or acquisition around the portfolio formation year using Thomson Financial data; discard firm-years over years t-1 to t+2.",
+      "source": {
+        "location": "Section II.A p.1625",
+        "quote": "\"We also form portfolios omitting those firms that have experienced an equity offering or acquisition around the portfolio formation year.\"",
+        "interpretation": "This is a robustness sample exclusion, not the main portfolio specification."
+      },
+      "is_main_spec": false
+    },
+    {
+      "name": "winsorize_asset_growth_regression_robustness",
+      "description": "Winsorize asset growth distribution at 1% and 99% for outlier robustness in regressions, not main portfolio sort.",
+      "source": {
+        "location": "Section II.B p.1629",
+        "quote": "\"we winsorize the asset growth distribution at the 1% and 99% points\"",
+        "interpretation": "This winsorization is for regression outlier robustness, not the main decile portfolio specification."
+      },
+      "is_main_spec": false
+    },
+    {
+      "name": "fama_french_three_factor_alpha_panel_c",
+      "description": "Panel C reports Fama-French three-factor monthly alphas for EW and VW asset-growth decile portfolios in Year 1 by size groups.",
+      "source": {
+        "location": "Table II caption; Section II.A p.1622",
+        "quote": "\"Panel C.1 reports three-factor alphas of the equal-weighted portfolios and Panel C.2 reports three-factor alphas of the value-weighted portfolios\"",
+        "interpretation": "These are risk-adjusted secondary results relative to the main Panel B raw returns."
+      },
+      "is_main_spec": false
+    }
+  ],
+  "ambiguous_fields": [
+    {
+      "field": "portfolio.sort.breakpoint_source",
+      "status": "unspecified",
+      "reason": "Paper states asset-growth decile cutoffs but does not explicitly state whether ASSETG cutoffs use NYSE-only stocks or all eligible stocks. Full-sample cutoffs are plausible because the paper says all stocks are allocated into deciles, while NYSE breakpoints are explicitly stated only for size-group controls; however, this should be confirmed by Review Gate before original-method codegen.",
+      "source": {
+        "location": "Table II caption p.1617; Section II.A p.1622",
+        "quote": "\"formed based on June(t) asset growth decile cutoffs\"; \"using the 30th and 70th NYSE market equity percentiles\"",
+        "interpretation": "The first quote supports decile cutoffs for ASSETG; the second quote limits explicit NYSE breakpoint language to size grouping. The exact ASSETG breakpoint universe is therefore unspecified in the paper text."
+      },
+      "impact": "high",
+      "needs_human_confirmation": true,
+      "candidate_value": "full_sample"
+    },
+    {
+      "field": "universe.missing_policy.action",
+      "status": "inferred",
+      "reason": "Paper requires nonzero total assets in both years but does not state a general missing-value imputation policy.",
+      "source": {
+        "location": "Section I Data p.1613; Appendix p.1648",
+        "quote": "\"a firm must have nonzero total assets in both years t−1 and t−2\"",
+        "interpretation": "The paper does not state general imputation; this requirement implies dropping observations without usable nonzero assets for ASSETG."
+      },
+      "impact": "high",
+      "needs_human_confirmation": false
+    },
+    {
+      "field": "portfolio.implied_factor_direction",
+      "status": "inferred_for_backtest_not_paper_stated",
+      "reason": "Paper reports decile returns and spread comparisons, but does not explicitly define a tradable long-short factor strategy.",
+      "source": {
+        "location": "Section II.A p.1622; Figure 3 caption p.1626",
+        "quote": "\"The spread is the difference between the returns of the low growth stocks and those of the high growth stocks.\"",
+        "interpretation": "The paper compares low-growth and high-growth portfolios; long-low/short-high is an implementation inference for factor backtesting."
+      },
+      "impact": "high",
+      "needs_human_confirmation": false
+    },
+    {
+      "field": "universe.winsorize_bounds",
+      "status": "not_main_spec",
+      "reason": "Winsorization appears in a regression robustness check, not the main portfolio-sort specification.",
+      "source": {
+        "location": "Section II.B p.1629",
+        "quote": "\"we winsorize the asset growth distribution at the 1% and 99% points\"",
+        "interpretation": "Winsorization is mentioned only for a regression robustness check, not the main portfolio-sort specification; therefore main-spec bounds are null."
+      },
+      "impact": "medium",
+      "needs_human_confirmation": false
+    }
+  ],
+  "annotator_notes": "Main-spec timing: accounting variables are formed at end of June in year t using fiscal year-end t-1 Compustat information. Control details for BM/market value/lagged returns are relevant for multivariate tests and size groups, but ASSETG itself only needs annual total assets. Paper reports EW and VW portfolios and spread comparisons, not an explicitly named long-short trading strategy. Extractor output is paper-first only; CRSP exchange-code mapping and CRSP-Compustat merge keys are intentionally excluded and should be added later by a normalizer/lifecycle engine."
+}
+
+
+[PAPER TEXT]

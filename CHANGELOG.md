@@ -1,5 +1,15 @@
 # Changelog
 
+## [0.6.1] - 2026-06-20
+
+### Added
+- `scripts/review_methodspecs.py`: New `--backend llm` mode that can call configured CLI/API LLM backends (`codex`, `copilot`, or `openrouter`) for paper-aware MethodSpec review
+- `scripts/review_methodspecs.py`: Local PDF text extraction for LLM review via `pdftotext -layout`, with `pymupdf` fallback when `pdftotext` is unavailable
+- `scripts/review_methodspecs.py`: LLM review output now writes both structured `review_report.json` for downstream resolution tooling and human-readable `*.llm_review.md`
+
+### Changed
+- `scripts/review_methodspecs.py`: Added prompt/paper/backend CLI flags (`--prompt`, `--paper`, `--papers-dir`, `--provider`, `--model`) so a single command can trigger external CLI-backed review against the original paper
+
 ## [0.6.0] - 2026-06-20
 
 ### Added

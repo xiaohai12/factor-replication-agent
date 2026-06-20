@@ -1,0 +1,785 @@
+{
+  "A liquidity-augmented capital asset pricing model.pdf": [
+    "zerotrade6M",
+    "zerotrade1M",
+    "zerotrade12M"
+  ],
+  "A trend factor- Any economic gains from using information over investment horizons.pdf": [
+    "TrendFactor"
+  ],
+  "Abnormal returns to a fundamental  analysis strategy.pdf": [
+    "ChInvIA",
+    "GrSaleToGrInv",
+    "GrSaleToGrOverhead",
+    "ETR",
+    "GrGMToGrSales",
+    "GrSaleToGrReceivables",
+    "LaborforceEfficiency",
+    "pchgm_pchsale"
+  ],
+  "Accounting measurement, price-earnings  ratio, and the information content of security prices.pdf": [
+    "cashdebt",
+    "currat",
+    "pchcurrat",
+    "pchquick",
+    "pchsaleinv",
+    "quick",
+    "salecash",
+    "saleinv",
+    "salerec"
+  ],
+  "Accounting quality, stock price delay, and future stock returns.pdf": [
+    "DelayAcct",
+    "DelayNonAcct"
+  ],
+  "Accounting valuation, market expectation, and cross-sectional stock returns.pdf": [
+    "AnalystValue",
+    "AOP",
+    "PredictedFE",
+    "IntrinsicValue"
+  ],
+  "Accrual  reliability, earnings persistence and stock prices.pdf": [
+    "DelCOA",
+    "DelCOL",
+    "DelEqu",
+    "DelFINL",
+    "DelLTI",
+    "DelNetFin",
+    "TotalAccruals",
+    "DelSTI"
+  ],
+  "Accruals,  cash flows, and operating profitability in the cross section of stock returns.pdf": [
+    "CBOperProf",
+    "OperProfRD",
+    "CBOperProfLagAT",
+    "CBOperProfLagAT_q",
+    "OperProfRDLagAT",
+    "OperProfRDLagAT_q"
+  ],
+  "Accrued earnings and growth Implications for earnings persistence and market mispricing.pdf": [
+    "GrLTNOA"
+  ],
+  "Alternative factor specifications, security characteristics, and the cross-section of expected stock returns.pdf": [
+    "DolVol"
+  ],
+  "An examination  of long-term abnormal stock returns and operating performance following R&D increases.pdf": [
+    "SurpriseRD"
+  ],
+  "Analyst earnings per share.pdf": [
+    "FEPS"
+  ],
+  "Analyzing the analysts When do recommendations add value.pdf": [
+    "ChangeInRecommendation"
+  ],
+  "Arbitrage risk and the bookto-market anomaly.pdf": [
+    "IdioVolAHT"
+  ],
+  "Asset Growth and the Cross Section of Stock Returns.pdf": [
+    "AssetGrowth",
+    "AssetGrowth_q"
+  ],
+  "Asset pricing and the bid-ask spread.pdf": [
+    "BidAskSpread"
+  ],
+  "Asset pricing with liquidity risk.pdf": [
+    "betaCC",
+    "betaCR",
+    "betaNet",
+    "betaRC",
+    "betaRR"
+  ],
+  "Attracting investor attention through advertising.pdf": [
+    "GrAdExp"
+  ],
+  "Betting against beta.pdf": [
+    "BetaFP"
+  ],
+  "Brand capital and firm  value.pdf": [
+    "BrandInvest",
+    "BrandCapital"
+  ],
+  "Breadth of ownership and  stock returns.pdf": [
+    "DelBreadth"
+  ],
+  "Can  investors profit from the prophets? Security analyst recommendations and stock returns.pdf": [
+    "ConsRecomm",
+    "DownRecomm",
+    "UpRecomm"
+  ],
+  "Capital investments and stock  returns.pdf": [
+    "Investment"
+  ],
+  "Cash holdings, risk, and expected returns.pdf": [
+    "Cash"
+  ],
+  "Changes in Order Backlog and Future Returns.pdf": [
+    "OrderBacklogChg"
+  ],
+  "Commonality in the determinants of expected stock returns.pdf": [
+    "RoE",
+    "VarCF",
+    "VolMkt",
+    "VolumeTrend",
+    "CapTurnover",
+    "CapTurnover_q"
+  ],
+  "Complicated firms.pdf": [
+    "retConglomerate"
+  ],
+  "Conditional skewness in asset pricing  tests.pdf": [
+    "Coskewness"
+  ],
+  "Consistency of firms\u2019 past financial performance  measures and future returns.pdf": [
+    "EarningsConsistency"
+  ],
+  "Contrarian investment, extrapolation, and risk.pdf": [
+    "CF",
+    "MeanRankRevGrowth",
+    "CFq",
+    "sgr",
+    "sgr_q"
+  ],
+  "Corporate governance and equity  prices.pdf": [
+    "Governance"
+  ],
+  "Corporate real estate holdings and the cross-section of stock returns.pdf": [
+    "realestate"
+  ],
+  "Costs of  equity and earnings attributes.pdf": [
+    "EarningsConservatism",
+    "EarningsPersistence",
+    "EarningsPredictability",
+    "EarningsSmoothness",
+    "EarningsTimeliness",
+    "EarningsValueRelevance",
+    "roavol"
+  ],
+  "Debt:equity ratio and expected common stock returns- Empirical evidence.pdf": [
+    "Leverage",
+    "Leverage_q"
+  ],
+  "Deferred revenues and the matching of  revenues and expenses.pdf": [
+    "DelDRC"
+  ],
+  "Delayed security price adjustments  to financial analysts\u2019 forecasts of annual earnings.pdf": [
+    "sfe",
+    "nanalyst"
+  ],
+  "Differences of opinion and the cross section of stock returns.pdf": [
+    "ForecastDispersion"
+  ],
+  "Differential information and the  small firm effect.pdf": [
+    "FirmAge"
+  ],
+  "Do Stock Prices Fully Reflect Information in Accruals and Cash Flows about  Future Earnings.pdf": [
+    "Accruals"
+  ],
+  "Do heterogeneous beliefs matter for asset pricing.pdf": [
+    "ForecastDispersionLT"
+  ],
+  "Do industries explain momentum.pdf": [
+    "IndMom"
+  ],
+  "Do investors  overvalue firms with bloated balance sheets.pdf": [
+    "NOA",
+    "dNoa"
+  ],
+  "Do investors  understand really dirty surplus.pdf": [
+    "RDS"
+  ],
+  "Do sales\u2013price and  debt\u2013equity explain stock returns better than book\u2013market and firm size.pdf": [
+    "SP",
+    "SP_q"
+  ],
+  "Does the stock  market fully appreciate the implications of leading indicators for future earnings? Evidence from order backlog.pdf": [
+    "OrderBacklog"
+  ],
+  "Does the stock market overreact.pdf": [
+    "LRreversal",
+    "MRreversal"
+  ],
+  "Downside risk.pdf": [
+    "CoskewACX",
+    "DownsideBeta"
+  ],
+  "Earnings Expectations and Security Prices.pdf": [
+    "AnalystRevision"
+  ],
+  "Earnings releases, anomalies,  and the behavior of security returns.pdf": [
+    "EarningsSurprise"
+  ],
+  "Economic links and predictable returns.pdf": [
+    "CustomerMomentum"
+  ],
+  "Empirical evidence on capital investment, growth options, and security returns.pdf": [
+    "grcapx",
+    "grcapx3y",
+    "grcapx1y"
+  ],
+  "Evidence of predictable behavior of security returns.pdf": [
+    "STreversal"
+  ],
+  "Expectations and the cross-section of stock returns.pdf": [
+    "fgr5yrLag",
+    "fgr5yrNoLag"
+  ],
+  "Explaining the Short-and Long-Term  IPO Anomalies in the US by R&D.pdf": [
+    "RDIPO"
+  ],
+  "Financial Constraints  and Stock Returns.pdf": [
+    "KZ",
+    "KZ_q"
+  ],
+  "Financial constraints risk.pdf": [
+    "WW",
+    "WW_Q"
+  ],
+  "Financial constraints, R&D investment, and stock returns.pdf": [
+    "RDcap"
+  ],
+  "Financial constraints, debt capacity, and the  cross-section of stock returns.pdf": [
+    "tang",
+    "tang_q"
+  ],
+  "Financial intermediaries and the  cross-section of asset returns.pdf": [
+    "BetaBDLeverage"
+  ],
+  "Firm characteristics, relative efficiency,  and equity returns.pdf": [
+    "Frontier"
+  ],
+  "Governance Mechanisms and Equity Prices.pdf": [
+    "Activism1",
+    "Activism2"
+  ],
+  "Have we solved the idiosyncratic volatility puzzle.pdf": [
+    "BidAskTAQ"
+  ],
+  "Illiquidity and stock returns cross-section and time-series effects.pdf": [
+    "Illiquidity"
+  ],
+  "Implied equity duration A new measure of equity risk.pdf": [
+    "EquityDuration"
+  ],
+  "In search of distress risk.pdf": [
+    "FailureProbability",
+    "FailureProbabilityJune"
+  ],
+  "Industry concentration and average stock  returns.pdf": [
+    "Herf",
+    "HerfBE",
+    "HerfAsset"
+  ],
+  "Industry information diffusion and the lead-lag effect in stock returns.pdf": [
+    "EarnSupBig",
+    "IndRetBig"
+  ],
+  "Information Uncertainty and Expected Returns.pdf": [
+    "FirmAgeMom"
+  ],
+  "Innovative efficiency and  stock returns.pdf": [
+    "CitationsRD",
+    "PatentsRD"
+  ],
+  "Inventory changes and future returns.pdf": [
+    "ChInv"
+  ],
+  "Investment performance of common stocks in relation to their  price-earnings ratios- A test of the efficient market hypothesis.pdf": [
+    "EP",
+    "EPq"
+  ],
+  "Is information risk a determinant of asset returns.pdf": [
+    "ProbInformedTrading"
+  ],
+  "Is momentum really momentum.pdf": [
+    "IntMom"
+  ],
+  "Is the risk of bankruptcy a systematic risk.pdf": [
+    "OScore",
+    "ZScore",
+    "OScore_q",
+    "ZScore_q"
+  ],
+  "Jump risk, stock returns, and slope of implied volatility smile.pdf": [
+    "SmileSlope"
+  ],
+  "Labor hiring, investment,  and stock return predictability in the cross section.pdf": [
+    "hire"
+  ],
+  "Liquidity Risk and Expected Stock Returns.pdf": [
+    "BetaLiquidityPS"
+  ],
+  "Liquidity and stock returns- An alternative test.pdf": [
+    "ShareVol"
+  ],
+  "Market frictions, price delay, and the cross-section of expected returns.pdf": [
+    "PriceDelayRsq",
+    "PriceDelaySlope",
+    "PriceDelayTstat"
+  ],
+  "Market reactions to tangible and intangible  information.pdf": [
+    "CompEquIss",
+    "IntanBM",
+    "IntanCFP",
+    "IntanEP",
+    "IntanSP",
+    "ShareIss5Y"
+  ],
+  "Market segmentation and cross-predictability  of returns.pdf": [
+    "iomom_cust",
+    "iomom_supp"
+  ],
+  "Market underreaction to open market share repurchases.pdf": [
+    "ShareRepurchase"
+  ],
+  "Maxing out Stocks as lotteries and the cross-section of expected returns.pdf": [
+    "MaxRet"
+  ],
+  "Misvaluing innovation.pdf": [
+    "RDAbility"
+  ],
+  "Momentum and credit rating.pdf": [
+    "Mom6mJunk"
+  ],
+  "Momentum strategies.pdf": [
+    "AnnouncementReturn",
+    "REV6"
+  ],
+  "New evidence on the relation between  the enterprise multiple and average stock returns.pdf": [
+    "EntMult",
+    "EntMult_q"
+  ],
+  "On the importance of measuring payout yield Implications for empirical asset pricing.pdf": [
+    "NetPayoutYield",
+    "PayoutYield",
+    "NetPayoutYield_q",
+    "PayoutYield_q"
+  ],
+  "Operating leverage.pdf": [
+    "OPLeverage",
+    "OPLeverage_q"
+  ],
+  "Organization capital and the  cross-section of expected returns.pdf": [
+    "OrgCap",
+    "OrgCapNoAdj"
+  ],
+  "Pension plan funding and stock market  efficiency.pdf": [
+    "FR",
+    "FRbook"
+  ],
+  "Percent accruals.pdf": [
+    "PctAcc",
+    "PctTotAcc",
+    "AbnormalAccrualsPercent"
+  ],
+  "Post loss:profit announcement drift.pdf": [
+    "roaq",
+    "ChangeRoA",
+    "ChangeRoE"
+  ],
+  "Price momentum and trading  volume.pdf": [
+    "MomVol"
+  ],
+  "Price reactions to dividend initiations and omissions Overreaction or drift.pdf": [
+    "DivInit",
+    "DivOmit"
+  ],
+  "Price, beta, and exchange listing.pdf": [
+    "Price"
+  ],
+  "Profitability, investment and average returns.pdf": [
+    "OperProf",
+    "OperProfLag",
+    "OperProfLag_q"
+  ],
+  "Real asset illiquidity and the cost  of capital.pdf": [
+    "AssetLiquidityBook",
+    "AssetLiquidityBookQuart",
+    "AssetLiquidityMarket",
+    "AssetLiquidityMarketQuart"
+  ],
+  "Residual momentum.pdf": [
+    "ResidualMomentum",
+    "ResidualMomentum6m"
+  ],
+  "Restructuring through  spinoffs- The stock market evidence.pdf": [
+    "Spinoff"
+  ],
+  "Returns to buying winners and  selling losers- Implications for stock market efficiency.pdf": [
+    "Mom12m",
+    "Mom6m"
+  ],
+  "Revenue surprises and stock returns.pdf": [
+    "RevenueSurprise"
+  ],
+  "Riding the wave of sentiment An analysis of return consistency  as a predictor of future returns.pdf": [
+    "ConsNegRet",
+    "ConsPosRet",
+    "PosNegCons"
+  ],
+  "Risk measurement when shares are subject to infrequent trading.pdf": [
+    "BetaDimson"
+  ],
+  "Risk, mispricing, and value investing.pdf": [
+    "AccrualsBM"
+  ],
+  "Risk, return, and equilibrium- Empirical  tests.pdf": [
+    "Beta",
+    "BetaSquared"
+  ],
+  "Seasonality in the cross-section of stock  returns.pdf": [
+    "Mom12mOffSeason",
+    "MomOffSeason",
+    "MomOffSeason06YrPlus",
+    "MomOffSeason16YrPlus",
+    "MomSeason",
+    "MomSeason06YrPlus",
+    "MomSeason11YrPlus",
+    "MomSeason16YrPlus",
+    "MomSeasonShort",
+    "MomOffSeason11YrPlus"
+  ],
+  "Separating winners from losers among lowbook-tomarket stocks using financial statement analysis.pdf": [
+    "MS"
+  ],
+  "Share issuance and cross-sectional returns.pdf": [
+    "ShareIss1Y"
+  ],
+  "Short interest, institutional  ownership, and stock returns.pdf": [
+    "IO_ShortInterest"
+  ],
+  "Short sales, institutional investors and the cross-section of stock  returns.pdf": [
+    "RIO_Disp",
+    "RIO_MB",
+    "RIO_Turnover",
+    "RIO_Volatility"
+  ],
+  "Shortsellers, fundamental analysis, and stock returns.pdf": [
+    "ShortInterest"
+  ],
+  "Should Investors Follow the Prophets or the Bears? Evidence on the Use of Public Information by Analysts and Short Sellers.pdf": [
+    "Recomm_ShortInterest"
+  ],
+  "Stock returns, dividend  yields, and taxes.pdf": [
+    "DivYield",
+    "DivYieldAnn"
+  ],
+  "Strategic default, debt structure, and stock returns.pdf": [
+    "ConvDebt",
+    "secured",
+    "securedind"
+  ],
+  "Streaks in earnings surprises and the crosssection of stock returns.pdf": [
+    "EarningsStreak",
+    "NumEarnIncrease"
+  ],
+  "Suppressed negative information and future underperformance.pdf": [
+    "ChNAnalyst"
+  ],
+  "Sustainable growth and stock returns.pdf": [
+    "ChEQ"
+  ],
+  "Tail Risk and Asset Prices.pdf": [
+    "BetaTailRisk"
+  ],
+  "Tax expense momentum.pdf": [
+    "ChTax"
+  ],
+  "Taxable income, future earnings, and equity values.pdf": [
+    "Tax",
+    "Tax_q"
+  ],
+  "The 52-week high and momentum  investing.pdf": [
+    "High52"
+  ],
+  "The Book-to-Price Effect in Stock Returns- Accounting for Leverage.pdf": [
+    "BPEBM",
+    "EBM",
+    "NetDebtPrice",
+    "EBM_q",
+    "NetDebtPrice_q"
+  ],
+  "The Cross Section of Volatility and Expected Returns.pdf": [
+    "betaVIX",
+    "IdioVol3F",
+    "RealizedVol",
+    "IdioVolCAPM",
+    "IdioVolQF"
+  ],
+  "The Cross-Section of Expected Stock Returns.pdf": [
+    "AM",
+    "BMdec",
+    "BookLeverage",
+    "AMq",
+    "BookLeverageQuarterly"
+  ],
+  "The Effects of Dividends on Common Stock Prices Tax Effects or Information Effects.pdf": [
+    "DivYieldST"
+  ],
+  "The Joint Cross Section of Stocks and Options.pdf": [
+    "dVolCall",
+    "dVolPut",
+    "dCPVolSpread"
+  ],
+  "The Long-Run Stock Returns Following Bond Ratings Changes.pdf": [
+    "CredRatDG"
+  ],
+  "The Mispricing of Abnormal Accruals.pdf": [
+    "skew1"
+  ],
+  "The Productivity of Cash and the Cross-Section of   Expected Stock Returns.pdf": [
+    "CashProd"
+  ],
+  "The disparity between long-term and short-term  forecasted earnings growth.pdf": [
+    "EarningsForecastDisparity"
+  ],
+  "The dividend month premium.pdf": [
+    "DivSeason"
+  ],
+  "The inventory growth spread.pdf": [
+    "InvGrowth"
+  ],
+  "The long-run negative drift of postlisting stock returns.pdf": [
+    "ExchSwitch"
+  ],
+  "The long-run performance of  stock returns following debt offerings.pdf": [
+    "DebtIssuance"
+  ],
+  "The long-run performance of initial public offerings.pdf": [
+    "IndIPO",
+    "AgeIPO"
+  ],
+  "The market  pricing of accruals quality.pdf": [
+    "AccrualQuality",
+    "AccrualQualityJune"
+  ],
+  "The new issues puzzle Testing the  investment-based explanation.pdf": [
+    "CompositeDebtIssuance",
+    "InvestPPEInv"
+  ],
+  "The other side of value- The gross profitability premium.pdf": [
+    "GP",
+    "GPlag",
+    "GPlag_q"
+  ],
+  "The predictive value  of expenses excluded from pro forma earnings.pdf": [
+    "ExclExp"
+  ],
+  "The price of sin- The effects of social  norms on markets.pdf": [
+    "sinAlgo",
+    "sinOrig"
+  ],
+  "The productivity premium in equity returns.pdf": [
+    "roic"
+  ],
+  "The relation between corporate financing activities, analysts\u2019 forecasts and stock returns.pdf": [
+    "NetDebtFinance",
+    "NetEquityFinance",
+    "XFIN"
+  ],
+  "The relationship between return and market value of common  stocks.pdf": [
+    "Size"
+  ],
+  "The stock market  valuation of research and development expenditures.pdf": [
+    "RD",
+    "AdExp",
+    "rd_sale",
+    "RD_q",
+    "rd_sale_q"
+  ],
+  "The use of DuPont analysis by market participants.pdf": [
+    "ChAssetTurnover",
+    "ChNNCOA",
+    "ChNWC",
+    "AssetTurnover",
+    "AssetTurnover_q",
+    "ChNCOA",
+    "ChNCOL",
+    "ChPM",
+    "PM",
+    "PM_q",
+    "RetNOA",
+    "RetNOA_q"
+  ],
+  "Trading activity and expected stock returns.pdf": [
+    "std_turn",
+    "VolSD"
+  ],
+  "Value Glamour and Accruals Mispricing One Anomaly or Two.pdf": [
+    "cfp",
+    "cfpq"
+  ],
+  "Value investing- The use of historical financial statement  information to separate winners from losers.pdf": [
+    "PS",
+    "PS_q"
+  ],
+  "Volatility Spreads and Expected Stock Returns.pdf": [
+    "CPVolSpread",
+    "RIVolSpread"
+  ],
+  "analyst earnings forecast revisions and the  pricing of accruals.pdf": [
+    "ChForecastAccrual"
+  ],
+  "better three-factor model that explains more  anomalies.pdf": [
+    "invest"
+  ],
+  "the option to stock volume ratio and future  returns.pdf": [
+    "OptionVolume1",
+    "OptionVolume2"
+  ],
+  "_pdf_files": [
+    "A liquidity-augmented capital asset pricing model.pdf",
+    "A trend factor- Any economic gains from using information over investment horizons.pdf",
+    "Abnormal returns to a fundamental  analysis strategy.pdf",
+    "Accounting measurement, price-earnings  ratio, and the information content of security prices.pdf",
+    "Accounting quality, stock price delay, and future stock returns.pdf",
+    "Accounting valuation, market expectation, and cross-sectional stock returns.pdf",
+    "Accrual  reliability, earnings persistence and stock prices.pdf",
+    "Accruals,  cash flows, and operating profitability in the cross section of stock returns.pdf",
+    "Accrued earnings and growth Implications for earnings persistence and market mispricing.pdf",
+    "Alternative factor specifications, security characteristics, and the cross-section of expected stock returns.pdf",
+    "An examination  of long-term abnormal stock returns and operating performance following R&D increases.pdf",
+    "Analyst earnings per share.pdf",
+    "Analyzing the analysts When do recommendations add value.pdf",
+    "Arbitrage risk and the bookto-market anomaly.pdf",
+    "Asset Growth and the Cross Section of Stock Returns.pdf",
+    "Asset pricing and the bid-ask spread.pdf",
+    "Asset pricing with liquidity risk.pdf",
+    "Attracting investor attention through advertising.pdf",
+    "Betting against beta.pdf",
+    "Brand capital and firm  value.pdf",
+    "Breadth of ownership and  stock returns.pdf",
+    "Can  investors profit from the prophets? Security analyst recommendations and stock returns.pdf",
+    "Capital investments and stock  returns.pdf",
+    "Cash holdings, risk, and expected returns.pdf",
+    "Changes in Order Backlog and Future Returns.pdf",
+    "Common risk factors in the returns on  stocks and bonds.pdf",
+    "Commonality in the determinants of expected stock returns.pdf",
+    "Complicated firms.pdf",
+    "Conditional skewness in asset pricing  tests.pdf",
+    "Consistency of firms\u2019 past financial performance  measures and future returns.pdf",
+    "Contrarian investment, extrapolation, and risk.pdf",
+    "Corporate governance and equity  prices.pdf",
+    "Corporate real estate holdings and the cross-section of stock returns.pdf",
+    "Costs of  equity and earnings attributes.pdf",
+    "Debt:equity ratio and expected common stock returns- Empirical evidence.pdf",
+    "Deferred revenues and the matching of  revenues and expenses.pdf",
+    "Delayed security price adjustments  to financial analysts\u2019 forecasts of annual earnings.pdf",
+    "Differences of opinion and the cross section of stock returns.pdf",
+    "Differential information and the  small firm effect.pdf",
+    "Do Stock Prices Fully Reflect Information in Accruals and Cash Flows about  Future Earnings.pdf",
+    "Do heterogeneous beliefs matter for asset pricing.pdf",
+    "Do industries explain momentum.pdf",
+    "Do investors  overvalue firms with bloated balance sheets.pdf",
+    "Do investors  understand really dirty surplus.pdf",
+    "Do sales\u2013price and  debt\u2013equity explain stock returns better than book\u2013market and firm size.pdf",
+    "Does the stock  market fully appreciate the implications of leading indicators for future earnings? Evidence from order backlog.pdf",
+    "Does the stock market overreact.pdf",
+    "Downside risk.pdf",
+    "Earnings Expectations and Security Prices.pdf",
+    "Earnings releases, anomalies,  and the behavior of security returns.pdf",
+    "Economic links and predictable returns.pdf",
+    "Empirical evidence on capital investment, growth options, and security returns.pdf",
+    "Evidence of predictable behavior of security returns.pdf",
+    "Expectations and the cross-section of stock returns.pdf",
+    "Explaining the Short-and Long-Term  IPO Anomalies in the US by R&D.pdf",
+    "Financial Constraints  and Stock Returns.pdf",
+    "Financial constraints risk.pdf",
+    "Financial constraints, R&D investment, and stock returns.pdf",
+    "Financial constraints, debt capacity, and the  cross-section of stock returns.pdf",
+    "Financial intermediaries and the  cross-section of asset returns.pdf",
+    "Firm characteristics, relative efficiency,  and equity returns.pdf",
+    "Governance Mechanisms and Equity Prices.pdf",
+    "Have we solved the idiosyncratic volatility puzzle.pdf",
+    "Illiquidity and stock returns cross-section and time-series effects.pdf",
+    "Implied equity duration A new measure of equity risk.pdf",
+    "In search of distress risk.pdf",
+    "Industry concentration and average stock  returns.pdf",
+    "Industry information diffusion and the lead-lag effect in stock returns.pdf",
+    "Information Uncertainty and Expected Returns.pdf",
+    "Innovative efficiency and  stock returns.pdf",
+    "Inventory changes and future returns.pdf",
+    "Investment performance of common stocks in relation to their  price-earnings ratios- A test of the efficient market hypothesis.pdf",
+    "Is information risk a determinant of asset returns.pdf",
+    "Is momentum really momentum.pdf",
+    "Is the risk of bankruptcy a systematic risk.pdf",
+    "Jump risk, stock returns, and slope of implied volatility smile.pdf",
+    "Labor hiring, investment,  and stock return predictability in the cross section.pdf",
+    "Liquidity Risk and Expected Stock Returns.pdf",
+    "Liquidity and stock returns- An alternative test.pdf",
+    "Market frictions, price delay, and the cross-section of expected returns.pdf",
+    "Market reactions to tangible and intangible  information.pdf",
+    "Market segmentation and cross-predictability  of returns.pdf",
+    "Market underreaction to open market share repurchases.pdf",
+    "Maxing out Stocks as lotteries and the cross-section of expected returns.pdf",
+    "Misvaluing innovation.pdf",
+    "Momentum and credit rating.pdf",
+    "Momentum strategies.pdf",
+    "New evidence on the relation between  the enterprise multiple and average stock returns.pdf",
+    "On the importance of measuring payout yield Implications for empirical asset pricing.pdf",
+    "Operating leverage.pdf",
+    "Organization capital and the  cross-section of expected returns.pdf",
+    "Pension plan funding and stock market  efficiency.pdf",
+    "Percent accruals.pdf",
+    "Post loss:profit announcement drift.pdf",
+    "Price momentum and trading  volume.pdf",
+    "Price reactions to dividend initiations and omissions Overreaction or drift.pdf",
+    "Price, beta, and exchange listing.pdf",
+    "Profitability, investment and average returns.pdf",
+    "Real asset illiquidity and the cost  of capital.pdf",
+    "Residual momentum.pdf",
+    "Restructuring through  spinoffs- The stock market evidence.pdf",
+    "Returns to buying winners and  selling losers- Implications for stock market efficiency.pdf",
+    "Revenue surprises and stock returns.pdf",
+    "Riding the wave of sentiment An analysis of return consistency  as a predictor of future returns.pdf",
+    "Risk measurement when shares are subject to infrequent trading.pdf",
+    "Risk, mispricing, and value investing.pdf",
+    "Risk, return, and equilibrium- Empirical  tests.pdf",
+    "Seasonality in the cross-section of stock  returns.pdf",
+    "Separating winners from losers among lowbook-tomarket stocks using financial statement analysis.pdf",
+    "Share issuance and cross-sectional returns.pdf",
+    "Short interest, institutional  ownership, and stock returns.pdf",
+    "Short sales, institutional investors and the cross-section of stock  returns.pdf",
+    "Shortsellers, fundamental analysis, and stock returns.pdf",
+    "Should Investors Follow the Prophets or the Bears? Evidence on the Use of Public Information by Analysts and Short Sellers.pdf",
+    "Stock returns, dividend  yields, and taxes.pdf",
+    "Strategic default, debt structure, and stock returns.pdf",
+    "Streaks in earnings surprises and the crosssection of stock returns.pdf",
+    "Suppressed negative information and future underperformance.pdf",
+    "Sustainable growth and stock returns.pdf",
+    "Tail Risk and Asset Prices.pdf",
+    "Tax expense momentum.pdf",
+    "Taxable income, future earnings, and equity values.pdf",
+    "The 52-week high and momentum  investing.pdf",
+    "The Book-to-Price Effect in Stock Returns- Accounting for Leverage.pdf",
+    "The Cross Section of Volatility and Expected Returns.pdf",
+    "The Cross-Section of Expected Stock Returns.pdf",
+    "The Effects of Dividends on Common Stock Prices Tax Effects or Information Effects.pdf",
+    "The Joint Cross Section of Stocks and Options.pdf",
+    "The Long-Run Stock Returns Following Bond Ratings Changes.pdf",
+    "The Mispricing of Abnormal Accruals.pdf",
+    "The Productivity of Cash and the Cross-Section of   Expected Stock Returns.pdf",
+    "The disparity between long-term and short-term  forecasted earnings growth.pdf",
+    "The dividend month premium.pdf",
+    "The inventory growth spread.pdf",
+    "The long-run negative drift of postlisting stock returns.pdf",
+    "The long-run performance of  stock returns following debt offerings.pdf",
+    "The long-run performance of initial public offerings.pdf",
+    "The market  pricing of accruals quality.pdf",
+    "The new issues puzzle Testing the  investment-based explanation.pdf",
+    "The other side of value- The gross profitability premium.pdf",
+    "The predictive value  of expenses excluded from pro forma earnings.pdf",
+    "The price of sin- The effects of social  norms on markets.pdf",
+    "The productivity premium in equity returns.pdf",
+    "The relation between corporate financing activities, analysts\u2019 forecasts and stock returns.pdf",
+    "The relationship between return and market value of common  stocks.pdf",
+    "The stock market  valuation of research and development expenditures.pdf",
+    "The use of DuPont analysis by market participants.pdf",
+    "Trading activity and expected stock returns.pdf",
+    "Value Glamour and Accruals Mispricing One Anomaly or Two.pdf",
+    "Value investing- The use of historical financial statement  information to separate winners from losers.pdf",
+    "Volatility Spreads and Expected Stock Returns.pdf",
+    "analyst earnings forecast revisions and the  pricing of accruals.pdf",
+    "better three-factor model that explains more  anomalies.pdf",
+    "the option to stock volume ratio and future  returns.pdf"
+  ]
+}
