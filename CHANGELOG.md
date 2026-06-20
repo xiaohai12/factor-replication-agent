@@ -3,6 +3,7 @@
 ## [0.6.0] - 2026-06-20
 
 ### Added
+- `AGENTS.md`: Canonical shared instruction file for Codex, Claude, Copilot, and other coding agents with compact project rules and model-selection guidance
 - `scripts/validate_methodspecs.py`: Validates curated MethodSpecs against the current schema — reports missing required fields, type errors, and enum violations
 - `scripts/review_methodspecs.py`: Runs curated MethodSpecs through Review Gate — produces per-factor `review_report.json` and `reviewed.methodspec.json` under `data/method_specs/reviewed/`
 - `scripts/resolve_review_blocks.py`: Interactive CLI to resolve Review Gate blocked fields — reads a `review_report.json`, prompts field-by-field with smart suggestions (candidate values, field-specific option lists), writes a `resolution.json` and final `resolved.methodspec.json`
@@ -14,6 +15,7 @@
 - `FieldReviewNote`: Extended with `current_value`, `candidate_value`, `empirical_impact`, and `evidence` fields so resolvers have full context without re-reading the spec
 
 ### Changed
+- `CLAUDE.md` and `.github/copilot-instructions.md`: Converted to thin compatibility wrappers that point agents to `AGENTS.md`
 - `src/models/method_spec.py`: `PatchLogEntry` renamed to `ResolutionLogEntry` (terminology shift: "resolve" not "patch")
 - `src/models/method_spec.py`: `RemediationMode.PATCH_EXISTING_JSON` renamed to `RemediationMode.RESOLVE_EXISTING_JSON`
 - `src/models/method_spec.py`: `SignalSpec.sign` and `MethodSpec.sign` changed from `int = 1` to `Optional[int] = None` — unspecified sign is now explicitly nullable rather than defaulting to positive
