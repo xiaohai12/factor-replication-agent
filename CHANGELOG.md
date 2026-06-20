@@ -1,5 +1,16 @@
 # Changelog
 
+## [0.6.2] - 2026-06-20
+
+### Added
+- `app.py`: Single-paper upload flow now persists extracted PDF text to `data/paper_text_cache/<pdf_stem>.txt` for auditability and downstream reuse alongside the existing Streamlit session cache
+- `app.py`: Single-paper workflow can now resume from a saved curated `*.methodspec.json` or an uploaded MethodSpec JSON, with optional paper-text cache selection for continuing LLM review after a restart
+
+### Changed
+- `app.py`: Extractor UI now records and displays the saved paper-text cache path after upload, while keeping review/extraction on the same already-extracted text instead of re-running `pymupdf`
+- `app.py`: LLM review and LLM-assisted resolution now reload paper text from the saved cache path before falling back to session memory, so saved artifacts survive Streamlit restarts
+- `app.py`: When review starts from an extractor session that still has PDF bytes but no cached text in memory, reviewer now auto-extracts and re-caches paper text for non-Claude providers instead of forcing a manual re-upload
+
 ## [0.6.1] - 2026-06-20
 
 ### Added
