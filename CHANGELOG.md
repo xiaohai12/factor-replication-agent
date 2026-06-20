@@ -1,8 +1,33 @@
 # Changelog
 
+## [0.5.4] - 2025-05-28
+
+### Added
+- `data/gold_standard/paper_selection_rationale.md`: Records why the 10-paper annotation set was chosen, the extraction-difficulty coverage dimensions, and a recommended drop order if reducing scope
+- `src/llm.py`: Model selection support — Codex CLI now uses `-m` flag for model (gpt-5.5, gpt-5.4); Copilot CLI supports claude-opus-4-6, claude-sonnet-4-6, gpt-5.4
+- `app.py`: Model selector dropdown in sidebar — dynamically shows available models based on selected provider
+- `src/models/method_spec.py`: `reported_return_spread` and `reported_t_stat` fields on MethodSpec — stores paper's reported long-short return and t-stat for Attribution comparison
+- `src/extractor/__init__.py`: Extraction schema now extracts `reported_return_spread` and `reported_t_stat` from paper text in a single LLM call
+- `data/gold_standard/gold_standard.csv`: Human-annotated ground truth CSV template (24 fields) with AssetGrowth example row
+- `data/gold_standard/README.md`: Field documentation and annotation guidelines for gold standard
+- `scripts/csv_to_gold_standard.py`: Converter from flat CSV annotations to nested JSON matching MethodSpec schema
+- `data/gold_standard/gold_standard.csv`: Added `return_type`, `data_frequency`, `annotator_notes` columns (now 27 fields)
+- `data/gold_standard/gold_standard.csv`: Added `_source` columns for each substantive field — annotators can record where in the paper each value was found
+- `data/gold_standard/README.md`: Added "Where to Find" column to field documentation table
+
+### Changed
+- `data/gold_standard/paper_selection_rationale.md`: Reordered the printable 10-paper list by annotation priority (High/Medium/Low) from highest to lowest
+- `data/gold_standard/paper_selection_rationale.md`: Added a printable full-name list for all 10 selected papers (author-year-title) to support annotation logging and reporting
+- `src/llm.py`: `CodexCLIClient` default model changed from "default" to "gpt-5.4"
+- `src/llm.py`: `CopilotCLIClient` default model changed from "opus" to "claude-opus-4-6" (full name)
+- `src/llm.py`: `CodexCLIClient._create()` now ignores caller's model param (e.g. hardcoded "gpt-4o") and always uses the configured default model
+- `app.py`: Both `create_llm_client` calls now pass selected model
+
 ## [0.5.3] - 2025-05-28
 
 ### Added
+- `src/llm.py`: `CopilotCLIClient` — uses VS Code's bundled Copilot CLI binary via subprocess with your GitHub Copilot subscription; supports LLM mode (tools disabled) and agent mode (tools enabled)
+- `app.py`: LLM Provider selector in sidebar — choose between codex, copilot, or openrouter at runtime
 - `src/extractor/__init__.py`: `extract_batch()` method — extracts all factors from the same paper in a single LLM call (saves tokens and API calls for multi-factor papers)
 - `src/extractor/__init__.py`: `RateLimitExhausted` exception — raised immediately on rate limit so caller can checkpoint and stop (no retry, since quota recovery takes hours)
 - `app.py`: Checkpoint/resume system for batch evaluation — saves progress after each paper to `data/eval_history/_checkpoint.json`; on next run, skips already-completed papers
@@ -11,6 +36,7 @@
 ### Changed
 - `app.py`: Batch evaluation uses `extract_batch()` — one LLM call per paper instead of one per factor
 - `app.py`: On rate limit, stops gracefully with saved progress instead of retrying
+- `app.py`: Paper selection adds "First N PDFs" mode with slider (e.g., first 30, 50 papers)
 
 ## [0.5.2] - 2025-05-27
 
@@ -156,7 +182,7 @@
 ## [0.2.0] - 2026-05-24
 
 ### Changed
-- **MethodSpec** 重构为嵌套结构（`signal.*`, `portfolio.*`, `extraction_sources`, structured `ambiguous_fields`），匹配 architecture.md Section 4.2 YAML schema
+- **MethodSpec** 重构为嵌套结构（`signal.*`, `portfolio.*`, `extraction_sources`, structured `ambiguous_fields`），匹配 docs/architecture.md Section 4.2 YAML schema
 - **Semantic Extractor** 改为 multi-source triangulation 策略（C&Z → OSAP → paper fill-in → ambiguity tagging），新增 `ExtractionMetrics` 评估
 - **Review Gate** 新增 Review Decision Matrix（evidence × impact 分类）、`Disposition` 枚举、LLM Reviewer picky 策略、sensible defaults、structured `FieldReviewNote`
 - **Pipeline** 新增完整 feedback loop / backtrack 逻辑（Sandbox→Meta-Coder repair, Sandbox→Review empirical, Review→Extractor, Attribution→Review anomaly），max backtrack depth=3

@@ -33,7 +33,7 @@ class MetaCoder:
     - Alter lag assumptions (lag is in Data Layer via time_avail_m)
 
     Uses C&Z Predictors/*.py as few-shot examples to enforce the
-    unified code pattern (see cz-reference.md Section 2).
+    unified code pattern (see docs/cz-reference.md Section 2).
     """
 
     def __init__(self, llm_client=None, reference_code_path: Optional[str] = None):
@@ -49,7 +49,8 @@ class MetaCoder:
         3. Construct the raw signal (formula only)
         4. Output: DataFrame with columns [permno, yyyymm, signal]
         """
-        if spec.review_status != "approved":
+        review_status = getattr(spec.review_status, "value", spec.review_status)
+        if review_status != "approved" or not spec.codegen_ready:
             raise ValueError("Cannot generate plugin from unapproved MethodSpec")
         # TODO: Build prompt with MethodSpec + few-shot examples, call LLM
         raise NotImplementedError

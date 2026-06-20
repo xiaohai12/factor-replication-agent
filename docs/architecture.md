@@ -3,8 +3,8 @@ type: architecture
 status: draft
 project: factor-replication-agent
 created: 2026-05-12
-updated: 2026-05-24
-version: 2
+updated: 2026-06-11
+version: 5
 tags: [architecture, thesis, factor-replication, agent, quant, harness, meta-coder]
 ---
 
@@ -40,7 +40,7 @@ tags: [architecture, thesis, factor-replication, agent, quant, harness, meta-cod
 
 也就是：
 
-1. LLM 可以读取论文、metadata 和 reference code；
+1. LLM 在 **Semantic Extractor** 阶段只读取 original paper text（和必要的 data dictionary 用于字段名校验）；
 2. LLM 可以提取因子定义和方法假设；
 3. LLM 可以生成 factor-specific signal plugin；
 4. 但 LLM 不能自由决定完整回测流程；
@@ -52,8 +52,11 @@ tags: [architecture, thesis, factor-replication, agent, quant, harness, meta-cod
 
 | 部分 | 谁负责 | 作用 |
 |---|---|---|
-| 因子含义提取 | LLM + Review | 从论文中提取因子定义和方法假设 |
-| 信号代码生成 | LLM | 生成 raw signal construction plugin |
+| 因子含义提取 | Semantic Extractor | 从论文中提取 paper-first 因子定义和方法假设，生成 draft MethodSpec，不负责后续 patch |
+| MethodSpec 审查 | Review Gate | 严格审查 draft MethodSpec 的 paper evidence、schema/parser contract 和 codegen-readiness，输出 review report 和 remediation mode |
+| MethodSpec 修补 | MethodSpec Patcher | 根据 approved review findings 对 existing JSON 做字段级 patch；默认不重生成整份 JSON |
+| 数据目录映射 | Data Catalog / Normalizer | 把 paper-stated source hints 映射到 executable tables/columns/filters，不改写 paper facts |
+| 信号代码生成 | LLM | 基于 approved MethodSpec + normalized data mapping 生成 raw signal construction plugin |
 | 回测生命周期 | Controlled Engine | 根据 approved MethodSpec / implementation config 受控执行 universe、breakpoint、portfolio、return、metrics |
 | 代码验证 | Sandbox | 检查生成代码是否可运行、是否有未来函数、是否符合 MethodSpec |
 | 多版本实验 | Controller | 跑 original track、standardized track 和 ablation variants |
@@ -65,19 +68,30 @@ tags: [architecture, thesis, factor-replication, agent, quant, harness, meta-cod
 
 ```text
 Input Sources
-论文 / C&Z metadata / OSAP reference code / data dictionaries
+Extractor: original paper text + data dictionary
+Evaluation/Normalizer: C&Z metadata / OSAP reference code / implementation rules
         │
         ▼
 [1. Semantic Extractor]
-从资料中提取因子定义、公式、数据字段、timing、missing policy 等
+从 original paper 提取因子定义、公式、数据字段、timing、missing policy 等，生成 draft MethodSpec
         │
         ▼
 [2. Review Gate]
-审查 MethodSpec，确认关键 empirical assumptions
+审查 MethodSpec 的 paper evidence、schema/parser contract、architecture boundary 和 codegen-readiness
+        │
+        ├── local clear issues ──► [2.1 MethodSpec Patcher]
+        │                          根据 review report 对 existing JSON 做字段级 patch
+        │
+        ├── structural extraction issue ──► [1. Semantic Extractor]
+        │                                   targeted re-extraction of specific fields/sections
+        │
+        ▼
+[2.5 Data Catalog / Normalizer]
+把 approved paper-stated data concepts/source hints 映射为 executable database tables/columns 和 implementation config
         │
         ▼
 [3. Controlled Meta-Coder]
-根据 approved MethodSpec 生成 factor-specific signal plugin
+根据 approved MethodSpec + normalized data mapping 生成 factor-specific signal plugin
         │
         ▼
 [4. Adversarial Sandbox]
@@ -109,11 +123,12 @@ Input Sources
 线性流程之外，以下情况会触发 **backtrack**：
 
 ```text
-[4. Sandbox] ──technical error──► [3. Meta-Coder]     (bounded repair, max 3 retries)
-[4. Sandbox] ──empirical issue──► [2. Review Gate]     (lag/missing/leakage 需重审)
-[2. Review Gate] ──blocked──────► [1. Extractor]       (重新提取或请求 human input)
-[9. Attribution] ──anomaly─────► [2. Review Gate]      (结果异常，可能 MethodSpec 有误)
-[6. Lifecycle] ──data error────► [Data Layer]          (字段缺失、linking 问题)
+[4. Sandbox] ──technical error──► [3. Meta-Coder]          (bounded repair, max 3 retries)
+[4. Sandbox] ──empirical issue──► [2. Review Gate]          (lag/missing/leakage 需重审)
+[2. Review Gate] ──local fixes──► [2.1 MethodSpec Patcher]  (字段级 patch existing JSON)
+[2. Review Gate] ──structural issue──► [1. Extractor]       (targeted re-extraction, not full regeneration by default)
+[9. Attribution] ──anomaly─────► [2. Review Gate]           (结果异常，可能 MethodSpec 有误)
+[6. Lifecycle] ──data error────► [Data Layer]               (字段缺失、linking 问题)
 ```
 
 触发条件与处置：
@@ -122,7 +137,8 @@ Input Sources
 |---|---|---|---|
 | Sandbox → Meta-Coder | syntax error, schema mismatch, type error | Meta-Coder | LLM bounded repair, ≤3 次；超过 → Review Gate |
 | Sandbox → Review Gate | temporal leakage, lag violation, forbidden pattern (empirical) | Review Gate | MethodSpec 可能有误，需要重新审查 |
-| Review Gate → Extractor | 字段 conflicting 或 unspecified 且 high-impact | Extractor | 重新读取论文/code，或升级 `needs_human_confirmation` |
+| Review Gate → MethodSpec Patcher | 问题是局部的、字段级的、paper evidence clear（如 enum/schema drift、missing standard field、quote precision、reported metric omission） | Patcher | 基于 review report patch existing JSON；不重新生成整份 JSON |
+| Review Gate → Extractor | formula / target / main spec / timing / portfolio construction 等结构性错误，或 reviewer 发现漏读关键 section/table | Extractor | targeted re-extraction of affected fields/sections；默认不 full regenerate；必要时升级 `needs_human_confirmation` |
 | Attribution → Review Gate | original_method 结果与论文 reported 值偏差 >50%（or t-stat 符号翻转） | Review Gate | 可能 MethodSpec 提取错误，复查 signal definition 和 timing |
 | Lifecycle → Data Layer | 字段不存在、CCM link 覆盖率异常低、数据量级不合理 | Data Layer | 检查 data dictionary mapping、snapshot 完整性 |
 
@@ -229,27 +245,88 @@ Data Layer 维护一份 **field registry**，Semantic Extractor 和 Review Gate 
 
 如果 MethodSpec 引用的字段不在 registry 中 → Review Gate 自动 flag 为 `needs_llm_review`。
 
+#### Data Catalog / Normalizer Mapping / 数据目录映射层
+
+MethodSpec extractor output 中的 `data.sources[].source_details` 和 `data.required_fields[].source_detail` **不是 codegen-ready physical table**。它们保留 paper wording / annotator wording，作为 source hint。
+
+例如 extractor 可以保留：
+
+```text
+"annual industrial files"
+"monthly stock return files"
+"PST Active/Research"
+"daily NYSE/AMEX File"
+"historical CUSIPs"
+```
+
+这些字段不要求在 extraction 阶段统一成 `crsp.msf`、`crsp.dsf`、`comp.funda` 或 `ccm.ccmxpf_linkhist`。真实数据库映射由 Data Catalog / Normalizer 完成。
+
+数组/string 规则：`source_details` 是复数数组，用在 `data.sources[]`；`source_detail` 是单数字符串，用在 `data.required_fields[]`。
+
+Data Catalog entry 示例：
+
+```yaml
+concept_id: crsp_monthly_stock_return
+paper_aliases:
+  - monthly stock return files
+  - CRSP monthly stock returns
+source_hint:
+  dataset: crsp
+  source_detail: monthly stock return files
+implementation:
+  provider: wrds
+  library: crsp
+  table: msf
+  required_columns:
+    permno: permno
+    date: date
+    return: ret
+    price: prc
+    shares_outstanding: shrout
+quality_checks:
+  - nonmissing_permno_date
+  - valid_return_range
+```
+
+Normalizer 的职责：
+
+| Input from MethodSpec | Data Catalog output | Notes |
+|---|---|---|
+| paper-stated dataset/source hint | physical provider/library/table/columns | e.g. CRSP monthly returns → WRDS CRSP monthly table |
+| paper-stated exchange names | implementation filter | e.g. NYSE/Amex/NASDAQ → approved exchange-code mapping |
+| paper-stated accounting fields | concrete Compustat variables | only after dictionary/reviewer approval |
+| sample coverage notes | data-loader requirements/warnings | e.g. survivor-bias-free coverage, delisting treatment |
+| ambiguous MethodSpec fields | blocked or candidate implementation choice | no silent defaults |
+
+**Codegen contract:** Controlled Meta-Coder / Lifecycle Engine should consume the normalized Data Catalog mapping or approved implementation config, not raw `MethodSpec.data.*.source_detail(s)` strings directly.
+
 ---
 
 ## 4. 各模块作用 / Module Responsibilities
 
 ### 4.1 Input Sources / 输入来源
 
-输入包括：
+输入源分两类，避免 evaluation answer 泄漏到 extraction：
+
+**Semantic Extractor 可用：**
 
 - original paper text；
-- Chen-Zimmermann metadata；
-- Open Source Asset Pricing reference code；
-- CRSP / Compustat / CCM data dictionaries； 
+- CRSP / Compustat / CCM data dictionaries（仅用于字段名和字段含义校验，不用于补 paper 没说的实现细节）；
   - **CRSP**：美国股票价格、收益率、市值、退市收益等市场数据；
   - **Compustat**：公司财报和基本面数据，如 assets、sales、book equity、earnings；
   - **CCM**：CRSP/Compustat Merged link table，用于把 Compustat 的 `gvkey` 和 CRSP 的 `permno` 正确连接起来；
   - **data dictionary**：字段说明书，用于确认变量含义、单位、日期定义、缺失值和可用字段，防止 LLM 猜字段。
 - researcher notes。
 
+**Extractor 不可用、但后续可用：**
+
+- Chen-Zimmermann metadata：用于 extraction evaluation / downstream acronym mapping；
+- Open Source Asset Pricing reference code：用于 diagnostic cross-check / normalizer，不作为 paper MethodSpec 证据；
+- implementation defaults：只在 standardized track 或 approved implementation config 中使用。
+
 作用：
 
-> 为 LLM 和后续审查提供因子定义、变量说明、组合构造规则和参考实现。
+> Extractor 从 paper 中提取 paper-stated method facts；C&Z / OSAP / reference code 用于事后评价和标准化实现，不回灌覆盖 paper-first MethodSpec。
 
 C&Z 资源的完整说明（SignalDoc.csv 字段、代码结构、数据集、编程接口、与架构模块的映射）见 [[cz-reference]]。
 
@@ -259,7 +336,7 @@ C&Z 资源的完整说明（SignalDoc.csv 字段、代码结构、数据集、�
 
 作用：
 
-> 把论文和 reference materials 中的自然语言描述，转换成结构化的 `MethodSpec` / `FactorSpec`。
+> 把 original paper 中的自然语言描述，转换成结构化的 `MethodSpec` / `FactorSpec`。
 
 它需要提取：
 
@@ -280,7 +357,7 @@ C&Z 资源的完整说明（SignalDoc.csv 字段、代码结构、数据集、�
 - source citations；
 - ambiguous fields。
 
-这一层可以使用 LLM，因为论文和参考代码通常是不结构化的。
+这一层可以使用 LLM，因为论文通常是不结构化的；但 extractor 阶段不读取 C&Z / OSAP / reference implementation，避免把答案当输入。
 
 但它的输出不是代码，而是：
 
@@ -293,7 +370,7 @@ Semantic Extractor 采用 **paper-first extraction**：LLM 仅从论文原文提
 提取分三步：
 
 1. **Paper extraction.** LLM 从论文原文中提取所有 MethodSpec 字段。输入仅限论文文本 + data dictionary（字段名校验）。不提供 SignalDoc.csv 或 OSAP reference code，避免信息泄漏。
-2. **Ambiguity tagging.** 论文中未明确说明的字段标记为 `source: inferred` 或 `source: unspecified`，写入 `ambiguous_fields` 列表，供 Review Gate 审查。
+2. **Ambiguity tagging.** 论文中未明确说明的字段写入 `ambiguous_fields`，用 `status: inferred / unspecified / weak_or_conflicting / conflicting` 等状态标记，供 Review Gate 审查。
 3. **Evaluation against C&Z.** 提取完成后，将 MethodSpec 与 SignalDoc.csv 对应行逐字段比对，计算 extraction accuracy。差异记入 eval report，但**不回灌修正 MethodSpec**——差异本身是研究数据（LLM extraction 能力的度量）。
 
 这个设计的好处：
@@ -301,49 +378,44 @@ Semantic Extractor 采用 **paper-first extraction**：LLM 仅从论文原文提
 - **C&Z 作为 ground truth 而非 shortcut**：避免 "用答案当输入" 的循环论证；
 - **extraction accuracy 本身是 thesis contribution**：量化 LLM 对因子定义的理解程度。
 
+#### Extractor Boundary / Extractor 边界
+
+Semantic Extractor 只负责 **paper → draft MethodSpec**。它不负责 review 后的 JSON patch，也不应在 review 阶段重新生成整份 MethodSpec。
+
+默认修复流程是：
+
+```text
+Draft MethodSpec JSON
+        ↓
+Review Gate produces field-level findings
+        ↓
+MethodSpec Patcher applies approved local edits
+        ↓
+Review Gate re-checks patched JSON
+```
+
+Extractor 只有在以下情况才重新介入：
+
+- factor / signal set 识别错误；
+- formula、timing、sample、portfolio construction 等 high-impact 字段整体不可信；
+- reviewer 发现 extractor 漏读关键 section / table / appendix；
+- paper target scope 选错，例如 multi-asset paper 被错误合并成一个 executable target。
+
+即便 extractor 重新介入，也优先做 **targeted re-extraction**，只重读相关 section/table 并重提取 affected fields。Full regeneration 只用于 JSON 大面积不可信、schema version 大改、或原始 target 选择根本错误的情况。
+
 #### MethodSpec 输出格式 / MethodSpec Schema
 
-```yaml
-factor_id: "hml"
-factor_name: "High Minus Low (Book-to-Market)"
-paper_ref: "Fama and French (1993)"
+`MethodSpec` 采用 `methodspec.v1` JSON：它记录 **original paper 直接陈述的方法事实**，而不是 C&Z / OSAP 标准化后的选择。C&Z `SignalDoc.csv` 只用于事后 evaluation；除 `cz_acronym` 这个映射字段外，不应作为 extractor 的输入来源。
 
-# --- 信号定义 ---
-signal:
-  formula: "book_equity / market_equity"
-  required_fields: [ceq, at, lt, txditc, pstkrv, pstkl, pstk, csho, prcc_f]
-  field_sources:
-    ceq: {dataset: compustat, table: funda, description: "common equity"}
-    prcc_f: {dataset: compustat, table: funda, description: "fiscal year-end price"}
-  timing:
-    formation_month: 6          # June
-    rebalance_frequency: annual
-    holding_period: 12           # months
-    accounting_lag: 6            # months minimum
-    skip_month: null
-  missing_policy:
-    action: drop                 # drop | fill_zero | fill_median | winsorize
-    threshold: null              # max missing ratio before dropping firm-year
+当前内部表示是 `methodspec.v1` JSON，规范见 `schemas/methodspec-json-template.md` 和 `schemas/methodspec.v1.schema.json`。
 
-# --- 组合构造 ---
-portfolio:
-  universe: "NYSE + AMEX + NASDAQ, common shares only"
-  breakpoints: {source: NYSE, quantiles: [30, 70]}
-  weighting: value_weighted
-  long_leg: high
-  short_leg: low
+关键 parser contract：
 
-# --- 元数据 ---
-extraction_sources:
-  - {type: paper, ref: "Fama and French (1993)", sections: ["Section III"]}
-  - {type: cz_metadata, ref: "SignalDoc.csv", row: "bm"}
-  - {type: osap_code, ref: "bm.sas"}
-ambiguous_fields:
-  - field: missing_policy
-    reason: "paper does not specify; OSAP code drops missing BE"
-    source: inferred
-    confidence: medium
-```
+- `source.location / quote / interpretation` 必须字段级保留；
+- `signal.formula.expression` 是 codegen 输入，`paper_expression` 是 paper audit 输入；
+- `reported_results.return_calculation` 使用 `input_return` + `portfolio_return` 两层；
+- paper 未明确的 high-impact 字段，不应在主字段里硬填 inferred value；主字段保持 `unspecified`，候选值放 `ambiguous_fields.candidate_value`；
+- `cz_acronym` 只是 optional downstream mapping metadata，不是 extraction target，也不能作为 source evidence。
 
 #### 提取质量评估 / Extraction Validation
 
@@ -371,13 +443,15 @@ Phase 1 的 acceptance criteria：核心字段准确率 ≥ 80%（pilot factors�
 
 Review Gate 需要检查：
 
-- MethodSpec 格式是否正确；
-- 关键假设是否有 citation；
+- MethodSpec 格式是否符合 `methodspec.v1` JSON Schema；
+- 关键假设是否有 paper citation / section evidence；
 - 字段是否存在于数据字典；
 - timing 是否符合论文；
 - missing-value policy 是否明确；
 - lag 和 reporting-date alignment 是否合理；
-- paper、metadata 和 reference code 是否冲突。
+- `sign`、`portfolio.implied_factor_direction`、`reported_results.comparison_policy` 是否一致；
+- `reported_results.return_calculation.input_return`、`portfolio_return`、paper-reported spreads / t-stats 是否来自论文主结果表；
+- C&Z / OSAP 是否仅作为 evaluation / diagnostic cross-check 使用，而不是偷偷覆盖 paper-first MethodSpec。
 
 LLM Reviewer 的默认策略是：
 
@@ -389,30 +463,83 @@ LLM Reviewer 的默认策略是：
 
 这些内容必须写入 `MethodSpec`，并通过 picky review 后才能进入代码生成阶段。LLM Reviewer 可以批准常规一致性检查；但当证据不足或相互冲突，且假设会 materially affect empirical results 时，必须升级为 `needs_human_confirmation`。
 
+#### Review Gate Output and Remediation Mode / 审查输出与修复模式
+
+Review Gate 默认 **不直接修改 JSON**，而是输出结构化 review report。Review report 必须包含：
+
+- `review_status`: `approved | revision_required | blocked`；
+- `codegen_ready`: `yes | no`；
+- `paper_faithful`: `yes | no`；
+- issue list with severity, field path, current value, paper evidence, recommended fix；
+- `remediation_mode`。
+
+`remediation_mode` 只能是：
+
+| Mode | When to use | Next step |
+|---|---|---|
+| `patch_existing_json` | 问题是局部字段级，paper evidence clear，现有 MethodSpec target 可信 | MethodSpec Patcher applies field-level edits to existing JSON |
+| `targeted_reextraction` | high-impact field 可能整体误读，或漏读关键 section/table，但 target 大体可信 | Semantic Extractor re-reads specific paper sections and regenerates only affected fields |
+| `full_regeneration` | factor target / schema / JSON structure 大面积不可信 | Regenerate MethodSpec from scratch; use only when necessary |
+
+默认选择 `patch_existing_json`。不要因为发现几个 parser/schema 问题就 full regenerate。
+
+Review report 应给出 patcher-friendly table：
+
+```text
+| Severity | Field path | Current value | Recommended value | Evidence | Patch confidence |
+```
+
+Review Gate 可以建议 patch，但 patch 执行由 MethodSpec Patcher 或 human-approved edit step 完成。
+
+#### MethodSpec Patcher / MethodSpec 修补器
+
+MethodSpec Patcher 的职责是：
+
+> 根据 approved review findings，对 existing MethodSpec JSON 做最小字段级修改。
+
+Patcher 输入：
+
+- existing MethodSpec JSON；
+- Review Gate report；
+- optional user-approved subset of fixes。
+
+Patcher 规则：
+
+1. 只修改 review report 明确指出、且 evidence clear / user approved 的字段；
+2. 不重新生成整份 JSON；
+3. 不重新解释 paper，也不引入新的 paper facts；
+4. 不修改 review report 未提到的字段，除非是 parser-required placeholder（例如 `benchmark: null`, `adjustments: []`）；
+5. 修改后必须重新运行 JSON parse 和 parser contract checks；
+6. 输出 patch log，列出每个 changed field。
+
+如果 patcher 发现需要重新解释 paper 才能决定字段值，应停止并返回 Review Gate / Extractor，改为 `targeted_reextraction`。
+
 #### Review Decision Matrix / 审查决策矩阵
 
 每个 MethodSpec 字段按 **empirical impact** 和 **evidence quality** 两个维度分类，决定 LLM Reviewer 的处置方式：
 
 | Evidence \ Impact | Low impact | High impact |
 |---|---|---|
-| **Clear evidence** (paper + code agree) | `auto_approve` | `auto_approve` |
-| **Single source** (only paper or only code) | `auto_approve` with flag | `needs_llm_review` |
-| **Inferred** (neither paper nor code explicit) | `approve_with_default` + flag | `needs_human_confirmation` |
-| **Conflicting** (paper vs. code disagree) | `needs_llm_review` | `needs_human_confirmation` |
+| **Clear paper evidence** | `auto_approve` | `auto_approve` |
+| **Paper evidence partial / ambiguous** | `auto_approve` with flag | `needs_llm_review` |
+| **Unspecified in paper** | `leave_empty` or `approve_with_default` only for standardized track | `needs_human_confirmation` for `original_method` |
+| **Paper vs. C&Z/OSAP differ** | `flag_for_eval` | `needs_llm_review`; do not overwrite paper-first value without human decision |
 
 **High-impact fields**（改变会 materially affect empirical results）：
-- `signal.formula`
-- `signal.timing.accounting_lag`
-- `signal.missing_policy`
-- `portfolio.breakpoints`
-- `portfolio.weighting`
-- `portfolio.universe`（microcap treatment）
-- `portfolio.long_leg` / `portfolio.short_leg`
+- `formula`
+- `signal.sign`, `portfolio.implied_factor_direction`, `reported_results.comparison_policy`
+- `timing.accounting_lag_months`, `timing.formation`, `timing.rebalance_frequency`, `timing.holding_period_months`, `timing.skip_months`
+- `universe.missing_policy`, `universe.winsorize_bounds`
+- `portfolio.sort.breakpoint_source`, `portfolio.sort.ls_quantile`
+- `portfolio.weights`, `portfolio.weighting_scheme`, `reported_results.return_calculation.portfolio_return.weighting`
+- `universe`, `filter`（especially microcap / exchange / share-code treatment）
+- `reported_results.return_horizon`, `reported_results.spreads`, `reported_results.return_type`（用于 replication-gap normalization）
 
 **Low-impact fields**（通常不影响核心结论）：
-- `factor_name`, `paper_ref`
-- `signal.required_fields`（只要 formula 正确，字段名对错是 technical issue）
-- `signal.timing.formation_month`（多数因子是 June，偏差通常可检测）
+- `factor_name`, `paper_ref`, `pdf_file`
+- `economic_intuition`, `annotator_notes`
+- `paper_sections`
+- `cz_acronym`（仅映射字段）
 
 #### 处置定义 / Disposition Definitions
 
@@ -420,22 +547,24 @@ LLM Reviewer 的默认策略是：
 |---|---|
 | `auto_approve` | LLM Reviewer 直接通过，无需人工介入 |
 | `auto_approve` with flag | 通过，但在 MethodSpec 的 `review_notes` 中标记，供后续审计 |
-| `approve_with_default` | 使用 sensible default（如 lag=6m, missing=drop），标记 `source: default`，写入 `ambiguous_fields` |
+| `leave_empty` | paper 未说明且 README 规则允许留空时，保持 empty/null，不发明设定 |
+| `approve_with_default` | 仅用于 `standardized_hxz` track 的 sensible default（如 lag=6m, missing=drop），标记 `source: default`，写入 `ambiguous_fields` |
+| `flag_for_eval` | 保留 paper-first MethodSpec，同时记录与 C&Z / OSAP 的差异，供 extraction evaluation 使用 |
 | `needs_llm_review` | LLM Reviewer 需要给出 reasoning 并做出判断，记录 rationale |
 | `needs_human_confirmation` | **Hard block.** 生成 review ticket，暂停 pipeline 等待人工确认 |
 
 #### Sensible Defaults / 合理默认值
 
-当论文和 reference code 都没有明确说明时，使用以下 defaults（基于 HXZ / C&Z 惯例）：
+当论文没有明确说明、且当前运行的是 `standardized_hxz` track 时，才使用以下 defaults（基于 HXZ / C&Z 惯例）：
 
 | 字段 | Default | 来源 |
 |---|---|---|
-| `accounting_lag` | 6 months | HXZ convention |
-| `missing_policy` | drop | C&Z common practice |
-| `formation_month` | June (annual) | FF convention |
-| `breakpoints` | NYSE | HXZ standardized |
-| `weighting` | value_weighted | HXZ standardized |
-| `rebalance_frequency` | annual | FF convention |
+| `timing.accounting_lag_months` | 6 months | HXZ convention |
+| `universe.missing_policy.action` | drop | C&Z common practice |
+| `timing.formation.month` | June (annual) | FF convention |
+| `portfolio.sort.breakpoint_source` | NYSE | HXZ standardized |
+| `portfolio.weights` / `portfolio_return.weighting` | value-weight | HXZ standardized |
+| `timing.rebalance_frequency` | annual | FF convention |
 
 **注意：** 这些 defaults 只在 `source: unspecified` 时使用，且只应用于 `standardized_hxz` track。`original_method` track 中如果关键字段 unspecified，必须升级为 `needs_human_confirmation`。
 
@@ -446,13 +575,19 @@ review_id: "rev-hml-001"
 methodspec_version: "v1"
 reviewer: llm          # llm | human
 disposition: approved   # approved | revision_required | blocked
+remediation_mode: patch_existing_json  # patch_existing_json | targeted_reextraction | full_regeneration
+codegen_ready: true
+paper_faithful: true
 review_notes:
   - field: missing_policy
-    status: approve_with_default
-    reason: "paper silent on missing BE; OSAP drops; using drop as default"
-  - field: breakpoints
+    status: leave_empty
+    reason: "paper does not state how missing signal values are handled; original_method keeps this unspecified"
+  - field: breakpoint_source
     status: auto_approve
-    reason: "paper Table III and OSAP code both use NYSE 30/70"
+    reason: "paper Table III states NYSE breakpoints"
+  - field: cz_acronym
+    status: flag_for_eval
+    reason: "mapping to SignalDoc.csv only; not used to overwrite extracted fields"
 blocked_fields: []      # list of fields requiring human confirmation
 ```
 
@@ -574,7 +709,7 @@ LLM 可以在开发阶段帮助写这个 base framework，但正式实验时不�
 
 | Track | 作用 |
 |---|---|
-| `original_method` | 尽量忠实复现 original paper / C&Z / OSAP 的设定 |
+| `original_method` | 尽量忠实复现 original paper stated method；C&Z / OSAP 只作 diagnostic comparison |
 | `standardized_hxz` | 用统一 HXZ-style 设置做标准化 robustness test |
 | `ablation_*` | 每次只改变一个 implementation choice |
 | `factorial_*` | 对多个 implementation choices 做 full-factorial combinations |
@@ -675,7 +810,7 @@ Run Registry 则记录每个 factor × variant 的状态：
 
 | 模块 | Agentic? | 说明 |
 |---|---:|---|
-| Semantic Extractor | Yes | LLM 读取论文和 reference materials，提取 MethodSpec。 |
+| Semantic Extractor | Yes | LLM 读取 original paper text（和字段字典校验），提取 paper-first MethodSpec。 |
 | Review Gate | Partly | LLM 可辅助检查，但关键 empirical assumptions 需要 rule / human approval。 |
 | Controlled Meta-Coder | Yes | LLM 生成 factor-specific signal plugin。 |
 | Adversarial Sandbox | Partly | 测试是 deterministic；LLM 只做 bounded repair。 |
@@ -737,3 +872,96 @@ Run Registry 则记录每个 factor × variant 的状态：
 最终 framing：
 
 > 本项目研究 LLM 是否可以作为受控的 Meta-Coder，为学术因子自动生成 signal construction plugins；同时通过 controlled empirical lifecycle、adversarial validation 和 factorial attribution，保证因子复现过程的可审计性、时间正确性和实现偏差可解释性。
+
+---
+
+## 8. 与 Quant Team 协作 / Collaboration with Quant Team
+
+> Corrected phrasing: **Cooperate with the quant team to create a factor replication agent.**
+
+这个项目需要与 quant team 协作，而不是由 LLM 或单个工程模块独立完成。Quant team 的角色不是简单“验收代码”，而是共同定义 empirical standards、确认数据口径、审查关键假设，并把系统输出转化为可用于研究与复现的证据链。
+
+### 8.1 协作目标 / Collaboration Goal
+
+与 quant team 共同构建一个：
+
+> **能够从论文描述出发，自动生成、验证并运行因子复现流水线的受控 agent 系统。**
+
+具体目标包括：
+
+- 将论文中的 factor definition 转换为结构化 `MethodSpec`；
+- 由 LLM 生成 factor-specific signal plugin；
+- 由 controlled lifecycle engine 统一执行 portfolio construction 和 return computation；
+- 与 quant team 一起审查 high-impact assumptions；
+- 对复现结果和论文 / C&Z / OSAP 结果之间的差异做 attribution；
+- 形成可审计、可复现、可扩展的 factor replication workflow。
+
+### 8.2 Quant Team 的核心职责 / Quant Team Responsibilities
+
+| 协作环节 | Quant Team 负责什么 | 系统 / Agent 负责什么 |
+|---|---|---|
+| MethodSpec review | 判断论文假设是否被正确理解；确认 formula、lag、universe、breakpoints、weighting 等关键设定 | 从 original paper 提取结构化 MethodSpec，并把 C&Z / OSAP 差异作为 evaluation note |
+| Data mapping | 确认 CRSP / Compustat / CCM 字段含义、单位、可用时间和 linking 规则 | 根据 data dictionary 做字段校验和 schema 检查 |
+| Empirical assumption approval | 对 high-impact 或 conflicting assumptions 做最终确认 | 自动 flag ambiguity，并生成 review ticket |
+| Signal validation | 检查 generated signal 是否符合经济含义 | 生成 signal plugin，并通过 sandbox 做技术与时间正确性测试 |
+| Backtest design | 确认 original-method 与 standardized-HXZ track 的实验设定 | 用 controlled lifecycle engine 执行统一回测 |
+| Result interpretation | 判断 replication gap 是否经济上合理，是否需要复查 MethodSpec | 生成 attribution matrix、run evidence 和 anomaly report |
+
+### 8.3 协作边界 / Collaboration Boundary
+
+Quant team 主要介入 **empirical judgment**，agent 主要承担 **automation and auditability**。
+
+- Quant team 不需要手写每个因子的完整 backtest script；
+- Agent 不允许自行决定会影响结论的 empirical assumptions；
+- 所有 high-impact choices 必须可追溯到 paper、reference code、data dictionary 或 human review；
+- 若 agent 与 reference implementation 冲突，不能自动“调参贴结果”，必须记录为 implementation-gap evidence。
+
+### 8.4 推荐协作流程 / Suggested Workflow
+
+```text
+Quant team selects pilot factor
+        │
+        ▼
+Agent extracts MethodSpec from paper
+        │
+        ▼
+Quant team reviews high-impact assumptions
+        │
+        ▼
+Agent generates signal plugin
+        │
+        ▼
+Sandbox validates code and timing correctness
+        │
+        ▼
+Controlled engine runs original / standardized / ablation tracks
+        │
+        ▼
+Agent produces attribution report
+        │
+        ▼
+Quant team reviews economic plausibility and signs off
+```
+
+### 8.5 可交付成果 / Deliverables for Quant Collaboration
+
+每个 pilot factor 应该交付：
+
+1. `MethodSpec.json`：结构化因子定义与 paper-first 方法假设；
+2. `review_report.yaml` / `review_report.md`：Quant / LLM Reviewer 的审查记录，包含 `remediation_mode` 和 field-level recommended patches；
+3. `patch_log.yaml`：MethodSpec Patcher 对 existing JSON 做的字段级修改记录；
+4. `signal_plugin.py`：通过 sandbox 的 generated signal code；
+5. `validation_report.json`：schema、timing、leakage、synthetic oracle 测试结果；
+6. `run_registry.csv`：所有 original / standardized / ablation runs 的状态；
+7. `replication_gap_attribution.md`：差异归因解释；
+8. `evidence_bundle/`：code hash、MethodSpec hash、data snapshot hash、logs 和 artifacts。
+
+### 8.6 简历 / Project Description 可用表述
+
+如果需要在 resume、project page 或 thesis proposal 中压缩成一句话，可以写：
+
+> **Cooperated with a quantitative research team to design a controlled LLM meta-coder agent that extracts factor definitions from academic papers, generates auditable signal-construction plugins, validates temporal correctness in a sandbox, and attributes replication gaps across portfolio construction choices.**
+
+更短版本：
+
+> **Built a controlled LLM-based factor replication agent with a quant team, enabling auditable signal generation, sandbox validation, and implementation-gap attribution for academic asset-pricing factors.**

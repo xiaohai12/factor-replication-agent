@@ -1,6 +1,6 @@
 """Review Gate - Validate MethodSpec before code generation.
 
-Implements the Review Decision Matrix from architecture.md Section 4.3:
+Implements the Review Decision Matrix from docs/architecture.md Section 4.3:
 - LLM Reviewer (default picky: reject over approve when uncertain)
 - Evidence × Impact classification
 - Disposition: auto_approve | needs_llm_review | needs_human_confirmation
@@ -19,6 +19,7 @@ from src.models.method_spec import (
     EmpiricalImpact,
     EvidenceSource,
     MethodSpec,
+    RemediationMode,
 )
 
 
@@ -27,13 +28,28 @@ from src.models.method_spec import (
 # High-impact fields: changes materially affect empirical results
 HIGH_IMPACT_FIELDS = {
     "signal.formula",
+    "signal.sign",
     "signal.timing.accounting_lag",
+    "timing.accounting_lag_months",
+    "signal.timing.formation_month",
+    "signal.timing.rebalance_frequency",
+    "signal.timing.holding_period",
+    "signal.timing.skip_month",
     "signal.missing_policy",
     "portfolio.breakpoints",
+    "portfolio.breakpoints.source",
+    "portfolio.sort.breakpoint_source",
+    "portfolio.sort.ls_quantile",
     "portfolio.weighting",
+    "portfolio.weighting_scheme",
     "portfolio.universe",
     "portfolio.long_leg",
     "portfolio.short_leg",
+    "portfolio.implied_factor_direction",
+    "reported_results.comparison_policy",
+    "reported_results.return_calculation",
+    "reported_results.return_horizon",
+    "reported_results.spreads",
 }
 
 # Sensible defaults (HXZ / C&Z convention) for unspecified fields
@@ -72,6 +88,9 @@ class ReviewResult:
     methodspec_version: str = "v1"
     reviewer: str = "llm"  # llm | human
     disposition: str = "pending"  # approved | revision_required | blocked
+    remediation_mode: str = RemediationMode.PATCH_EXISTING_JSON.value
+    codegen_ready: bool = False
+    paper_faithful: bool = False
     approved: bool = False
     issues: list[str] = field(default_factory=list)
     warnings: list[str] = field(default_factory=list)
@@ -99,6 +118,10 @@ def classify_disposition(
         (EvidenceSource.SINGLE, EmpiricalImpact.HIGH): Disposition.NEEDS_LLM_REVIEW,
         (EvidenceSource.INFERRED, EmpiricalImpact.LOW): Disposition.APPROVE_WITH_DEFAULT,
         (EvidenceSource.INFERRED, EmpiricalImpact.HIGH): Disposition.NEEDS_HUMAN_CONFIRMATION,
+        (EvidenceSource.UNSPECIFIED, EmpiricalImpact.LOW): Disposition.APPROVE_WITH_DEFAULT,
+        (EvidenceSource.UNSPECIFIED, EmpiricalImpact.HIGH): Disposition.NEEDS_HUMAN_CONFIRMATION,
+        (EvidenceSource.WEAK_OR_CONFLICTING, EmpiricalImpact.LOW): Disposition.NEEDS_LLM_REVIEW,
+        (EvidenceSource.WEAK_OR_CONFLICTING, EmpiricalImpact.HIGH): Disposition.NEEDS_HUMAN_CONFIRMATION,
         (EvidenceSource.CONFLICTING, EmpiricalImpact.LOW): Disposition.NEEDS_LLM_REVIEW,
         (EvidenceSource.CONFLICTING, EmpiricalImpact.HIGH): Disposition.NEEDS_HUMAN_CONFIRMATION,
     }
@@ -133,11 +156,13 @@ class ReviewGate:
 
     def review(self, spec: MethodSpec) -> ReviewResult:
         """Run all review checks on a MethodSpec."""
-        result = ReviewResult(methodspec_version=f"v{spec.version}")
+        result = ReviewResult(methodspec_version=spec.schema_version)
 
         self._check_required_fields(spec, result)
+        self._check_paper_evidence(spec, result)
         self._check_data_fields_exist(spec, result)
         self._check_timing_consistency(spec, result)
+        self._check_reported_results_contract(spec, result)
         self._check_ambiguous_fields(spec, result)
 
         # Determine overall disposition
@@ -147,41 +172,68 @@ class ReviewGate:
             result.approved = False
         elif result.issues:
             result.disposition = "revision_required"
+            result.remediation_mode = RemediationMode.PATCH_EXISTING_JSON.value
             result.approved = False
         else:
             result.disposition = "approved"
             result.approved = True
+            result.codegen_ready = True
+            result.paper_faithful = True
 
         return result
 
     def _check_required_fields(self, spec: MethodSpec, result: ReviewResult) -> None:
         """Check that critical fields are populated."""
-        if not spec.signal.formula:
+        if not spec.signal.formula_expression:
             result.issues.append("signal.formula is empty")
-        if not spec.signal.required_fields:
+        if not spec.required_fields:
             result.issues.append("signal.required_fields is empty")
         if not spec.portfolio.long_leg or not spec.portfolio.short_leg:
             result.issues.append("portfolio.long_leg / short_leg not specified")
+
+    def _check_paper_evidence(self, spec: MethodSpec, result: ReviewResult) -> None:
+        """Check methodspec.v1 audit fields without blocking early drafts."""
+        if not spec.extraction_sources:
+            result.warnings.append("No extraction_sources recorded")
+        if not spec.data.required_fields:
+            result.warnings.append("data.required_fields is empty; normalizer has no source hints")
+        formula = spec.signal.formula
+        evidence = getattr(formula, "evidence", []) if not isinstance(formula, str) else []
+        if not evidence:
+            result.warnings.append("signal.formula has no field-level paper evidence")
 
     def _check_data_fields_exist(self, spec: MethodSpec, result: ReviewResult) -> None:
         """Check that required fields exist in data dictionary."""
         if not self.data_dictionary:
             result.warnings.append("No data dictionary provided, skipping field check")
             return
-        for f in spec.signal.required_fields:
+        for f in spec.required_fields:
             if not self.data_dictionary.exists(f):
                 result.issues.append(f"Field '{f}' not found in data dictionary")
 
     def _check_timing_consistency(self, spec: MethodSpec, result: ReviewResult) -> None:
         """Check timing assumptions are internally consistent."""
         timing = spec.signal.timing
-        if timing.accounting_lag < 0:
+        if timing.accounting_lag is not None and timing.accounting_lag < 0:
             result.issues.append("accounting_lag cannot be negative")
-        if timing.holding_period <= 0:
+        if timing.holding_period is not None and timing.holding_period <= 0:
             result.issues.append("holding_period must be positive")
-        if timing.accounting_lag < 4:
+        if timing.accounting_lag is not None and timing.accounting_lag < 4:
             result.warnings.append(
                 f"accounting_lag={timing.accounting_lag} months is unusually short"
+            )
+
+    def _check_reported_results_contract(self, spec: MethodSpec, result: ReviewResult) -> None:
+        """Check the newer reported_results.return_calculation contract."""
+        calc = spec.reported_results.return_calculation
+        if spec.reported_results.main_spread is not None and calc.input_return == "unspecified":
+            result.warnings.append(
+                "reported_results.main_spread is set but return_calculation.input_return is unspecified"
+            )
+        weighting = calc.portfolio_return.get("weighting") if calc.portfolio_return else None
+        if weighting and str(weighting) != spec.portfolio.weighting.value:
+            result.warnings.append(
+                "reported_results portfolio_return.weighting differs from portfolio.weighting"
             )
 
     def _check_ambiguous_fields(self, spec: MethodSpec, result: ReviewResult) -> None:
@@ -189,7 +241,7 @@ class ReviewGate:
         for amb in spec.ambiguous_fields:
             impact = (
                 EmpiricalImpact.HIGH
-                if amb.field in HIGH_IMPACT_FIELDS
+                if amb.field in HIGH_IMPACT_FIELDS or amb.empirical_impact == EmpiricalImpact.HIGH
                 else EmpiricalImpact.LOW
             )
             disposition = classify_disposition(amb.source, impact)
@@ -207,4 +259,3 @@ class ReviewGate:
                 result.warnings.append(
                     f"Field '{amb.field}' needs LLM review: {amb.reason}"
                 )
-

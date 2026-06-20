@@ -6,7 +6,7 @@ Uses SignalDoc.csv and Firm-Level Characteristics as ground truth for:
 3. Portfolio accuracy: LS returns vs C&Z long-short returns
 
 SignalDoc.csv is ONLY used here (post-hoc evaluation), never as Extractor input.
-See cz-reference.md for rationale.
+See docs/cz-reference.md for rationale.
 """
 
 from __future__ import annotations
@@ -99,8 +99,9 @@ class Evaluator:
         """
         result = ExtractionEvalResult(factor_id=factor_id)
 
-        # Find the factor row in SignalDoc
-        row = self.signal_doc[self.signal_doc["Acronym"] == factor_id]
+        # Resolve acronym: use spec.cz_acronym if set, otherwise fall back to factor_id
+        lookup_id = getattr(spec, "cz_acronym", None) or factor_id
+        row = self.signal_doc[self.signal_doc["Acronym"] == lookup_id]
         if row.empty:
             return result
         row = row.iloc[0]

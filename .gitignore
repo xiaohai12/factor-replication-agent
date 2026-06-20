@@ -9,8 +9,18 @@ build/
 # Virtual environment
 .venv/
 
-# Data (downloaded, not committed)
-data/
+# Data (large/downloaded artifacts are not committed)
+data/papers/
+data/osap/
+data/eval_history/
+data/snapshots/
+data/**/*.parquet
+data/**/*.zip
+data/**/*.pdf
+
+# Curated research metadata is intentionally trackable:
+# data/gold_standard/
+# data/method_specs/
 
 # IDE
 .idea/

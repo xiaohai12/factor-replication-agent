@@ -120,7 +120,7 @@ class SnapshotManager:
 class CCMLinker:
     """Handles CRSP-Compustat linking via CCM link table.
 
-    Rules (per architecture.md Section 3.2):
+    Rules (per docs/architecture.md Section 3.2):
     - linktype IN ('LC', 'LU')
     - linkprim IN ('P', 'C')
     - Match by linkdt/linkenddt range (point-in-time)

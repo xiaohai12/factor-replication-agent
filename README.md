@@ -78,9 +78,12 @@ src/
 
 ## What a Good MethodSpec Looks Like
 
-`MethodSpec` is the central artifact flowing through the pipeline. Here's a concrete example for the **Book-to-Market (BM)** factor:
+`MethodSpec` is the central audit artifact flowing through the pipeline. It records
+paper-stated facts first; executable table mappings are added later by the Data
+Catalog / Normalizer. Here's a compact **Book-to-Market (BM)** example:
 
 ```yaml
+schema_version: methodspec.v1
 factor_id: "BM"
 factor_name: "Book-to-Market"
 paper_ref: "Fama and French (1992)"
@@ -88,22 +91,42 @@ version: 1
 economic_intuition: "High book-to-market firms are undervalued relative to fundamentals"
 detailed_definition: "Book equity (ceq) divided by market equity (csho * prcc_f)"
 cat_form: "continuous"
-sign: 1                      # high BM → high expected returns
+sign: 1
 sample_start_year: 1963
 sample_end_year: 2024
 
+data:
+  sources:
+    - name: "Compustat"
+      source_details: ["annual industrial files"]
+    - name: "CRSP"
+      source_details: ["monthly stock return files"]
+  required_fields:
+    - field: "ceq"
+      concept: "book equity"
+      source_detail: "annual industrial files"
+    - field: "csho"
+      concept: "shares outstanding"
+      source_detail: "annual industrial files"
+    - field: "prcc_f"
+      concept: "fiscal-year-end price"
+      source_detail: "annual industrial files"
+  normalized_mapping: {}
+
 signal:
-  formula: "ceq / (csho * prcc_f)"
+  formula:
+    expression: "ceq / (csho * prcc_f)"
+    paper_expression: "book equity divided by market equity"
+    evidence:
+      - location: "Section 3"
+        quote: "Book-to-market equity is book equity divided by market equity."
+        interpretation: "Defines the BM signal."
   required_fields: ["ceq", "csho", "prcc_f"]
-  field_sources:
-    ceq:  { dataset: compustat, table: funda, description: "Common Equity" }
-    csho: { dataset: compustat, table: funda, description: "Shares Outstanding" }
-    prcc_f: { dataset: compustat, table: funda, description: "Price - Fiscal Year Close" }
   timing:
-    formation_month: 6         # June
+    formation_month: 6
     rebalance_frequency: annual
-    holding_period: 12         # hold July t → June t+1
-    accounting_lag: 6          # use fiscal year-end from Dec t-1
+    holding_period: 12
+    accounting_lag: 6
     skip_month: null
   missing_policy:
     action: drop
@@ -111,17 +134,28 @@ signal:
 
 portfolio:
   universe: "NYSE + AMEX + NASDAQ, common shares only"
-  breakpoints:
-    source: nyse               # NYSE-only breakpoints (avoid micro-cap influence)
-    ls_quantile: 0.1           # decile sort → top 10% vs bottom 10%
-    quantiles: [10, 90]        # derived from ls_quantile
-  weighting: vw                # value-weighted within each leg
-  long_leg: high               # long high-BM (value) stocks
-  short_leg: low               # short low-BM (growth) stocks
-  filter: ""                   # no additional stock-level filter
+  sort:
+    breakpoint_source: nyse
+    ls_quantile: 0.1
+    quantiles: [10, 90]
+  weighting: vw
+  long_leg: high
+  short_leg: low
+  filter: ""
+
+reported_results:
+  return_horizon: monthly
+  return_calculation:
+    input_return: crsp_monthly_return
+    portfolio_return:
+      weighting: vw
+  main_spread: 0.43
+  main_t_stat: 2.1
 
 ambiguous_fields: []           # all fields clearly stated in paper
 review_status: approved
+codegen_ready: true
+paper_faithful: true
 ```
 
 ### What Makes It Good
@@ -133,15 +167,16 @@ review_status: approved
 | **Breakpoints specified** | NYSE source + ls_quantile tells the engine exactly how to sort |
 | **Sign is declared** | Engine knows high signal = long leg without guessing |
 | **No ambiguous fields** | Review Gate can auto-approve; no human intervention needed |
-| **Field sources mapped** | Data Layer knows exactly which Compustat tables to query |
+| **Source hints preserved** | Extractor keeps paper wording; Normalizer maps it to CRSP/Compustat tables |
+| **Evidence is field-level** | Review Gate can audit formula, timing, and reported results against paper quotes |
 
 ### Common Pitfalls (What a Bad MethodSpec Looks Like)
 
-- `formula: "book to market ratio"` — natural language instead of computable expression
-- `accounting_lag: 0` — no lag means look-ahead bias
+- `signal.formula.expression: "book to market ratio"` — natural language instead of computable expression
+- `accounting_lag: 0` without paper evidence — likely look-ahead bias
 - `ls_quantile` missing — engine doesn't know decile vs quintile sort
 - `sign` wrong — flips long/short legs, inverts the factor return
-- `ambiguous_fields` not empty but `review_status: approved` — inconsistent state
+- high-impact unspecified fields silently defaulted in `original_method` — defaults belong only in `standardized_hxz`
 
 ### Key Enums Explained
 

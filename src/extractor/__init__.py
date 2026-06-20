@@ -1,13 +1,13 @@
 """Semantic Extractor - Extract MethodSpec from papers and reference materials.
 
-Implements paper-first extraction (architecture.md Section 4.2):
+Implements paper-first extraction (docs/architecture.md Section 4.2):
 1. Paper text as primary source (LLM extracts factor definition)
 2. Ambiguity tagging for unresolved fields
 3. Post-hoc evaluation against C&Z (not feedback)
 
 IMPORTANT: SignalDoc.csv is NOT used as Extractor input (information leakage).
 SignalDoc is only used post-hoc for extraction accuracy evaluation.
-See cz-reference.md Section 1 for details.
+See docs/cz-reference.md Section 1 for details.
 """
 
 from __future__ import annotations
@@ -21,7 +21,10 @@ from src.models.method_spec import (
     AmbiguousField,
     BreakpointSource,
     BreakpointSpec,
+    DataSourceHint,
+    DataSpec,
     EvidenceSource,
+    EvidenceCitation,
     ExtractionSource,
     FieldSource,
     MethodSpec,
@@ -29,6 +32,8 @@ from src.models.method_spec import (
     MissingPolicy,
     PortfolioSpec,
     RebalanceFrequency,
+    ReportedResultsSpec,
+    RequiredFieldSpec,
     SignalSpec,
     SignalTiming,
     WeightingRule,
@@ -66,8 +71,13 @@ EXTRACTION_SCHEMA_FIELDS: list[tuple[str, str]] = [
     ("filter", 'string - stock-level filters (e.g. \'abs(prc)>5\') or "unspecified"'),
     ("universe", "string - sample universe description"),
     ("missing_policy", f'{_enum_choices(MissingAction)} | "unspecified"'),
+    ("winsorize_bounds", 'null or string - winsorization bounds if applicable, e.g. "1,99" or "0.5,99.5"'),
+    ("overlapping_portfolios", "null or bool - true if paper uses overlapping holding periods (new portfolios formed monthly with multi-month holds), false for clean calendar holds, null if not stated"),
+    ("return_horizon", '"monthly" | "quarterly" | "annual" - time horizon of reported_return_spread'),
     ("sample_start_year", "null or int"),
     ("sample_end_year", "null or int"),
+    ("reported_return_spread", "null or float - monthly long-short return spread (in %) reported in the paper's main results table (e.g. 0.43 means 0.43% per month)"),
+    ("reported_t_stat", "null or float - t-statistic of the long-short return spread from the paper's main results table"),
     ("paper_ref", "string - paper citation"),
     ("paper_sections", '["sections/tables where key info was found"]'),
     ("ambiguous_fields", '[{"field": "name", "reason": "why ambiguous"}]'),
@@ -138,6 +148,11 @@ Example output structure:
 DEFAULT_CALL_DELAY = 1.0  # seconds between successful calls
 
 
+class RateLimitExhausted(Exception):
+    """Raised when API quota/rate limit is hit — caller should checkpoint and stop."""
+    pass
+
+
 @dataclass
 class ExtractionMetrics:
     """Metrics for evaluating extraction quality (Section 4.2).
@@ -161,12 +176,13 @@ class ExtractionResult:
     conflicts: list[str] = field(default_factory=list)
     raw_llm_output: Optional[dict] = None
     reasons: dict[str, str] = field(default_factory=dict)  # field_name -> quote from paper
+    error: Optional[str] = None  # Error message if extraction failed
 
 
 class SemanticExtractor:
     """Extracts structured MethodSpec from unstructured paper text.
 
-    Strategy: Paper-first extraction (architecture.md Section 4.2)
+    Strategy: Paper-first extraction (docs/architecture.md Section 4.2)
     1. LLM extracts from paper text (factor definition, data sources, portfolio rules)
     2. Ambiguity tagging for unspecified fields
     3. NO SignalDoc input — that's evaluation only
@@ -183,14 +199,21 @@ class SemanticExtractor:
     Acceptance criteria (Phase 1): Core field accuracy >= 80% on pilot factors.
     """
 
-    def __init__(self, llm_client=None, call_delay: float = DEFAULT_CALL_DELAY):
+    def __init__(
+        self,
+        llm_client=None,
+        call_delay: float = DEFAULT_CALL_DELAY,
+        data_dictionary=None,
+    ):
         """
         Args:
             llm_client: OpenAI-compatible client (must have .chat.completions.create)
             call_delay: Delay between successful API calls (seconds)
+            data_dictionary: Optional field registry for prompt/review integration.
         """
         self.llm_client = llm_client
         self.call_delay = call_delay
+        self.data_dictionary = data_dictionary
         self._last_call_time: float = 0
 
     def extract(
@@ -216,12 +239,15 @@ class SemanticExtractor:
         result = ExtractionResult(sources_used=["paper"])
 
         # Call LLM for extraction
+        self._last_error = None
         raw = self._call_llm_extract(factor_id, paper_text)
         result.raw_llm_output = raw
 
         if raw:
             result.spec = self._build_method_spec_from_llm(factor_id, raw)
             result.reasons = raw.get("reasons", {})
+        else:
+            result.error = self._last_error or "LLM returned empty response"
 
         return result
 
@@ -279,7 +305,7 @@ class SemanticExtractor:
         """Call LLM to extract structured fields from paper text (with retry)."""
         user_msg = EXTRACTION_USER_TEMPLATE.format(
             factor_id=factor_id,
-            paper_text=paper_text[:30000],  # Truncate to fit context
+            paper_text=paper_text,
         )
         messages = [
             {"role": "system", "content": EXTRACTION_SYSTEM_PROMPT},
@@ -293,7 +319,7 @@ class SemanticExtractor:
         """Call LLM to extract multiple factors from one paper (with retry)."""
         user_msg = BATCH_EXTRACTION_USER_TEMPLATE.format(
             factor_ids=", ".join(factor_ids),
-            paper_text=paper_text[:30000],
+            paper_text=paper_text,
         )
         messages = [
             {"role": "system", "content": EXTRACTION_SYSTEM_PROMPT},
@@ -329,13 +355,9 @@ class SemanticExtractor:
             )
             if is_rate_limit:
                 raise RateLimitExhausted(str(e)) from e
+            self._last_error = str(e)
             print(f"  [WARN] LLM extraction failed: {e}")
             return None
-
-
-class RateLimitExhausted(Exception):
-    """Raised when API quota/rate limit is hit — caller should checkpoint and stop."""
-    pass
 
     def _build_method_spec_from_llm(
         self, factor_id: str, raw: dict
@@ -352,29 +374,53 @@ class RateLimitExhausted(Exception):
                 return default
 
         # Parse timing
+        raw_overlapping = raw.get("overlapping_portfolios")
+        if raw_overlapping is None or raw_overlapping == "unspecified":
+            overlapping = None
+        elif isinstance(raw_overlapping, bool):
+            overlapping = raw_overlapping
+        else:
+            overlapping = str(raw_overlapping).lower() == "true"
+
         timing = SignalTiming(
             formation_month=_safe_int(raw.get("formation_month")),
             rebalance_frequency=self._parse_enum(
-                RebalanceFrequency, raw.get("rebalance_frequency"), RebalanceFrequency.ANNUAL
+                RebalanceFrequency,
+                raw.get("rebalance_frequency"),
+                RebalanceFrequency.UNSPECIFIED,
             ),
-            holding_period=_safe_int(raw.get("holding_period"), 12),
-            accounting_lag=_safe_int(raw.get("accounting_lag"), 6),
+            holding_period=_safe_int(raw.get("holding_period")),
+            accounting_lag=_safe_int(raw.get("accounting_lag")),
             skip_month=_safe_int(raw.get("skip_month")),
+            overlapping_portfolios=overlapping,
         )
 
         # Parse missing policy
         missing_action = self._parse_enum(
-            MissingAction, raw.get("missing_policy"), MissingAction.DROP
+            MissingAction, raw.get("missing_policy"), MissingAction.UNSPECIFIED
         )
-        missing_policy = MissingPolicy(action=missing_action)
+        raw_wbounds = raw.get("winsorize_bounds")
+        winsorize_bounds = None
+        if raw_wbounds and raw_wbounds != "unspecified":
+            try:
+                parts = str(raw_wbounds).split(",")
+                winsorize_bounds = (float(parts[0].strip()), float(parts[1].strip()))
+            except (ValueError, IndexError):
+                winsorize_bounds = None
+        missing_policy = MissingPolicy(action=missing_action, winsorize_bounds=winsorize_bounds)
 
-        # Parse signal spec — extract field_sources from structured required_fields
+        # Parse signal/data specs. Source details stay as paper wording; physical
+        # table mapping belongs to the Data Catalog / Normalizer.
         raw_fields = raw.get("required_fields", [])
         field_names: list[str] = []
         field_sources: dict[str, FieldSource] = {}
+        required_field_specs: list[RequiredFieldSpec] = []
+        data_source_hints: dict[str, DataSourceHint] = {}
         for item in raw_fields:
             if isinstance(item, dict):
                 name = item.get("field", "")
+                if not name:
+                    continue
                 field_names.append(name)
                 source_str = item.get("source", "")
                 parts = source_str.split(".", 1)
@@ -383,8 +429,22 @@ class RateLimitExhausted(Exception):
                     table=parts[1] if len(parts) > 1 else "",
                     description=item.get("description", ""),
                 )
+                required_field_specs.append(RequiredFieldSpec(
+                    field=name,
+                    concept=item.get("description", ""),
+                    source_detail=source_str,
+                ))
+                if source_str:
+                    dataset_name = parts[0] if parts else source_str
+                    hint = data_source_hints.setdefault(
+                        dataset_name,
+                        DataSourceHint(name=dataset_name, source_details=[]),
+                    )
+                    if source_str not in hint.source_details:
+                        hint.source_details.append(source_str)
             elif isinstance(item, str):
                 field_names.append(item)
+                required_field_specs.append(RequiredFieldSpec(field=item))
 
         signal = SignalSpec(
             formula=raw.get("formula", "unspecified"),
@@ -396,7 +456,9 @@ class RateLimitExhausted(Exception):
 
         # Parse portfolio spec
         bp_source = self._parse_enum(
-            BreakpointSource, raw.get("breakpoint_source"), BreakpointSource.NYSE
+            BreakpointSource,
+            raw.get("breakpoint_source"),
+            BreakpointSource.UNSPECIFIED,
         )
         # Convert ls_quantile to quantile percentiles list for backward compat
         ls_quantile = raw.get("ls_quantile")
@@ -408,17 +470,19 @@ class RateLimitExhausted(Exception):
         else:
             ls_quantile = None
 
-        quantiles = raw.get("breakpoint_quantiles", [30, 70])
+        quantiles = raw.get("breakpoint_quantiles")
         if not isinstance(quantiles, list):
             # Derive from ls_quantile if available
             if ls_quantile:
                 low_pct = int(ls_quantile * 100)
                 quantiles = [low_pct, 100 - low_pct]
             else:
-                quantiles = [30, 70]
+                quantiles = []
 
         weighting = self._parse_enum(
-            WeightingRule, raw.get("stock_weight", raw.get("weighting")), WeightingRule.VALUE_WEIGHTED
+            WeightingRule,
+            raw.get("stock_weight", raw.get("weighting")),
+            WeightingRule.UNSPECIFIED,
         )
 
         # Parse filter
@@ -481,6 +545,28 @@ class RateLimitExhausted(Exception):
         except (ValueError, TypeError):
             sign_val = 1
 
+        # Parse reported stats
+        def _safe_float(val):
+            if val is None or val == "unspecified" or val == "":
+                return None
+            try:
+                return float(val)
+            except (ValueError, TypeError):
+                return None
+
+        raw_horizon = raw.get("return_horizon", "monthly")
+        if not raw_horizon or raw_horizon == "unspecified":
+            raw_horizon = "monthly"
+
+        reasons = raw.get("reasons", {}) or {}
+        field_evidence = [
+            EvidenceCitation(
+                location=", ".join(raw.get("paper_sections", [])),
+                quote=str(reasons.get("formula", "")),
+                interpretation="Supports the extracted signal formula.",
+            )
+        ] if reasons.get("formula") else []
+
         return MethodSpec(
             factor_id=factor_id,
             factor_name=raw.get("factor_name", factor_id),
@@ -491,8 +577,25 @@ class RateLimitExhausted(Exception):
             sign=sign_val,
             sample_start_year=_safe_int(raw.get("sample_start_year")),
             sample_end_year=_safe_int(raw.get("sample_end_year")),
+            cz_acronym=raw.get("cz_acronym") or None,
+            data=DataSpec(
+                sources=list(data_source_hints.values()),
+                required_fields=required_field_specs,
+            ),
             signal=signal,
             portfolio=portfolio,
+            reported_results=ReportedResultsSpec(
+                return_horizon=raw_horizon,
+                main_spread=_safe_float(raw.get("reported_return_spread")),
+                main_t_stat=_safe_float(raw.get("reported_t_stat")),
+                spreads=[
+                    _safe_float(raw.get("reported_return_spread"))
+                ] if _safe_float(raw.get("reported_return_spread")) is not None else [],
+                t_stats=[
+                    _safe_float(raw.get("reported_t_stat"))
+                ] if _safe_float(raw.get("reported_t_stat")) is not None else [],
+                evidence=field_evidence,
+            ),
             extraction_sources=sources,
             ambiguous_fields=ambiguous,
             review_status="pending",
@@ -590,6 +693,12 @@ class RateLimitExhausted(Exception):
             "cat_form": spec.cat_form,
             "sample_start_year": spec.sample_start_year,
             "sample_end_year": spec.sample_end_year,
+            "overlapping_portfolios": spec.signal.timing.overlapping_portfolios,
+            "return_horizon": spec.return_horizon,
+            "winsorize_bounds": (
+                ",".join(str(b) for b in spec.signal.missing_policy.winsorize_bounds)
+                if spec.signal.missing_policy.winsorize_bounds else None
+            ),
         }
         return field_map.get(key)
 

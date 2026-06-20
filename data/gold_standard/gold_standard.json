@@ -1,0 +1,44 @@
+{
+  "AssetGrowth": {
+    "factor_name": "Asset Growth",
+    "economic_intuition": "High asset growth firms tend to have lower subsequent returns due to overinvestment",
+    "detailed_definition": "Annual percentage change in total assets",
+    "formula": "(at - lag(at)) / lag(at)",
+    "required_fields": [
+      {
+        "field": "at",
+        "source": "compustat.funda",
+        "description": "Total Assets"
+      }
+    ],
+    "cat_form": "continuous",
+    "sign": -1,
+    "formation_month": 6,
+    "rebalance_frequency": "annual",
+    "holding_period": 12,
+    "accounting_lag": 6,
+    "skip_month": null,
+    "stock_weight": null,
+    "ls_quantile": null,
+    "breakpoint_source": "Table 2: decile portfolios",
+    "long_leg": "Section II.A: \"breakpoints based on all stocks\"",
+    "short_leg": "low",
+    "universe": "high",
+    "filter": "Section II.A: \"all firms in NYSE AMEX NASDAQ\"",
+    "missing_policy": null,
+    "winsorize_bounds": null,
+    "overlapping_portfolios": null,
+    "return_horizon": "monthly",
+    "cz_acronym": "AssetGrowth",
+    "reported_return_spread": -1.16,
+    "reported_t_stat": -5.43,
+    "return_type": "raw",
+    "data_frequency": "annual",
+    "sample_start_year": 1968,
+    "sample_end_year": 2003,
+    "paper_ref": "Cooper, Gulen, Schill (2008)",
+    "paper_sections": [],
+    "pdf_file": "Asset Growth and the Cross Section of Stock Returns.pdf",
+    "annotator_notes": null
+  }
+}

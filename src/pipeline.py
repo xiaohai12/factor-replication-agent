@@ -1,6 +1,6 @@
 """Main pipeline orchestrator - connects all modules in the controlled workflow.
 
-Implements feedback loops (architecture.md Section 3.1):
+Implements feedback loops (docs/architecture.md Section 3.1):
 - Sandbox → Meta-Coder: bounded repair (max 3 retries)
 - Sandbox → Review Gate: empirical issues need re-review
 - Review Gate → Extractor: re-extraction on conflicts
@@ -113,8 +113,6 @@ class Pipeline:
         extraction = self.extractor.extract(
             factor_id=factor_id,
             paper_text=paper_text,
-            cz_metadata=cz_metadata,
-            osap_code=osap_code,
         )
         spec = extraction.spec
         if spec is None:
@@ -147,6 +145,9 @@ class Pipeline:
                 return [], status
 
         spec.review_status = "approved"
+        spec.codegen_ready = review_result.codegen_ready
+        spec.paper_faithful = review_result.paper_faithful
+        spec.remediation_mode = review_result.remediation_mode
 
         # --- 3. Generate plugin ---
         status.stage = "generate"

@@ -40,6 +40,27 @@ st.sidebar.markdown("- Controller 🚧")
 st.sidebar.markdown("- Sandbox 🚧")
 st.sidebar.markdown("- Evaluation 🚧")
 
+st.sidebar.markdown("---")
+llm_provider = st.sidebar.selectbox(
+    "LLM Provider",
+    ["codex", "copilot", "openrouter"],
+    index=0,
+    help="codex = Codex CLI (gpt-5.5/5.4), copilot = Copilot CLI (Claude/GPT), openrouter = OpenRouter API",
+)
+
+# Model selection based on provider
+_PROVIDER_MODELS = {
+    "codex": ["gpt-5.5", "gpt-5.4"],
+    "copilot": ["claude-opus-4-6", "claude-sonnet-4-6", "gpt-5.4"],
+    "openrouter": ["openai/gpt-4o", "anthropic/claude-sonnet-4", "openai/gpt-5.4"],
+}
+llm_model = st.sidebar.selectbox(
+    "Model",
+    _PROVIDER_MODELS.get(llm_provider, []),
+    index=0,
+    help="Model to use for extraction",
+)
+
 st.title("Factor Replication Agent")
 
 # --- History storage ---
@@ -250,7 +271,7 @@ if page == "Extractor — Single Paper":
                 from src.extractor import SemanticExtractor
                 from src.llm import create_llm_client
 
-                client = create_llm_client()
+                client = create_llm_client(provider=llm_provider, model=llm_model)
                 extractor = SemanticExtractor(llm_client=client)
                 result = extractor.extract(matched_acronym, paper_text)
                 st.session_state["raw_llm_output"] = result.raw_llm_output
@@ -407,11 +428,14 @@ elif page == "Extractor — Batch Evaluation":
     # Paper selection
     select_mode = st.radio(
         "Selection mode:",
-        ["All PDFs", "Select specific PDFs"],
+        ["All PDFs", "First N PDFs", "Select specific PDFs"],
         horizontal=True,
     )
 
-    if select_mode == "Select specific PDFs":
+    if select_mode == "First N PDFs":
+        n_pdfs = st.slider("Number of papers to run:", min_value=1, max_value=len(available_pdfs), value=min(30, len(available_pdfs)))
+        selected_pdfs = available_pdfs[:n_pdfs]
+    elif select_mode == "Select specific PDFs":
         selected_pdfs = st.multiselect(
             "Choose PDFs to evaluate:",
             available_pdfs,
@@ -457,7 +481,7 @@ elif page == "Extractor — Batch Evaluation":
         from src.llm import create_llm_client
 
         with st.spinner("Running extraction evaluation..."):
-            client = create_llm_client()
+            client = create_llm_client(provider=llm_provider, model=llm_model)
             extractor = SemanticExtractor(llm_client=client)
 
             # Load previous results from checkpoint
@@ -533,7 +557,7 @@ elif page == "Extractor — Batch Evaluation":
                     extraction = batch_results.get(factor_id)
                     try:
                         if extraction is None or extraction.spec is None:
-                            eval_result.error = "Extraction returned None"
+                            eval_result.error = extraction.error if extraction else "Extraction returned None"
                         else:
                             eval_result.extraction_success = True
                             row = signaldoc.get(factor_id)
