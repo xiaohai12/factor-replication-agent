@@ -45,6 +45,23 @@ and controlled pipeline components.
 
 ## Common Commands
 
+### Starting the Streamlit dashboard
+
+The dashboard lives in `app.py`. Run it with whichever Python environment
+has the project dependencies installed (streamlit, pymupdf, pydantic, …):
+
+```bash
+# If installed in a virtualenv / uv environment:
+source .venv/bin/activate   # or: uv run streamlit run app.py
+streamlit run app.py
+
+# If installed with pip into the system / user Python:
+python3 -m streamlit run app.py
+```
+
+The app opens at http://localhost:8501 by default.
+Use `--server.port 8502` to pick a different port.
+
 ```bash
 streamlit run app.py
 pytest tests/

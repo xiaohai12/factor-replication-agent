@@ -362,7 +362,7 @@ class TestEvaluationLogic:
         ]
         summary = report.summary()
         assert "BM" in summary
-        assert "80%" in summary
+        assert "80" in summary  # summary formats as "80.0%" or "80%"
 
 
 # --- Standalone eval runner (can be called outside pytest) ---

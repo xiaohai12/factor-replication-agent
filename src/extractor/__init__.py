@@ -15,7 +15,10 @@ from __future__ import annotations
 import json
 import time
 from dataclasses import dataclass, field
+from pathlib import Path
 from typing import Optional
+
+from pydantic import ValidationError
 
 from src.models.method_spec import (
     AmbiguousField,
@@ -39,8 +42,18 @@ from src.models.method_spec import (
     WeightingRule,
 )
 
+# Canonical prompt file — used as system prompt when available
+_PROMPT_PATH = Path(__file__).resolve().parents[2] / "prompts" / "extractor" / "methodspec_extractor.md"
 
-# --- System prompt for paper extraction ---
+
+def _load_extraction_system_prompt() -> str:
+    """Load system prompt from prompts/extractor/methodspec_extractor.md if present."""
+    if _PROMPT_PATH.exists():
+        return _PROMPT_PATH.read_text()
+    return _FALLBACK_EXTRACTION_SYSTEM_PROMPT
+
+
+# --- Fallback system prompt (used only when prompts/ file is missing) ---
 
 
 def _enum_choices(enum_cls) -> str:
@@ -96,7 +109,7 @@ def _build_extraction_schema() -> str:
     return "\n".join(lines)
 
 
-EXTRACTION_SYSTEM_PROMPT = f"""\
+_FALLBACK_EXTRACTION_SYSTEM_PROMPT = f"""\
 You are an expert financial economist. Your task is to extract a structured factor \
 specification from an academic paper.
 
@@ -177,6 +190,7 @@ class ExtractionResult:
     raw_llm_output: Optional[dict] = None
     reasons: dict[str, str] = field(default_factory=dict)  # field_name -> quote from paper
     error: Optional[str] = None  # Error message if extraction failed
+    token_usage: Optional[dict] = None  # {prompt_tokens, completion_tokens, total_tokens}
 
 
 class SemanticExtractor:
@@ -220,6 +234,7 @@ class SemanticExtractor:
         self,
         factor_id: str,
         paper_text: str,
+        pdf_bytes: bytes | None = None,
     ) -> ExtractionResult:
         """Extract MethodSpec from paper text only.
 
@@ -240,8 +255,10 @@ class SemanticExtractor:
 
         # Call LLM for extraction
         self._last_error = None
-        raw = self._call_llm_extract(factor_id, paper_text)
+        self._last_usage = None
+        raw = self._call_llm_extract(factor_id, paper_text, pdf_bytes=pdf_bytes)
         result.raw_llm_output = raw
+        result.token_usage = getattr(self, "_last_usage", None)
 
         if raw:
             result.spec = self._build_method_spec_from_llm(factor_id, raw)
@@ -299,16 +316,34 @@ class SemanticExtractor:
 
         return results
 
+    # Max paper text chars sent to LLM (~10k tokens, leaves room for system prompt + output)
     def _call_llm_extract(
-        self, factor_id: str, paper_text: str
+        self, factor_id: str, paper_text: str, pdf_bytes: bytes | None = None
     ) -> dict | None:
-        """Call LLM to extract structured fields from paper text (with retry)."""
+        """Call LLM to extract structured fields from paper text (with retry).
+
+        If pdf_bytes is provided and the client supports it, sends the PDF directly
+        as a base64 document block (preserves formulas and tables).
+        Otherwise sends full paper text.
+        """
+        client_supports_pdf = hasattr(self.llm_client, "_create_with_pdf") or hasattr(self.llm_client, "_pdf_to_text")
+        if pdf_bytes and client_supports_pdf:
+            user_msg = EXTRACTION_USER_TEMPLATE.format(
+                factor_id=factor_id,
+                paper_text="[See attached PDF document above]",
+            )
+            messages = [
+                {"role": "system", "content": _load_extraction_system_prompt()},
+                {"role": "user", "content": user_msg},
+            ]
+            return self._call_llm_with_retry(messages, pdf_bytes=pdf_bytes)
+
         user_msg = EXTRACTION_USER_TEMPLATE.format(
             factor_id=factor_id,
             paper_text=paper_text,
         )
         messages = [
-            {"role": "system", "content": EXTRACTION_SYSTEM_PROMPT},
+            {"role": "system", "content": _load_extraction_system_prompt()},
             {"role": "user", "content": user_msg},
         ]
         return self._call_llm_with_retry(messages)
@@ -322,13 +357,14 @@ class SemanticExtractor:
             paper_text=paper_text,
         )
         messages = [
-            {"role": "system", "content": EXTRACTION_SYSTEM_PROMPT},
+            {"role": "system", "content": _load_extraction_system_prompt()},
             {"role": "user", "content": user_msg},
         ]
         return self._call_llm_with_retry(messages)
 
-    def _call_llm_with_retry(self, messages: list[dict]) -> dict | None:
+    def _call_llm_with_retry(self, messages: list[dict], pdf_bytes: bytes | None = None) -> dict | None:
         """Call LLM with inter-call delay. Raises RateLimitError on quota exhaustion."""
+        from src.llm import extract_usage
         # Respect call_delay between requests
         elapsed = time.time() - self._last_call_time
         if elapsed < self.call_delay:
@@ -340,8 +376,10 @@ class SemanticExtractor:
                 messages=messages,
                 temperature=0.0,
                 response_format={"type": "json_object"},
+                **({"pdf_bytes": pdf_bytes} if pdf_bytes else {}),
             )
             self._last_call_time = time.time()
+            self._last_usage = extract_usage(response)
             content = response.choices[0].message.content
             return json.loads(content)
         except Exception as e:
@@ -362,7 +400,21 @@ class SemanticExtractor:
     def _build_method_spec_from_llm(
         self, factor_id: str, raw: dict
     ) -> MethodSpec:
-        """Convert raw LLM JSON output to a validated MethodSpec."""
+        """Convert raw LLM JSON output to a validated MethodSpec.
+
+        Tries the rich schema path first (MethodSpec.model_validate on the raw dict,
+        which works when the LLM output matches the prompts/ curated format).
+        Falls back to manual construction from the legacy flat schema.
+        """
+        # Inject factor_id if missing (the rich schema requires it)
+        enriched = dict(raw)
+        enriched.setdefault("factor_id", factor_id)
+        enriched.setdefault("factor_name", raw.get("factor_name") or factor_id)
+
+        try:
+            return MethodSpec.model_validate(enriched)
+        except (ValidationError, Exception):
+            pass  # Fall through to manual flat-schema construction
 
         def _safe_int(val, default=None):
             """Convert value to int, returning default if not a valid integer."""
@@ -490,8 +542,12 @@ class SemanticExtractor:
         if raw_filter == "unspecified":
             raw_filter = ""
 
+        raw_universe = raw.get("universe", "NYSE + AMEX + NASDAQ, common shares only")
+        if isinstance(raw_universe, dict):
+            raw_universe = raw_universe.get("description") or raw_universe.get("value") or str(raw_universe)
+
         portfolio = PortfolioSpec(
-            universe=raw.get("universe", "NYSE + AMEX + NASDAQ, common shares only"),
+            universe=raw_universe,
             breakpoints=BreakpointSpec(source=bp_source, quantiles=quantiles, ls_quantile=ls_quantile),
             weighting=weighting,
             long_leg=raw.get("long_leg", "high"),

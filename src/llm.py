@@ -74,20 +74,51 @@ class _ChatNamespace:
         self.completions = _CompletionsNamespace(client)
 
 
+def _find_codex_bin() -> str:
+    """Return the codex binary path, checking PATH then known install locations."""
+    import shutil
+    if shutil.which("codex"):
+        return "codex"
+    candidates = [
+        os.path.expanduser("~/.vscode/extensions/openai.chatgpt-*/bin/macos-aarch64/codex"),
+        os.path.expanduser("~/.vscode/extensions/openai.chatgpt-*/bin/macos-x64/codex"),
+        os.path.expanduser("~/.vscode/extensions/openai.chatgpt-*/bin/linux-x64/codex"),
+        os.path.expanduser("~/.codex/plugins/.plugin-appserver/codex"),
+        "/usr/local/bin/codex",
+    ]
+    import glob
+    for pattern in candidates:
+        matches = glob.glob(pattern)
+        if matches:
+            return sorted(matches)[-1]  # pick latest version
+    return "codex"  # fall back; will error at call time with a clear message
+
+
 class CodexCLIClient:
     """LLM client using `codex exec` CLI subprocess.
 
     Wraps codex CLI to provide an OpenAI-compatible interface.
     Uses --json flag for structured JSONL output parsing.
-    Supports model selection via -m flag (e.g. gpt-5.5, gpt-5.4).
+    Supports model selection via -m flag (e.g. gpt-5.4, gpt-5.5).
+    Set stream_callback to receive incremental agent_message text as it arrives.
     """
 
-    # Models available through Codex CLI
-    SUPPORTED_MODELS = ["gpt-5.5", "gpt-5.4"]
+    SUPPORTED_MODELS = ["gpt-5.4", "gpt-5.5"]
 
     def __init__(self, model: str = "gpt-5.4"):
         self.chat = _ChatNamespace(self)
         self.default_model = model
+        self._bin = _find_codex_bin()
+        self.stream_callback: Optional[callable] = None
+
+    @staticmethod
+    def _pdf_to_text(pdf_bytes: bytes) -> str:
+        """Extract text from PDF using pymupdf."""
+        import pymupdf
+        doc = pymupdf.open(stream=pdf_bytes, filetype="pdf")
+        pages = [page.get_text() for page in doc]
+        doc.close()
+        return "\n".join(pages)
 
     def _create(
         self,
@@ -95,14 +126,12 @@ class CodexCLIClient:
         messages: list[dict] | None = None,
         temperature: float = 0.0,
         response_format: dict | None = None,
+        pdf_bytes: bytes | None = None,
         **kwargs,
     ) -> ChatCompletion:
-        # Always use configured default model — ignore caller's model
-        # (callers may pass "gpt-4o" which isn't valid for all providers)
         model = self.default_model
         messages = messages or []
 
-        # Build prompt from messages
         prompt_parts = []
         for msg in messages:
             role = msg["role"]
@@ -110,64 +139,74 @@ class CodexCLIClient:
             if role == "system":
                 prompt_parts.append(f"[SYSTEM INSTRUCTIONS]\n{content}\n")
             elif role == "user":
+                if pdf_bytes:
+                    pdf_text = self._pdf_to_text(pdf_bytes)
+                    prompt_parts.append(f"[PAPER TEXT (extracted from PDF)]\n{pdf_text}\n")
+                    pdf_bytes = None  # only prepend once
                 prompt_parts.append(f"[USER REQUEST]\n{content}\n")
 
         full_prompt = "\n".join(prompt_parts)
 
-        # If JSON mode requested, add explicit instruction
         if response_format and response_format.get("type") == "json_object":
             full_prompt += "\n\nIMPORTANT: Respond with ONLY valid JSON. No markdown, no explanation, just the JSON object."
 
+        stderr_out = ""
         try:
-            # Use --json for structured JSONL event output
-            cmd = ["codex", "exec", "-s", "read-only", "--json"]
+            cmd = [self._bin, "exec", "-s", "read-only", "--json"]
             if model != "default":
                 cmd.extend(["-m", model])
             cmd.append("-")
 
-            result = subprocess.run(
-                cmd,
-                input=full_prompt,
-                capture_output=True,
-                text=True,
-            )
-
-            # Parse JSONL events from stdout to extract agent messages
             content = ""
-            for line in result.stdout.strip().split("\n"):
-                if not line.strip():
-                    continue
-                try:
-                    event = json.loads(line)
-                    if event.get("type") == "item.completed":
-                        item = event.get("item", {})
-                        if item.get("type") == "agent_message":
-                            content += item.get("text", "")
-                except json.JSONDecodeError:
-                    continue
+            with subprocess.Popen(
+                cmd,
+                stdin=subprocess.PIPE,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+            ) as proc:
+                proc.stdin.write(full_prompt)
+                proc.stdin.close()
 
-            if not content:
-                raise RuntimeError(
-                    f"codex exec returned no agent message. stdout: {result.stdout[:300]}"
-                )
+                for line in proc.stdout:
+                    line = line.strip()
+                    if not line:
+                        continue
+                    try:
+                        event = json.loads(line)
+                        if event.get("type") == "item.completed":
+                            item = event.get("item", {})
+                            if item.get("type") == "agent_message":
+                                content += item.get("text", "")
+                                if self.stream_callback and content:
+                                    self.stream_callback(content)
+                    except json.JSONDecodeError:
+                        continue
 
-            # Clean up markdown code fences if present
-            if content.startswith("```"):
-                lines = content.split("\n")
-                lines = [l for l in lines if not l.strip().startswith("```")]
-                content = "\n".join(lines)
-
-            # Validate JSON if json_object mode
-            if response_format and response_format.get("type") == "json_object":
-                json.loads(content)  # Raises if invalid
-
-            return ChatCompletion(
-                choices=[Choice(message=Message(role="assistant", content=content))],
-                model=model,
-            )
+                proc.wait()
+                stderr_out = proc.stderr.read() if proc.stderr else ""
 
         except Exception as e:
             raise RuntimeError(f"codex exec failed: {e}")
+
+        if not content:
+            raise RuntimeError(
+                f"codex exec returned no agent message. stderr: {stderr_out[:300]}"
+            )
+
+        if content.startswith("```"):
+            lines = content.split("\n")
+            lines = [l for l in lines if not l.strip().startswith("```")]
+            content = "\n".join(lines)
+
+        if response_format and response_format.get("type") == "json_object":
+            json.loads(content)
+
+        return ChatCompletion(
+            choices=[Choice(message=Message(role="assistant", content=content))],
+            model=model,
+            usage=_estimate_tokens(full_prompt, content),
+        )
 
 
 class CopilotCLIClient:
@@ -194,58 +233,54 @@ class CopilotCLIClient:
         "Code Helper (Plugin).app/Contents/MacOS/Code Helper (Plugin)"
     )
 
+    SUPPORTED_MODELS = ["claude-opus-4-6", "claude-sonnet-4-6", "gpt-5.4"]
+
     def __init__(self, model: str = "claude-opus-4-6", agent_mode: bool = False):
         self.chat = _ChatNamespace(self)
         self.default_model = model
         self._agent_mode = agent_mode
         self._cli_js = os.environ.get("COPILOT_CLI_JS", self._DEFAULT_CLI_JS)
         self._node_bin = os.environ.get("COPILOT_CLI_NODE", self._DEFAULT_NODE_BIN)
-
-    # Models available through Copilot CLI
-    SUPPORTED_MODELS = ["claude-opus-4-6", "claude-sonnet-4-6", "gpt-5.4"]
+        self.stream_callback: Optional[callable] = None
 
     def _build_base_env(self) -> dict:
         env = os.environ.copy()
         env["ELECTRON_RUN_AS_NODE"] = "1"
         return env
 
-    def _run_prompt(self, prompt: str, model: str) -> str:
-        """Run in LLM mode: pure text completion with all tools disabled.
-        
-        Uses stdin ('-') to pass the prompt to avoid OS ARG_MAX limits
-        with large paper texts.
-        """
-        cmd = [
-            self._node_bin,
-            self._cli_js,
-            "-p", "-",
-            "--output-format", "json",
-            "--model", model,
-            "--disallowed-tools", "Read", "Write", "Bash", "Edit",
-            "--disable-slash-commands",
-            "--no-session-persistence",
-        ]
-
-        result = subprocess.run(
+    def _run_with_popen(self, cmd: list, prompt: str, work_dir: str | None = None) -> str:
+        """Run a copilot CLI command via Popen, streaming raw stdout to stream_callback."""
+        raw_chunks: list[str] = []
+        with subprocess.Popen(
             cmd,
-            input=prompt,
-            capture_output=True,
+            stdin=subprocess.PIPE,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
             text=True,
             env=self._build_base_env(),
-        )
+            cwd=work_dir,
+        ) as proc:
+            proc.stdin.write(prompt)
+            proc.stdin.close()
 
-        if result.returncode != 0:
-            raise RuntimeError(
-                f"copilot CLI exited with code {result.returncode}: {result.stderr[:500]}"
-            )
+            for chunk in iter(lambda: proc.stdout.read(64), ""):
+                raw_chunks.append(chunk)
+                if self.stream_callback:
+                    self.stream_callback("".join(raw_chunks))
 
-        # Parse JSON output (single JSON object with "result" field)
+            proc.wait()
+            stderr_out = proc.stderr.read() if proc.stderr else ""
+            if proc.returncode != 0:
+                raise RuntimeError(
+                    f"copilot CLI exited with code {proc.returncode}: {stderr_out[:500]}"
+                )
+
+        raw = "".join(raw_chunks).strip()
         try:
-            output = json.loads(result.stdout)
+            output = json.loads(raw)
             return output.get("result", "")
         except json.JSONDecodeError:
-            # Fallback: try parsing as NDJSON
-            for line in result.stdout.strip().split("\n"):
+            for line in raw.split("\n"):
                 if not line.strip():
                     continue
                 try:
@@ -254,13 +289,25 @@ class CopilotCLIClient:
                         return event.get("result", "")
                 except json.JSONDecodeError:
                     continue
-            return result.stdout.strip()
+            return raw
+
+    def _run_prompt(self, prompt: str, model: str) -> str:
+        """Run in LLM mode: pure text completion with all tools disabled."""
+        cmd = [
+            self._node_bin, self._cli_js,
+            "-p", "-",
+            "--output-format", "json",
+            "--model", model,
+            "--disallowed-tools", "Read", "Write", "Bash", "Edit",
+            "--disable-slash-commands",
+            "--no-session-persistence",
+        ]
+        return self._run_with_popen(cmd, prompt)
 
     def _run_agent_sync(self, prompt: str, model: str, work_dir: str | None = None) -> str:
         """Run in agent mode: full coding agent with tools enabled."""
         cmd = [
-            self._node_bin,
-            self._cli_js,
+            self._node_bin, self._cli_js,
             "-p", "-",
             "--output-format", "json",
             "--model", model,
@@ -269,37 +316,7 @@ class CopilotCLIClient:
         ]
         if work_dir:
             cmd.extend(["--add-dir", work_dir])
-
-        result = subprocess.run(
-            cmd,
-            input=prompt,
-            capture_output=True,
-            text=True,
-            env=self._build_base_env(),
-            cwd=work_dir,
-        )
-
-        if result.returncode != 0:
-            raise RuntimeError(
-                f"copilot CLI agent exited with code {result.returncode}: {result.stderr[:500]}"
-            )
-
-        # Parse JSON output
-        try:
-            output = json.loads(result.stdout)
-            return output.get("result", "")
-        except json.JSONDecodeError:
-            # Fallback: try NDJSON
-            for line in result.stdout.strip().split("\n"):
-                if not line.strip():
-                    continue
-                try:
-                    event = json.loads(line)
-                    if event.get("type") == "result":
-                        return event.get("result", "")
-                except json.JSONDecodeError:
-                    continue
-            return result.stdout.strip()
+        return self._run_with_popen(cmd, prompt, work_dir=work_dir)
 
     def _create(
         self,
@@ -352,6 +369,7 @@ class CopilotCLIClient:
             return ChatCompletion(
                 choices=[Choice(message=Message(role="assistant", content=content))],
                 model=model,
+                usage=_estimate_tokens(full_prompt, content),
             )
 
         except json.JSONDecodeError as e:
@@ -360,6 +378,194 @@ class CopilotCLIClient:
             if "copilot CLI" in str(e):
                 raise
             raise RuntimeError(f"copilot CLI failed: {e}")
+
+
+def _find_claude_bin() -> str:
+    """Return the claude binary path, checking PATH then known install locations."""
+    import shutil
+    if shutil.which("claude"):
+        return "claude"
+    env_override = os.environ.get("CLAUDE_CODE_BIN")
+    if env_override:
+        return env_override
+    import glob
+    candidates = [
+        os.path.expanduser("~/.vscode/extensions/anthropic.claude-code-*/resources/native-binary/claude"),
+        os.path.expanduser("~/Library/Application Support/Claude/claude-code-vm/*/claude"),
+        "/usr/local/bin/claude",
+    ]
+    for pattern in candidates:
+        matches = glob.glob(pattern)
+        if matches:
+            return sorted(matches)[-1]
+    return "claude"
+
+
+class ClaudeCodeCLIClient:
+    """LLM client using the `claude` CLI (Claude Code).
+
+    Streams output via --output-format stream-json so callers can show progress.
+    Set stream_callback to receive incremental text as it arrives.
+
+    Set CLAUDE_CODE_BIN env var to override the binary path (default: auto-detected).
+    """
+
+    SUPPORTED_MODELS = ["claude-sonnet-4-6", "claude-opus-4-8", "claude-haiku-4-5-20251001"]
+
+    def __init__(self, model: str = "claude-sonnet-4-6"):
+        self.chat = _ChatNamespace(self)
+        self.default_model = model
+        self._bin = _find_claude_bin()
+        self.stream_callback: Optional[callable] = None  # called with (partial_text: str)
+
+    def _create(
+        self,
+        model: str | None = None,
+        messages: list[dict] | None = None,
+        temperature: float = 0.0,
+        response_format: dict | None = None,
+        pdf_bytes: bytes | None = None,
+        **_kwargs,
+    ) -> ChatCompletion:
+        model = self.default_model
+        messages = messages or []
+
+        if response_format and response_format.get("type") == "json_object":
+            json_instruction = "\n\nIMPORTANT: Respond with ONLY valid JSON. No markdown, no explanation, just the JSON object."
+        else:
+            json_instruction = ""
+
+        if pdf_bytes:
+            return self._create_with_pdf(model, messages, pdf_bytes, json_instruction, response_format)
+
+        # Text-only path
+        prompt_parts = []
+        for msg in messages:
+            role = msg["role"]
+            content = msg["content"]
+            if role == "system":
+                prompt_parts.append(f"[SYSTEM INSTRUCTIONS]\n{content}\n")
+            elif role == "user":
+                prompt_parts.append(f"[USER REQUEST]\n{content}\n")
+        full_prompt = "\n".join(prompt_parts) + json_instruction
+
+        return self._run_stream_json(
+            cmd=[self._bin, "--model", model, "--output-format", "stream-json",
+                 "--no-session-persistence", "-p", "-"],
+            stdin_text=full_prompt,
+            response_format=response_format,
+        )
+
+    def _create_with_pdf(
+        self,
+        model: str,
+        messages: list[dict],
+        pdf_bytes: bytes,
+        json_instruction: str,
+        response_format,
+    ) -> ChatCompletion:
+        """Send PDF as a base64 document block via --input-format stream-json."""
+        import base64
+
+        system_text = ""
+        user_text = ""
+        for msg in messages:
+            if msg["role"] == "system":
+                system_text = msg["content"]
+            elif msg["role"] == "user":
+                user_text = msg["content"]
+
+        user_text += json_instruction
+
+        b64 = base64.b64encode(pdf_bytes).decode()
+        stdin_msg = json.dumps({
+            "type": "user",
+            "message": {
+                "role": "user",
+                "content": [
+                    {"type": "document", "source": {"type": "base64", "media_type": "application/pdf", "data": b64}},
+                    {"type": "text", "text": user_text},
+                ],
+            },
+        })
+
+        cmd = [
+            self._bin, "--model", model,
+            "--output-format", "stream-json",
+            "--input-format", "stream-json",
+            "--verbose",
+            "--no-session-persistence",
+            "-p", "-",
+        ]
+        if system_text:
+            cmd += ["--system-prompt", system_text]
+
+        return self._run_stream_json(cmd=cmd, stdin_text=stdin_msg, response_format=response_format)
+
+    def _run_stream_json(self, cmd: list, stdin_text: str, response_format) -> ChatCompletion:
+        """Run claude CLI, read stream-json output, return ChatCompletion."""
+        try:
+            content = ""
+            with subprocess.Popen(
+                cmd,
+                stdin=subprocess.PIPE,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+            ) as proc:
+                proc.stdin.write(stdin_text)
+                proc.stdin.close()
+
+                for line in proc.stdout:
+                    line = line.strip()
+                    if not line:
+                        continue
+                    try:
+                        event = json.loads(line)
+                        etype = event.get("type")
+                        if etype == "assistant":
+                            for block in event.get("message", {}).get("content", []):
+                                if block.get("type") == "text":
+                                    content = block.get("text", "")
+                                    if self.stream_callback and content:
+                                        self.stream_callback(content)
+                        elif etype == "result":
+                            final = event.get("result", "")
+                            if final:
+                                content = final
+                    except json.JSONDecodeError:
+                        continue
+
+                proc.wait()
+                stderr_out = proc.stderr.read() if proc.stderr else ""
+                if proc.returncode != 0 and not content:
+                    raise RuntimeError(
+                        f"claude CLI exited with code {proc.returncode}: {stderr_out[:500]}"
+                    )
+
+            if not content:
+                raise RuntimeError("claude CLI returned empty response")
+
+            if content.startswith("```"):
+                lines = content.split("\n")
+                lines = [l for l in lines if not l.strip().startswith("```")]
+                content = "\n".join(lines).strip()
+
+            if response_format and response_format.get("type") == "json_object":
+                json.loads(content)
+
+            return ChatCompletion(
+                choices=[Choice(message=Message(role="assistant", content=content))],
+                model=self.default_model,
+                usage=_estimate_tokens(stdin_text, content),
+            )
+
+        except json.JSONDecodeError as e:
+            raise RuntimeError(f"claude CLI returned invalid JSON: {e}")
+        except Exception as e:
+            if "claude CLI" in str(e):
+                raise
+            raise RuntimeError(f"claude CLI failed: {e}")
 
 
 class OpenRouterClient:
@@ -388,15 +594,36 @@ class OpenRouterClient:
         self.default_model = model
 
 
+def extract_usage(response) -> dict:
+    """Extract token usage from any response object (our wrapper or real OpenAI)."""
+    usage = getattr(response, "usage", None)
+    if not usage:
+        return {}
+    if isinstance(usage, dict):
+        return usage
+    return {
+        "prompt_tokens": getattr(usage, "prompt_tokens", 0),
+        "completion_tokens": getattr(usage, "completion_tokens", 0),
+        "total_tokens": getattr(usage, "total_tokens", 0),
+    }
+
+
+def _estimate_tokens(prompt_text: str, response_text: str) -> dict:
+    """Rough token estimate for CLI providers: ~4 chars per token."""
+    pt = max(1, len(prompt_text) // 4)
+    ct = max(1, len(response_text) // 4)
+    return {"prompt_tokens": pt, "completion_tokens": ct, "total_tokens": pt + ct, "estimated": True}
+
+
 def create_llm_client(
     provider: str = "codex",
     api_key: str | None = None,
     model: str | None = None,
-) -> CodexCLIClient | CopilotCLIClient | OpenRouterClient:
+) -> CodexCLIClient | CopilotCLIClient | ClaudeCodeCLIClient | OpenRouterClient:
     """Factory to create an LLM client.
 
     Args:
-        provider: "codex" (default), "copilot", or "openrouter"
+        provider: "codex", "copilot", "claude" (Claude Code CLI), or "openrouter"
         api_key: API key for OpenRouter (or set OPENROUTER_API_KEY env var)
         model: Model name override
 
@@ -407,7 +634,9 @@ def create_llm_client(
         return CodexCLIClient(model=model or "gpt-5.4")
     elif provider == "copilot":
         return CopilotCLIClient(model=model or "claude-opus-4-6")
+    elif provider == "claude":
+        return ClaudeCodeCLIClient(model=model or "claude-sonnet-4-6")
     elif provider == "openrouter":
         return OpenRouterClient(api_key=api_key, model=model or "openai/gpt-4o")
     else:
-        raise ValueError(f"Unknown provider: {provider}. Use 'codex', 'copilot', or 'openrouter'.")
+        raise ValueError(f"Unknown provider: {provider}. Use 'codex', 'copilot', 'claude', or 'openrouter'.")

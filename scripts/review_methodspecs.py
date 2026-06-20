@@ -80,27 +80,6 @@ def _apply_review_to_spec(spec: MethodSpec, result: ReviewResult) -> MethodSpec:
     return spec
 
 
-def _apply_raw_review_to_spec(spec: MethodSpec, result: dict[str, Any]) -> MethodSpec:
-    spec.review_status = result.get("disposition", "pending")
-    spec.remediation_mode = result.get("remediation_mode", spec.remediation_mode)
-    spec.codegen_ready = bool(result.get("codegen_ready", False))
-    spec.paper_faithful = bool(result.get("paper_faithful", False))
-    spec.review_notes = [
-        {
-            "field": note.get("field", ""),
-            "status": _status_value(note.get("status")),
-            "severity": note.get("severity", ""),
-            "reason": note.get("reason", ""),
-            "current_value": note.get("current_value"),
-            "candidate_value": note.get("candidate_value"),
-            "empirical_impact": note.get("empirical_impact", ""),
-            "evidence": note.get("evidence", []),
-        }
-        for note in result.get("field_notes", [])
-    ]
-    return spec
-
-
 def _slug(value: str) -> str:
     return "".join(ch if ch.isalnum() or ch in {"-", "_"} else "_" for ch in value)
 
@@ -149,76 +128,6 @@ def _resolve_paper_path(spec: MethodSpec, spec_path: Path, explicit_paper: str, 
     )
 
 
-def _build_llm_messages(
-    prompt_text: str,
-    spec: MethodSpec,
-    spec_path: Path,
-    paper_path: Path,
-    paper_text: str,
-) -> list[dict[str, str]]:
-    review_contract = """
-Return exactly one JSON object with this shape:
-{
-  "review_id": "string",
-  "methodspec_version": "string",
-  "reviewer": "string",
-  "disposition": "approved|revision_required|blocked",
-  "remediation_mode": "patch_existing_json|targeted_reextraction|full_regeneration",
-  "codegen_ready": true,
-  "paper_faithful": true,
-  "approved": true,
-  "issues": ["string"],
-  "warnings": ["string"],
-  "field_notes": [
-    {
-      "field": "dotted.path",
-      "severity": "P0|P1|P2|P3",
-      "status": "auto_approve|auto_approve_with_flag|approve_with_default|needs_llm_review|needs_human_confirmation",
-      "reason": "string",
-      "current_value": "any JSON value",
-      "candidate_value": "any JSON value",
-      "empirical_impact": "high|low",
-      "evidence": [
-        {
-          "location": "string",
-          "quote": "string",
-          "interpretation": "string",
-          "source_type": "paper"
-        }
-      ]
-    }
-  ],
-  "blocked_fields": ["dotted.path"],
-  "requires_human": true,
-  "markdown_report": "full markdown review report"
-}
-Rules:
-- blocked_fields must equal the subset of field_notes whose status is needs_human_confirmation.
-- approved must be true iff disposition is approved.
-- codegen_ready must be false for blocked or revision_required outputs.
-- If a field is paper-silent but high-impact, mark status needs_human_confirmation rather than approving it as paper fact.
-- Respond with JSON only.
-""".strip()
-
-    user_request = f"""Audit this MethodSpec against the original paper.
-
-MethodSpec JSON path: {spec_path}
-Paper PDF path: {paper_path}
-
-Use only the content below as your input corpus.
-
-[METHODSPEC JSON]
-{json.dumps(spec.model_dump(mode="json"), indent=2, ensure_ascii=False)}
-
-[PAPER TEXT]
-{paper_text}
-
-{review_contract}
-"""
-    return [
-        {"role": "system", "content": prompt_text},
-        {"role": "user", "content": user_request},
-    ]
 
 
 def _write_artifacts(
@@ -345,17 +254,12 @@ def llm_review_file(
 
     try:
         paper_path = _resolve_paper_path(spec, path, explicit_paper, papers_dir)
-        prompt_text = prompt_path.read_text()
         paper_text = _extract_pdf_text(paper_path)
         client = create_llm_client(provider=provider, model=model)
-        response = client.chat.completions.create(
-            messages=_build_llm_messages(prompt_text, spec, path, paper_path, paper_text),
-            temperature=0.0,
-            response_format={"type": "json_object"},
-        )
-        raw_result = json.loads(response.choices[0].message.content)
+        gate = ReviewGate(llm_client=client)
+        result, raw_result = gate.review_with_llm(spec, paper_text, prompt_path=prompt_path)
 
-        reviewed_spec = _apply_raw_review_to_spec(spec, raw_result)
+        reviewed_spec = _apply_review_to_spec(spec, result)
         reviewed_spec_path, review_report_path, markdown_review_path = _write_llm_artifacts(
             reviewed_spec, raw_result, path, output_dir
         )
@@ -364,12 +268,12 @@ def llm_review_file(
             "path": str(path),
             "ok": True,
             "factor_id": reviewed_spec.factor_id,
-            "disposition": raw_result.get("disposition", "pending"),
-            "codegen_ready": bool(raw_result.get("codegen_ready", False)),
-            "requires_human": bool(raw_result.get("requires_human", False)),
-            "blocked_fields": raw_result.get("blocked_fields", []),
-            "issues": raw_result.get("issues", []),
-            "warnings": raw_result.get("warnings", []),
+            "disposition": result.disposition,
+            "codegen_ready": result.codegen_ready,
+            "requires_human": result.requires_human,
+            "blocked_fields": result.blocked_fields,
+            "issues": result.issues,
+            "warnings": result.warnings,
             "reviewed_spec_path": str(reviewed_spec_path),
             "review_report_path": str(review_report_path),
             "markdown_review_path": str(markdown_review_path),
@@ -423,7 +327,7 @@ def main() -> int:
     parser.add_argument("--factor", default="")
     parser.add_argument("--out-dir", default=str(DEFAULT_OUTPUT_DIR))
     parser.add_argument("--backend", choices=["rules", "llm"], default="rules")
-    parser.add_argument("--provider", choices=["codex", "copilot", "openrouter"], default="codex")
+    parser.add_argument("--provider", choices=["codex", "copilot", "claude", "openrouter"], default="codex")
     parser.add_argument("--model", default="")
     parser.add_argument("--prompt", default=str(DEFAULT_PROMPT_PATH))
     parser.add_argument("--paper", default="")

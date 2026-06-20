@@ -9,9 +9,11 @@ Implements the Review Decision Matrix from docs/architecture.md Section 4.3:
 
 from __future__ import annotations
 
+import json
 from dataclasses import dataclass, field
 from enum import Enum
-from typing import Optional
+from pathlib import Path
+from typing import Any, Optional
 
 from src.data_layer import DataDictionary
 from src.models.method_spec import (
@@ -22,6 +24,45 @@ from src.models.method_spec import (
     MethodSpec,
     RemediationMode,
 )
+
+DEFAULT_REVIEW_PROMPT_PATH = Path(__file__).resolve().parents[2] / "prompts" / "review_gate" / "methodspec_audit.md"
+
+_LLM_REVIEW_CONTRACT = """
+Return exactly one JSON object with this shape:
+{
+  "review_id": "string",
+  "methodspec_version": "string",
+  "reviewer": "string",
+  "disposition": "approved|revision_required|blocked",
+  "remediation_mode": "patch_existing_json|targeted_reextraction|full_regeneration",
+  "codegen_ready": true,
+  "paper_faithful": true,
+  "approved": true,
+  "issues": ["string"],
+  "warnings": ["string"],
+  "field_notes": [
+    {
+      "field": "dotted.path",
+      "severity": "P0|P1|P2|P3",
+      "status": "auto_approve|auto_approve_with_flag|approve_with_default|needs_llm_review|needs_human_confirmation",
+      "reason": "string",
+      "current_value": "any JSON value",
+      "candidate_value": "any JSON value",
+      "empirical_impact": "high|low",
+      "evidence": [{"location": "string", "quote": "string", "interpretation": "string", "source_type": "paper"}]
+    }
+  ],
+  "blocked_fields": ["dotted.path"],
+  "requires_human": true,
+  "markdown_report": "full markdown review report"
+}
+Rules:
+- blocked_fields must equal the subset of field_notes whose status is needs_human_confirmation.
+- approved must be true iff disposition is approved.
+- codegen_ready must be false for blocked or revision_required outputs.
+- If a field is paper-silent but high-impact, mark status needs_human_confirmation.
+- Respond with JSON only.
+""".strip()
 
 
 # --- Review Decision Matrix ---
@@ -268,6 +309,94 @@ class ReviewGate:
                 result.warnings.append(
                     f"Field '{amb.field}' needs LLM review: {amb.reason}"
                 )
+
+    def review_with_llm(
+        self,
+        spec: MethodSpec,
+        paper_text: str,
+        prompt_path: Path | None = None,
+        pdf_bytes: bytes | None = None,
+    ) -> tuple[ReviewResult, dict[str, Any]]:
+        """Run LLM-backed review of a MethodSpec against its source paper.
+
+        If pdf_bytes is provided and the client supports native PDF (claude),
+        sends the PDF directly. Otherwise sends full paper_text as-is.
+
+        Returns:
+            (ReviewResult, raw_llm_dict) — raw dict is the full LLM JSON response,
+            useful for writing the markdown_report artifact.
+        """
+        if not self.llm_client:
+            raise RuntimeError("llm_client required for review_with_llm; pass one to ReviewGate()")
+
+        resolved_prompt_path = prompt_path or DEFAULT_REVIEW_PROMPT_PATH
+        system_prompt = resolved_prompt_path.read_text() if resolved_prompt_path.exists() else (
+            "You are a MethodSpec auditor. Review the spec against the paper and return JSON."
+        )
+
+        spec_json = json.dumps(spec.model_dump(mode='json'), indent=2, ensure_ascii=False)
+        client_supports_pdf = hasattr(self.llm_client, "_create_with_pdf")
+
+        if pdf_bytes and client_supports_pdf:
+            paper_ref = "[See attached PDF document above]"
+        else:
+            paper_ref = paper_text
+            pdf_bytes = None
+
+        user_msg = (
+            f"Audit this MethodSpec against the original paper.\n\n"
+            f"[METHODSPEC JSON]\n{spec_json}\n\n"
+            f"[PAPER TEXT]\n{paper_ref}\n\n"
+            f"{_LLM_REVIEW_CONTRACT}"
+        )
+
+        from src.llm import extract_usage
+        response = self.llm_client.chat.completions.create(
+            messages=[
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": user_msg},
+            ],
+            temperature=0.0,
+            response_format={"type": "json_object"},
+            **({"pdf_bytes": pdf_bytes} if pdf_bytes else {}),
+        )
+        content = response.choices[0].message.content
+        if not content or not content.strip():
+            raise RuntimeError("LLM returned empty response for review — try a different provider or model")
+        raw: dict[str, Any] = json.loads(content)
+        raw["_token_usage"] = extract_usage(response)
+        return self._raw_to_review_result(raw, spec), raw
+
+    def _raw_to_review_result(self, raw: dict[str, Any], spec: MethodSpec) -> ReviewResult:
+        """Convert a raw LLM JSON response into a structured ReviewResult."""
+        result = ReviewResult(
+            review_id=raw.get("review_id", ""),
+            methodspec_version=raw.get("methodspec_version", spec.schema_version),
+            reviewer=raw.get("reviewer", "llm"),
+            disposition=raw.get("disposition", "pending"),
+            remediation_mode=raw.get("remediation_mode", RemediationMode.RESOLVE_EXISTING_JSON.value),
+            codegen_ready=bool(raw.get("codegen_ready", False)),
+            paper_faithful=bool(raw.get("paper_faithful", False)),
+            approved=bool(raw.get("approved", False)),
+            issues=raw.get("issues", []),
+            warnings=raw.get("warnings", []),
+            blocked_fields=raw.get("blocked_fields", []),
+            requires_human=bool(raw.get("requires_human", False)),
+        )
+        for note in raw.get("field_notes", []):
+            result.field_notes.append(FieldReviewNote(
+                field=note.get("field", ""),
+                status=note.get("status", Disposition.NEEDS_LLM_REVIEW),
+                reason=note.get("reason", ""),
+                current_value=note.get("current_value"),
+                candidate_value=note.get("candidate_value"),
+                empirical_impact=note.get("empirical_impact", ""),
+                evidence=[
+                    EvidenceCitation(**e) if isinstance(e, dict) else e
+                    for e in note.get("evidence", [])
+                ],
+            ))
+        return result
 
     def _get_field_value(self, spec: MethodSpec, field_path: str):
         """Best-effort dotted-path lookup for review context."""
