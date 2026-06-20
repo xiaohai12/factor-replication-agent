@@ -1,0 +1,22 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(find:*)",
+      "Bash(grep:*)",
+      "Bash(ls:*)",
+      "Bash(ruff:*)",
+      "Bash(pytest:*)",
+      "Bash(python scripts/validate_methodspecs.py*)",
+      "Bash(python scripts/review_methodspecs.py*)",
+      "Bash(python scripts/resolve_review_blocks.py*)",
+      "Bash(python scripts/convert_papers_to_md.py*)",
+      "Bash(python scripts/download_papers.py*)",
+      "Bash(python scripts/download_osap.py*)",
+      "Bash(python scripts/csv_to_gold_standard.py*)",
+      "Bash(git status)",
+      "Bash(git log*)",
+      "Bash(git diff*)",
+      "Bash(git show*)"
+    ]
+  }
+}

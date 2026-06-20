@@ -1,5 +1,29 @@
 # Changelog
 
+## [0.6.0] - 2026-06-20
+
+### Added
+- `scripts/validate_methodspecs.py`: Validates curated MethodSpecs against the current schema — reports missing required fields, type errors, and enum violations
+- `scripts/review_methodspecs.py`: Runs curated MethodSpecs through Review Gate — produces per-factor `review_report.json` and `reviewed.methodspec.json` under `data/method_specs/reviewed/`
+- `scripts/resolve_review_blocks.py`: Interactive CLI to resolve Review Gate blocked fields — reads a `review_report.json`, prompts field-by-field with smart suggestions (candidate values, field-specific option lists), writes a `resolution.json` and final `resolved.methodspec.json`
+- `data/method_specs/reviewed/`: Reviewed MethodSpecs and review reports for 25+ factors (AB1998 suite, AnAngBaliCakici2013 volatility factors, Ball2016 profitability factors, BlitzHuijMartens residual momentum, EisfeldtPapanikolaou OMK, FrazzinPedersen BAB, KoHsuLi innovation factors, LohWarachka streak factors, MertonStrategicDefault suite)
+- `data/method_specs/resolutions/AssetGrowth.resolution.json`: Resolution decisions for AssetGrowth blocked fields
+- `data/method_specs/resolved/AssetGrowth.resolved.methodspec.json`: Final resolved MethodSpec for AssetGrowth, ready for codegen
+- `docs/roadmap.md`: Full project roadmap covering MVP workflow, MethodSpec quality, meta-coder, backtest engine, and production data integration phases
+- `ReviewGate._get_field_value()`: Best-effort dotted-path lookup with path-alias resolution for populating review context
+- `FieldReviewNote`: Extended with `current_value`, `candidate_value`, `empirical_impact`, and `evidence` fields so resolvers have full context without re-reading the spec
+
+### Changed
+- `src/models/method_spec.py`: `PatchLogEntry` renamed to `ResolutionLogEntry` (terminology shift: "resolve" not "patch")
+- `src/models/method_spec.py`: `RemediationMode.PATCH_EXISTING_JSON` renamed to `RemediationMode.RESOLVE_EXISTING_JSON`
+- `src/models/method_spec.py`: `SignalSpec.sign` and `MethodSpec.sign` changed from `int = 1` to `Optional[int] = None` — unspecified sign is now explicitly nullable rather than defaulting to positive
+- `src/models/method_spec.py`: `PortfolioSpec.implied_factor_direction`, `ReturnCalculationSpec.input_return`, `ReportedResultsSpec.comparison_policy`, `spreads`, and `t_stats` types widened to `T | dict[str, Any]` to tolerate structured LLM output without validation errors
+- `src/models/method_spec.py`: Added `normalize_curated_schema` `model_validator` to coerce legacy curated JSON into the current schema on load
+- `src/review_gate/__init__.py`: `ReviewGate.review()` now populates full field context (current value, candidate value, empirical impact, evidence) in each `FieldReviewNote`
+- `src/review_gate/__init__.py`: `ReviewResult.remediation_mode` default updated to `resolve_existing_json`
+- `src/models/__init__.py`: Exports `ResolutionLogEntry` instead of `PatchLogEntry`
+- `docs/architecture.md`: Updated to reflect current module boundaries and MVP workflow
+
 ## [0.5.4] - 2025-05-28
 
 ### Added
