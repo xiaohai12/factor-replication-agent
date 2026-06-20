@@ -4,6 +4,10 @@ applyTo: "**"
 
 # Agent Instructions
 
+## Project Context
+
+Before starting any task, read `CLAUDE.md` in the repository root for full project instructions, including module map, data models, anti-patterns, and key constraints.
+
 ## Changelog Rule
 
 Every time you make a code change (add, modify, or delete files), you MUST append a log entry to `CHANGELOG.md` under the current version section.

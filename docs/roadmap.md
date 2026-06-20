@@ -8,199 +8,243 @@ The project foundation is in place:
 - `docs/architecture.md` defines the Controlled Meta-Coder + Adversarial Sandbox architecture.
 - The repository structure has been organized around `docs/`, `prompts/`, `schemas/`, and `data/method_specs/curated/`.
 - `MethodSpec` has been upgraded toward the `methodspec.v1` paper-first schema.
-- Initial skeletons exist for the Semantic Extractor, Review Gate, Sandbox, Pipeline, Evidence Store, Registry, and Attribution Layer.
+- Module skeletons exist for all pipeline components; most backtest and data-layer methods are stubs (`raise NotImplementedError`).
+
+---
 
 ## 1. MVP: End-to-End Minimal Workflow
 
-Goal: run one complete factor replication workflow with the smallest practical implementation.
+**Goal:** run one complete factor replication workflow with every component genuinely implemented — no stubs, no mock returns, no `raise NotImplementedError` shortcuts.
+
+The MVP deliberately starts from a **curated MethodSpec** (human-written) rather than an LLM-extracted one. This isolates the pipeline from extraction quality issues so that module boundaries and empirical logic can be validated cleanly first. Extraction is added in Phase 2.
 
 MVP chain:
 
 ```text
 curated MethodSpec
--> Review Gate
--> simple signal plugin
--> Sandbox validation
--> fixture backtest data
--> Controlled Engine
--> RunRecord / Evidence output
+-> Review Gate          (real LLM review, Evidence × Impact matrix)
+-> MetaCoder            (real LLM plugin generation, repair loop)
+-> Adversarial Sandbox  (syntax, schema, future-leak, reproducibility)
+-> DataLayer            (fixture parquet → SignalMasterTable)
+-> BacktestEngine       (all 10 steps on fixture data)
+-> EvidenceStore        (RunRecord with hashes persisted)
 ```
 
-This phase should use fixture data, not WRDS production data. The goal is to validate module boundaries, artifact flow, and reproducibility before adding real data complexity.
+This phase uses fixture data (small synthetic parquet snapshots), not WRDS production data.
 
-Deliverables:
+### What "genuinely implemented" means per module
 
-- Validate curated MethodSpecs against the current schema.
-- Review one MethodSpec through Review Gate.
-- Run a fixed hand-written plugin for one factor, such as `AssetGrowth`.
-- Execute a small long-short backtest on fixture data.
-- Save run metadata, config, metrics, and evidence artifacts.
+| Module | What must be real |
+|---|---|
+| `ReviewGate` | LLM review runs, Evidence × Impact matrix fires, disposition (`auto_approve` / `needs_human_confirmation` / `blocked`) is returned |
+| `MetaCoder` | LLM prompt is sent, plugin code is generated, repair loop runs up to 3 retries for syntax/schema errors only |
+| `AdversarialSandbox` | Syntax check, schema check, future-leak scan (`shift(-`, `.future`, `lead(`), reproducibility check all execute |
+| `DataLayer` | `SnapshotManager` loads fixture parquet; `TimeAvailComputer` computes `time_avail_m`; `CCMLinker` does point-in-time merge on fixture data |
+| `BacktestEngine` | All 10 steps run on fixture data: load → lag → missing policy → universe filter → breakpoints → portfolio assignment → EW returns → long-short → metrics → evidence log |
+| `EvidenceStore` | `RunRecord` with MethodSpec hash, plugin code hash, fixture snapshot hash, and metrics is persisted to `evidence/` |
 
-Completion criteria:
+Fixture data requirements:
+- Synthetic CRSP monthly returns parquet (~50 stocks × 60 months)
+- Synthetic Compustat annual parquet (same permno universe)
+- CCM link table fixture
+- Pre-computed expected output (golden numbers) for at least one factor so correctness can be verified, not just reproducibility
 
-- One command can run one factor through the MVP workflow.
-- The result is deterministic and reproducible.
-- Evidence can trace the MethodSpec, plugin, config, and metrics.
+### Deliverables
 
-## 2. MethodSpec Quality
+- Fixture parquet files in `data/fixtures/`.
+- All `raise NotImplementedError` stubs removed from the MVP path.
+- `BacktestEngine` 10-step lifecycle fully implemented on fixture data.
+- `MetaCoder.generate_plugin()` and `repair_plugin()` fully implemented.
+- `DataLayer` CCMLinker, TimeAvailComputer, SnapshotManager implemented on fixtures.
+- One curated MethodSpec (e.g., `AssetGrowth`) runs end-to-end.
+- Evidence artifacts saved and traceable.
+- A test that checks fixture output matches the pre-computed golden numbers.
 
-Goal: make paper-to-MethodSpec extraction measurable and iteratable.
+### Completion criteria
+
+- One command runs one factor through the full MVP chain with no stub bypasses.
+- The result matches the pre-computed golden numbers on fixture data (correctness, not just reproducibility).
+- Every module executes real logic: no mock returns, no hardcoded outputs.
+- Evidence traces MethodSpec hash, plugin code hash, fixture snapshot hash, and metrics.
+- When ReviewGate blocks or MetaCoder exhausts repair retries, the run fails with a clear, traceable error — no silent fallbacks.
+
+---
+
+## 2. Semantic Extraction
+
+**Goal:** add the paper-to-MethodSpec step so the pipeline no longer requires human-curated input.
+
+The Extractor was intentionally excluded from Phase 1 to isolate pipeline correctness from extraction quality. Phase 2 adds extraction and makes its quality measurable.
 
 Core work:
 
 - Load extractor prompts from `prompts/extractor/`.
-- Extract draft MethodSpecs from PDF or paper text.
+- Extract draft MethodSpecs from PDF or paper text for the pilot factor set.
 - Compare extracted MethodSpecs against curated MethodSpecs field by field.
 - Produce extraction evaluation reports.
-- Identify common LLM failure modes, including formula misreads, missing timing assumptions, ambiguous weighting or breakpoints, incorrect reported results, and hallucinated defaults.
+- Identify common LLM failure modes: formula misreads, missing timing assumptions, ambiguous weighting or breakpoints, incorrect reported results, hallucinated defaults.
 
-Deliverables:
+### Deliverables
 
-- `data/method_specs/extracted/`
-- `data/method_specs/reviewed/`
-- Extraction accuracy reports.
+- `data/method_specs/extracted/` — raw LLM-extracted specs.
+- `data/method_specs/reviewed/` — after ReviewGate pass.
+- Field-level extraction accuracy report per paper.
 - A benchmark over the curated pilot papers.
 
-Completion criteria:
+### Completion criteria
 
-- The system can generate MethodSpecs for the pilot papers.
-- Field-level differences are classified as correct, wrong, missing, or paper ambiguous.
-- Review Gate blocks high-impact ambiguity from entering code generation.
+- The system generates MethodSpecs for the pilot papers from PDF without human input.
+- Field-level differences are classified as: correct / wrong / missing / paper ambiguous.
+- ReviewGate blocks high-impact ambiguity from entering code generation.
+- Extraction accuracy is measured and logged, not just eyeballed.
 
-## 3. Signal Plugin Generation
+---
 
-Goal: implement the Controlled Meta-Coder while keeping LLM output restricted to signal construction.
+## 3. Plugin Quality Iteration
+
+**Goal:** improve MetaCoder output quality through prompt engineering and evaluation, not by bypassing sandbox constraints.
+
+MetaCoder is already implemented in Phase 1. Phase 3 is about measuring and improving the quality and pass rate of generated plugins — how often does the LLM get it right on the first try? What failure modes does it have?
 
 Core work:
 
-- Define and enforce the signal plugin contract.
-- Generate plugins from approved MethodSpecs.
-- Validate plugins in the Sandbox for syntax, entrypoint, output schema, future leakage, unauthorized portfolio logic, and deterministic output.
-- Allow bounded repair only for technical errors.
+- Run MetaCoder on the pilot factor set and log first-pass sandbox pass rates.
+- Analyze failure modes: wrong output schema, unauthorized portfolio logic, future leakage, formula errors.
+- Iterate on prompts and few-shot examples to improve pass rate.
+- Document which types of factors are reliably generated vs. still require repair or fail.
 
-Deliverables:
+### Deliverables
 
-- Generated plugin artifacts.
-- Plugin registry records.
-- Validation reports.
-- A small set of generated plugin examples.
+- Generated plugin artifacts for pilot factors.
+- Plugin registry records with validation reports.
+- First-pass and post-repair pass rate metrics.
+- Documentation of failure patterns and prompt improvements.
 
-Completion criteria:
+### Completion criteria
 
-- At least one LLM-generated plugin passes Sandbox validation.
-- Plugins output only `[permno, yyyymm, signal]`.
+- At least one LLM-generated plugin passes Sandbox validation first-pass.
+- Pass rate across pilot factors is measured and tracked.
+- Plugins consistently output only `[permno, yyyymm, signal]`.
 - Plugins cannot decide universe, breakpoints, weighting, returns, or t-stats.
 
-## 4. Controlled Backtesting Engine
+---
 
-Goal: move from fixture data to a controlled empirical lifecycle.
+## 4. Real Data Layer
+
+**Goal:** move from fixture data to frozen real-data snapshots (WRDS CRSP + Compustat).
+
+The backtest engine and data layer are already implemented in Phase 1 on fixtures. Phase 4 is a data swap: same logic, real data. The main new work is data pipeline correctness and snapshot management.
 
 Core work:
 
-- Implement Data Layer components: data dictionary, snapshot manager, CCM linking, and `time_avail_m`.
-- Implement the controlled engine lifecycle: universe filtering, missing policy, breakpoint computation, portfolio assignment, EW/VW returns, long-short returns, and metrics.
-- Introduce frozen data snapshots for reproducibility.
+- Build a data pipeline that reads from WRDS CRSP and Compustat, applies CCM linking, computes `time_avail_m`, and writes a frozen parquet snapshot.
+- Add snapshot hash to run records.
+- Add data quality checks: coverage stats, missing-rate flags, CCM link anomalies.
+- Validate that real-data backtest outputs are plausible for at least one known factor.
 
-Deliverables:
+### Deliverables
 
-- Real-data backtest engine.
-- Data snapshot convention and metadata.
-- Snapshot hash in run records.
-- Data quality checks.
+- Data snapshot builder script.
+- At least one frozen snapshot in `data/snapshots/`.
+- Snapshot hash in all run records.
+- Data quality check output.
 
-Completion criteria:
+### Completion criteria
 
-- At least one factor can run on a real data snapshot.
-- The run records the data snapshot hash.
-- Engine parameters come from approved MethodSpec or implementation config, not from free-form LLM choices.
+- At least one factor runs on a real data snapshot.
+- Run records the snapshot hash for reproducibility.
+- Engine parameters come from approved MethodSpec or implementation config only — no LLM-chosen parameters.
+- Data quality checks pass or surface known issues explicitly.
+
+---
 
 ## 5. Dual-Track and Attribution
 
-Goal: explain replication gaps across implementation choices.
+**Goal:** explain replication gaps across implementation choices.
 
 Core work:
 
-- Support `original_method` and `standardized_hxz` tracks.
-- Add ablations for weighting, breakpoints, lag, rebalance frequency, universe, and missing policy.
+- Support `original_method` and `standardized_hxz` tracks via `DualTrackController`.
+- Add ablations: weighting, breakpoints, lag, rebalance frequency, universe, missing policy.
 - Produce gap attribution reports.
-- Route anomalies back to Review Gate when results suggest MethodSpec or timing issues.
+- Route anomalies back to Review Gate when results suggest MethodSpec or timing issues rather than silently tuning.
 
-Deliverables:
+### Deliverables
 
-- Original vs standardized comparison report.
-- Attribution report.
+- Original vs. standardized comparison report.
+- Attribution report per implementation-choice switch.
 - Implementation-choice deviation matrix.
 
-Completion criteria:
+### Completion criteria
 
-- A factor can run original, standardized, and selected ablation tracks.
-- The system can explain which implementation choices drive the main result gap.
-- Anomalous results trigger MethodSpec re-review instead of silent tuning.
+- A factor runs original, standardized, and selected ablation tracks.
+- The system attributes which implementation choice drives the main result gap.
+- Anomalous results (sign flip, >50% t-stat gap) trigger MethodSpec re-review, not silent tuning.
+
+---
 
 ## 6. Evaluation Against C&Z / OSAP
 
-Goal: compare system outputs against external benchmarks without leaking them into extraction.
+**Goal:** compare system outputs against external benchmarks without leaking them into extraction.
 
 Core work:
 
-- Evaluate MethodSpec extraction against curated specs and SignalDoc.
+- Evaluate MethodSpec extraction accuracy against curated specs and SignalDoc.
 - Compare generated signal output with C&Z firm-level characteristics.
 - Compare long-short returns with C&Z return series.
-- Classify mismatches as LLM extraction error, paper ambiguity, C&Z supplemented assumption, implementation difference, or data coverage issue.
+- Classify mismatches: LLM extraction error / paper ambiguity / C&Z supplemented assumption / implementation difference / data coverage issue.
 
-Deliverables:
+### Deliverables
 
 - Extraction evaluation report.
 - Signal correlation report.
 - Portfolio replication report.
 - Cross-factor summary.
 
-Completion criteria:
+### Completion criteria
 
 - Pilot factors have systematic evaluation reports.
-- C&Z / OSAP remain post-hoc evaluation sources, not extractor inputs.
+- C&Z / OSAP are used only as post-hoc evaluation sources, never as extractor inputs.
+
+---
 
 ## 7. Research UI
 
-Goal: make the system usable as a research workflow, not only a collection of scripts.
+**Goal:** make the system usable as a research workflow, not only a collection of scripts.
 
 Core work:
 
 - Build a lightweight Streamlit dashboard after CLI workflows are stable.
 - Display MethodSpecs, review reports, plugin validation reports, run metrics, return charts, and attribution reports.
-- Keep UI as an artifact viewer and workflow launcher, not the source of core business logic.
+- Keep UI as an artifact viewer and workflow launcher — no core business logic in the UI.
 
-Deliverables:
+### Deliverables
 
 - Factor-level evidence page.
 - Run comparison page.
 - Attribution report viewer.
 
-Completion criteria:
+### Completion criteria
 
 - A researcher can inspect one factor from paper evidence to final run output.
 - Blocked or ambiguous fields are visible and not hidden by the UI.
 
-## Recommended Execution Order
+---
+
+## Phase Execution Order
 
 ```text
-1. End-to-end MVP on fixture data
-2. MethodSpec extraction and review quality
-3. LLM signal plugin generation
-4. Real data layer and real backtest
-5. Dual-track and attribution
-6. C&Z / OSAP evaluation
-7. Research UI
+1. MVP              — fixture data, all modules real, curated MethodSpec as input
+2. Extraction       — add paper→MethodSpec step, measure extraction quality
+3. Plugin quality   — measure and improve MetaCoder pass rates
+4. Real data        — swap fixtures for frozen WRDS snapshots
+5. Dual-track       — original vs. standardized, gap attribution
+6. C&Z evaluation   — benchmark against external reference
+7. Research UI      — dashboard for artifact inspection
 ```
 
-The immediate next step is to build the MVP vertical slice:
+The boundary between phases is intentional:
 
-```text
-curated MethodSpec
--> Review Gate
--> fixed plugin
--> fixture backtest
--> evidence output
-```
-
-This turns the project from an architecture skeleton into a runnable research harness.
+- Phases 1–3 can be done without WRDS access (fixture data + LLM API).
+- Phase 4 requires WRDS access; it only changes the data source, not the engine logic.
+- Phases 5–7 build on a working real-data pipeline.
