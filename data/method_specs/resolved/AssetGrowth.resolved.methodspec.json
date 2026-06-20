@@ -1,0 +1,570 @@
+{
+  "schema_version": "methodspec.v1",
+  "factor_id": "AssetGrowth",
+  "factor_name": "Asset Growth",
+  "paper_ref": "Cooper, Gulen, and Schill (2008)",
+  "version": 1,
+  "economic_intuition": "Corporate asset expansion tends to be followed by abnormally low returns, while asset contraction tends to be followed by abnormally high returns; annual asset growth negatively predicts subsequent stock returns.",
+  "detailed_definition": "Annual firm asset growth rate, defined as the year-on-year percentage change in total assets.",
+  "cat_form": "continuous",
+  "sign": -1,
+  "sample_start_year": 1968,
+  "sample_end_year": 2002,
+  "cz_acronym": "AssetGrowth",
+  "data": {
+    "sources": [
+      {
+        "name": "",
+        "source_details": [
+          "annual industrial files"
+        ],
+        "evidence": []
+      },
+      {
+        "name": "",
+        "source_details": [
+          "monthly stock return files"
+        ],
+        "evidence": []
+      }
+    ],
+    "required_fields": [
+      {
+        "field": "at",
+        "concept": "Total assets",
+        "source_detail": "funda",
+        "evidence": []
+      },
+      {
+        "field": "sic",
+        "concept": "SIC code for nonfinancial filter",
+        "source_detail": "company/funda",
+        "evidence": []
+      },
+      {
+        "field": "ret",
+        "concept": "Monthly stock return",
+        "source_detail": "msf",
+        "evidence": []
+      },
+      {
+        "field": "prc",
+        "concept": "Price for market equity",
+        "source_detail": "msf",
+        "evidence": []
+      },
+      {
+        "field": "shrout",
+        "concept": "Shares outstanding for market equity",
+        "source_detail": "msf",
+        "evidence": []
+      }
+    ],
+    "normalized_mapping": {}
+  },
+  "signal": {
+    "formula": {
+      "expression": "(at_t_minus_1 - at_t_minus_2) / at_t_minus_2",
+      "paper_expression": "[Data6(t-1) - Data6(t-2)] / Data6(t-2)",
+      "evidence": [
+        {
+          "location": "Section I Data p.1613 Equation (1); Appendix p.1648",
+          "quote": "\"ASSETG(t) = [Data6(t − 1) − Data6(t − 2)] / Data6(t − 2)\"",
+          "interpretation": "Data6 is Compustat total assets, so the machine formula is (at_t_minus_1 - at_t_minus_2) / at_t_minus_2.",
+          "source_type": "paper"
+        }
+      ]
+    },
+    "required_fields": [
+      "at"
+    ],
+    "field_sources": {},
+    "timing": {
+      "formation_month": 6,
+      "rebalance_frequency": "annual",
+      "holding_period": 12,
+      "accounting_lag": 6,
+      "skip_month": null,
+      "overlapping_portfolios": false,
+      "evidence": [
+        {
+          "location": "Section I Data p.1613; Table II caption p.1617",
+          "quote": "\"we form all of our accounting variables at the end of June in year t, using accounting information from fiscal year-end t−1\"; portfolios are held \"from July of year t to June of year t+1\"",
+          "interpretation": "This supports June formation, annual rebalance, 12-month holding period, and approximately 6-month accounting lag.",
+          "source_type": "paper"
+        }
+      ]
+    },
+    "missing_policy": {
+      "action": "drop",
+      "threshold": null,
+      "winsorize_bounds": null,
+      "evidence": [
+        {
+          "location": "Section I Data p.1613; Appendix p.1648",
+          "quote": "\"a firm must have nonzero total assets in both years t−1 and t−2\"",
+          "interpretation": "The paper does not state general imputation; this requirement implies dropping observations without usable nonzero assets for ASSETG.",
+          "source_type": "paper"
+        }
+      ]
+    },
+    "sign": -1
+  },
+  "portfolio": {
+    "universe": "NYSE, Amex, and NASDAQ nonfinancial firms listed on CRSP monthly stock return files and Compustat annual industrial files.",
+    "sort": {
+      "breakpoint_source": "full_sample",
+      "ls_quantile": 0.1,
+      "quantiles": [],
+      "evidence": []
+    },
+    "breakpoints": {
+      "source": "full_sample",
+      "quantiles": [],
+      "ls_quantile": 0.1,
+      "evidence": []
+    },
+    "weighting": "ew",
+    "weighting_scheme": "ew",
+    "long_leg": "low",
+    "short_leg": "high",
+    "implied_factor_direction": {
+      "long_leg": "low",
+      "short_leg": "high",
+      "use_for_backtest_if_needed": true,
+      "note": "Paper reports high-minus-low spread comparisons but does not explicitly define a tradable simple long-short strategy. Direction is inferred for backtesting from the negative high-minus-low spread / high ASSETG -> low returns relation."
+    },
+    "filter": "",
+    "evidence": []
+  },
+  "reported_results": {
+    "return_horizon": "monthly",
+    "return_type": "raw_monthly_portfolio_return",
+    "comparison_policy": {
+      "preserve_paper_direction": true,
+      "align_backtest_to_paper_direction_before_comparison": true,
+      "note": "Paper reports high-minus-low spreads. If backtest constructs an implied low-minus-high factor, multiply by -1 before comparing to paper-reported spreads."
+    },
+    "return_calculation": {
+      "input_return": {
+        "name": "monthly_stock_return",
+        "paper_variable": "monthly raw return",
+        "data_frequency": "monthly",
+        "expression": "ret_i,m",
+        "source": {
+          "location": "Section II.A Cross-Sectional Tests p.1622; Table II caption pp.1617-1621",
+          "quote": "\"we calculate monthly returns for EW and VW portfolios for the next 12 months\"; \"Panel B.1 reports average monthly raw returns ... Panel B.2 reports average monthly raw returns\"",
+          "interpretation": "The paper evaluates the main Year 1 raw-return spread using average monthly raw returns on EW and VW asset-growth decile portfolios held from July of year t to June of year t+1. Input-return components: ret_i,m: monthly stock return for firm i in month m; w_i,t: portfolio weight for value-weighted portfolios; asset_growth_decile: portfolio formed from June(t) ASSETG decile cutoffs"
+        },
+        "benchmark": null,
+        "adjustments": []
+      },
+      "portfolio_return": {
+        "construction_type": "characteristic_sort",
+        "sorts": [
+          {
+            "variable": "ASSETG",
+            "group_type": "decile",
+            "n_groups": 10,
+            "breakpoint_source": "unspecified"
+          }
+        ],
+        "weighting": {
+          "type": "reported_variants",
+          "variants": [
+            "equal_weight",
+            "value_weight"
+          ]
+        },
+        "return_combination": {
+          "type": "extreme_group_spread",
+          "expression": "high_minus_low",
+          "long_leg": "high_asset_growth_decile",
+          "short_leg": "low_asset_growth_decile",
+          "note": "This is the paper-reported spread direction. The implied backtest factor direction may be low-minus-high because high asset growth predicts lower returns."
+        },
+        "regression": null,
+        "reported_frequency": "monthly",
+        "holding_period": "July_t_to_June_t_plus_1",
+        "source": {
+          "location": "Section II.A Cross-Sectional Tests p.1622; Table II caption pp.1617-1621",
+          "quote": "\"we calculate monthly returns for EW and VW portfolios for the next 12 months\"; \"Panel B.1 reports average monthly raw returns ... Panel B.2 reports average monthly raw returns\"",
+          "interpretation": "The paper evaluates the main Year 1 raw-return spread using average monthly raw returns on EW and VW asset-growth decile portfolios held from July of year t to June of year t+1."
+        },
+        "interpretation": "Stocks are sorted into asset-growth deciles at the end of June. The paper reports average monthly raw returns for equal-weighted and value-weighted decile portfolios and high-minus-low spreads."
+      },
+      "evidence": []
+    },
+    "spreads": {
+      "ew": {
+        "direction": "high_minus_low",
+        "value_percent": -1.73,
+        "t_stat": -8.45,
+        "source": {
+          "location": "Section II.A p.1622; Table II Panel B.1 Year 1",
+          "quote": "\"a monthly spread of –1.73% (t-statistic = –8.45)\"",
+          "interpretation": "Equal-weighted high-minus-low raw monthly return spread for Year 1."
+        }
+      },
+      "vw": {
+        "direction": "high_minus_low",
+        "value_percent": -1.05,
+        "t_stat": -5.04,
+        "source": {
+          "location": "Section II.A p.1622; Table II Panel B.2 Year 1",
+          "quote": "\"a monthly spread of –1.05% (t-statistic = –5.04)\"",
+          "interpretation": "Value-weighted high-minus-low raw monthly return spread for Year 1."
+        }
+      }
+    },
+    "t_stats": [],
+    "main_spread": null,
+    "main_t_stat": null,
+    "evidence": []
+  },
+  "extraction_sources": [
+    {
+      "type": "paper",
+      "ref": "Asset Growth and the Cross Section of Stock Returns.pdf",
+      "sections": [
+        "Abstract",
+        "Section I Data",
+        "Section II.A Cross-Sectional Tests",
+        "Table II",
+        "Appendix",
+        "Section II.B robustness checks"
+      ]
+    }
+  ],
+  "ambiguous_fields": [
+    {
+      "field": "portfolio.sort.breakpoint_source",
+      "reason": "Paper states asset-growth decile cutoffs but does not explicitly state whether ASSETG cutoffs use NYSE-only stocks or all eligible stocks. Full-sample cutoffs are plausible because the paper says all stocks are allocated into deciles, while NYSE breakpoints are explicitly stated only for size-group controls; however, this should be confirmed by Review Gate before original-method codegen.",
+      "source": "clear",
+      "confidence": "high",
+      "candidate_value": "full_sample",
+      "empirical_impact": "high",
+      "evidence": [
+        {
+          "location": "Table II caption p.1617; Section II.A p.1622",
+          "quote": "\"formed based on June(t) asset growth decile cutoffs\"; \"using the 30th and 70th NYSE market equity percentiles\"",
+          "interpretation": "The first quote supports decile cutoffs for ASSETG; the second quote limits explicit NYSE breakpoint language to size grouping. The exact ASSETG breakpoint universe is therefore unspecified in the paper text.",
+          "source_type": "paper"
+        }
+      ],
+      "status": "clear",
+      "human_resolution": {
+        "decision_type": "human_empirical_assumption",
+        "reviewer": "codex_mvp",
+        "reason": "Use full-sample breakpoints because the cited evidence states asset-growth decile cutoffs but does not state NYSE-only cutoffs for ASSETG."
+      }
+    },
+    {
+      "field": "universe.missing_policy.action",
+      "reason": "Paper requires nonzero total assets in both years but does not state a general missing-value imputation policy.",
+      "source": "clear",
+      "confidence": "high",
+      "candidate_value": "drop",
+      "empirical_impact": "high",
+      "evidence": [
+        {
+          "location": "Section I Data p.1613; Appendix p.1648",
+          "quote": "\"a firm must have nonzero total assets in both years t−1 and t−2\"",
+          "interpretation": "The paper does not state general imputation; this requirement implies dropping observations without usable nonzero assets for ASSETG.",
+          "source_type": "paper"
+        }
+      ],
+      "status": "clear",
+      "human_resolution": {
+        "decision_type": "human_empirical_assumption",
+        "reviewer": "codex_mvp",
+        "reason": "Drop non-computable observations because the cited evidence requires nonzero assets in both required years."
+      }
+    },
+    {
+      "field": "portfolio.implied_factor_direction",
+      "reason": "Paper reports decile returns and spread comparisons, but does not explicitly define a tradable long-short factor strategy.",
+      "source": "clear",
+      "confidence": "high",
+      "candidate_value": {
+        "long_leg": "low",
+        "short_leg": "high",
+        "use_for_backtest_if_needed": true,
+        "note": "Paper reports high-minus-low spread comparisons but does not explicitly define a tradable simple long-short strategy. Direction is inferred for backtesting from the negative high-minus-low spread / high ASSETG -> low returns relation."
+      },
+      "empirical_impact": "high",
+      "evidence": [
+        {
+          "location": "Section II.A p.1622; Figure 3 caption p.1626",
+          "quote": "\"The spread is the difference between the returns of the low growth stocks and those of the high growth stocks.\"",
+          "interpretation": "The paper compares low-growth and high-growth portfolios; long-low/short-high is an implementation inference for factor backtesting.",
+          "source_type": "paper"
+        }
+      ],
+      "status": "clear",
+      "human_resolution": {
+        "decision_type": "human_empirical_assumption",
+        "reviewer": "codex_mvp",
+        "reason": "Use the inferred long-low short-high direction because the cited evidence says low growth minus high growth is the return spread."
+      }
+    },
+    {
+      "field": "universe.winsorize_bounds",
+      "reason": "Winsorization appears in a regression robustness check, not the main portfolio-sort specification.",
+      "source": "clear",
+      "confidence": "high",
+      "candidate_value": null,
+      "empirical_impact": "high",
+      "evidence": [
+        {
+          "location": "Section II.B p.1629",
+          "quote": "\"we winsorize the asset growth distribution at the 1% and 99% points\"",
+          "interpretation": "Winsorization is mentioned only for a regression robustness check, not the main portfolio-sort specification; therefore main-spec bounds are null.",
+          "source_type": "paper"
+        }
+      ],
+      "status": "clear",
+      "human_resolution": {
+        "decision_type": "human_empirical_assumption",
+        "reviewer": "codex_mvp",
+        "reason": "Use no winsorization for the main portfolio spec because the cited evidence says winsorization appears only in regression robustness."
+      }
+    }
+  ],
+  "review_status": "pending",
+  "remediation_mode": "resolve_existing_json",
+  "codegen_ready": false,
+  "paper_faithful": false,
+  "review_notes": [
+    {
+      "field": "portfolio.sort.breakpoint_source",
+      "status": "needs_human_confirmation",
+      "reason": "Paper states asset-growth decile cutoffs but does not explicitly state whether ASSETG cutoffs use NYSE-only stocks or all eligible stocks. Full-sample cutoffs are plausible because the paper says all stocks are allocated into deciles, while NYSE breakpoints are explicitly stated only for size-group controls; however, this should be confirmed by Review Gate before original-method codegen.",
+      "current_value": "full_sample",
+      "candidate_value": "full_sample",
+      "empirical_impact": "high",
+      "evidence": [
+        {
+          "location": "Table II caption p.1617; Section II.A p.1622",
+          "quote": "\"formed based on June(t) asset growth decile cutoffs\"; \"using the 30th and 70th NYSE market equity percentiles\"",
+          "interpretation": "The first quote supports decile cutoffs for ASSETG; the second quote limits explicit NYSE breakpoint language to size grouping. The exact ASSETG breakpoint universe is therefore unspecified in the paper text.",
+          "source_type": "paper"
+        }
+      ]
+    },
+    {
+      "field": "universe.missing_policy.action",
+      "status": "needs_human_confirmation",
+      "reason": "Paper requires nonzero total assets in both years but does not state a general missing-value imputation policy.",
+      "current_value": "drop",
+      "candidate_value": "drop",
+      "empirical_impact": "high",
+      "evidence": [
+        {
+          "location": "Section I Data p.1613; Appendix p.1648",
+          "quote": "\"a firm must have nonzero total assets in both years t−1 and t−2\"",
+          "interpretation": "The paper does not state general imputation; this requirement implies dropping observations without usable nonzero assets for ASSETG.",
+          "source_type": "paper"
+        }
+      ]
+    },
+    {
+      "field": "portfolio.implied_factor_direction",
+      "status": "needs_human_confirmation",
+      "reason": "Paper reports decile returns and spread comparisons, but does not explicitly define a tradable long-short factor strategy.",
+      "current_value": {
+        "long_leg": "low",
+        "short_leg": "high",
+        "use_for_backtest_if_needed": true,
+        "note": "Paper reports high-minus-low spread comparisons but does not explicitly define a tradable simple long-short strategy. Direction is inferred for backtesting from the negative high-minus-low spread / high ASSETG -> low returns relation."
+      },
+      "candidate_value": {
+        "long_leg": "low",
+        "short_leg": "high",
+        "use_for_backtest_if_needed": true,
+        "note": "Paper reports high-minus-low spread comparisons but does not explicitly define a tradable simple long-short strategy. Direction is inferred for backtesting from the negative high-minus-low spread / high ASSETG -> low returns relation."
+      },
+      "empirical_impact": "high",
+      "evidence": [
+        {
+          "location": "Section II.A p.1622; Figure 3 caption p.1626",
+          "quote": "\"The spread is the difference between the returns of the low growth stocks and those of the high growth stocks.\"",
+          "interpretation": "The paper compares low-growth and high-growth portfolios; long-low/short-high is an implementation inference for factor backtesting.",
+          "source_type": "paper"
+        }
+      ]
+    },
+    {
+      "field": "universe.winsorize_bounds",
+      "status": "needs_human_confirmation",
+      "reason": "Winsorization appears in a regression robustness check, not the main portfolio-sort specification.",
+      "current_value": null,
+      "candidate_value": null,
+      "empirical_impact": "high",
+      "evidence": [
+        {
+          "location": "Section II.B p.1629",
+          "quote": "\"we winsorize the asset growth distribution at the 1% and 99% points\"",
+          "interpretation": "Winsorization is mentioned only for a regression robustness check, not the main portfolio-sort specification; therefore main-spec bounds are null.",
+          "source_type": "paper"
+        }
+      ]
+    }
+  ],
+  "resolution_log": [
+    {
+      "field_path": "portfolio.sort.breakpoint_source",
+      "old_value": "unspecified",
+      "new_value": "full_sample",
+      "reason": "Use full-sample breakpoints because the cited evidence states asset-growth decile cutoffs but does not state NYSE-only cutoffs for ASSETG.",
+      "reviewer": "codex_mvp"
+    },
+    {
+      "field_path": "universe.missing_policy.action",
+      "old_value": "drop",
+      "new_value": "drop",
+      "reason": "Drop non-computable observations because the cited evidence requires nonzero assets in both required years.",
+      "reviewer": "codex_mvp"
+    },
+    {
+      "field_path": "portfolio.implied_factor_direction",
+      "old_value": {
+        "long_leg": "low",
+        "short_leg": "high",
+        "use_for_backtest_if_needed": true,
+        "note": "Paper reports high-minus-low spread comparisons but does not explicitly define a tradable simple long-short strategy. Direction is inferred for backtesting from the negative high-minus-low spread / high ASSETG -> low returns relation."
+      },
+      "new_value": {
+        "long_leg": "low",
+        "short_leg": "high",
+        "use_for_backtest_if_needed": true,
+        "note": "Paper reports high-minus-low spread comparisons but does not explicitly define a tradable simple long-short strategy. Direction is inferred for backtesting from the negative high-minus-low spread / high ASSETG -> low returns relation."
+      },
+      "reason": "Use the inferred long-low short-high direction because the cited evidence says low growth minus high growth is the return spread.",
+      "reviewer": "codex_mvp"
+    },
+    {
+      "field_path": "universe.winsorize_bounds",
+      "old_value": null,
+      "new_value": null,
+      "reason": "Use no winsorization for the main portfolio spec because the cited evidence says winsorization appears only in regression robustness.",
+      "reviewer": "codex_mvp"
+    },
+    {
+      "field_path": "portfolio.sort.breakpoint_source",
+      "old_value": "full_sample",
+      "new_value": "full_sample",
+      "reason": "Use full-sample breakpoints because the cited evidence states asset-growth decile cutoffs but does not state NYSE-only cutoffs for ASSETG.",
+      "reviewer": "codex_mvp"
+    },
+    {
+      "field_path": "universe.missing_policy.action",
+      "old_value": "drop",
+      "new_value": "drop",
+      "reason": "Drop non-computable observations because the cited evidence requires nonzero assets in both required years.",
+      "reviewer": "codex_mvp"
+    },
+    {
+      "field_path": "portfolio.implied_factor_direction",
+      "old_value": {
+        "long_leg": "low",
+        "short_leg": "high",
+        "use_for_backtest_if_needed": true,
+        "note": "Paper reports high-minus-low spread comparisons but does not explicitly define a tradable simple long-short strategy. Direction is inferred for backtesting from the negative high-minus-low spread / high ASSETG -> low returns relation."
+      },
+      "new_value": {
+        "long_leg": "low",
+        "short_leg": "high",
+        "use_for_backtest_if_needed": true,
+        "note": "Paper reports high-minus-low spread comparisons but does not explicitly define a tradable simple long-short strategy. Direction is inferred for backtesting from the negative high-minus-low spread / high ASSETG -> low returns relation."
+      },
+      "reason": "Use the inferred long-low short-high direction because the cited evidence says low growth minus high growth is the return spread.",
+      "reviewer": "codex_mvp"
+    },
+    {
+      "field_path": "universe.winsorize_bounds",
+      "old_value": null,
+      "new_value": null,
+      "reason": "Use no winsorization for the main portfolio spec because the cited evidence says winsorization appears only in regression robustness.",
+      "reviewer": "codex_mvp"
+    },
+    {
+      "field_path": "portfolio.sort.breakpoint_source",
+      "canonical_field_path": "portfolio.sort.breakpoint_source",
+      "old_value": "full_sample",
+      "new_value": "full_sample",
+      "decision_type": "human_empirical_assumption",
+      "reason": "Use full-sample breakpoints because the cited evidence states asset-growth decile cutoffs but does not state NYSE-only cutoffs for ASSETG.",
+      "reviewer": "codex_mvp",
+      "paper_evidence": [
+        {
+          "location": "Table II caption p.1617; Section II.A p.1622",
+          "quote": "\"formed based on June(t) asset growth decile cutoffs\"; \"using the 30th and 70th NYSE market equity percentiles\"",
+          "interpretation": "The first quote supports decile cutoffs for ASSETG; the second quote limits explicit NYSE breakpoint language to size grouping. The exact ASSETG breakpoint universe is therefore unspecified in the paper text.",
+          "source_type": "paper"
+        }
+      ]
+    },
+    {
+      "field_path": "universe.missing_policy.action",
+      "canonical_field_path": "signal.missing_policy.action",
+      "old_value": "drop",
+      "new_value": "drop",
+      "decision_type": "human_empirical_assumption",
+      "reason": "Drop non-computable observations because the cited evidence requires nonzero assets in both required years.",
+      "reviewer": "codex_mvp",
+      "paper_evidence": [
+        {
+          "location": "Section I Data p.1613; Appendix p.1648",
+          "quote": "\"a firm must have nonzero total assets in both years t−1 and t−2\"",
+          "interpretation": "The paper does not state general imputation; this requirement implies dropping observations without usable nonzero assets for ASSETG.",
+          "source_type": "paper"
+        }
+      ]
+    },
+    {
+      "field_path": "portfolio.implied_factor_direction",
+      "canonical_field_path": "portfolio.implied_factor_direction",
+      "old_value": {
+        "long_leg": "low",
+        "short_leg": "high",
+        "use_for_backtest_if_needed": true,
+        "note": "Paper reports high-minus-low spread comparisons but does not explicitly define a tradable simple long-short strategy. Direction is inferred for backtesting from the negative high-minus-low spread / high ASSETG -> low returns relation."
+      },
+      "new_value": {
+        "long_leg": "low",
+        "short_leg": "high",
+        "use_for_backtest_if_needed": true,
+        "note": "Paper reports high-minus-low spread comparisons but does not explicitly define a tradable simple long-short strategy. Direction is inferred for backtesting from the negative high-minus-low spread / high ASSETG -> low returns relation."
+      },
+      "decision_type": "human_empirical_assumption",
+      "reason": "Use the inferred long-low short-high direction because the cited evidence says low growth minus high growth is the return spread.",
+      "reviewer": "codex_mvp",
+      "paper_evidence": [
+        {
+          "location": "Section II.A p.1622; Figure 3 caption p.1626",
+          "quote": "\"The spread is the difference between the returns of the low growth stocks and those of the high growth stocks.\"",
+          "interpretation": "The paper compares low-growth and high-growth portfolios; long-low/short-high is an implementation inference for factor backtesting.",
+          "source_type": "paper"
+        }
+      ]
+    },
+    {
+      "field_path": "universe.winsorize_bounds",
+      "canonical_field_path": "signal.missing_policy.winsorize_bounds",
+      "old_value": null,
+      "new_value": null,
+      "decision_type": "human_empirical_assumption",
+      "reason": "Use no winsorization for the main portfolio spec because the cited evidence says winsorization appears only in regression robustness.",
+      "reviewer": "codex_mvp",
+      "paper_evidence": [
+        {
+          "location": "Section II.B p.1629",
+          "quote": "\"we winsorize the asset growth distribution at the 1% and 99% points\"",
+          "interpretation": "Winsorization is mentioned only for a regression robustness check, not the main portfolio-sort specification; therefore main-spec bounds are null.",
+          "source_type": "paper"
+        }
+      ]
+    }
+  ]
+}

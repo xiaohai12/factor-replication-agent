@@ -52,9 +52,9 @@ tags: [architecture, thesis, factor-replication, agent, quant, harness, meta-cod
 
 | 部分 | 谁负责 | 作用 |
 |---|---|---|
-| 因子含义提取 | Semantic Extractor | 从论文中提取 paper-first 因子定义和方法假设，生成 draft MethodSpec，不负责后续 patch |
+| 因子含义提取 | Semantic Extractor | 从论文中提取 paper-first 因子定义和方法假设，生成 draft MethodSpec，不负责后续 resolution |
 | MethodSpec 审查 | Review Gate | 严格审查 draft MethodSpec 的 paper evidence、schema/parser contract 和 codegen-readiness，输出 review report 和 remediation mode |
-| MethodSpec 修补 | MethodSpec Patcher | 根据 approved review findings 对 existing JSON 做字段级 patch；默认不重生成整份 JSON |
+| MethodSpec 解决器 | MethodSpec Resolution Applier | 根据 approved review findings 对 existing JSON 做字段级 resolution；默认不重生成整份 JSON |
 | 数据目录映射 | Data Catalog / Normalizer | 把 paper-stated source hints 映射到 executable tables/columns/filters，不改写 paper facts |
 | 信号代码生成 | LLM | 基于 approved MethodSpec + normalized data mapping 生成 raw signal construction plugin |
 | 回测生命周期 | Controlled Engine | 根据 approved MethodSpec / implementation config 受控执行 universe、breakpoint、portfolio、return、metrics |
@@ -79,8 +79,8 @@ Evaluation/Normalizer: C&Z metadata / OSAP reference code / implementation rules
 [2. Review Gate]
 审查 MethodSpec 的 paper evidence、schema/parser contract、architecture boundary 和 codegen-readiness
         │
-        ├── local clear issues ──► [2.1 MethodSpec Patcher]
-        │                          根据 review report 对 existing JSON 做字段级 patch
+        ├── local clear issues ──► [2.1 MethodSpec Resolution Applier]
+        │                          根据 review report 对 existing JSON 做字段级 resolution
         │
         ├── structural extraction issue ──► [1. Semantic Extractor]
         │                                   targeted re-extraction of specific fields/sections
@@ -125,7 +125,7 @@ Evaluation/Normalizer: C&Z metadata / OSAP reference code / implementation rules
 ```text
 [4. Sandbox] ──technical error──► [3. Meta-Coder]          (bounded repair, max 3 retries)
 [4. Sandbox] ──empirical issue──► [2. Review Gate]          (lag/missing/leakage 需重审)
-[2. Review Gate] ──local fixes──► [2.1 MethodSpec Patcher]  (字段级 patch existing JSON)
+[2. Review Gate] ──local fixes──► [2.1 MethodSpec Resolution Applier]  (字段级 resolve existing JSON)
 [2. Review Gate] ──structural issue──► [1. Extractor]       (targeted re-extraction, not full regeneration by default)
 [9. Attribution] ──anomaly─────► [2. Review Gate]           (结果异常，可能 MethodSpec 有误)
 [6. Lifecycle] ──data error────► [Data Layer]               (字段缺失、linking 问题)
@@ -137,7 +137,7 @@ Evaluation/Normalizer: C&Z metadata / OSAP reference code / implementation rules
 |---|---|---|---|
 | Sandbox → Meta-Coder | syntax error, schema mismatch, type error | Meta-Coder | LLM bounded repair, ≤3 次；超过 → Review Gate |
 | Sandbox → Review Gate | temporal leakage, lag violation, forbidden pattern (empirical) | Review Gate | MethodSpec 可能有误，需要重新审查 |
-| Review Gate → MethodSpec Patcher | 问题是局部的、字段级的、paper evidence clear（如 enum/schema drift、missing standard field、quote precision、reported metric omission） | Patcher | 基于 review report patch existing JSON；不重新生成整份 JSON |
+| Review Gate → MethodSpec Resolution Applier | 问题是局部的、字段级的、paper evidence clear（如 enum/schema drift、missing standard field、quote precision、reported metric omission） | Resolution Applier | 基于 review report resolve existing JSON；不重新生成整份 JSON |
 | Review Gate → Extractor | formula / target / main spec / timing / portfolio construction 等结构性错误，或 reviewer 发现漏读关键 section/table | Extractor | targeted re-extraction of affected fields/sections；默认不 full regenerate；必要时升级 `needs_human_confirmation` |
 | Attribution → Review Gate | original_method 结果与论文 reported 值偏差 >50%（or t-stat 符号翻转） | Review Gate | 可能 MethodSpec 提取错误，复查 signal definition 和 timing |
 | Lifecycle → Data Layer | 字段不存在、CCM link 覆盖率异常低、数据量级不合理 | Data Layer | 检查 data dictionary mapping、snapshot 完整性 |
@@ -380,7 +380,7 @@ Semantic Extractor 采用 **paper-first extraction**：LLM 仅从论文原文提
 
 #### Extractor Boundary / Extractor 边界
 
-Semantic Extractor 只负责 **paper → draft MethodSpec**。它不负责 review 后的 JSON patch，也不应在 review 阶段重新生成整份 MethodSpec。
+Semantic Extractor 只负责 **paper → draft MethodSpec**。它不负责 review 后的 JSON resolution，也不应在 review 阶段重新生成整份 MethodSpec。
 
 默认修复流程是：
 
@@ -389,9 +389,9 @@ Draft MethodSpec JSON
         ↓
 Review Gate produces field-level findings
         ↓
-MethodSpec Patcher applies approved local edits
+MethodSpec Resolution Applier applies approved local edits
         ↓
-Review Gate re-checks patched JSON
+Review Gate re-checks resolved JSON
 ```
 
 Extractor 只有在以下情况才重新介入：
@@ -477,42 +477,42 @@ Review Gate 默认 **不直接修改 JSON**，而是输出结构化 review repor
 
 | Mode | When to use | Next step |
 |---|---|---|
-| `patch_existing_json` | 问题是局部字段级，paper evidence clear，现有 MethodSpec target 可信 | MethodSpec Patcher applies field-level edits to existing JSON |
+| `resolve_existing_json` | 问题是局部字段级，paper evidence clear，现有 MethodSpec target 可信 | MethodSpec Resolution Applier applies field-level edits to existing JSON |
 | `targeted_reextraction` | high-impact field 可能整体误读，或漏读关键 section/table，但 target 大体可信 | Semantic Extractor re-reads specific paper sections and regenerates only affected fields |
 | `full_regeneration` | factor target / schema / JSON structure 大面积不可信 | Regenerate MethodSpec from scratch; use only when necessary |
 
-默认选择 `patch_existing_json`。不要因为发现几个 parser/schema 问题就 full regenerate。
+默认选择 `resolve_existing_json`。不要因为发现几个 parser/schema 问题就 full regenerate。
 
-Review report 应给出 patcher-friendly table：
+Review report 应给出 resolution-friendly table：
 
 ```text
-| Severity | Field path | Current value | Recommended value | Evidence | Patch confidence |
+| Severity | Field path | Current value | Recommended value | Evidence | Resolution confidence |
 ```
 
-Review Gate 可以建议 patch，但 patch 执行由 MethodSpec Patcher 或 human-approved edit step 完成。
+Review Gate 可以建议 resolution，但 resolution 执行由 MethodSpec Resolution Applier 或 human-approved edit step 完成。
 
-#### MethodSpec Patcher / MethodSpec 修补器
+#### MethodSpec Resolution Applier / MethodSpec 解决器
 
-MethodSpec Patcher 的职责是：
+MethodSpec Resolution Applier 的职责是：
 
 > 根据 approved review findings，对 existing MethodSpec JSON 做最小字段级修改。
 
-Patcher 输入：
+Resolution Applier 输入：
 
 - existing MethodSpec JSON；
 - Review Gate report；
 - optional user-approved subset of fixes。
 
-Patcher 规则：
+Resolution Applier 规则：
 
 1. 只修改 review report 明确指出、且 evidence clear / user approved 的字段；
 2. 不重新生成整份 JSON；
 3. 不重新解释 paper，也不引入新的 paper facts；
 4. 不修改 review report 未提到的字段，除非是 parser-required placeholder（例如 `benchmark: null`, `adjustments: []`）；
 5. 修改后必须重新运行 JSON parse 和 parser contract checks；
-6. 输出 patch log，列出每个 changed field。
+6. 输出 resolution log，列出每个 changed field。
 
-如果 patcher 发现需要重新解释 paper 才能决定字段值，应停止并返回 Review Gate / Extractor，改为 `targeted_reextraction`。
+如果 resolution applier 发现需要重新解释 paper 才能决定字段值，应停止并返回 Review Gate / Extractor，改为 `targeted_reextraction`。
 
 #### Review Decision Matrix / 审查决策矩阵
 
@@ -575,7 +575,7 @@ review_id: "rev-hml-001"
 methodspec_version: "v1"
 reviewer: llm          # llm | human
 disposition: approved   # approved | revision_required | blocked
-remediation_mode: patch_existing_json  # patch_existing_json | targeted_reextraction | full_regeneration
+remediation_mode: resolve_existing_json  # resolve_existing_json | targeted_reextraction | full_regeneration
 codegen_ready: true
 paper_faithful: true
 review_notes:
@@ -948,8 +948,8 @@ Quant team reviews economic plausibility and signs off
 每个 pilot factor 应该交付：
 
 1. `MethodSpec.json`：结构化因子定义与 paper-first 方法假设；
-2. `review_report.yaml` / `review_report.md`：Quant / LLM Reviewer 的审查记录，包含 `remediation_mode` 和 field-level recommended patches；
-3. `patch_log.yaml`：MethodSpec Patcher 对 existing JSON 做的字段级修改记录；
+2. `review_report.yaml` / `review_report.md`：Quant / LLM Reviewer 的审查记录，包含 `remediation_mode` 和 field-level recommended resolutions；
+3. `resolution_log.yaml`：MethodSpec Resolution Applier 对 existing JSON 做的字段级修改记录；
 4. `signal_plugin.py`：通过 sandbox 的 generated signal code；
 5. `validation_report.json`：schema、timing、leakage、synthetic oracle 测试结果；
 6. `run_registry.csv`：所有 original / standardized / ablation runs 的状态；

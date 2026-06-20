@@ -1,0 +1,350 @@
+{
+  "schema_version": "methodspec.v1",
+  "factor_id": "LohWarachka2011_StreakSURPQuintile",
+  "factor_name": "Streak-conditioned post-earnings-announcement drift",
+  "paper_ref": "Loh and Warachka, forthcoming in Management Science, October 2011",
+  "version": 1,
+  "economic_intuition": "PEAD is concentrated within streaks: investors underreact most when a large positive or negative earnings surprise extends an existing streak.",
+  "detailed_definition": "Sort stocks into SURP magnitude quintiles by the most recent earnings surprise, then buy positive streaks in the largest SURP quintile and sell negative streaks in the smallest SURP quintile.",
+  "cat_form": "conditional long-short portfolio signal",
+  "sign": 1,
+  "sample_start_year": 1987,
+  "sample_end_year": 2009,
+  "cz_acronym": null,
+  "data": {
+    "sources": [
+      {
+        "name": "",
+        "source_details": [
+          "I/B/E/S U.S. file from 1984 to 2009",
+          "unadjusted file",
+          "I/B/E/S adjustment factors",
+          "actual earnings"
+        ],
+        "evidence": []
+      },
+      {
+        "name": "",
+        "source_details": [
+          "monthly returns",
+          "share codes 10 or 11",
+          "stock price at the end of the prior month"
+        ],
+        "evidence": []
+      },
+      {
+        "name": "",
+        "source_details": [
+          "delisting returns"
+        ],
+        "evidence": []
+      },
+      {
+        "name": "",
+        "source_details": [
+          "Fama and French (1993)",
+          "four-factor models"
+        ],
+        "evidence": []
+      },
+      {
+        "name": "",
+        "source_details": [
+          "DGTW-adjusted returns"
+        ],
+        "evidence": []
+      }
+    ],
+    "required_fields": [
+      {
+        "field": "actual_quarterly_earnings",
+        "concept": "I/B/E/S actual quarterly earnings used in SURP.",
+        "source_detail": "Actual earnings are from I/B/E/S.",
+        "evidence": []
+      },
+      {
+        "field": "mean_consensus_forecast",
+        "concept": "Most recent mean consensus analyst forecast for the quarter.",
+        "source_detail": "SURP uses the most recent mean consensus forecast of analysts for the quarter.",
+        "evidence": []
+      },
+      {
+        "field": "stock_price_prior_month",
+        "concept": "Stock price at the end of the prior month, adjusted to same per-share basis as SURP.",
+        "source_detail": "SURP is normalized by the firm’s stock price on CRSP at the end of the prior month.",
+        "evidence": []
+      },
+      {
+        "field": "share_code",
+        "concept": "CRSP share code used to restrict to ordinary shares 10 or 11.",
+        "source_detail": "Monthly returns are obtained from CRSP for stocks classified as ordinary shares (share codes 10 or 11).",
+        "evidence": []
+      },
+      {
+        "field": "book_to_market_ratio",
+        "concept": "Book-to-market ratio required to be non-negative.",
+        "source_detail": "Firms in the sample are required to have a non-negative book-to-market ratio.",
+        "evidence": []
+      },
+      {
+        "field": "lagged_stock_price",
+        "concept": "Lagged stock price used for the below-five-dollar trading-strategy exclusion.",
+        "source_detail": "Trading strategies exclude firms whose lagged stock prices are below five dollars.",
+        "evidence": []
+      },
+      {
+        "field": "monthly_stock_return",
+        "concept": "Monthly return used for calendar-time portfolio returns.",
+        "source_detail": "Monthly returns are obtained from CRSP.",
+        "evidence": []
+      },
+      {
+        "field": "delisting_return",
+        "concept": "Delisting return added to monthly return, with Shumway convention when missing and performance-related.",
+        "source_detail": "Delisting returns are added from the CRSP delisting file.",
+        "evidence": []
+      },
+      {
+        "field": "risk_free_rate",
+        "concept": "Risk-free rate used to form excess returns in factor regressions; paper does not name a separate source in the table caption.",
+        "source_detail": "Monthly returns less the risk-free rate are regressed on factor models.",
+        "evidence": []
+      },
+      {
+        "field": "earnings_surprise_history",
+        "concept": "Prior quarterly SURP signs used to identify streaks and reversals.",
+        "source_detail": "Streaks require consecutive earnings surprises with the same sign.",
+        "evidence": []
+      },
+      {
+        "field": "SURP_quintile",
+        "concept": "Derived monthly quintile rank of the most recent earnings surprise magnitude; not a raw input field.",
+        "source_detail": "Firms are sorted into SURP portfolios according to the quintile rank of the most recent SURP; derive from SURP_q each month.",
+        "evidence": []
+      }
+    ],
+    "normalized_mapping": {}
+  },
+  "signal": {
+    "formula": {
+      "expression": "long_leg = streak_sign_m == +1 and SURP_quintile_m == 5; short_leg = streak_sign_m == -1 and SURP_quintile_m == 1",
+      "paper_expression": "Buy positive streaks in highest SURP quintile; sell negative streaks in lowest SURP quintile",
+      "evidence": [
+        {
+          "location": "Table 3 caption",
+          "quote": "SURP portfolios according to",
+          "interpretation": "The table caption states monthly SURP sign/quintile sorts, streak/reversal separation, six-month holdings, and the below-five-dollar exclusion.",
+          "source_type": "paper"
+        }
+      ]
+    },
+    "required_fields": [
+      "actual_quarterly_earnings",
+      "mean_consensus_forecast",
+      "stock_price_prior_month",
+      "earnings_surprise_history"
+    ],
+    "field_sources": {},
+    "timing": {
+      "formation_month": null,
+      "rebalance_frequency": "monthly",
+      "holding_period": 6,
+      "accounting_lag": null,
+      "skip_month": null,
+      "overlapping_portfolios": true,
+      "evidence": [
+        {
+          "location": "Table 3 caption",
+          "quote": "remain in the relevant portfolio for six months",
+          "interpretation": "This directly supports the six-month holding period and monthly calendar-time portfolio construction.",
+          "source_type": "paper"
+        }
+      ]
+    },
+    "missing_policy": {
+      "action": "unspecified",
+      "threshold": null,
+      "winsorize_bounds": null,
+      "evidence": [
+        {
+          "location": "Section 3, p. 7",
+          "quote": "use -30%",
+          "interpretation": "The paper states the Shumway convention for missing performance-related delisting returns and lists required sample fields.",
+          "source_type": "paper"
+        }
+      ]
+    },
+    "sign": 1
+  },
+  "portfolio": {
+    "universe": "Stocks with I/B/E/S analyst forecast data and CRSP ordinary-share monthly returns, non-negative book-to-market ratio, and lagged price at least five dollars for trading strategies.",
+    "sort": {
+      "breakpoint_source": "unspecified",
+      "ls_quantile": null,
+      "quantiles": [],
+      "evidence": [
+        {
+          "location": "Table 3 caption",
+          "quote": "streak portfolios and reversal portfolios",
+          "interpretation": "The paper separates stocks into streak/reversal portfolios and, for the PEAD strategy, also into SURP quintiles.",
+          "source_type": "paper"
+        }
+      ]
+    },
+    "breakpoints": {
+      "source": "unspecified",
+      "quantiles": [],
+      "ls_quantile": null,
+      "evidence": [
+        {
+          "location": "Table 3 caption",
+          "quote": "streak portfolios and reversal portfolios",
+          "interpretation": "The paper separates stocks into streak/reversal portfolios and, for the PEAD strategy, also into SURP quintiles.",
+          "source_type": "paper"
+        }
+      ]
+    },
+    "weighting": "ew",
+    "weighting_scheme": "ew",
+    "long_leg": "positive streaks in largest SURP quintile",
+    "short_leg": "negative streaks in smallest SURP quintile",
+    "implied_factor_direction": {
+      "long_leg": "positive streaks in largest SURP quintile",
+      "short_leg": "negative streaks in smallest SURP quintile",
+      "use_for_backtest_if_needed": true,
+      "note": "Second strategy conditions on both streak status and most recent SURP magnitude."
+    },
+    "filter": "",
+    "evidence": []
+  },
+  "reported_results": {
+    "return_horizon": "six-month holding period with monthly calendar-time returns",
+    "return_type": "risk-adjusted alpha and characteristic-adjusted return",
+    "comparison_policy": {
+      "preserve_paper_direction": true,
+      "align_backtest_to_paper_direction_before_comparison": true,
+      "note": "Use the paper's positive-streak-minus-negative-streak direction."
+    },
+    "return_calculation": {
+      "input_return": {
+        "name": "monthly_excess_stock_return",
+        "paper_variable": "monthly returns less the risk-free rate",
+        "data_frequency": "monthly",
+        "expression": "monthly_stock_return_m_with_delisting - risk_free_rate_m",
+        "benchmark": "risk_free_rate",
+        "adjustments": [
+          "add CRSP delisting returns; use -30% if missing delisting return is performance-related"
+        ],
+        "source": {
+          "location": "Section 3, p. 7; Table 3 caption",
+          "quote": "Delisting returns are added",
+          "interpretation": "The paper states the delisting-return adjustment and that monthly returns less the risk-free rate are used in factor regressions."
+        }
+      },
+      "portfolio_return": {
+        "construction_type": "characteristic_sort",
+        "sorts": [
+          "streak_sign_and_SURP_quintile"
+        ],
+        "weighting": {
+          "type": "equal_weight",
+          "variants": []
+        },
+        "return_combination": {
+          "type": "extreme_group_spread",
+          "expression": "R_positive_streak_SURP_Q5 - R_negative_streak_SURP_Q1",
+          "long_leg": "positive streaks in largest SURP quintile",
+          "short_leg": "negative streaks in smallest SURP quintile",
+          "note": "Second strategy conditions on both streak status and most recent SURP magnitude."
+        },
+        "regression": null,
+        "reported_frequency": "monthly",
+        "holding_period": "six months with overlapping monthly holdings",
+        "source": {
+          "location": "Table 3 caption",
+          "quote": "Stocks remain in the relevant portfolio for six months",
+          "interpretation": "The paper states six-month holdings and equal-weighted monthly calendar-time returns."
+        }
+      },
+      "evidence": []
+    },
+    "spreads": {
+      "four_factor_alpha_spread_monthly_pct": 0.882,
+      "four_factor_alpha_t_stat": 8.92,
+      "fama_french_3factor_alpha_spread_monthly_pct": 0.957,
+      "fama_french_3factor_alpha_t_stat": 9.51,
+      "dgtw_adjusted_return_spread_monthly_pct": 0.627,
+      "dgtw_adjusted_return_t_stat": 6.52,
+      "streak_minus_reversal_four_factor_alpha_difference_monthly_pct": 0.838,
+      "streak_minus_reversal_four_factor_alpha_difference_t_stat": 5.75,
+      "source": {
+        "location": "Table 3 Panel B: SURP Quintiles",
+        "quote": "Four-factor Streaks Spread 0.882*** (8.92); Difference Spread 0.838*** (5.75); Fama-French 3-factor Streaks Spread 0.957*** (9.51); DGTW Streaks Spread 0.627*** (6.52)",
+        "interpretation": "Table 3 Panel B reports the largest-minus-smallest SURP-quintile streak spread for four-factor alpha, the streak-minus-reversal four-factor difference, Fama-French 3-factor alpha, and DGTW-adjusted average returns with associated t-statistics."
+      }
+    },
+    "t_stats": [],
+    "main_spread": null,
+    "main_t_stat": null,
+    "evidence": []
+  },
+  "extraction_sources": [
+    {
+      "type": "paper",
+      "ref": "projects/factor-replication-agent/paper_test/Streaks in earnings surprises and the crosssection of stock returns.pdf",
+      "sections": [
+        "Abstract",
+        "Section 3 Data",
+        "Section 4.1 Streaks",
+        "Section 4.3 Streaks versus the Magnitude of Earnings Surprises",
+        "Table 3",
+        "Table 5"
+      ]
+    }
+  ],
+  "ambiguous_fields": [
+    {
+      "field": "exact_return_sample_months",
+      "reason": "",
+      "source": "weak_or_conflicting",
+      "confidence": "medium",
+      "candidate_value": null,
+      "empirical_impact": "high",
+      "evidence": []
+    },
+    {
+      "field": "portfolio_entry_timing_after_earnings_announcement",
+      "reason": "",
+      "source": "unspecified",
+      "confidence": "medium",
+      "candidate_value": null,
+      "empirical_impact": "high",
+      "evidence": []
+    }
+  ],
+  "review_status": "blocked",
+  "remediation_mode": "resolve_existing_json",
+  "codegen_ready": false,
+  "paper_faithful": false,
+  "review_notes": [
+    {
+      "field": "exact_return_sample_months",
+      "status": "needs_human_confirmation",
+      "reason": "",
+      "current_value": null,
+      "candidate_value": null,
+      "empirical_impact": "high",
+      "evidence": []
+    },
+    {
+      "field": "portfolio_entry_timing_after_earnings_announcement",
+      "status": "needs_human_confirmation",
+      "reason": "",
+      "current_value": null,
+      "candidate_value": null,
+      "empirical_impact": "high",
+      "evidence": []
+    }
+  ],
+  "resolution_log": []
+}

@@ -13,7 +13,7 @@ import json
 from enum import Enum
 from typing import Any, Optional
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 
 # --- Enums ---
@@ -71,7 +71,7 @@ class ReviewStatus(str, Enum):
 
 
 class RemediationMode(str, Enum):
-    PATCH_EXISTING_JSON = "patch_existing_json"
+    RESOLVE_EXISTING_JSON = "resolve_existing_json"
     TARGETED_REEXTRACTION = "targeted_reextraction"
     FULL_REGENERATION = "full_regeneration"
 
@@ -181,7 +181,10 @@ class SignalSpec(BaseModel):
     field_sources: dict[str, FieldSource] = Field(default_factory=dict)
     timing: SignalTiming = Field(default_factory=SignalTiming)
     missing_policy: MissingPolicy = Field(default_factory=MissingPolicy)
-    sign: int = Field(default=1, description="1=high signal is long, -1=low signal is long")
+    sign: Optional[int] = Field(
+        default=None,
+        description="1=high signal is long, -1=low signal is long",
+    )
 
     @property
     def formula_expression(self) -> str:
@@ -218,7 +221,7 @@ class PortfolioSpec(BaseModel):
     weighting_scheme: WeightingRule = Field(default=WeightingRule.UNSPECIFIED)
     long_leg: str = Field(default="high")
     short_leg: str = Field(default="low")
-    implied_factor_direction: str = Field(default="")
+    implied_factor_direction: str | dict[str, Any] = Field(default="")
     filter: str = Field(default="")
     evidence: list[EvidenceCitation] = Field(default_factory=list)
 
@@ -242,7 +245,7 @@ class PortfolioSpec(BaseModel):
 
 
 class ReturnCalculationSpec(BaseModel):
-    input_return: str = Field(default="unspecified")
+    input_return: str | dict[str, Any] = Field(default="unspecified")
     portfolio_return: dict[str, Any] = Field(default_factory=dict)
     evidence: list[EvidenceCitation] = Field(default_factory=list)
 
@@ -250,10 +253,10 @@ class ReturnCalculationSpec(BaseModel):
 class ReportedResultsSpec(BaseModel):
     return_horizon: str = Field(default="monthly")
     return_type: str = Field(default="long_short_spread")
-    comparison_policy: str = Field(default="")
+    comparison_policy: str | dict[str, Any] = Field(default="")
     return_calculation: ReturnCalculationSpec = Field(default_factory=ReturnCalculationSpec)
-    spreads: list[float] = Field(default_factory=list)
-    t_stats: list[float] = Field(default_factory=list)
+    spreads: list[float] | dict[str, Any] = Field(default_factory=list)
+    t_stats: list[float] | dict[str, Any] = Field(default_factory=list)
     main_spread: Optional[float] = None
     main_t_stat: Optional[float] = None
     evidence: list[EvidenceCitation] = Field(default_factory=list)
@@ -276,7 +279,7 @@ class ReviewNote(BaseModel):
     evidence: list[EvidenceCitation] = Field(default_factory=list)
 
 
-class PatchLogEntry(BaseModel):
+class ResolutionLogEntry(BaseModel):
     field_path: str
     old_value: Any = None
     new_value: Any = None
@@ -301,7 +304,7 @@ class MethodSpec(BaseModel):
     economic_intuition: str = Field(default="")
     detailed_definition: str = Field(default="")
     cat_form: str = Field(default="continuous")
-    sign: int = Field(default=1)
+    sign: Optional[int] = Field(default=None)
     sample_start_year: Optional[int] = None
     sample_end_year: Optional[int] = None
     cz_acronym: Optional[str] = Field(default=None)
@@ -319,7 +322,270 @@ class MethodSpec(BaseModel):
     codegen_ready: bool = False
     paper_faithful: bool = False
     review_notes: list[ReviewNote | dict[str, Any]] = Field(default_factory=list)
-    patch_log: list[PatchLogEntry] = Field(default_factory=list)
+    resolution_log: list[ResolutionLogEntry] = Field(default_factory=list)
+
+    @model_validator(mode="before")
+    @classmethod
+    def normalize_curated_schema(cls, data: Any) -> Any:
+        """Accept the richer curated annotation schema as MethodSpec input."""
+        if not isinstance(data, dict):
+            return data
+
+        data = dict(data)
+        paper = data.get("paper") if isinstance(data.get("paper"), dict) else {}
+        raw_signal = data.get("signal") if isinstance(data.get("signal"), dict) else {}
+        raw_timing = data.get("timing") if isinstance(data.get("timing"), dict) else {}
+        raw_universe = data.get("universe") if isinstance(data.get("universe"), dict) else {}
+        raw_portfolio = data.get("portfolio") if isinstance(data.get("portfolio"), dict) else {}
+
+        data.setdefault("factor_name", raw_signal.get("factor_name") or data.get("factor_id", ""))
+        data.setdefault("paper_ref", paper.get("citation", ""))
+
+        definition = raw_signal.get("definition")
+        if isinstance(definition, dict):
+            data.setdefault("detailed_definition", definition.get("value", ""))
+        elif isinstance(definition, str):
+            data.setdefault("detailed_definition", definition)
+
+        intuition = raw_signal.get("economic_intuition")
+        if isinstance(intuition, dict):
+            data.setdefault("economic_intuition", intuition.get("value", ""))
+        elif isinstance(intuition, str):
+            data.setdefault("economic_intuition", intuition)
+
+        data.setdefault("cat_form", raw_signal.get("category", "continuous"))
+
+        sign = raw_signal.get("sign")
+        if isinstance(sign, dict):
+            data.setdefault("sign", cls._normalize_sign(sign.get("value")))
+        elif sign is not None:
+            data.setdefault("sign", cls._normalize_sign(sign))
+
+        sample = data.get("sample") if isinstance(data.get("sample"), dict) else {}
+        formation_years = sample.get("formation_years")
+        if isinstance(formation_years, dict):
+            data.setdefault("sample_start_year", formation_years.get("start"))
+            data.setdefault("sample_end_year", formation_years.get("end"))
+
+        if raw_signal and "timing" not in raw_signal:
+            formula = raw_signal.get("formula")
+            if isinstance(formula, dict) and "source" in formula and "evidence" not in formula:
+                formula = dict(formula)
+                formula["evidence"] = [formula["source"]]
+
+            missing_policy = raw_universe.get("missing_policy")
+            if isinstance(missing_policy, dict) and "source" in missing_policy:
+                missing_policy = dict(missing_policy)
+                missing_policy["evidence"] = [missing_policy["source"]]
+
+            raw_signal["formula"] = formula
+            raw_signal["timing"] = {
+                "formation_month": (
+                    raw_timing.get("formation", {}).get("month")
+                    if isinstance(raw_timing.get("formation"), dict)
+                    else None
+                ),
+                "rebalance_frequency": cls._normalize_rebalance_frequency(
+                    raw_timing.get("rebalance_frequency", "unspecified")
+                ),
+                "holding_period": raw_timing.get("holding_period_months"),
+                "accounting_lag": raw_timing.get("accounting_lag_months"),
+                "skip_month": raw_timing.get("skip_months"),
+                "overlapping_portfolios": raw_portfolio.get("overlapping_portfolios"),
+                "evidence": [raw_timing["source"]] if isinstance(raw_timing.get("source"), dict) else [],
+            }
+            raw_signal["missing_policy"] = missing_policy or {}
+            if isinstance(raw_signal["missing_policy"], dict):
+                raw_signal["missing_policy"]["action"] = cls._normalize_missing_action(
+                    raw_signal["missing_policy"].get("action", "unspecified")
+                )
+            if isinstance(sign, dict):
+                raw_signal["sign"] = cls._normalize_sign(sign.get("value"))
+            elif sign is not None:
+                raw_signal["sign"] = cls._normalize_sign(sign)
+
+            inputs = formula.get("inputs", []) if isinstance(formula, dict) else []
+            if inputs and not raw_signal.get("required_fields"):
+                raw_signal["required_fields"] = inputs
+
+            data["signal"] = raw_signal
+
+        if raw_portfolio:
+            sort = raw_portfolio.get("sort") if isinstance(raw_portfolio.get("sort"), dict) else {}
+            implied_direction = raw_portfolio.get("implied_factor_direction")
+            long_leg = raw_portfolio.get("long_leg")
+            short_leg = raw_portfolio.get("short_leg")
+            if isinstance(implied_direction, dict):
+                long_leg = long_leg or implied_direction.get("long_leg", "high")
+                short_leg = short_leg or implied_direction.get("short_leg", "low")
+
+            weights = raw_portfolio.get("weights")
+            weighting = raw_portfolio.get("weighting") or raw_portfolio.get("weighting_scheme")
+            if not weighting and isinstance(weights, list) and weights:
+                weighting = weights[0]
+
+            data["portfolio"] = {
+                **raw_portfolio,
+                "universe": raw_universe.get("description", raw_portfolio.get("universe", "unspecified")),
+                "sort": {
+                    "breakpoint_source": cls._normalize_breakpoint_source(
+                        sort.get("breakpoint_source", "unspecified")
+                    ),
+                    "ls_quantile": cls._normalize_ls_quantile(sort.get("ls_quantile")),
+                    "quantiles": sort.get("quantiles", []),
+                    "evidence": [sort["source"]] if isinstance(sort.get("source"), dict) else [],
+                },
+                "breakpoints": {
+                    "source": cls._normalize_breakpoint_source(
+                        sort.get("breakpoint_source", "unspecified")
+                    ),
+                    "ls_quantile": cls._normalize_ls_quantile(sort.get("ls_quantile")),
+                    "quantiles": sort.get("quantiles", []),
+                    "evidence": [sort["source"]] if isinstance(sort.get("source"), dict) else [],
+                },
+                "weighting": cls._normalize_weighting(weighting or "unspecified"),
+                "weighting_scheme": cls._normalize_weighting(weighting or "unspecified"),
+                "long_leg": long_leg or "high",
+                "short_leg": short_leg or "low",
+                "implied_factor_direction": implied_direction or "",
+            }
+
+        raw_data = data.get("data")
+        if isinstance(raw_data, dict):
+            normalized_fields = []
+            for item in raw_data.get("required_fields", []):
+                if not isinstance(item, dict):
+                    normalized_fields.append(item)
+                    continue
+                normalized_fields.append({
+                    **item,
+                    "concept": item.get("concept") or item.get("description", ""),
+                })
+            raw_data["required_fields"] = normalized_fields
+            data["data"] = raw_data
+
+        extraction_sources = data.get("extraction_sources")
+        if not extraction_sources and paper:
+            data["extraction_sources"] = [
+                {
+                    "type": "paper",
+                    "ref": paper.get("pdf_file") or paper.get("title") or data.get("paper_ref", ""),
+                    "sections": paper.get("evidence_sections") or paper.get("paper_sections") or [],
+                }
+            ]
+
+        ambiguous_fields = data.get("ambiguous_fields")
+        if isinstance(ambiguous_fields, list):
+            normalized_ambiguous = []
+            for item in ambiguous_fields:
+                if not isinstance(item, dict):
+                    normalized_ambiguous.append(item)
+                    continue
+                source = item.get("source")
+                status = cls._normalize_evidence_source(item.get("status"))
+                impact = item.get("impact", item.get("empirical_impact", "high"))
+                normalized_ambiguous.append({
+                    **item,
+                    "source": status if isinstance(status, str) else item.get("source_status", "inferred"),
+                    "empirical_impact": "high" if impact == "medium" else impact,
+                    "evidence": [source] if isinstance(source, dict) else item.get("evidence", []),
+                })
+            data["ambiguous_fields"] = normalized_ambiguous
+
+        return data
+
+    @staticmethod
+    def _normalize_breakpoint_source(value: Any) -> Any:
+        if value in {"nyse", "nyse_only"}:
+            return "nyse"
+        if value in {"full_sample", "all_stocks", "all_eligible"}:
+            return "full_sample"
+        if value in {"paper_specific", "conditional", "other", None, ""}:
+            return "unspecified"
+        return "unspecified"
+
+    @staticmethod
+    def _normalize_weighting(value: Any) -> Any:
+        if isinstance(value, dict):
+            value = value.get("type") or value.get("value") or value.get("name") or "unspecified"
+        if value in {"ew", "equal_weight", "equal_weighted", "equal-weighted"}:
+            return "ew"
+        if value in {"vw", "value_weight", "value_weighted", "value-weighted"}:
+            return "vw"
+        if value in {"capped_vw", "capped_value_weighted", "capped-value-weighted"}:
+            return "capped_vw"
+        if value in {
+            "other",
+            "reported_variants",
+            "regression_derived_zero_investment",
+            "beta_neutral_rank_weight",
+            None,
+            "",
+        }:
+            return "unspecified"
+        return "unspecified"
+
+    @staticmethod
+    def _normalize_missing_action(value: Any) -> Any:
+        if value in {"drop", "exclude", "omit"}:
+            return "drop"
+        if value in {"fill_zero", "zero"}:
+            return "fill_zero"
+        if value in {"fill_median", "median"}:
+            return "fill_median"
+        if value in {"fill_forward", "ffill"}:
+            return "fill_forward"
+        if value == "winsorize":
+            return "winsorize"
+        return "unspecified"
+
+    @staticmethod
+    def _normalize_evidence_source(value: Any) -> Any:
+        if value == "explicit":
+            return "clear"
+        if value == "ambiguous":
+            return "weak_or_conflicting"
+        if value in {"inferred_for_backtest_not_paper_stated", "not_main_spec"}:
+            return "inferred"
+        return value
+
+    @staticmethod
+    def _normalize_rebalance_frequency(value: Any) -> Any:
+        if isinstance(value, str):
+            normalized = value.strip().lower()
+            if normalized.startswith("monthly"):
+                return "monthly"
+            if normalized.startswith("quarterly"):
+                return "quarterly"
+            if normalized.startswith("annual") or normalized.startswith("yearly"):
+                return "annual"
+        return value
+
+    @staticmethod
+    def _normalize_sign(value: Any) -> Any:
+        if value in {"positive", "+", "+1"}:
+            return 1
+        if value in {"negative", "-", "-1"}:
+            return -1
+        return value
+
+    @staticmethod
+    def _normalize_ls_quantile(value: Any) -> Any:
+        if isinstance(value, str):
+            if "-" not in value:
+                try:
+                    return float(value)
+                except ValueError:
+                    return None
+            first = value.split("-", 1)[0]
+            try:
+                n_groups = float(first)
+            except ValueError:
+                return None
+            if n_groups > 0:
+                return 1.0 / n_groups
+            return None
+        return value
 
     def model_post_init(self, __context: Any) -> None:
         self.signal.sign = self.sign
@@ -405,6 +671,6 @@ class MethodSpec(BaseModel):
 
     def stable_hash(self) -> str:
         """Hash the audit-relevant MethodSpec content for registry provenance."""
-        payload = self.model_dump(mode="json", exclude={"review_notes", "patch_log"})
+        payload = self.model_dump(mode="json", exclude={"review_notes", "resolution_log"})
         encoded = json.dumps(payload, sort_keys=True, separators=(",", ":")).encode()
         return hashlib.sha256(encoded).hexdigest()

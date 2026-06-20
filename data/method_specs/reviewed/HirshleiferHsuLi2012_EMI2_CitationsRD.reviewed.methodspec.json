@@ -1,0 +1,387 @@
+{
+  "schema_version": "methodspec.v1",
+  "factor_id": "HirshleiferHsuLi2012_EMI2_CitationsRD",
+  "factor_name": "Innovative efficiency based on adjusted citations scaled by R&D expenses (EMI2)",
+  "paper_ref": "Hirshleifer, Hsu, and Li, February 2012",
+  "version": 1,
+  "economic_intuition": "Citations capture the technological or economic significance of patents; adjusted citations per dollar of R&D measure efficient innovation output that predicts returns.",
+  "detailed_definition": "Adjusted citations occurring in year y to firm i's patents granted over the previous five years, scaled by R&D expenses in years y-3 through y-7.",
+  "cat_form": "continuous",
+  "sign": 1,
+  "sample_start_year": 1982,
+  "sample_end_year": 2007,
+  "cz_acronym": null,
+  "data": {
+    "sources": [
+      {
+        "name": "",
+        "source_details": [
+          "accounting data from Compustat",
+          "R&D expenses",
+          "book value of equity"
+        ],
+        "evidence": []
+      },
+      {
+        "name": "",
+        "source_details": [
+          "stock returns data from CRSP",
+          "NYSE, AMEX, and NASDAQ",
+          "market equity at the end of June"
+        ],
+        "evidence": []
+      },
+      {
+        "name": "",
+        "source_details": [
+          "U.S. patents granted by the USPTO",
+          "Compustat-matched identifiers",
+          "grant date as effective date"
+        ],
+        "evidence": []
+      },
+      {
+        "name": "",
+        "source_details": [
+          "Carhart four factors returns",
+          "one-month Treasury bill rate"
+        ],
+        "evidence": []
+      },
+      {
+        "name": "",
+        "source_details": [
+          "investment and profitability factor returns"
+        ],
+        "evidence": []
+      }
+    ],
+    "required_fields": [
+      {
+        "field": "domestic_common_share",
+        "concept": "Domestic common shares included by the paper.",
+        "source_detail": "All domestic common shares trading on NYSE, AMEX, and NASDAQ with accounting and returns data available are included.",
+        "evidence": []
+      },
+      {
+        "field": "exchange_name",
+        "concept": "NYSE, AMEX, or NASDAQ trading venue named by the paper.",
+        "source_detail": "The paper states stocks trade on NYSE, AMEX, and NASDAQ.",
+        "evidence": []
+      },
+      {
+        "field": "sic_code",
+        "concept": "Four-digit SIC code used to exclude financial firms with codes between 6000 and 6999.",
+        "source_detail": "Financial firms have four-digit SIC codes between 6000 and 6999 and are excluded.",
+        "evidence": []
+      },
+      {
+        "field": "security_or_listing_type",
+        "concept": "Security/listing attributes used to exclude closed-end funds, trusts, ADRs, REITs, and units of beneficial interest.",
+        "source_detail": "The paper excludes closed-end funds, trusts, ADRs, REITs, and units of beneficial interest.",
+        "evidence": []
+      },
+      {
+        "field": "book_value_of_equity",
+        "concept": "Book value of equity used to exclude firms with negative book value.",
+        "source_detail": "The paper excludes firms with negative book value of equity.",
+        "evidence": []
+      },
+      {
+        "field": "compustat_listing_years",
+        "concept": "Number of years the firm has been listed on Compustat before sample inclusion.",
+        "source_detail": "The paper requires firms to be listed on Compustat for two years before sample inclusion.",
+        "evidence": []
+      },
+      {
+        "field": "market_equity_june",
+        "concept": "Market value of equity at the end of June of year t for NYSE median size sort and value-weighting.",
+        "source_detail": "Size is the market equity at the end of June of year t.",
+        "evidence": []
+      },
+      {
+        "field": "stock_return",
+        "concept": "Monthly stock return for value-weighted portfolio returns.",
+        "source_detail": "Stock returns data are from CRSP.",
+        "evidence": []
+      },
+      {
+        "field": "one_month_treasury_bill_rate",
+        "concept": "One-month Treasury bill rate for excess-return context and factors.",
+        "source_detail": "The paper obtains the one-month Treasury bill rate from Kenneth French's website.",
+        "evidence": []
+      },
+      {
+        "field": "citation_count",
+        "concept": "Citations received in the IE year by firm patents granted in the previous five years.",
+        "source_detail": "The database contains the number of citations received by each patent.",
+        "evidence": []
+      },
+      {
+        "field": "average_citations_same_subcategory_grant_year_citing_year",
+        "concept": "Average citations used to adjust citation counts for patent subcategory, grant year, and citing year.",
+        "source_detail": "The paper scales citations by average citations for patents of the same subcategory and grant year in the citing year.",
+        "evidence": []
+      },
+      {
+        "field": "rd",
+        "concept": "R&D expenses in lagged fiscal years y-3 through y-7 used as the Citations/RD denominator.",
+        "source_detail": "The denominator is the sum of R&D expenses in years t-3 to t-7.",
+        "evidence": []
+      }
+    ],
+    "normalized_mapping": {}
+  },
+  "signal": {
+    "formula": {
+      "expression": "sum_{j=1..5} sum_{k=1..N_y_minus_j} adjusted_citation_count_{k,y,y-j} / (rd_y_minus_3 + rd_y_minus_4 + rd_y_minus_5 + rd_y_minus_6 + rd_y_minus_7)",
+      "paper_expression": "Citations/RD = [sum adjusted citations in year t to patents granted in t−1..t−5] / (R&D_i,t−3 + R&D_i,t−4 + R&D_i,t−5 + R&D_i,t−6 + R&D_i,t−7)",
+      "evidence": [
+        {
+          "location": "Section 3.1, pp. 14-15",
+          "quote": "patents granted over the previous five years",
+          "interpretation": "The paper provides the citation adjustment, five-year patent window, and R&D denominator lag structure.",
+          "source_type": "paper"
+        }
+      ]
+    },
+    "required_fields": [
+      "citation_count",
+      "average_citations_same_subcategory_grant_year_citing_year",
+      "rd"
+    ],
+    "field_sources": {},
+    "timing": {
+      "formation_month": 6,
+      "rebalance_frequency": "annual",
+      "holding_period": 12,
+      "accounting_lag": null,
+      "skip_month": null,
+      "overlapping_portfolios": null,
+      "evidence": [
+        {
+          "location": "Section 7, p. 35; footnote 19, p. 27",
+          "quote": "IE measures in year t – 1 are fully observable",
+          "interpretation": "The EMI factor forms portfolios at the end of June t using IE from year t-1; this is a June formation delay rather than an explicit accounting lag for the EMI factor.",
+          "source_type": "paper"
+        }
+      ]
+    },
+    "missing_policy": {
+      "action": "unspecified",
+      "threshold": null,
+      "winsorize_bounds": null,
+      "evidence": [
+        {
+          "location": "Section 3.1, pp. 13-15",
+          "quote": "set missing R&D to zero",
+          "interpretation": "The paper explicitly sets missing R&D to zero in denominator calculations, but does not otherwise state a global missing-data imputation rule.",
+          "source_type": "paper"
+        }
+      ]
+    },
+    "sign": 1
+  },
+  "portfolio": {
+    "universe": "Domestic common shares on NYSE, AMEX, and NASDAQ in the intersection of Compustat, CRSP, and the NBER patent database, excluding financial firms and specified non-common/listing types.",
+    "sort": {
+      "breakpoint_source": "unspecified",
+      "ls_quantile": null,
+      "quantiles": [],
+      "evidence": [
+        {
+          "location": "Section 7, p. 35",
+          "quote": "33rd and 66th percentiles of IE",
+          "interpretation": "The paper sorts firms independently into two size groups and three IE groups, with size based on the NYSE median and IE based on tercile breakpoints.",
+          "source_type": "paper"
+        }
+      ]
+    },
+    "breakpoints": {
+      "source": "unspecified",
+      "quantiles": [],
+      "ls_quantile": null,
+      "evidence": [
+        {
+          "location": "Section 7, p. 35",
+          "quote": "33rd and 66th percentiles of IE",
+          "interpretation": "The paper sorts firms independently into two size groups and three IE groups, with size based on the NYSE median and IE based on tercile breakpoints.",
+          "source_type": "paper"
+        }
+      ]
+    },
+    "weighting": "vw",
+    "weighting_scheme": "vw",
+    "long_leg": "average of small/high IE and big/high IE portfolios",
+    "short_leg": "average of small/low IE and big/low IE portfolios",
+    "implied_factor_direction": {
+      "long_leg": "average of small/high IE and big/high IE portfolios",
+      "short_leg": "average of small/low IE and big/low IE portfolios",
+      "use_for_backtest_if_needed": true,
+      "note": "This is the paper's EMI factor definition."
+    },
+    "filter": "",
+    "evidence": []
+  },
+  "reported_results": {
+    "return_horizon": "monthly returns from annual July-to-June holding cycle",
+    "return_type": "factor-mimicking portfolio return",
+    "comparison_policy": {
+      "preserve_paper_direction": true,
+      "align_backtest_to_paper_direction_before_comparison": true,
+      "note": "Compare the backtest in the paper's Efficient-minus-Inefficient direction."
+    },
+    "return_calculation": {
+      "input_return": {
+        "name": "monthly_stock_return",
+        "paper_variable": "stock returns",
+        "data_frequency": "monthly",
+        "expression": "stock_return_{i,m}",
+        "benchmark": null,
+        "adjustments": [],
+        "source": {
+          "location": "Section 3.1, p. 12",
+          "quote": "stock returns data from CRSP",
+          "interpretation": "The monthly value-weighted portfolio returns are constructed from stock returns, and CRSP is the paper-stated return source."
+        }
+      },
+      "portfolio_return": {
+        "construction_type": "characteristic_sort",
+        "sorts": [
+          "size",
+          "innovative_efficiency"
+        ],
+        "weighting": {
+          "type": "value_weight",
+          "variants": []
+        },
+        "return_combination": {
+          "type": "average_leg_spread",
+          "expression": "((R_S_H + R_B_H)/2) - ((R_S_L + R_B_L)/2)",
+          "long_leg": "(S/H + B/H)/2",
+          "short_leg": "(S/L + B/L)/2",
+          "note": "EMI factor definition from the paper."
+        },
+        "regression": null,
+        "reported_frequency": "monthly",
+        "holding_period": "July of year t to June of year t+1",
+        "source": {
+          "location": "Section 7, p. 35",
+          "quote": "(S/H + B/H)/2 – (S/L + B/L)/2",
+          "interpretation": "This is the explicit paper formula for the EMI factor return."
+        }
+      },
+      "evidence": []
+    },
+    "spreads": {
+      "mean_monthly_pct": 0.26,
+      "stdev_monthly_pct": 1.8,
+      "t_stat": 2.6,
+      "ex_post_sharpe_ratio": 0.15,
+      "source": {
+        "location": "Table 9 Panel A, p. 58",
+        "quote": "EMI2: Mean 0.26; Stdev 1.80; t-stat 2.60; SR 0.15",
+        "interpretation": "These values are read from the EMI2 column across the Mean, Stdev, t-stat, and SR rows in Table 9 Panel A."
+      }
+    },
+    "t_stats": [],
+    "main_spread": null,
+    "main_t_stat": null,
+    "evidence": []
+  },
+  "extraction_sources": [
+    {
+      "type": "paper",
+      "ref": "projects/factor-replication-agent/paper_test/Innovative efficiency and  stock returns.pdf",
+      "sections": [
+        "Abstract",
+        "Section 3.1",
+        "Section 5.2",
+        "Section 7",
+        "Table 6",
+        "Table 9"
+      ]
+    }
+  ],
+  "ambiguous_fields": [
+    {
+      "field": "R&D_zero_denominator_cases",
+      "reason": "",
+      "source": "weak_or_conflicting",
+      "confidence": "medium",
+      "candidate_value": null,
+      "empirical_impact": "high",
+      "evidence": []
+    },
+    {
+      "field": "patent_to_stock_linking_details",
+      "reason": "",
+      "source": "unspecified",
+      "confidence": "medium",
+      "candidate_value": null,
+      "empirical_impact": "high",
+      "evidence": []
+    },
+    {
+      "field": "portfolio_breakpoints_for_IE_terciles",
+      "reason": "",
+      "source": "weak_or_conflicting",
+      "confidence": "medium",
+      "candidate_value": null,
+      "empirical_impact": "high",
+      "evidence": []
+    },
+    {
+      "field": "accounting_lag_months",
+      "reason": "",
+      "source": "inferred",
+      "confidence": "medium",
+      "candidate_value": null,
+      "empirical_impact": "high",
+      "evidence": []
+    }
+  ],
+  "review_status": "blocked",
+  "remediation_mode": "resolve_existing_json",
+  "codegen_ready": false,
+  "paper_faithful": false,
+  "review_notes": [
+    {
+      "field": "R&D_zero_denominator_cases",
+      "status": "needs_human_confirmation",
+      "reason": "",
+      "current_value": null,
+      "candidate_value": null,
+      "empirical_impact": "high",
+      "evidence": []
+    },
+    {
+      "field": "patent_to_stock_linking_details",
+      "status": "needs_human_confirmation",
+      "reason": "",
+      "current_value": null,
+      "candidate_value": null,
+      "empirical_impact": "high",
+      "evidence": []
+    },
+    {
+      "field": "portfolio_breakpoints_for_IE_terciles",
+      "status": "needs_human_confirmation",
+      "reason": "",
+      "current_value": null,
+      "candidate_value": null,
+      "empirical_impact": "high",
+      "evidence": []
+    },
+    {
+      "field": "accounting_lag_months",
+      "status": "needs_human_confirmation",
+      "reason": "",
+      "current_value": null,
+      "candidate_value": null,
+      "empirical_impact": "high",
+      "evidence": []
+    }
+  ],
+  "resolution_log": []
+}

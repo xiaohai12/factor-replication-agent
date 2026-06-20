@@ -1,0 +1,70 @@
+{
+  "review_id": "",
+  "methodspec_version": "methodspec.v1",
+  "reviewer": "llm",
+  "disposition": "blocked",
+  "remediation_mode": "resolve_existing_json",
+  "codegen_ready": false,
+  "paper_faithful": false,
+  "approved": false,
+  "issues": [],
+  "warnings": [
+    "No data dictionary provided, skipping field check",
+    "reported_results portfolio_return.weighting differs from portfolio.weighting"
+  ],
+  "field_notes": [
+    {
+      "field": "accounting_data_timing_for_June_sort",
+      "status": "needs_human_confirmation",
+      "reason": "",
+      "current_value": null,
+      "candidate_value": null,
+      "empirical_impact": "high",
+      "evidence": []
+    },
+    {
+      "field": "initial_stock_firm_time_index",
+      "status": "needs_human_confirmation",
+      "reason": "",
+      "current_value": null,
+      "candidate_value": null,
+      "empirical_impact": "high",
+      "evidence": []
+    },
+    {
+      "field": "common_share_identifier",
+      "status": "needs_human_confirmation",
+      "reason": "",
+      "current_value": null,
+      "candidate_value": null,
+      "empirical_impact": "high",
+      "evidence": []
+    },
+    {
+      "field": "partial_2008_return_window",
+      "status": "needs_human_confirmation",
+      "reason": "",
+      "current_value": null,
+      "candidate_value": null,
+      "empirical_impact": "high",
+      "evidence": []
+    },
+    {
+      "field": "nonfinancial_firm_classification",
+      "status": "needs_human_confirmation",
+      "reason": "",
+      "current_value": null,
+      "candidate_value": null,
+      "empirical_impact": "high",
+      "evidence": []
+    }
+  ],
+  "blocked_fields": [
+    "accounting_data_timing_for_June_sort",
+    "initial_stock_firm_time_index",
+    "common_share_identifier",
+    "partial_2008_return_window",
+    "nonfinancial_firm_classification"
+  ],
+  "requires_human": true
+}

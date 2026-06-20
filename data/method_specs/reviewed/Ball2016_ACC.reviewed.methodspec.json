@@ -1,0 +1,409 @@
+{
+  "schema_version": "methodspec.v1",
+  "factor_id": "Ball2016_ACC",
+  "factor_name": "Accruals Factor",
+  "paper_ref": "Ball, Gerakos, Linnainmaa, and Nikolaev (2016)",
+  "version": 1,
+  "economic_intuition": "High accruals predict lower future returns; the paper argues accruals predict returns because they are negatively correlated with the cash-based component of operating profitability.",
+  "detailed_definition": "Accruals calculated using the Sloan balance-sheet approach, scaled by lagged total assets.",
+  "cat_form": "continuous",
+  "sign": -1,
+  "sample_start_year": 1963,
+  "sample_end_year": 2014,
+  "cz_acronym": null,
+  "data": {
+    "sources": [
+      {
+        "name": "",
+        "source_details": [
+          "monthly stock returns",
+          "delisting returns"
+        ],
+        "evidence": []
+      },
+      {
+        "name": "",
+        "source_details": [
+          "annual accounting data"
+        ],
+        "evidence": []
+      }
+    ],
+    "required_fields": [
+      {
+        "field": "act",
+        "concept": "Current assets (ACT)",
+        "source_detail": "annual accounting data",
+        "evidence": []
+      },
+      {
+        "field": "ch",
+        "concept": "Cash (CH)",
+        "source_detail": "annual accounting data",
+        "evidence": []
+      },
+      {
+        "field": "lct",
+        "concept": "Current liabilities (LCT)",
+        "source_detail": "annual accounting data",
+        "evidence": []
+      },
+      {
+        "field": "dlc",
+        "concept": "Debt in current liabilities (DLC)",
+        "source_detail": "annual accounting data",
+        "evidence": []
+      },
+      {
+        "field": "txp",
+        "concept": "Income taxes payable (TXP)",
+        "source_detail": "annual accounting data",
+        "evidence": []
+      },
+      {
+        "field": "dp",
+        "concept": "Depreciation (DP)",
+        "source_detail": "annual accounting data",
+        "evidence": []
+      },
+      {
+        "field": "at",
+        "concept": "Book value of total assets used as lagged denominator",
+        "source_detail": "annual accounting data",
+        "evidence": []
+      },
+      {
+        "field": "ret",
+        "concept": "Monthly stock return",
+        "source_detail": "monthly stock returns",
+        "evidence": []
+      },
+      {
+        "field": "dlret",
+        "concept": "Delisting return, including paper-stated imputation for missing performance-related delistings",
+        "source_detail": "delisting returns",
+        "evidence": []
+      },
+      {
+        "field": "market_value_of_equity",
+        "concept": "Market value of equity, required for sample and size sort",
+        "source_detail": "paper-stated sample variable",
+        "evidence": []
+      },
+      {
+        "field": "book_to_market",
+        "concept": "Book-to-market, required by sample and controls",
+        "source_detail": "paper-stated sample variable",
+        "evidence": []
+      },
+      {
+        "field": "gross_profit",
+        "concept": "Gross profit, required by sample",
+        "source_detail": "paper-stated sample variable",
+        "evidence": []
+      },
+      {
+        "field": "sic",
+        "concept": "SIC code used to exclude financial firms",
+        "source_detail": "industry classification",
+        "evidence": []
+      },
+      {
+        "field": "prior_12_month_return",
+        "concept": "Prior one-year return required by sample and controls",
+        "source_detail": "monthly stock returns",
+        "evidence": []
+      }
+    ],
+    "normalized_mapping": {}
+  },
+  "signal": {
+    "formula": {
+      "expression": "(delta(act_t) - delta(ch_t) - (delta(lct_t) - delta(dlc_t) - delta(txp_t)) - dp_t) / at_t_minus_1",
+      "paper_expression": "Accruals = ΔACT − ΔCH − [ΔLCT − ΔDLC − ΔTXP] − DP; scaled by lagged total assets",
+      "evidence": [
+        {
+          "location": "Appendix p.44; Table 1 caption pp.32-33",
+          "quote": "\"Accruals is the change in current assets minus the change in cash\"",
+          "interpretation": "The Appendix provides the Compustat-variable formula and states all variables are scaled by lagged total assets.",
+          "source_type": "paper"
+        }
+      ]
+    },
+    "required_fields": [
+      "act",
+      "ch",
+      "lct",
+      "dlc",
+      "txp",
+      "dp",
+      "at"
+    ],
+    "field_sources": {},
+    "timing": {
+      "formation_month": 6,
+      "rebalance_frequency": "annual",
+      "holding_period": 12,
+      "accounting_lag": 6,
+      "skip_month": null,
+      "overlapping_portfolios": false,
+      "evidence": [
+        {
+          "location": "Section 3 Data p.30; Section 4.2 p.36; Table 4 caption p.37",
+          "quote": "\"lag annual accounting information by six months\"; \"rebalance the portfolios annually at the end of June\"",
+          "interpretation": "This supports six-month accounting lag, June formation, annual rebalance, and July-to-June holding for portfolio sorts/factors.",
+          "source_type": "paper"
+        }
+      ]
+    },
+    "missing_policy": {
+      "action": "unspecified",
+      "threshold": null,
+      "winsorize_bounds": null,
+      "evidence": [
+        {
+          "location": "Appendix p.44; Section 3 Data p.30",
+          "quote": "\"missing values are replaced with zero values\"; required sample fields are stated as \"non-missing\" in Section 3",
+          "interpretation": "Required nonmissing sample fields are represented in universe.filters. This missing_policy records only the paper's zero-imputation rule for missing balance-sheet accounts used in accruals and CbOP calculations.",
+          "source_type": "paper"
+        }
+      ]
+    },
+    "sign": -1
+  },
+  "portfolio": {
+    "universe": "NYSE, Amex, and Nasdaq ordinary common shares matched between CRSP and Compustat, excluding financial firms.",
+    "sort": {
+      "breakpoint_source": "nyse",
+      "ls_quantile": 0.3,
+      "quantiles": [],
+      "evidence": [
+        {
+          "location": "Section 5 Cash-based operating profitability factor p.36; Table 5 caption p.38",
+          "quote": "\"first sort stocks by size into small and big\"; \"weak (below the 30th NYSE percentile) and robust (above the 70th NYSE percentile)\"",
+          "interpretation": "The paper explicitly uses NYSE breakpoints for a 2-by-3 independent sort to construct factor returns.",
+          "source_type": "paper"
+        }
+      ]
+    },
+    "breakpoints": {
+      "source": "nyse",
+      "quantiles": [],
+      "ls_quantile": 0.3,
+      "evidence": [
+        {
+          "location": "Section 5 Cash-based operating profitability factor p.36; Table 5 caption p.38",
+          "quote": "\"first sort stocks by size into small and big\"; \"weak (below the 30th NYSE percentile) and robust (above the 70th NYSE percentile)\"",
+          "interpretation": "The paper explicitly uses NYSE breakpoints for a 2-by-3 independent sort to construct factor returns.",
+          "source_type": "paper"
+        }
+      ]
+    },
+    "weighting": "vw",
+    "weighting_scheme": "vw",
+    "long_leg": "small_low_accruals_and_big_low_accruals",
+    "short_leg": "small_high_accruals_and_big_high_accruals",
+    "implied_factor_direction": {
+      "long_leg": "small_low_accruals_and_big_low_accruals",
+      "short_leg": "small_high_accruals_and_big_high_accruals",
+      "use_for_backtest_if_needed": true,
+      "note": "This is the paper-stated Table 5 six-portfolio factor direction."
+    },
+    "filter": "",
+    "evidence": []
+  },
+  "reported_results": {
+    "return_horizon": "monthly_factor_return_reported_annualized",
+    "return_type": "six_portfolio_value_weighted_factor_return",
+    "comparison_policy": {
+      "preserve_paper_direction": true,
+      "align_backtest_to_paper_direction_before_comparison": true,
+      "note": "Compare Table 5 ACC in the paper-stated low-accruals-minus-high-accruals direction. The paper reverses robust/weak labels for accruals so the factor has a positive mean; do not compare to high-minus-low accrual decile returns without sign alignment."
+    },
+    "return_calculation": {
+      "input_return": {
+        "name": "monthly_stock_return_including_delisting_returns",
+        "paper_variable": "monthly stock returns",
+        "data_frequency": "monthly",
+        "expression": "ret_i,m",
+        "adjustments": [
+          {
+            "type": "missing_delisting_return_imputation",
+            "condition": "missing delisting return and performance-related delisting",
+            "value": -0.3,
+            "description": "If a delisting return is missing and the delisting is performance-related, impute -30%.",
+            "source": {
+              "location": "Section 3 Data p.30",
+              "quote": "\"if a delisting return is missing and the delisting is performance-related, we impute a return of −30%\"",
+              "interpretation": "The paper specifies a -30% imputation rule for missing performance-related delisting returns."
+            }
+          }
+        ],
+        "source": {
+          "location": "Section 3 Data p.30",
+          "quote": "\"We take monthly stock returns from ... CRSP\"",
+          "interpretation": "The factor is constructed from monthly CRSP returns with delisting-return treatment. Input-return components: ret_i,m: monthly stock return for firm i in month m; dlret_i,m: delisting return from CRSP when applicable"
+        },
+        "benchmark": null
+      },
+      "portfolio_return": {
+        "construction_type": "characteristic_sort",
+        "sorts": [
+          {
+            "variable": "size",
+            "group_type": "median_split",
+            "n_groups": 2,
+            "breakpoint_source": "nyse_only"
+          },
+          {
+            "variable": "Accruals",
+            "group_type": "tercile",
+            "n_groups": 3,
+            "breakpoint_source": "nyse_only",
+            "breakpoints": [
+              0.3,
+              0.7
+            ]
+          }
+        ],
+        "weighting": {
+          "type": "value_weight",
+          "variants": []
+        },
+        "return_combination": {
+          "type": "average_leg_spread",
+          "expression": "0.5 * (small_low_accruals + big_low_accruals) - 0.5 * (small_high_accruals + big_high_accruals)",
+          "long_leg": "small_low_accruals_and_big_low_accruals",
+          "short_leg": "small_high_accruals_and_big_high_accruals",
+          "note": "Independent 2x3 sort: size split at NYSE median and signal split at NYSE 30th/70th percentiles. Middle signal portfolios are not included in the factor spread."
+        },
+        "regression": null,
+        "reported_frequency": "monthly_return_reported_as_annualized_summary",
+        "holding_period": "July_t_to_June_t_plus_1_with_annual_rebalance",
+        "source": {
+          "location": "Section 5 p.36; Table 5 caption p.38",
+          "quote": "\"define each factor as the difference (1/2) × (small-robust + big-robust) − (1/2) × (small-weak + big-weak)\"; \"For the accruals factor the robust and weak labels are reversed.\"",
+          "interpretation": "The paper states the six-portfolio factor formula and explicitly reverses robust/weak labels for the accruals factor, producing a low-accruals-minus-high-accruals factor."
+        },
+        "interpretation": "The paper-original factor return is a value-weighted six-portfolio factor constructed from independent size and accruals sorts."
+      },
+      "evidence": []
+    },
+    "spreads": {
+      "table5_factor_return": {
+        "direction": "low_minus_high",
+        "value_percent_annualized": 2.7,
+        "t_stat": 3.42,
+        "source": {
+          "location": "Table 5 p.38",
+          "quote": "\"ACC\" average annualized return 2.7 and t-value 3.42",
+          "interpretation": "This is the paper's main factor-return statistic for this paper-original factor."
+        }
+      },
+      "table4_decile_high_minus_low": {
+        "direction": "high_minus_low",
+        "value_percent_monthly": -0.35,
+        "t_stat": -2.55,
+        "source": {
+          "location": "Section 4.2 p.36; Table 4 pp.37-38",
+          "quote": "high-minus-low decile excess return -0.35% per month (t=-2.55)",
+          "interpretation": "Table 4 is a portfolio-sort predictive-validity result, included as secondary evidence because Table 5 is the explicit factor construction."
+        }
+      }
+    },
+    "t_stats": [],
+    "main_spread": null,
+    "main_t_stat": null,
+    "evidence": []
+  },
+  "extraction_sources": [
+    {
+      "type": "paper",
+      "ref": "Ball 等 - 2016 - Accruals, cash flows, and operating profitability in the cross section of stock returns.pdf",
+      "sections": [
+        "Abstract p.28",
+        "Section 3 Data pp.30-31",
+        "Table 1 pp.32-33",
+        "Table 2 pp.33-34",
+        "Section 4.2 Portfolio sorts p.36",
+        "Table 4 pp.37-38",
+        "Section 5 Cash-based operating profitability factor p.36",
+        "Table 5 p.38",
+        "Appendix p.44"
+      ]
+    }
+  ],
+  "ambiguous_fields": [
+    {
+      "field": "universe.winsorize_bounds",
+      "reason": "The paper states 1st/99th percentile trimming for Fama-MacBeth regression independent variables, but not for the main Table 5 factor construction.",
+      "source": "inferred",
+      "confidence": "medium",
+      "candidate_value": null,
+      "empirical_impact": "high",
+      "evidence": [
+        {
+          "location": "Section 4.1 p.32; Table 2 caption p.33",
+          "quote": "\"trimming all independent variables to the 1st and 99th percentiles\"",
+          "interpretation": "Trimming applies to regression tests; leave main factor winsorization bounds null.",
+          "source_type": "paper"
+        }
+      ]
+    },
+    {
+      "field": "reported_results.main_table",
+      "reason": "The paper contains both predictive regressions/decile sorts and explicit factor construction. This MethodSpec uses Table 5 as the main paper-original factor spec.",
+      "source": "clear",
+      "confidence": "medium",
+      "candidate_value": null,
+      "empirical_impact": "high",
+      "evidence": [
+        {
+          "location": "Section 5 p.36; Table 5 p.38",
+          "quote": "\"we construct three additional factors based on accruals, operating profitability, and cash-based operating profitability\"",
+          "interpretation": "This identifies the three paper-original factors.",
+          "source_type": "paper"
+        }
+      ]
+    }
+  ],
+  "review_status": "blocked",
+  "remediation_mode": "resolve_existing_json",
+  "codegen_ready": false,
+  "paper_faithful": false,
+  "review_notes": [
+    {
+      "field": "universe.winsorize_bounds",
+      "status": "needs_human_confirmation",
+      "reason": "The paper states 1st/99th percentile trimming for Fama-MacBeth regression independent variables, but not for the main Table 5 factor construction.",
+      "current_value": null,
+      "candidate_value": null,
+      "empirical_impact": "high",
+      "evidence": [
+        {
+          "location": "Section 4.1 p.32; Table 2 caption p.33",
+          "quote": "\"trimming all independent variables to the 1st and 99th percentiles\"",
+          "interpretation": "Trimming applies to regression tests; leave main factor winsorization bounds null.",
+          "source_type": "paper"
+        }
+      ]
+    },
+    {
+      "field": "reported_results.main_table",
+      "status": "auto_approve",
+      "reason": "The paper contains both predictive regressions/decile sorts and explicit factor construction. This MethodSpec uses Table 5 as the main paper-original factor spec.",
+      "current_value": null,
+      "candidate_value": null,
+      "empirical_impact": "high",
+      "evidence": [
+        {
+          "location": "Section 5 p.36; Table 5 p.38",
+          "quote": "\"we construct three additional factors based on accruals, operating profitability, and cash-based operating profitability\"",
+          "interpretation": "This identifies the three paper-original factors.",
+          "source_type": "paper"
+        }
+      ]
+    }
+  ],
+  "resolution_log": []
+}

@@ -16,6 +16,7 @@ from typing import Optional
 from src.data_layer import DataDictionary
 from src.models.method_spec import (
     AmbiguousField,
+    EvidenceCitation,
     EmpiricalImpact,
     EvidenceSource,
     MethodSpec,
@@ -78,6 +79,10 @@ class FieldReviewNote:
     field: str
     status: Disposition
     reason: str = ""
+    current_value: object = None
+    candidate_value: object = None
+    empirical_impact: str = ""
+    evidence: list[EvidenceCitation] = field(default_factory=list)
 
 
 @dataclass
@@ -88,7 +93,7 @@ class ReviewResult:
     methodspec_version: str = "v1"
     reviewer: str = "llm"  # llm | human
     disposition: str = "pending"  # approved | revision_required | blocked
-    remediation_mode: str = RemediationMode.PATCH_EXISTING_JSON.value
+    remediation_mode: str = RemediationMode.RESOLVE_EXISTING_JSON.value
     codegen_ready: bool = False
     paper_faithful: bool = False
     approved: bool = False
@@ -172,7 +177,7 @@ class ReviewGate:
             result.approved = False
         elif result.issues:
             result.disposition = "revision_required"
-            result.remediation_mode = RemediationMode.PATCH_EXISTING_JSON.value
+            result.remediation_mode = RemediationMode.RESOLVE_EXISTING_JSON.value
             result.approved = False
         else:
             result.disposition = "approved"
@@ -250,6 +255,10 @@ class ReviewGate:
                 field=amb.field,
                 status=disposition,
                 reason=amb.reason,
+                current_value=self._get_field_value(spec, amb.field),
+                candidate_value=amb.candidate_value,
+                empirical_impact=impact.value,
+                evidence=amb.evidence,
             )
             result.field_notes.append(note)
 
@@ -259,3 +268,20 @@ class ReviewGate:
                 result.warnings.append(
                     f"Field '{amb.field}' needs LLM review: {amb.reason}"
                 )
+
+    def _get_field_value(self, spec: MethodSpec, field_path: str):
+        """Best-effort dotted-path lookup for review context."""
+        path_aliases = {
+            "universe.missing_policy.action": "signal.missing_policy.action",
+            "universe.winsorize_bounds": "signal.missing_policy.winsorize_bounds",
+        }
+        field_path = path_aliases.get(field_path, field_path)
+        current = spec
+        for part in field_path.split("."):
+            if current is None:
+                return None
+            if isinstance(current, dict):
+                current = current.get(part)
+            else:
+                current = getattr(current, part, None)
+        return getattr(current, "value", current)
