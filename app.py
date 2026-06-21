@@ -30,14 +30,15 @@ PAPERS_DIR = PROJECT_ROOT / "data" / "papers"
 st.sidebar.title("Pipeline Steps")
 page = st.sidebar.radio(
     "Navigate",
-    ["Extractor — Single Paper", "Extractor — Batch Evaluation", "Evaluation History"],
+    ["Extractor — Single Paper", "MetaCoder", "Extractor — Batch Evaluation", "Evaluation History"],
     index=0,
 )
 st.sidebar.markdown("---")
 st.sidebar.markdown("**Status**")
 st.sidebar.markdown("- Extractor ✅")
 st.sidebar.markdown("- Review Gate ✅")
-st.sidebar.markdown("- MetaCoder 🚧")
+_plugin_count = len(list((PROJECT_ROOT / "data" / "plugins").glob("*.py"))) if (PROJECT_ROOT / "data" / "plugins").exists() else 0
+st.sidebar.markdown(f"- MetaCoder {'✅' if _plugin_count else '🚧'} ({_plugin_count} plugins)")
 st.sidebar.markdown("- Sandbox 🚧")
 st.sidebar.markdown("- Backtest 🚧")
 
@@ -266,6 +267,10 @@ def _save_review_artifacts(spec, review_result, raw_llm_review=None) -> None:
     factor_id = spec.factor_id
 
     def _ser(obj):
+        if hasattr(obj, "model_dump"):
+            return _ser(obj.model_dump(mode="json"))
+        if _dc.is_dataclass(obj):
+            return _ser(_dc.asdict(obj))
         if isinstance(obj, dict):
             return {k: _ser(v) for k, v in obj.items()}
         if isinstance(obj, list):
@@ -274,9 +279,9 @@ def _save_review_artifacts(spec, review_result, raw_llm_review=None) -> None:
             return obj.value
         return obj
 
-    report_dict = _ser(_dc.asdict(review_result) if _dc.is_dataclass(review_result) else vars(review_result))
+    report_dict = _ser(review_result)
     if raw_llm_review:
-        report_dict["_llm_raw"] = raw_llm_review
+        report_dict["_llm_raw"] = _ser(raw_llm_review)
 
     (reviewed_dir / f"{factor_id}.review_report.json").write_text(
         json.dumps(report_dict, indent=2, ensure_ascii=False) + "\n"
@@ -515,7 +520,10 @@ if page == "Extractor — Single Paper":
                 review_result = gate.review(spec)
                 st.session_state["review_result"] = review_result
                 st.session_state["review_raw"] = None
-                _save_review_artifacts(spec, review_result, raw_llm_review=None)
+                try:
+                    _save_review_artifacts(spec, review_result, raw_llm_review=None)
+                except Exception as save_error:
+                    st.warning(f"Rules review completed, but saving review artifacts failed: {save_error}")
 
         with col_review_llm:
             if st.button("Run LLM Review", key="run_llm_review", type="primary"):
@@ -546,7 +554,10 @@ if page == "Extractor — Single Paper":
                         _review_stream_ph.empty()
                         st.session_state["review_result"] = review_result
                         st.session_state["review_raw"] = raw_review
-                        _save_review_artifacts(spec, review_result, raw_llm_review=raw_review)
+                        try:
+                            _save_review_artifacts(spec, review_result, raw_llm_review=raw_review)
+                        except Exception as save_error:
+                            st.warning(f"LLM review completed, but saving review artifacts failed: {save_error}")
                     except Exception as e:
                         st.error(f"LLM review failed: {e}")
 
@@ -851,10 +862,17 @@ if page == "Extractor — Single Paper":
                         try:
                             resolved_spec = _MS.model_validate(resolved_dict)
                             re_review = _RG().review(resolved_spec)
-                            if re_review.codegen_ready:
+
+                            # Hard structural errors (missing formula, empty required_fields, etc.)
+                            # block approval. Remaining ambiguous_field flags do not — the human
+                            # clicking "Apply All Resolutions" is the explicit approval action.
+                            has_hard_errors = bool(re_review.issues)
+                            if not has_hard_errors:
                                 resolved_dict["codegen_ready"] = True
                                 resolved_dict["review_status"] = "approved"
 
+                            # Re-validate with the updated approval flags
+                            resolved_spec = _MS.model_validate(resolved_dict)
                             st.session_state["resolved_spec"] = resolved_spec
                             st.session_state["resolved_dict"] = resolved_dict
                             st.session_state["resolution_decisions"] = decisions
@@ -878,17 +896,15 @@ if page == "Extractor — Single Paper":
                                 json.dumps(resolved_dict, indent=2, ensure_ascii=False) + "\n"
                             )
 
-                            if re_review.codegen_ready:
+                            if not has_hard_errors:
                                 st.success(
                                     f"Resolved! MethodSpec is now **codegen-ready**. "
                                     f"Written to `data/method_specs/`."
                                 )
                             else:
-                                remaining = len(re_review.blocked_fields)
-                                st.warning(
-                                    f"Applied {len(decisions)} resolutions, "
-                                    f"but {remaining} field(s) still blocked: "
-                                    f"{', '.join(re_review.blocked_fields)}"
+                                st.error(
+                                    f"Applied {len(decisions)} resolutions but {len(re_review.issues)} "
+                                    f"hard error(s) remain: {'; '.join(re_review.issues)}"
                                 )
 
                         except Exception as e:
@@ -908,6 +924,223 @@ if page == "Extractor — Single Paper":
                         )
                         if dec.get("reason"):
                             st.caption(dec["reason"])
+
+
+# --- MetaCoder Page ---
+elif page == "MetaCoder":
+    st.header("MetaCoder — Generate Signal Plugin")
+    st.markdown(
+        "Load an approved (resolved) MethodSpec and generate a Python signal plugin. "
+        "The plugin computes only the raw signal formula — no portfolio logic, no lag handling."
+    )
+
+    RESOLVED_DIR = PROJECT_ROOT / "data" / "method_specs" / "resolved"
+    PLUGINS_DIR = PROJECT_ROOT / "data" / "plugins"
+    PLUGINS_DIR.mkdir(parents=True, exist_ok=True)
+
+    # --- Load resolved MethodSpec ---
+    st.subheader("1. Load Resolved MethodSpec")
+
+    resolved_specs = sorted(RESOLVED_DIR.glob("*.resolved.methodspec.json")) if RESOLVED_DIR.exists() else []
+    spec_options = [""] + [p.name for p in resolved_specs]
+
+    col_sel, col_up = st.columns([2, 1])
+    with col_sel:
+        selected_resolved_name = st.selectbox(
+            "Resolved MethodSpec",
+            spec_options,
+            index=0,
+            help="Files from data/method_specs/resolved/",
+        )
+    with col_up:
+        uploaded_resolved = st.file_uploader(
+            "Or upload a resolved MethodSpec JSON",
+            type=["json"],
+            key="metacoder_resolved_uploader",
+        )
+
+    if st.button("Load MethodSpec", key="mc_load_spec"):
+        try:
+            from src.models import MethodSpec as _MS
+            if uploaded_resolved is not None:
+                spec_payload = uploaded_resolved.getvalue().decode("utf-8")
+                _mc_spec = _MS.model_validate_json(spec_payload)
+            elif selected_resolved_name:
+                _mc_spec = _MS.model_validate_json(
+                    (RESOLVED_DIR / selected_resolved_name).read_text(encoding="utf-8")
+                )
+            else:
+                st.warning("Select a resolved MethodSpec or upload one.")
+                _mc_spec = None
+            if _mc_spec is not None:
+                st.session_state["mc_spec"] = _mc_spec
+                st.session_state.pop("mc_plugin", None)
+                st.session_state.pop("mc_sandbox_report", None)
+                st.success(f"Loaded: **{_mc_spec.factor_id}**")
+        except Exception as e:
+            st.error(f"Failed to load MethodSpec: {e}")
+
+    mc_spec = st.session_state.get("mc_spec")
+
+    if mc_spec:
+        st.markdown("---")
+        st.subheader("2. Spec Summary")
+
+        # Display key fields
+        scol1, scol2, scol3 = st.columns(3)
+        rs_val = getattr(mc_spec.review_status, "value", mc_spec.review_status)
+        scol1.metric("Review Status", rs_val)
+        scol2.metric("Codegen Ready", "Yes" if mc_spec.codegen_ready else "No")
+        scol3.metric("Version", mc_spec.version)
+
+        st.markdown(f"**Factor:** {mc_spec.factor_name}")
+        formula = mc_spec.signal.formula
+        formula_str = formula.expression if hasattr(formula, "expression") else str(formula)
+        st.markdown(f"**Formula:** `{formula_str}`")
+        st.markdown(f"**Required fields:** {', '.join(mc_spec.signal.required_fields or mc_spec.required_fields)}")
+
+        with st.expander("Full MethodSpec JSON"):
+            st.json(json.loads(mc_spec.model_dump_json()))
+
+        # --- Approval gate ---
+        st.markdown("---")
+        st.subheader("3. Approval Gate")
+
+        if rs_val == "approved" and mc_spec.codegen_ready:
+            st.success("MethodSpec is **approved** and codegen-ready.")
+            approved_for_gen = True
+        else:
+            st.error(
+                f"MethodSpec is not codegen-ready (review_status=`{rs_val}`, codegen_ready=`{mc_spec.codegen_ready}`). "
+                "Return to the Extractor page, apply resolutions, and re-save."
+            )
+            approved_for_gen = False
+
+        # --- Generate ---
+        st.markdown("---")
+        st.subheader("4. Generate Plugin")
+
+        gen_col, _ = st.columns([1, 2])
+        with gen_col:
+            gen_disabled = not approved_for_gen
+            if st.button("Generate Signal Plugin", type="primary", disabled=gen_disabled, key="mc_generate"):
+                from src.llm import create_llm_client
+                from src.meta_coder import MetaCoder
+                from src.models.method_spec import ReviewStatus
+
+                with st.spinner("Generating plugin code..."):
+                    try:
+                        # Temporarily patch spec to approved so MetaCoder guard passes
+                        gen_spec = mc_spec.model_copy(
+                            update={"codegen_ready": True, "review_status": ReviewStatus.APPROVED}
+                        )
+                        llm = create_llm_client(provider=llm_provider, model=llm_model)
+                        _mc_stream_ph = st.empty()
+                        if hasattr(llm, "stream_callback"):
+                            def _on_mc_token(text: str):
+                                preview = text[:800]
+                                _mc_stream_ph.markdown(
+                                    f"**Generating** ({len(text):,} chars so far)\n```python\n{preview}\n```"
+                                )
+                            llm.stream_callback = _on_mc_token
+
+                        coder = MetaCoder(llm_client=llm)
+                        plugin = coder.generate_plugin(gen_spec)
+                        _mc_stream_ph.empty()
+                        st.session_state["mc_plugin"] = plugin
+                        token_usage = plugin.__dict__.get("_token_usage")
+                        st.session_state["mc_token_usage"] = token_usage
+                        st.session_state.pop("mc_sandbox_report", None)
+                        st.success("Plugin generated!")
+                    except Exception as e:
+                        st.error(f"Generation failed: {e}")
+
+        _show_token_usage(st.session_state.get("mc_token_usage"), label="Generation Token Usage")
+
+        mc_plugin = st.session_state.get("mc_plugin")
+        if mc_plugin:
+            st.markdown("---")
+            st.subheader("5. Generated Plugin Code")
+            st.code(mc_plugin.code, language="python")
+
+            dl_col, repair_col, _ = st.columns([1, 1, 2])
+            with dl_col:
+                st.download_button(
+                    "Download plugin.py",
+                    data=mc_plugin.code,
+                    file_name=f"{mc_plugin.factor_id}.py",
+                    mime="text/plain",
+                )
+            with repair_col:
+                if st.button("Save to data/plugins/", key="mc_save_plugin"):
+                    plugin_path = PLUGINS_DIR / f"{mc_plugin.factor_id}.py"
+                    plugin_path.write_text(mc_plugin.code, encoding="utf-8")
+                    st.success(f"Saved: `{plugin_path.relative_to(PROJECT_ROOT)}`")
+
+            # --- Sandbox Validation ---
+            st.markdown("---")
+            st.subheader("6. Sandbox Validation")
+
+            if st.button("Run Sandbox Validation", key="mc_sandbox"):
+                from src.sandbox import AdversarialSandbox
+                sandbox = AdversarialSandbox()
+                report = sandbox.validate(mc_plugin, mc_spec)
+                st.session_state["mc_sandbox_report"] = report
+
+            sandbox_report = st.session_state.get("mc_sandbox_report")
+            if sandbox_report:
+                passed = sandbox_report.passed
+                if passed:
+                    st.success("Sandbox validation **passed**.")
+                else:
+                    st.error("Sandbox validation **failed**.")
+
+                vcol1, vcol2, vcol3, vcol4 = st.columns(4)
+                vcol1.metric("Syntax OK", "✅" if sandbox_report.syntax_ok else "❌")
+                vcol2.metric("Schema OK", "✅" if sandbox_report.schema_ok else "❌")
+                vcol3.metric("No Future Leak", "✅" if sandbox_report.no_future_leak else "❌")
+                vcol4.metric("Reproducible", "✅" if sandbox_report.reproducible else "❌")
+
+                if sandbox_report.errors:
+                    st.error("**Errors:**")
+                    for err in sandbox_report.errors:
+                        st.markdown(f"- {err}")
+
+                if sandbox_report.warnings:
+                    for w in sandbox_report.warnings:
+                        st.warning(w)
+
+                # Auto-repair loop (up to 2 attempts)
+                if not passed and sandbox_report.errors:
+                    st.markdown("---")
+                    st.subheader("Repair")
+                    repair_attempts = len(mc_plugin.repair_trace)
+                    if repair_attempts < 3:
+                        if st.button(f"Attempt Auto-Repair ({repair_attempts}/3 used)", key="mc_repair"):
+                            from src.llm import create_llm_client
+                            from src.meta_coder import MetaCoder
+                            with st.spinner("Repairing..."):
+                                try:
+                                    llm = create_llm_client(provider=llm_provider, model=llm_model)
+                                    coder = MetaCoder(llm_client=llm)
+                                    repaired = coder.repair_plugin(mc_plugin, sandbox_report.errors)
+                                    st.session_state["mc_plugin"] = repaired
+                                    st.session_state.pop("mc_sandbox_report", None)
+                                    st.success("Repaired — re-run sandbox validation to verify.")
+                                    st.rerun()
+                                except Exception as e:
+                                    st.error(f"Repair failed: {e}")
+                    else:
+                        st.error("Max repair attempts (3) reached. Empirical issues must go back through Review Gate.")
+
+    # --- Existing plugins ---
+    existing_plugins = sorted(PLUGINS_DIR.glob("*.py"))
+    if existing_plugins:
+        st.markdown("---")
+        st.subheader("Existing Plugins")
+        for pp in existing_plugins:
+            with st.expander(pp.name):
+                st.code(pp.read_text(), language="python")
 
 
 # --- Batch Evaluation Page ---

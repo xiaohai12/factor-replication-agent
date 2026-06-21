@@ -21,7 +21,7 @@ and controlled pipeline components.
 - Update `CHANGELOG.md` for every code or repo-instruction change.
 - Prefer targeted reads: use `rg`, `rg --files`, and narrow `sed` windows.
 - Cap large command outputs. Summarize important lines instead of dumping logs.
-- Do not read large PDFs, converted paper text, OSAP predictor files, or many MethodSpec JSONs
+- Do not read large PDFs, converted paper text, or many MethodSpec JSONs
   unless the task directly depends on them.
 - Use the narrowest relevant tests first. Run full tests only for shared schema/model behavior
   or broad cross-module changes.

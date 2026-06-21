@@ -1,5 +1,17 @@
 # Changelog
 
+## [0.6.3] - 2026-06-20
+
+### Added
+- `src/meta_coder/__init__.py`: Implemented `MetaCoder.generate_plugin()` — builds a structured prompt from the resolved MethodSpec (formula, data fields, timing, missing policy) and calls the configured LLM client to generate a signal plugin; also implemented `repair_plugin()` for bounded syntax-only repairs (max 3 attempts)
+- `app.py`: New **MetaCoder** sidebar page — loads resolved MethodSpecs, shows approval gate with human-override checkbox for specs that passed human review but not full rules re-review, generates plugin code via LLM, runs AdversarialSandbox validation inline, supports auto-repair loop (up to 3 attempts), and saves plugins to `data/plugins/`
+- `app.py`: Sidebar MetaCoder status now reflects plugin count from `data/plugins/`
+
+### Changed
+- `app.py`: Sidebar navigation now includes "MetaCoder" between single-paper and batch-evaluation pages
+- `app.py`: "Apply All Resolutions" now marks `codegen_ready=true` and `review_status=approved` whenever there are no hard structural errors (missing formula, empty required_fields, etc.), regardless of remaining ambiguous_field metadata flags — the human's explicit approval action supersedes the rules re-review's field-level blocks
+- `app.py`: MetaCoder approval gate is now strict (no force-approve bypass) since resolved JSONs are written with correct approval status
+
 ## [0.6.2] - 2026-06-20
 
 ### Added
@@ -14,9 +26,11 @@
 - `app.py`: Extractor UI now records and displays the saved paper-text cache path after upload, while keeping review/extraction on the same already-extracted text instead of re-running `pymupdf`
 - `app.py`: LLM review and LLM-assisted resolution now reload paper text from the saved cache path before falling back to session memory, so saved artifacts survive Streamlit restarts
 - `app.py`: When review starts from an extractor session that still has PDF bytes but no cached text in memory, reviewer now auto-extracts and re-caches paper text for non-Claude providers instead of forcing a manual re-upload
+- `app.py`: Review artifact saving now serializes nested `EvidenceCitation` objects correctly, and the UI distinguishes review-execution failures from artifact-persistence failures
 - `scripts/review_methodspecs.py`: LLM review mode now delegates to `ReviewGate.review_with_llm()` and supports the `claude` provider instead of hand-building review JSON prompts inline
 - `src/extractor/__init__.py`: Extraction now loads prompts from `prompts/extractor/methodspec_extractor.md` when present, captures token usage, accepts optional PDF bytes, and first attempts direct rich-schema `MethodSpec.model_validate()` before falling back to the legacy flat-schema mapper
 - `src/llm.py`: Codex and Copilot CLI execution moved to streaming `Popen` flows so the UI can surface incremental output while preserving JSON-mode parsing
+- `src/llm.py` and `src/review_gate/__init__.py`: JSON-mode parsing now tolerates explanatory preambles before the first JSON object, and review results map legacy `patch_existing_json` remediation output to the current `resolve_existing_json` schema value
 - `tests/test_extractor.py`: Relaxed evaluation summary assertion to accept either `80%` or `80.0%`
 
 ### Removed

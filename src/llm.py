@@ -74,6 +74,53 @@ class _ChatNamespace:
         self.completions = _CompletionsNamespace(client)
 
 
+def extract_json_object_text(text: str) -> str:
+    """Extract the first complete top-level JSON object from mixed text output."""
+    if not text:
+        raise ValueError("empty response")
+
+    stripped = text.strip()
+    if stripped.startswith("```"):
+        lines = stripped.split("\n")
+        lines = [line for line in lines if not line.strip().startswith("```")]
+        stripped = "\n".join(lines).strip()
+
+    if stripped.startswith("{") and stripped.endswith("}"):
+        json.loads(stripped)
+        return stripped
+
+    start = stripped.find("{")
+    if start == -1:
+        raise ValueError("no JSON object start found")
+
+    depth = 0
+    in_string = False
+    escape = False
+    for idx in range(start, len(stripped)):
+        ch = stripped[idx]
+        if in_string:
+            if escape:
+                escape = False
+            elif ch == "\\":
+                escape = True
+            elif ch == '"':
+                in_string = False
+            continue
+
+        if ch == '"':
+            in_string = True
+        elif ch == "{":
+            depth += 1
+        elif ch == "}":
+            depth -= 1
+            if depth == 0:
+                candidate = stripped[start:idx + 1]
+                json.loads(candidate)
+                return candidate
+
+    raise ValueError("no complete JSON object found")
+
+
 def _find_codex_bin() -> str:
     """Return the codex binary path, checking PATH then known install locations."""
     import shutil
@@ -194,13 +241,8 @@ class CodexCLIClient:
                 f"codex exec returned no agent message. stderr: {stderr_out[:300]}"
             )
 
-        if content.startswith("```"):
-            lines = content.split("\n")
-            lines = [l for l in lines if not l.strip().startswith("```")]
-            content = "\n".join(lines)
-
         if response_format and response_format.get("type") == "json_object":
-            json.loads(content)
+            content = extract_json_object_text(content)
 
         return ChatCompletion(
             choices=[Choice(message=Message(role="assistant", content=content))],
@@ -356,15 +398,8 @@ class CopilotCLIClient:
             if not content:
                 raise RuntimeError("copilot CLI returned empty response")
 
-            # Clean up markdown code fences if present
-            if content.startswith("```"):
-                lines = content.split("\n")
-                lines = [l for l in lines if not l.strip().startswith("```")]
-                content = "\n".join(lines)
-
-            # Validate JSON if json_object mode
             if response_format and response_format.get("type") == "json_object":
-                json.loads(content)  # Raises if invalid
+                content = extract_json_object_text(content)
 
             return ChatCompletion(
                 choices=[Choice(message=Message(role="assistant", content=content))],
@@ -546,13 +581,8 @@ class ClaudeCodeCLIClient:
             if not content:
                 raise RuntimeError("claude CLI returned empty response")
 
-            if content.startswith("```"):
-                lines = content.split("\n")
-                lines = [l for l in lines if not l.strip().startswith("```")]
-                content = "\n".join(lines).strip()
-
             if response_format and response_format.get("type") == "json_object":
-                json.loads(content)
+                content = extract_json_object_text(content)
 
             return ChatCompletion(
                 choices=[Choice(message=Message(role="assistant", content=content))],

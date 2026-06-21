@@ -369,12 +369,16 @@ class ReviewGate:
 
     def _raw_to_review_result(self, raw: dict[str, Any], spec: MethodSpec) -> ReviewResult:
         """Convert a raw LLM JSON response into a structured ReviewResult."""
+        remediation_mode = raw.get("remediation_mode", RemediationMode.RESOLVE_EXISTING_JSON.value)
+        if remediation_mode == "patch_existing_json":
+            remediation_mode = RemediationMode.RESOLVE_EXISTING_JSON.value
+
         result = ReviewResult(
             review_id=raw.get("review_id", ""),
             methodspec_version=raw.get("methodspec_version", spec.schema_version),
             reviewer=raw.get("reviewer", "llm"),
             disposition=raw.get("disposition", "pending"),
-            remediation_mode=raw.get("remediation_mode", RemediationMode.RESOLVE_EXISTING_JSON.value),
+            remediation_mode=remediation_mode,
             codegen_ready=bool(raw.get("codegen_ready", False)),
             paper_faithful=bool(raw.get("paper_faithful", False)),
             approved=bool(raw.get("approved", False)),
