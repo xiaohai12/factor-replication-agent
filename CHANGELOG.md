@@ -1,5 +1,18 @@
 # Changelog
 
+## [0.6.4] - 2026-06-21
+
+### Changed
+- `docs/architecture.md` (v7): Comprehensive update to align with actual codebase state:
+  - §3 pipeline diagram made non-linear — added explicit feedback loop arrows (Sandbox→MetaCoder, Sandbox→ReviewGate, ReviewGate→Extractor, Attribution→ReviewGate)
+  - Added §3.1 Feedback Loops table (was referenced by `src/pipeline.py` but absent from the document)
+  - §4 module details: added §4.5 Adversarial Sandbox (full validation suite, not just future-function scan), §4.6 Plugin Registry, renumbered Data Layer and BacktestEngine; §4.4 MetaCoder now documents `repair_plugin()`
+  - §5 file layout: updated to match actual `src/` structure (added sandbox, registry, controller, attribution, evidence, evaluation, pipeline.py, pdf_mapper.py, app.py, evidence/ output dir); fixed `data/method_specs/` subdirs (resolutions/ exists, impl_config/ does not); marked `data/local/` as not yet created
+  - §6 end-to-end example: replaced non-existent `scripts/run_factor_backtest.py` with actual entry points (Streamlit dashboard + `Pipeline` class usage + real CLI scripts)
+  - §7 DualTrackController: noted `HXZ_STANDARD_CONFIG` in `src/controller/__init__.py`
+  - §9 Attribution: added anomaly detection thresholds (sign flip, >50% gap)
+  - §10 replaced "Currently Deferred" stub list with accurate implementation status table (✅ implemented / 🚧 WIP / ⏳ not yet built)
+
 ## [0.6.3] - 2026-06-20
 
 ### Added

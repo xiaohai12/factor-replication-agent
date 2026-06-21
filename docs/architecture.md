@@ -3,8 +3,8 @@ type: architecture
 status: active
 project: factor-replication-agent
 created: 2026-05-12
-updated: 2026-06-20
-version: 6
+updated: 2026-06-21
+version: 7
 tags: [architecture, factor-replication, agent, quant]
 ---
 
@@ -35,6 +35,7 @@ tags: [architecture, factor-replication, agent, quant]
 | 回测骨架固定 | 步骤顺序固定（见 §3）；每步的具体内容按 MethodSpec 配置，不让 LLM 自由改实证逻辑 |
 | paper-first MethodSpec | 从论文原文提取方法事实；C&Z / OSAP 只作 evaluation，不覆盖 paper-stated 内容 |
 | impl_config 显式记录人工决定 | MethodSpec 里 unspecified 的高影响字段由人工在 impl_config 里定死并标注来源 |
+| 反馈回路有界 | 每个 factor 最多回溯 3 次（`MAX_BACKTRACK_DEPTH=3`）；超过即转人工干预 |
 
 ---
 
@@ -44,37 +45,45 @@ tags: [architecture, factor-replication, agent, quant]
 [original paper PDF]
         │
         ▼
-[1. Semantic Extractor]
-从 original paper 提取因子定义、公式、数据字段、timing、missing policy 等
-输出: draft MethodSpec JSON
-        │
-        ▼
-[2. Review Gate]
-审查 MethodSpec 的 paper evidence、schema 正确性、codegen-readiness
-    ├── local issues ──► [2.1 MethodSpec Resolution Applier]
-    │                    对 existing JSON 做字段级 resolution
-    └── structural issues ──► [1. Semantic Extractor] targeted re-extraction
+[1. Semantic Extractor]                    ◄──────────────────────────────────┐
+从 original paper 提取因子定义、公式、数据字段、timing、missing policy 等        │ targeted re-extraction
+输出: draft MethodSpec JSON                                                    │ (Review Gate → Extractor)
+        │                                                                      │
+        ▼                                                                      │
+[2. Review Gate]                                                               │
+审查 MethodSpec 的 paper evidence、schema 正确性、codegen-readiness              │
+    ├── local issues ──► [2.1 MethodSpec Resolution Applier]                   │
+    │                    对 existing JSON 做字段级 resolution                   │
+    └── structural issues ──────────────────────────────────────────────────── ┘
 输出: reviewed + resolved MethodSpec JSON（codegen_ready: true）
         │
         ▼
-[2.5 impl_config]
-手写 per-factor JSON，完成两件事：
+[2.5 impl_config]（人工编写）
+手写 per-factor JSON：
   (a) 概念 → 物理列名（paper source hints → funda.at / msf.ret / msf.me …）
   (b) 显式定死 MethodSpec 里 unspecified 的高影响字段（记为人工决定）
         │
         ▼
-[3. Meta-Coder（单文件生成模式）]
-输入: resolved MethodSpec + impl_config
-输出: per-factor Python 文件，包含：
-  • compute_signal(df) ← LLM 生成，只做公式计算，不处理 lag
-  • 固定骨架函数（模板带入）:
-      load_data / build_signal_master_table / merge_signal / filter_universe /
-      compute_breakpoints / assign_portfolios / compute_returns /
-      compute_long_short / compute_metrics / run()
-生成后做一行 future-function 扫描（shift(- / lead( / .future），命中即报错
+[3. Meta-Coder]                            ◄──────────────────────────────────┐
+输入: resolved MethodSpec + impl_config                                        │ bounded repair ≤3 retries
+输出: per-factor signal plugin（compute_signal + 固定骨架）                     │ (Sandbox → Meta-Coder)
+        │                                                                      │
+        ▼                                                                      │
+[4. Adversarial Sandbox]                                                       │
+验证 plugin 安全性：                                                            │
+  • syntax / import / type 检查                                                │
+  • output schema 检查（entry function 存在性）                                 │
+  • future-function 扫描（shift(- / lead( / .future）                          │
+  • reproducibility 检查                                                       │
+    ├── technical errors ─────────────────────────────────────────────────── ─┘
+    └── empirical issues ──► [2. Review Gate] re-review（计入 backtrack 计数）
+        │ passed
+        ▼
+[5. Plugin Registry]
+注册已验证 plugin（code hash、plugin id、MethodSpec version）
         │
         ▼
-[4. Dual-Track 执行]
+[6. Dual-Track + Factorial Controller]
 用同一个 signal plugin，跑不同 implementation settings：
   • original_method  — 按 MethodSpec paper-stated 方法
   • standardized_hxz — 统一 HXZ-style 设置
@@ -82,15 +91,29 @@ tags: [architecture, factor-replication, agent, quant]
 读取预存本地数据（data/local/*.parquet）
         │
         ▼
-[5. Evidence Store + Run Registry]
+[7. Evidence Store + Run Registry]
 每次 run 记录: config hash、code hash、MethodSpec hash、metrics、return series
         │
         ▼
-[6. Factorial Attribution Layer]
-对比 original_method vs standardized_hxz vs ablation variants
+[8. Factorial Attribution Layer]           ──► anomaly detected ──► [2. Review Gate] re-review
+对比 original_method vs standardized_hxz vs ablation variants                （t-stat sign flip 或 >50% gap）
 分解 replication gap：来自 universe / 断点 / 加权 / lag / missing policy / …
 输出: attribution matrix、per-factor evidence report
 ```
+
+### 3.1 反馈回路 / Feedback Loops
+
+`src/pipeline.py` 的 `Pipeline` 类实现以下有界回路（全局上限 `MAX_BACKTRACK_DEPTH = 3`）：
+
+| 触发条件 | 回路方向 | 上限 |
+|---|---|---|
+| Sandbox 发现 **technical error**（语法、schema） | Sandbox → Meta-Coder 修复 | `MAX_REPAIR_RETRIES = 3`（独立计数） |
+| Sandbox 发现 **empirical issue**（temporal leakage、lag violation） | Sandbox → Review Gate 重新审查 | 计入 backtrack_count |
+| Review Gate 未通过（非 `requires_human`） | Review Gate → Extractor 重新提取 | 计入 backtrack_count |
+| Attribution 检测到**异常**（sign flip 或 >50% gap） | Attribution → Review Gate 触发重审 | 计入 backtrack_count |
+| backtrack_count ≥ 3 | 任何阶段 → `needs_manual_intervention = True` | — |
+
+流水线阶段状态机：`pending → extract → review → generate → validate → run → attribute → done / failed`。
 
 ---
 
@@ -155,35 +178,43 @@ tags: [architecture, factor-replication, agent, quant]
 
 所有 `unspecified` 的高影响字段必须在这里显式定死并标注 `_note`，不允许 LLM 自行填入。
 
-### 4.4 Meta-Coder（单文件生成）
+### 4.4 Meta-Coder
 
-输入 resolved MethodSpec + impl_config，输出一个 per-factor Python 文件：
+输入 resolved MethodSpec + impl_config，输出一个 per-factor signal plugin：
 
 ```
-factor_backtest_{factor_id}.py
-  ├── compute_signal(df)             ← LLM 生成
-  │     接收 keyed [permno, time_avail_m] 的 annual df
-  │     使用 impl_config 提供的物理列名
-  │     只做公式计算，禁止在此处处理 lag
-  │     输出 [permno, yyyymm, signal]
-  │
-  ├── load_data(data_path)           ┐
-  ├── build_signal_master_table(...) │
-  ├── merge_signal(...)              │ 模板固定，读 config
-  ├── filter_universe(...)           │ 不让 LLM 改
-  ├── compute_breakpoints(...)       │
-  ├── assign_portfolios(...)         │
-  ├── compute_returns(...)           │
-  ├── compute_long_short(...)        │
-  ├── compute_metrics(...)           ┘
-  └── run(data_path, config)         ← 串起全部步骤
+signal_plugin_{factor_id}.py
+  └── compute_signal(df)             ← LLM 生成
+        接收 keyed [permno, time_avail_m] 的 annual df
+        使用 impl_config 提供的物理列名
+        只做公式计算，禁止在此处处理 lag
+        输出 [permno, yyyymm, signal]
 ```
 
 `compute_signal` 的边界：
 - ✅ 可以：声明 required fields、mapping 列名到语义变量、构造 raw signal formula
 - ❌ 不能：计算 portfolio returns、决定 breakpoints、改 missing policy、处理 lag、修改 universe
 
-### 4.5 Data Layer（本地文件模式）
+Meta-Coder 还实现 `repair_plugin(plugin, errors)`，用于技术性错误（语法、schema）的有界修复（≤ `MAX_REPAIR_RETRIES = 3` 次）。
+
+### 4.5 Adversarial Sandbox
+
+对生成的 plugin 做完整验证（`src/sandbox/`），**不是仅做 future-function 扫描**：
+
+| 检查 | 内容 |
+|---|---|
+| syntax | `ast.parse()` 确认无语法错误 |
+| schema | entry function 存在并可寻址 |
+| no_future_leak | 扫描 `shift(-`、`.future`、`lead(` 等禁用模式 |
+| reproducibility | 多次运行结果一致性（WIP） |
+
+发现 empirical issues（temporal leakage、lag violation 等关键词）时回路触发 Review Gate 重审，而非让 Meta-Coder 修复。
+
+### 4.6 Plugin Registry
+
+`src/registry/`：注册每个通过 sandbox 的 plugin，记录 code hash、plugin id、关联 MethodSpec version。提供 factor_id → plugin 查询，保证跨实验可追溯。
+
+### 4.7 Data Layer（本地文件模式）
 
 预存两张表（来源不限，可从 WRDS 导出后本地存好）：
 
@@ -194,7 +225,7 @@ factor_backtest_{factor_id}.py
 
 `build_signal_master_table`：`time_avail_m = datadate + lag_months → YYYYMM`，输出年度表 keyed `[permno, time_avail_m]`，`at` 已按时点对齐——signal plugin 只读列，不处理 lag。
 
-### 4.6 回测骨架函数说明
+### 4.8 回测骨架函数说明（BacktestEngine）
 
 固定步骤，参数全部取自 config（来自 MethodSpec + impl_config）：
 
@@ -202,10 +233,10 @@ factor_backtest_{factor_id}.py
 |---|---|
 | `merge_signal` | 年度 signal（June-t 成形）展开到 Jul t – Jun t+1 的 12 个月，merge 到 msf |
 | `filter_universe` | `shrcd in (10,11)`、`exchcd in (1,2,3)`、排除 `6000 ≤ sic ≤ 6999`、两年 Compustat seasoning |
-| `compute_breakpoints` | 按 config 十分位断点（full_sample 或 NYSE 子集） |
+| `compute_breakpoints` | 按 config 分位断点（full_sample 或 NYSE 子集） |
 | `assign_portfolios` | 按断点分组 |
 | `compute_returns` | VW（`me` 权重）+ EW |
-| `compute_long_short` | low − high，方向取 MethodSpec `implied_factor_direction` |
+| `compute_long_short` | 方向取 MethodSpec `implied_factor_direction` |
 | `compute_metrics` | 月度均值、Newey-West t-stat、coverage、microcap share |
 
 ---
@@ -213,48 +244,89 @@ factor_backtest_{factor_id}.py
 ## 5. 文件结构 / File Layout
 
 ```
+app.py                          # Streamlit dashboard（主要人工交互入口）
+
 data/
   method_specs/
-    curated/          # raw extracted MethodSpec
-    reviewed/         # reviewed MethodSpec + review report
-    resolved/         # post-resolution MethodSpec（codegen_ready: true）
-    impl_config/      # per-factor column mapping + implementation decisions
-  local/
-    funda.parquet     # Compustat annual（预存）
-    msf.parquet       # CRSP monthly（预存）
-  plugins/            # 生成的 per-factor Python 文件
+    curated/                    # raw extracted MethodSpec（未审查）
+    reviewed/                   # reviewed MethodSpec + review report
+    resolutions/                # Review Gate 生成的逐字段 resolution 建议
+    resolved/                   # post-resolution MethodSpec（codegen_ready: true）
+  plugins/                      # 生成的 per-factor signal plugin Python 文件
+  paper_text_cache/             # PDF 转换后的文本缓存（审计用）
+  eval_history/                 # 批量 extraction accuracy 评估记录
+  local/                        # ⚠ 尚未建立（见 §10）
+    funda.parquet               # Compustat annual（需人工导出后放置）
+    msf.parquet                 # CRSP monthly（需人工导出后放置）
+
+evidence/                       # EvidenceStore 输出目录（运行后生成）
+  {factor_id}/{run_id}/         # per-run artifacts
 
 src/
-  extractor/          # Semantic Extractor
-  review_gate/        # Review Gate + Resolution Applier
-  meta_coder/         # 生成器 + 模板
-  data_layer/         # local loader + build_signal_master_table + impl_config loader
-  models/             # MethodSpec、PluginRecord 等 Pydantic models
-  llm.py              # LLM client
+  pipeline.py                   # Pipeline 主编排器（含反馈回路，见 §3.1）
+  pdf_mapper.py                 # PDF 文本提取工具
+  llm.py                        # LLM client（支持 OpenRouter / Claude CLI / Codex）
+  extractor/                    # Semantic Extractor
+  review_gate/                  # Review Gate + Resolution Applier
+  meta_coder/                   # MetaCoder（generate_plugin + repair_plugin）
+  sandbox/                      # Adversarial Sandbox（完整验证）
+  registry/                     # Plugin Registry
+  data_layer/                   # DataLayer + DataDictionary + TimeAvailComputer
+  engine/                       # BacktestEngine（骨架，WIP）
+  controller/                   # DualTrackController + ExperimentPlan
+  attribution/                  # AttributionLayer + AttributionResult
+  evidence/                     # EvidenceStore + RunRegistry
+  evaluation/                   # Extraction accuracy evaluation（vs C&Z SignalDoc）
+  models/                       # Pydantic models（MethodSpec、PluginRecord、RunRecord …）
 
 scripts/
-  run_factor_backtest.py   # 端到端驱动脚本
+  extract_methodspecs.py        # CLI：从 PDF 批量提取 MethodSpec
+  review_methodspecs.py         # CLI：批量 LLM review
+  resolve_review_blocks.py      # CLI：批量应用 resolution
+  validate_methodspecs.py       # CLI：校验 MethodSpec schema
+  convert_papers_to_md.py       # PDF → Markdown 转换
+  download_papers.py            # 下载论文 PDF
+  download_osap.py              # 下载 OSAP 数据
+  csv_to_gold_standard.py       # C&Z SignalDoc → gold standard 格式转换
 ```
 
 ---
 
 ## 6. 端到端流程示例 / End-to-End Example
 
-```bash
-# 1. 已有 reviewed/resolved methodspec，准备好本地数据后：
-python scripts/run_factor_backtest.py \
-  --factor cooper_gulen_schill_2008_asset_growth
+### 6.1 Streamlit Dashboard（推荐入口）
 
-# 输出：
-# MethodSpec loaded: cooper_gulen_schill_2008_asset_growth (codegen_ready=True)
-# impl_config loaded: breakpoint_source=full_sample, weighting=vw, quantiles=10
-# Plugin generated: data/plugins/cooper_gulen_schill_2008_asset_growth.py
-# Future-function scan: PASS
-# Running backtest...
-# VW low-high spread: +X.XX% / month   t-stat: X.XX
-# EW low-high spread: +X.XX% / month   t-stat: X.XX
-# Coverage: XX%   Microcap share: XX%
-# Paper reported (CGS2008 Table II): ~XX% / year
+```bash
+# 启动 dashboard（需先激活 virtualenv）
+source .venv/bin/activate
+streamlit run app.py
+# 浏览器访问 http://localhost:8501
+```
+
+Dashboard 覆盖完整人工环节：PDF 上传 → 提取 MethodSpec → LLM 审查 → 应用 resolution → MetaCoder 生成 plugin → Sandbox 验证。
+
+### 6.2 CLI 脚本（批量 / 无界面）
+
+```bash
+# Step 1: 从 PDF 提取 MethodSpec
+python scripts/extract_methodspecs.py --pdf papers/cgs2008.pdf --provider claude
+
+# Step 2: LLM review
+python scripts/review_methodspecs.py --factor cooper_gulen_schill_2008_asset_growth
+
+# Step 3: 应用 resolution（审查后生成 codegen_ready=true 的 JSON）
+python scripts/resolve_review_blocks.py --factor cooper_gulen_schill_2008_asset_growth
+
+# Step 4: 通过 Pipeline 生成 plugin + 运行实验（需先准备 data/local/*.parquet）
+python - <<'EOF'
+from src.pipeline import Pipeline
+pipeline = Pipeline()
+runs, status = pipeline.run_factor(
+    factor_id="cooper_gulen_schill_2008_asset_growth",
+    paper_text=open("data/paper_text_cache/cgs2008.txt").read(),
+)
+print(status)
+EOF
 ```
 
 ---
@@ -282,7 +354,7 @@ python scripts/run_factor_backtest.py \
 
 `original_method` 应该遵守原文的回测周期：formation month、rebalance frequency、holding period、return horizon、skip month、accounting lag、overlapping portfolios 等。这些由 MethodSpec 提取、经 Review Gate 审查后，由回测骨架执行。
 
-`standardized_hxz` 使用统一标准化周期和规则（lag=6m、NYSE 断点、VW、annual rebalance 等）。
+`standardized_hxz` 使用统一标准化周期和规则（lag=6m、NYSE 断点、VW、annual rebalance 等），HXZ 默认配置见 `src/controller/__init__.py` 中的 `HXZ_STANDARD_CONFIG`。
 
 ---
 
@@ -325,17 +397,28 @@ Run Registry 记录每个 factor × variant 的状态：`pending / running / suc
 
 输出：attribution matrix、implementation-choice deviation matrix、per-factor evidence report、cross-factor summary table。
 
+异常判定标准（触发 Attribution → Review Gate 回路）：
+- t-stat 符号翻转（original 与 standardized 方向相反）
+- `|gap| / |original_tstat| > 50%`
+
 ---
 
-## 10. 以后可扩展的部分 / Currently Deferred
+## 10. 模块实现状态 / Implementation Status
 
-以下模块在当前 pilot 阶段暂不实现，骨架代码保留 stub：
-
-| 模块 | 扩展时机 |
-|---|---|
-| Adversarial Sandbox（完整检查） | 扩展到多因子批量分析时 |
-| Plugin Registry（hash + 版本管理） | 需要跨实验可追溯时 |
-| WRDS 实时连接 / CCM merge / snapshot 哈希 | 需要数据版本管理或定期更新时 |
-| Dual-Track Controller（§7）实现 | 单因子 pilot 跑通后 |
-| Factorial Attribution Layer（§9）实现 | 有多个 track 结果后 |
-| Evidence Store + Run Registry（§8）实现 | 结果需要完整审计链时 |
+| 模块 | 状态 | 说明 |
+|---|---|---|
+| Semantic Extractor | ✅ 已实现 | LLM 提取 + data dictionary 校验 |
+| Review Gate | ✅ 已实现 | rule-based + LLM review，`review_with_llm()` |
+| Resolution Applier | ✅ 已实现 | 字段级 patch，`codegen_ready=true` 写入 |
+| Meta-Coder | ✅ 已实现 | `generate_plugin()` + `repair_plugin()`（≤3 次修复） |
+| Adversarial Sandbox | ✅ 已实现 | syntax / schema / future-leak / reproducibility |
+| Plugin Registry | ✅ 已实现 | in-memory 注册，code hash 追踪 |
+| Evidence Store + Run Registry | ✅ 已实现 | 磁盘持久化，per-run artifact 目录 |
+| Dual-Track Controller | ✅ 已实现 | `ExperimentPlan` + `HXZ_STANDARD_CONFIG` |
+| Pipeline 反馈回路 | ✅ 已实现 | `src/pipeline.py`，见 §3.1 |
+| Streamlit Dashboard | ✅ 已实现 | `app.py`，覆盖 extract → review → resolve → codegen |
+| BacktestEngine | 🚧 WIP / stub | 骨架已有，实证计算逻辑待接入真实数据 |
+| Attribution Layer | 🚧 基础结构已有 | `AttributionResult` 结构定义完毕，分解算法待实现 |
+| data/local/*.parquet | ⏳ 未建立 | 需人工从 WRDS 导出 funda + msf 后放置 |
+| WRDS 实时连接 / CCM merge | ⏳ 未实现 | 需要数据版本管理或定期更新时扩展 |
+| Plugin hash 持久化 | ⏳ 未实现 | Plugin Registry 当前为 in-memory；需要跨进程追溯时扩展到磁盘 |
