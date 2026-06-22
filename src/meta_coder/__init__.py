@@ -19,6 +19,23 @@ from src.models.plugin import PluginRecord
 
 PLUGIN_OUTPUT_COLS = ["permno", "yyyymm", "signal"]
 
+# Hook function signatures expected by BacktestEngine
+HOOK_SIGNATURES = {
+    "filter_universe":      "filter_universe_hook(df: pd.DataFrame, config: dict) -> pd.DataFrame",
+    "compute_breakpoints":  "compute_breakpoints_hook(df: pd.DataFrame, config: dict) -> pd.DataFrame",
+    "assign_portfolios":    "assign_portfolios_hook(df: pd.DataFrame, breakpoints: pd.DataFrame, config: dict) -> pd.DataFrame",
+    "compute_returns":      "compute_returns_hook(df: pd.DataFrame, config: dict) -> pd.DataFrame",
+    "apply_missing_policy": "apply_missing_policy_hook(df: pd.DataFrame, config: dict) -> pd.DataFrame",
+}
+
+HOOK_RETURN_DOCS = {
+    "filter_universe":      "Return filtered df with same columns as input.",
+    "compute_breakpoints":  "Return DataFrame indexed by yyyymm with columns q0..qN (N = config['breakpoint_quantiles']).",
+    "assign_portfolios":    "Return df with added int column 'portfolio' (1..N), drop rows without assignment.",
+    "compute_returns":      "Return DataFrame with columns [yyyymm, portfolio, ret].",
+    "apply_missing_policy": "Return df with missing values handled per paper spec.",
+}
+
 METACODER_SYSTEM_PROMPT = """You are a financial signal plugin generator for a factor replication pipeline.
 
 Your task is to generate Python code that computes a raw factor signal from an intermediate data table.
@@ -63,12 +80,75 @@ def compute_signal(df: pd.DataFrame) -> pd.DataFrame:
 """
 
 
+HOOK_SYSTEM_PROMPT = """You are a financial backtest hook generator for a factor replication pipeline.
+
+The pipeline has a fixed empirical skeleton. You generate ONLY the non-standard step functions
+that cannot be handled by the standard implementation. Each hook plugs into a specific step.
+
+## Available columns in the DataFrame passed to each hook
+- permno (int), yyyymm (int YYYYMM), signal (float)
+- ret (float): monthly return
+- me (float): market equity (abs(prc)*shrout/1000)
+- exchcd (int): exchange code (1=NYSE, 2=AMEX, 3=NASDAQ)
+- shrcd (int): share code (10 or 11 = ordinary common shares)
+- siccd (int): SIC code
+- Additional Compustat columns as available: at, sale, ceq, dltt, ib, etc.
+
+## config dict keys available in all hooks
+- breakpoint_source: "full_sample" | "nyse"
+- breakpoint_quantiles: int (e.g. 10 for deciles)
+- weighting_rule: "vw" | "ew" | ...
+- missing_action: "drop" | "winsorize" | ...
+- formation_month: int
+- holding_period_months: int
+- long_leg: "low" | "high"
+- short_leg: "high" | "low"
+
+## Hard rules
+1. Each hook implements EXACTLY the step described — no cross-step logic
+2. NEVER use shift(-N), .future, or lead() — look-ahead bias
+3. NEVER make network calls or read files
+4. Match the required return format exactly (see each hook's docstring)
+5. Output ONLY Python code — no prose, no markdown fences
+6. Use import pandas as pd and import numpy as np at the top
+"""
+
+
+_UNICODE_QUOTE_MAP = str.maketrans({
+    "‘": "'",  # left single quotation mark
+    "’": "'",  # right single quotation mark
+    "“": '"',  # left double quotation mark
+    "”": '"',  # right double quotation mark
+    "′": "'",  # prime
+    "″": '"',  # double prime
+})
+
+
+_PYTHON_START = re.compile(
+    r"^(import |from |def |class |#|@|\"\"\"|\'\'\').*",
+    re.MULTILINE,
+)
+
+
 def _strip_code_fences(text: str) -> str:
-    """Remove markdown code fences from LLM output."""
-    text = text.strip()
+    """Remove markdown code fences, prose preambles, and normalize Unicode quotes."""
+    text = text.strip().translate(_UNICODE_QUOTE_MAP)
+    # Remove markdown fences
     text = re.sub(r"^```(?:python)?\n?", "", text, flags=re.MULTILINE)
     text = re.sub(r"\n?```\s*$", "", text, flags=re.MULTILINE)
-    return text.strip()
+    text = text.strip()
+    # If the whole block parses cleanly, return as-is
+    try:
+        import ast as _ast
+        _ast.parse(text)
+        return text
+    except SyntaxError:
+        pass
+    # Find first line that looks like a Python statement and take from there
+    m = _PYTHON_START.search(text)
+    if m:
+        text = text[m.start():].strip()
+    return text
 
 
 class MetaCoder:
@@ -91,11 +171,12 @@ class MetaCoder:
     def generate_plugin(self, spec: MethodSpec) -> PluginRecord:
         """Generate a signal construction plugin from an approved MethodSpec.
 
-        The generated plugin must:
-        1. Accept an intermediate data DataFrame (keyed on [permno, time_avail_m])
-        2. Map raw fields to semantic variables
-        3. Construct the raw signal (formula only)
-        4. Output: DataFrame with columns [permno, yyyymm, signal]
+        Column mapping is read from spec.data.normalized_mapping (populated by
+        DataDictionary.normalize_fields() during resolution).
+        Implementation decisions are read from resolved MethodSpec fields.
+
+        Args:
+            spec: Approved MethodSpec (codegen_ready=True, normalized_mapping populated)
         """
         review_status = getattr(spec.review_status, "value", spec.review_status)
         if review_status != "approved" or not spec.codegen_ready:
@@ -106,6 +187,12 @@ class MetaCoder:
         user_prompt = self._build_prompt(spec)
 
         from src.llm import extract_usage
+        from src.engine import BacktestEngine
+
+        # Phase 1: detect which steps need hooks
+        hooks_needed = BacktestEngine._detect_hooks(spec)
+
+        # Phase 2a: generate compute_signal()
         response = self.llm_client.chat.completions.create(
             messages=[
                 {"role": "system", "content": METACODER_SYSTEM_PROMPT},
@@ -113,12 +200,21 @@ class MetaCoder:
             ],
             temperature=0.0,
         )
-        raw_code = response.choices[0].message.content or ""
-        code = _strip_code_fences(raw_code)
-
-        code_hash = hashlib.sha256(code.encode()).hexdigest()[:16]
-        spec_hash = hashlib.sha256(spec.model_dump_json().encode()).hexdigest()[:16]
+        signal_code = _strip_code_fences(response.choices[0].message.content or "")
         token_usage = extract_usage(response)
+
+        # Phase 2b: generate hook functions (only when needed)
+        hook_code = ""
+        hook_names: dict[str, str] = {}
+        if hooks_needed:
+            hook_code, hook_names = self._generate_hooks(spec, hooks_needed)
+
+        code = signal_code
+        if hook_code:
+            code = signal_code + "\n\n\n" + hook_code
+
+        spec_hash = hashlib.sha256(spec.model_dump_json().encode()).hexdigest()[:16]
+        code_hash = hashlib.sha256(code.encode()).hexdigest()[:16]
 
         record = PluginRecord(
             plugin_id=f"{spec.factor_id}_v{spec.version}",
@@ -127,6 +223,7 @@ class MetaCoder:
             method_spec_hash=spec_hash,
             code=code,
             code_hash=code_hash,
+            hooks=hook_names,
         )
         record.__dict__["_token_usage"] = token_usage
         return record
@@ -190,12 +287,72 @@ class MetaCoder:
                     lines.append(f"  - Paper evidence: \"{quote}\"")
                     break
 
+        col_map = spec.data.normalized_mapping or {}
+        if col_map:
+            lines += ["", "## Column Mapping (paper field → physical DataFrame column)"]
+            for paper_field, col_name in col_map.items():
+                lines.append(f"  - {paper_field} → df[\"{col_name}\"]")
+
         lines += [
             "",
             "## Instructions",
             "Write the complete `compute_signal(df)` function. Output ONLY the Python code, no explanation.",
         ]
         return "\n".join(lines)
+
+    def _generate_hooks(
+        self,
+        spec: MethodSpec,
+        hooks_needed: dict[str, str],
+    ) -> tuple[str, dict[str, str]]:
+        """Generate hook functions for non-standard backtest steps.
+
+        Returns:
+            (hook_code, hook_names) where hook_names maps step → function_name.
+        """
+        col_map = spec.data.normalized_mapping or {}
+
+        lines = [
+            f"Generate the following hook functions for factor: {spec.factor_name}",
+            f"Factor ID: {spec.factor_id}",
+            "",
+            "These hooks replace the standard BacktestEngine implementation for specific steps.",
+            "Generate ALL of the functions listed below in a single code block.",
+            "",
+        ]
+
+        hook_names: dict[str, str] = {}
+        for step, reason in hooks_needed.items():
+            fn_name = f"{step}_hook"
+            hook_names[step] = fn_name
+            sig = HOOK_SIGNATURES[step]
+            ret_doc = HOOK_RETURN_DOCS[step]
+            lines += [
+                f"## Hook: {fn_name}",
+                f"Reason: {reason}",
+                f"Signature: def {sig}",
+                f"Returns: {ret_doc}",
+                "",
+            ]
+
+        if col_map:
+            lines += ["## Column Mapping"]
+            for paper_field, col in col_map.items():
+                lines.append(f"  - {paper_field} → df[\"{col}\"]")
+            lines.append("")
+
+        lines.append("Output ONLY the Python code for all hook functions. No explanation.")
+
+        prompt = "\n".join(lines)
+        response = self.llm_client.chat.completions.create(
+            messages=[
+                {"role": "system", "content": HOOK_SYSTEM_PROMPT},
+                {"role": "user", "content": prompt},
+            ],
+            temperature=0.0,
+        )
+        hook_code = _strip_code_fences(response.choices[0].message.content or "")
+        return hook_code, hook_names
 
     def repair_plugin(self, plugin: PluginRecord, errors: list[str]) -> PluginRecord:
         """Attempt bounded repair of a failed plugin (technical errors only).

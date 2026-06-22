@@ -32,6 +32,11 @@ class PluginRecord(BaseModel):
     code_hash: str = Field(default="")
     entry_function: str = Field(default="compute_signal")
 
+    # Hook functions generated for non-standard backtest steps
+    # Maps step_name → function_name in the plugin code
+    # e.g. {"compute_breakpoints": "compute_breakpoints_hook"}
+    hooks: dict[str, str] = Field(default_factory=dict)
+
     # Validation
     validation_status: str = Field(
         default="pending", description="pending|passed|failed|needs_repair"

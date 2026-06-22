@@ -68,7 +68,13 @@
         "evidence": []
       }
     ],
-    "normalized_mapping": {}
+    "normalized_mapping": {
+      "total_assets": "at",
+      "monthly_return": "ret",
+      "market_equity_june": "me",
+      "listing_exchange": "exchcd",
+      "sic_code": "siccd"
+    }
   },
   "signal": {
     "formula": {
@@ -77,7 +83,7 @@
       "evidence": [
         {
           "location": "I. Data, equation (1)",
-          "quote": "ASSETG(t) = Data6(t−1) − Data6(t−2) / Data6(t−2)",
+          "quote": "ASSETG(t) = Data6(t\u22121) \u2212 Data6(t\u22122) / Data6(t\u22122)",
           "interpretation": "Equation (1) gives the executable signal formula and timing.",
           "source_type": "paper"
         }
@@ -104,7 +110,7 @@
       ]
     },
     "missing_policy": {
-      "action": "unspecified",
+      "action": "drop",
       "threshold": null,
       "winsorize_bounds": null,
       "evidence": [
@@ -121,19 +127,19 @@
   "portfolio": {
     "universe": "U.S. nonfinancial firms listed on NYSE, Amex, or NASDAQ that appear in CRSP monthly returns and Compustat annual industrial files, with a two-year Compustat listing seasoning rule.",
     "sort": {
-      "breakpoint_source": "unspecified",
+      "breakpoint_source": "full_sample",
       "ls_quantile": 10.0,
       "quantiles": [],
       "evidence": []
     },
     "breakpoints": {
-      "source": "unspecified",
+      "source": "full_sample",
       "quantiles": [],
       "ls_quantile": 10.0,
       "evidence": []
     },
-    "weighting": "unspecified",
-    "weighting_scheme": "unspecified",
+    "weighting": "vw",
+    "weighting_scheme": "vw",
     "long_leg": "lowest asset-growth decile",
     "short_leg": "highest asset-growth decile",
     "implied_factor_direction": {
@@ -198,7 +204,7 @@
         "units": "monthly return spread",
         "source": {
           "location": "Table II, Panel B.2, Year 1",
-          "quote": "0.0148 ... 0.0043 ... −0.0105",
+          "quote": "0.0148 ... 0.0043 ... \u22120.0105",
           "interpretation": "The table reports decile 1 and decile 10 value-weighted monthly returns and the 10-1 spread. Since the paper's narrative emphasizes low growth outperforming high growth, the executable long-short direction is low minus high = +0.0105 per month."
         }
       },
@@ -208,7 +214,7 @@
         "units": "monthly alpha spread",
         "source": {
           "location": "Table II, Panel C.2, All Firms",
-          "quote": "−0.007",
+          "quote": "\u22120.007",
           "interpretation": "Panel C.2 reports the 10-1 alpha. Reversing to the paper's low-minus-high direction yields +0.0070 per month."
         }
       },
@@ -218,7 +224,7 @@
         "units": "monthly alpha spread",
         "source": {
           "location": "Table II, Panel C.1, All Firms",
-          "quote": "−0.0163",
+          "quote": "\u22120.0163",
           "interpretation": "Panel C.1 reports the 10-1 alpha. Reversing to low-minus-high gives +0.0163 per month."
         }
       }
@@ -344,6 +350,52 @@
       "decision_type": "human_empirical_assumption",
       "reason": "Human reviewer confirmed this empirical assumption.",
       "reviewer": "human",
+      "paper_evidence": []
+    },
+    {
+      "field_path": "portfolio.sort.breakpoint_source",
+      "canonical_field_path": "portfolio.sort.breakpoint_source",
+      "old_value": "unspecified",
+      "new_value": "full_sample",
+      "decision_type": "human_empirical_assumption",
+      "reason": "Human decision \u2014 paper does not specify breakpoint universe; full_sample selected as default.",
+      "reviewer": "human",
+      "paper_evidence": []
+    },
+    {
+      "field_path": "portfolio.weighting",
+      "canonical_field_path": "portfolio.weighting",
+      "old_value": "unspecified",
+      "new_value": "vw",
+      "decision_type": "human_empirical_assumption",
+      "reason": "Human decision \u2014 paper reports both VW and EW; VW selected as primary.",
+      "reviewer": "human",
+      "paper_evidence": []
+    },
+    {
+      "field_path": "signal.missing_policy.action",
+      "canonical_field_path": "signal.missing_policy.action",
+      "old_value": "unspecified",
+      "new_value": "drop",
+      "decision_type": "human_empirical_assumption",
+      "reason": "Human decision \u2014 paper requires nonzero total assets; drop rows where signal is NA.",
+      "reviewer": "human",
+      "paper_evidence": []
+    },
+    {
+      "field_path": "data.normalized_mapping",
+      "canonical_field_path": "data.normalized_mapping",
+      "old_value": {},
+      "new_value": {
+        "total_assets": "at",
+        "monthly_return": "ret",
+        "market_equity_june": "me",
+        "listing_exchange": "exchcd",
+        "sic_code": "siccd"
+      },
+      "decision_type": "data_dictionary_lookup",
+      "reason": "Auto-resolved by DataDictionary.normalize_fields() \u2014 paper concept names mapped to physical parquet column names.",
+      "reviewer": "data_layer",
       "paper_evidence": []
     }
   ]

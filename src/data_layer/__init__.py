@@ -26,6 +26,34 @@ class FieldEntry:
     notes: str = ""
 
 
+# Concept-to-column: paper field names / source descriptions → physical column names.
+# Keys are lower-cased for matching.
+_CONCEPT_MAP: dict[str, str] = {
+    "total_assets": "at", "at": "at", "compustat data item 6": "at",
+    "data6": "at", "data item 6": "at",
+    "monthly_return": "ret", "ret": "ret", "monthly stock return": "ret",
+    "monthly return": "ret", "stock return": "ret",
+    "market_equity": "me", "me": "me", "market_equity_june": "me",
+    "market value": "me", "market capitalization": "me",
+    "market value of equity": "me", "market cap": "me",
+    "listing_exchange": "exchcd", "exchcd": "exchcd",
+    "exchange": "exchcd", "exchange code": "exchcd",
+    "sic_code": "siccd", "siccd": "siccd", "sic": "siccd",
+    "four-digit sic": "siccd", "industry code": "siccd",
+    "shrcd": "shrcd", "share code": "shrcd", "share_code": "shrcd",
+    "shrout": "shrout", "shares outstanding": "shrout",
+    "prc": "prc", "price": "prc", "closing price": "prc",
+    "book_equity": "ceq", "ceq": "ceq", "common equity": "ceq",
+    "sales": "sale", "sale": "sale", "revenue": "sale",
+    "net_income": "ib", "ib": "ib", "income before extraordinary": "ib",
+    "long_term_debt": "dltt", "dltt": "dltt", "long term debt": "dltt",
+    "current_assets": "act", "act": "act",
+    "current_liabilities": "lct", "lct": "lct",
+    "depreciation": "dp", "dp": "dp",
+    "capital_expenditure": "capx", "capx": "capx",
+}
+
+
 class DataDictionary:
     """Field registry for validating MethodSpec field references.
 
@@ -46,7 +74,6 @@ class DataDictionary:
         return field_name in self._entries
 
     def list_fields(self, dataset: str | None = None, table: str | None = None) -> list[str]:
-        """List available field names, optionally filtered by dataset/table."""
         entries = self._entries.values()
         if dataset:
             entries = [e for e in entries if e.dataset == dataset]
@@ -55,13 +82,46 @@ class DataDictionary:
         return [e.field for e in entries]
 
     def load_from_yaml(self, path: str) -> None:
-        """Load field definitions from a YAML file."""
         import yaml
-
         with open(path) as f:
             data = yaml.safe_load(f)
         for item in data:
             self.register(FieldEntry(**item))
+
+    def normalize_fields(self, required_fields: list) -> dict[str, str]:
+        """Map paper-concept field names to physical parquet column names.
+
+        Tries three passes in order:
+          1. Exact match on field name (lower-cased)
+          2. Substring match on source_detail string
+          3. Substring match on concept string
+
+        Returns {paper_field_name: physical_column_name} for resolved fields.
+        Unresolved fields are omitted.
+        """
+        mapping: dict[str, str] = {}
+        for entry in required_fields:
+            field = entry.field if hasattr(entry, "field") else entry.get("field", "")
+            source = (
+                (entry.source_detail if hasattr(entry, "source_detail")
+                 else entry.get("source_detail", "")) or ""
+            ).lower()
+            concept = (
+                (entry.concept if hasattr(entry, "concept")
+                 else entry.get("concept", "")) or ""
+            ).lower()
+
+            # Only use substring matching for keys >= 4 chars to avoid false positives
+            # (e.g. "at" matching inside "compustat")
+            col = (
+                _CONCEPT_MAP.get(field.lower())
+                or _CONCEPT_MAP.get(source)
+                or next((v for k, v in _CONCEPT_MAP.items() if len(k) >= 4 and k in source), None)
+                or next((v for k, v in _CONCEPT_MAP.items() if len(k) >= 4 and k in concept), None)
+            )
+            if col:
+                mapping[field] = col
+        return mapping
 
 
 # --- Data Snapshot ---

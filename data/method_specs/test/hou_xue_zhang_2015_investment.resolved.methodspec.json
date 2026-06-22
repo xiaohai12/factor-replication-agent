@@ -1,0 +1,256 @@
+{
+  "schema_version": "methodspec.v1",
+  "factor_id": "hou_xue_zhang_2015_investment",
+  "factor_name": "Investment-to-Assets",
+  "paper_ref": "Hou, Kewei, Chen Xue, and Lu Zhang, 2015, Digesting Anomalies: An Investment Approach, The Review of Financial Studies 28(3), 650-705.",
+  "version": 1,
+  "economic_intuition": "Firms with lower investment rates earn higher returns; high investment predicts lower future returns due to overinvestment or discount-rate effects.",
+  "detailed_definition": "Annual change in total assets divided by lagged total assets: I/A = (AT_t - AT_{t-1}) / AT_{t-1}. This is the investment factor (Ia) in the q-factor model.",
+  "cat_form": "continuous",
+  "sign": -1,
+  "sample_start_year": 1972,
+  "sample_end_year": 2012,
+  "cz_acronym": "Investment",
+  "data": {
+    "sources": [
+      {
+        "name": "Compustat",
+        "source_details": [
+          "annual industrial files",
+          "total assets (at)",
+          "capital expenditures (capx)",
+          "depreciation (dp)",
+          "property plant and equipment net (ppent)",
+          "sales (sale)",
+          "cost of goods sold (cogs)",
+          "interest expense (xint)"
+        ],
+        "evidence": []
+      },
+      {
+        "name": "CRSP",
+        "source_details": [
+          "monthly stock return files",
+          "market equity (me)",
+          "exchange code (exchcd)",
+          "share code (shrcd)"
+        ],
+        "evidence": []
+      }
+    ],
+    "required_fields": [
+      {
+        "field": "total_assets",
+        "concept": "Total assets used to compute investment rate (current and lagged).",
+        "source_detail": "total assets (at)",
+        "evidence": []
+      },
+      {
+        "field": "capital_expenditure",
+        "concept": "Capital expenditures, included as a robustness data field.",
+        "source_detail": "capital expenditures (capx)",
+        "evidence": []
+      },
+      {
+        "field": "depreciation",
+        "concept": "Depreciation, used in alternative investment measures.",
+        "source_detail": "depreciation (dp)",
+        "evidence": []
+      },
+      {
+        "field": "sales",
+        "concept": "Sales used in q-factor profitability construction (companion factor).",
+        "source_detail": "sales (sale)",
+        "evidence": []
+      },
+      {
+        "field": "cost_of_goods_sold",
+        "concept": "Cost of goods sold for profitability calculation.",
+        "source_detail": "cost of goods sold (cogs)",
+        "evidence": []
+      },
+      {
+        "field": "interest_expense",
+        "concept": "Interest expense for ROE-based profitability (companion factor).",
+        "source_detail": "interest expense (xint)",
+        "evidence": []
+      },
+      {
+        "field": "monthly_return",
+        "concept": "Monthly CRSP stock return for portfolio return computation.",
+        "source_detail": "monthly stock return files",
+        "evidence": []
+      },
+      {
+        "field": "market_equity",
+        "concept": "Market equity for value-weighting and size-based universe split.",
+        "source_detail": "market capitalization",
+        "evidence": []
+      },
+      {
+        "field": "listing_exchange",
+        "concept": "Exchange code for NYSE breakpoints.",
+        "source_detail": "exchange code",
+        "evidence": []
+      },
+      {
+        "field": "share_code",
+        "concept": "Share code to restrict to ordinary common shares (10 or 11).",
+        "source_detail": "share code",
+        "evidence": []
+      },
+      {
+        "field": "sic_code",
+        "concept": "SIC code to exclude financial firms.",
+        "source_detail": "four-digit SIC",
+        "evidence": []
+      }
+    ],
+    "normalized_mapping": {
+      "total_assets": "at",
+      "capital_expenditure": "capx",
+      "depreciation": "dp",
+      "sales": "sale",
+      "cost_of_goods_sold": "cogs",
+      "interest_expense": "xint",
+      "monthly_return": "ret",
+      "market_equity": "me",
+      "listing_exchange": "exchcd",
+      "share_code": "shrcd",
+      "sic_code": "siccd"
+    }
+  },
+  "signal": {
+    "formula": {
+      "expression": "(at - at_lag1) / at_lag1",
+      "paper_expression": "Ia = ΔA/A_{t-1} = (AT_t - AT_{t-1}) / AT_{t-1}",
+      "evidence": [
+        {
+          "location": "Section II.A",
+          "quote": "investment-to-assets, Ia, the annual change in gross assets divided by lagged gross assets",
+          "interpretation": "Simple year-over-year growth in total assets.",
+          "source_type": "paper"
+        }
+      ]
+    },
+    "required_fields": ["total_assets"],
+    "field_sources": {},
+    "timing": {
+      "formation_month": 6,
+      "rebalance_frequency": "annual",
+      "holding_period": 12,
+      "accounting_lag": 6,
+      "skip_month": null,
+      "overlapping_portfolios": false,
+      "evidence": [
+        {
+          "location": "Section II.A",
+          "quote": "At the end of June of each year t, we sort stocks",
+          "interpretation": "Annual June-end rebalance.",
+          "source_type": "paper"
+        }
+      ]
+    },
+    "missing_policy": {
+      "action": "drop",
+      "threshold": null,
+      "winsorize_bounds": null,
+      "evidence": []
+    },
+    "sign": -1
+  },
+  "portfolio": {
+    "universe": "NYSE, Amex, and NASDAQ nonfinancial common stocks (size-adjusted: microcaps below NYSE 20th percentile excluded from primary test universe to reduce noise).",
+    "sort": {
+      "breakpoint_source": "nyse",
+      "ls_quantile": 10.0,
+      "quantiles": [],
+      "evidence": []
+    },
+    "breakpoints": {
+      "source": "nyse",
+      "quantiles": [],
+      "ls_quantile": 10.0,
+      "evidence": []
+    },
+    "weighting": "vw",
+    "weighting_scheme": "vw",
+    "long_leg": "low",
+    "short_leg": "high",
+    "implied_factor_direction": {
+      "long_leg": "low",
+      "short_leg": "high"
+    },
+    "filter": "",
+    "evidence": []
+  },
+  "reported_results": {
+    "return_horizon": "monthly, July t to June t+1",
+    "return_type": "raw",
+    "comparison_policy": {},
+    "return_calculation": {"input_return": {}, "portfolio_return": {}, "evidence": []},
+    "spreads": {
+      "vw_monthly_low_minus_high_investment": {
+        "value": 0.0040,
+        "t_stat": 3.49,
+        "units": "monthly return spread",
+        "source": {
+          "location": "Table 2",
+          "quote": "low investment decile minus high investment decile: 0.40% per month",
+          "interpretation": "VW decile spread low-minus-high investment."
+        }
+      }
+    },
+    "t_stats": [],
+    "main_spread": 0.0040,
+    "main_t_stat": 3.49,
+    "evidence": []
+  },
+  "extraction_sources": [
+    {
+      "type": "paper",
+      "ref": "Digesting Anomalies: An Investment Approach",
+      "sections": ["Section II.A", "Table 2"]
+    }
+  ],
+  "ambiguous_fields": [],
+  "review_status": "approved",
+  "remediation_mode": null,
+  "codegen_ready": true,
+  "paper_faithful": true,
+  "review_notes": [],
+  "resolution_log": [
+    {
+      "field_path": "portfolio.universe",
+      "canonical_field_path": "portfolio.universe",
+      "old_value": "unspecified",
+      "new_value": "size-adjusted: microcaps below NYSE 20th percentile excluded",
+      "decision_type": "human_empirical_assumption",
+      "reason": "HXZ2015 uses a size-adjusted universe excluding microcaps; triggers filter_universe_hook.",
+      "reviewer": "human",
+      "paper_evidence": []
+    },
+    {
+      "field_path": "data.normalized_mapping",
+      "canonical_field_path": "data.normalized_mapping",
+      "old_value": {},
+      "new_value": {
+        "total_assets": "at",
+        "capital_expenditure": "capx",
+        "depreciation": "dp",
+        "sales": "sale",
+        "cost_of_goods_sold": "cogs",
+        "interest_expense": "xint",
+        "monthly_return": "ret",
+        "market_equity": "me",
+        "listing_exchange": "exchcd",
+        "share_code": "shrcd",
+        "sic_code": "siccd"
+      },
+      "decision_type": "data_dictionary_lookup",
+      "reason": "Auto-resolved by DataDictionary.normalize_fields().",
+      "reviewer": "data_layer",
+      "paper_evidence": []
+    }
+  ]
+}

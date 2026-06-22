@@ -1,5 +1,54 @@
 # Changelog
 
+## [0.6.9] - 2026-06-21
+
+### Added
+- `src/data_layer/__init__.py`: `DataDictionary.normalize_fields(required_fields)` — maps paper concept field names to physical parquet column names via `_CONCEPT_MAP`; three-pass resolution (exact field name → exact source_detail → substring, ≥4-char keys only to avoid false positives like "at" matching inside "compustat")
+- `data/method_specs/resolved/cooper_gulen_schill_2008_asset_growth.resolved.methodspec.json`: `data.normalized_mapping` populated (`total_assets→at`, `monthly_return→ret`, `market_equity_june→me`, `listing_exchange→exchcd`, `sic_code→siccd`); unspecified fields resolved in spec (`breakpoint_source=full_sample`, `weighting=vw`, `missing_action=drop`); 4 new `resolution_log` entries
+
+### Changed
+- `src/meta_coder/__init__.py`: `generate_plugin(spec)` — no longer accepts `impl_config`; column mapping read from `spec.data.normalized_mapping`; `_detect_hooks(spec)` call drops `impl_config` param
+- `src/engine/__init__.py`: `_detect_hooks(spec)` — `impl_config` param removed; reads only from resolved MethodSpec fields; `_build_config()` reads entirely from spec
+- `scripts/test_codegen.py`: Removed step 2.5 (impl_config load); step 2 now shows `normalized_map` from `spec.data.normalized_mapping`; step 2.5b `_detect_hooks(spec)` call updated
+- `docs/architecture.md` (v9): Removed step 2.5 and §4.3 impl_config as separate pipeline stage; integrated column mapping population into step 2 (Resolution Applier bullet points); `_detect_hooks()` signature updated throughout; §10 status: Meta-Coder and BacktestEngine both marked ✅ fully implemented
+
+### Removed
+- `data/method_specs/impl_config/`: No longer needed — all implementation decisions and column mappings live in the resolved MethodSpec (`spec.data.normalized_mapping` + resolved fields + `resolution_log`)
+
+## [0.6.8] - 2026-06-21
+
+### Added
+- `src/engine/__init__.py`: Full BacktestEngine implementation — `STANDARD` dict per step, `_detect_hooks(spec, impl_config)` classmethod, `_build_config()` with impl_config override support, all 7 standard step implementations (`_apply_missing_policy`, `_filter_universe`, `_merge_signal`, `_compute_breakpoints`, `_assign_portfolios`, `_compute_returns`, `_compute_long_short`, `_compute_metrics` with Newey-West t-stat), hook loader via `exec()`, and hook dispatch in `run()`
+- `src/meta_coder/__init__.py`: `HOOK_SYSTEM_PROMPT`, `HOOK_SIGNATURES`, `HOOK_RETURN_DOCS` constants; `_generate_hooks(spec, impl_config, hooks_needed)` method for LLM hook function generation; `generate_plugin()` now runs two-phase flow: (1) `_detect_hooks()` to identify non-standard steps, (2) generate `compute_signal()` + hook functions in separate LLM calls, then concatenate into single plugin file; `PluginRecord.hooks` field populated with `{step: fn_name}` map
+- `src/models/plugin.py`: `hooks: dict[str, str]` field on `PluginRecord` mapping step name → hook function name in plugin code
+
+### Changed
+- `scripts/test_codegen.py`: Added step 2.5b showing `_detect_hooks()` output before MetaCoder call; added hooks display in plugin summary
+
+## [0.6.7] - 2026-06-21
+
+### Changed
+- `docs/architecture.md` (v8): Added standard-vs-hook design for BacktestEngine:
+  - §2 Design Principles: updated to reflect "LLM generates signal + hooks"; added "standard vs hook driven by MethodSpec" principle
+  - §3 Pipeline: step 3 Meta-Coder now shows two-phase flow (hook detection → LLM codegen)
+  - §4.4 Meta-Coder: documented two-phase generation (Phase 1: `_detect_hooks`; Phase 2: LLM generates `compute_signal` + per-step hook functions only when step exceeds standard set)
+  - §4.7 BacktestEngine: rewrote as "Standard Set + Hook mechanism" — defines `STANDARD` dict per step, `_detect_hooks()` logic, hook dispatch pattern, and attribution guarantee
+  - §10 status: Meta-Coder marked partial (signal ✅, hooks ⏳); BacktestEngine split into standard steps (WIP) and hook dispatch (not yet)
+
+## [0.6.6] - 2026-06-21
+
+### Added
+- `data/method_specs/impl_config/cooper_gulen_schill_2008_asset_growth.impl_config.json`: First impl_config — maps paper field names to physical column names (`total_assets→at`, `monthly_return→ret`, etc.) and pins unspecified implementation decisions (`breakpoint_source=full_sample`, `weighting=vw`, `quantiles=10`, `accounting_lag_months=6`, `missing_action=drop`)
+- `scripts/test_codegen.py`: End-to-end test script for pipeline steps 2.5→3→4; loads impl_config and resolved MethodSpec, calls MetaCoder via `codex` CLI (gpt-5.4), runs Future-Leak Scan, saves plugin to `data/plugins/`
+
+### Changed
+- `src/meta_coder/__init__.py`: `generate_plugin()` now accepts optional `impl_config: dict` parameter; `_build_prompt()` injects `column_mapping` and `implementation_decisions` as explicit prompt sections when provided
+
+## [0.6.5] - 2026-06-21
+
+### Changed
+- `docs/architecture.md` (v8): Simplified pipeline based on pilot-stage decision — Adversarial Sandbox collapsed to Future-Leak Scan only (syntax/schema/reproducibility checks removed as redundant; only `shift(-`/`.future`/`lead(` pattern scan retained); Plugin Registry deferred to post-pilot; §3 pipeline diagram, §3.1 feedback loop table, §4.5, §5 file layout, and §10 status table updated accordingly
+
 ## [0.6.4] - 2026-06-21
 
 ### Changed

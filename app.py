@@ -935,14 +935,20 @@ elif page == "MetaCoder":
     )
 
     RESOLVED_DIR = PROJECT_ROOT / "data" / "method_specs" / "resolved"
-    PLUGINS_DIR = PROJECT_ROOT / "data" / "plugins"
+    TEST_DIR     = PROJECT_ROOT / "data" / "method_specs" / "test"
+    PLUGINS_DIR  = PROJECT_ROOT / "data" / "plugins"
     PLUGINS_DIR.mkdir(parents=True, exist_ok=True)
 
     # --- Load resolved MethodSpec ---
     st.subheader("1. Load Resolved MethodSpec")
 
-    resolved_specs = sorted(RESOLVED_DIR.glob("*.resolved.methodspec.json")) if RESOLVED_DIR.exists() else []
-    spec_options = [""] + [p.name for p in resolved_specs]
+    _spec_files: list[tuple[str, Path]] = []
+    for _dir, _label in ((RESOLVED_DIR, "resolved"), (TEST_DIR, "test")):
+        if _dir.exists():
+            for _p in sorted(_dir.glob("*.resolved.methodspec.json")):
+                _spec_files.append((f"[{_label}] {_p.name}", _p))
+    spec_options = [""] + [label for label, _ in _spec_files]
+    _spec_path_map = {label: path for label, path in _spec_files}
 
     col_sel, col_up = st.columns([2, 1])
     with col_sel:
@@ -950,7 +956,7 @@ elif page == "MetaCoder":
             "Resolved MethodSpec",
             spec_options,
             index=0,
-            help="Files from data/method_specs/resolved/",
+            help="Files from data/method_specs/resolved/ and test/",
         )
     with col_up:
         uploaded_resolved = st.file_uploader(
@@ -967,7 +973,7 @@ elif page == "MetaCoder":
                 _mc_spec = _MS.model_validate_json(spec_payload)
             elif selected_resolved_name:
                 _mc_spec = _MS.model_validate_json(
-                    (RESOLVED_DIR / selected_resolved_name).read_text(encoding="utf-8")
+                    _spec_path_map[selected_resolved_name].read_text(encoding="utf-8")
                 )
             else:
                 st.warning("Select a resolved MethodSpec or upload one.")
@@ -976,6 +982,7 @@ elif page == "MetaCoder":
                 st.session_state["mc_spec"] = _mc_spec
                 st.session_state.pop("mc_plugin", None)
                 st.session_state.pop("mc_sandbox_report", None)
+                st.session_state.pop("mc_hooks_needed", None)
                 st.success(f"Loaded: **{_mc_spec.factor_id}**")
         except Exception as e:
             st.error(f"Failed to load MethodSpec: {e}")
@@ -999,12 +1006,39 @@ elif page == "MetaCoder":
         st.markdown(f"**Formula:** `{formula_str}`")
         st.markdown(f"**Required fields:** {', '.join(mc_spec.signal.required_fields or mc_spec.required_fields)}")
 
+        norm_map = (mc_spec.data.normalized_mapping or {}) if mc_spec.data else {}
+        if norm_map:
+            st.markdown("**Column mapping** (paper field → parquet column):")
+            st.dataframe(
+                {"paper field": list(norm_map.keys()), "parquet column": list(norm_map.values())},
+                use_container_width=False,
+                hide_index=True,
+            )
+        else:
+            st.warning("No `data.normalized_mapping` found — MetaCoder will not know physical column names.")
+
         with st.expander("Full MethodSpec JSON"):
             st.json(json.loads(mc_spec.model_dump_json()))
 
+        # --- Hook detection ---
+        st.markdown("---")
+        st.subheader("3. Hook Detection")
+        try:
+            from src.engine import BacktestEngine
+            _hooks_needed = BacktestEngine._detect_hooks(mc_spec)
+            st.session_state["mc_hooks_needed"] = _hooks_needed
+            if _hooks_needed:
+                st.warning(f"**{len(_hooks_needed)} non-standard step(s) detected — LLM will generate hook functions:**")
+                for _step, _reason in _hooks_needed.items():
+                    st.markdown(f"- `{_step}_hook` — {_reason}")
+            else:
+                st.success("All backtest steps are **standard** — only `compute_signal()` will be generated.")
+        except Exception as _e:
+            st.error(f"Hook detection failed: {_e}")
+
         # --- Approval gate ---
         st.markdown("---")
-        st.subheader("3. Approval Gate")
+        st.subheader("4. Approval Gate")
 
         if rs_val == "approved" and mc_spec.codegen_ready:
             st.success("MethodSpec is **approved** and codegen-ready.")
@@ -1018,7 +1052,7 @@ elif page == "MetaCoder":
 
         # --- Generate ---
         st.markdown("---")
-        st.subheader("4. Generate Plugin")
+        st.subheader("5. Generate Plugin")
 
         gen_col, _ = st.columns([1, 2])
         with gen_col:
@@ -1060,7 +1094,13 @@ elif page == "MetaCoder":
         mc_plugin = st.session_state.get("mc_plugin")
         if mc_plugin:
             st.markdown("---")
-            st.subheader("5. Generated Plugin Code")
+            st.subheader("6. Generated Plugin Code")
+            _pcol1, _pcol2, _pcol3 = st.columns(3)
+            _pcol1.metric("Plugin ID", mc_plugin.plugin_id)
+            _pcol2.metric("Code Hash", mc_plugin.code_hash)
+            _pcol3.metric("Hooks", len(mc_plugin.hooks) if mc_plugin.hooks else 0)
+            if mc_plugin.hooks:
+                st.info("**Generated hook functions:** " + ", ".join(f"`{fn}`" for fn in mc_plugin.hooks.values()))
             st.code(mc_plugin.code, language="python")
 
             dl_col, repair_col, _ = st.columns([1, 1, 2])
@@ -1079,7 +1119,7 @@ elif page == "MetaCoder":
 
             # --- Sandbox Validation ---
             st.markdown("---")
-            st.subheader("6. Sandbox Validation")
+            st.subheader("7. Sandbox Validation")
 
             if st.button("Run Sandbox Validation", key="mc_sandbox"):
                 from src.sandbox import AdversarialSandbox

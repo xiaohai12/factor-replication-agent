@@ -1,0 +1,247 @@
+{
+  "schema_version": "methodspec.v1",
+  "factor_id": "novy_marx_2013_gross_profitability",
+  "factor_name": "Gross Profitability",
+  "paper_ref": "Novy-Marx, Robert, 2013, The Other Side of Value: The Gross Profitability Premium, Journal of Financial Economics 108(1), 1-28.",
+  "version": 1,
+  "economic_intuition": "More profitable firms (measured by gross profit scaled by assets) earn higher returns; gross profitability is a cleaner measure of true economic profitability than net income.",
+  "detailed_definition": "Gross profit (revenues minus cost of goods sold) divided by total assets: GP/A = (REVT - COGS) / AT.",
+  "cat_form": "continuous",
+  "sign": 1,
+  "sample_start_year": 1963,
+  "sample_end_year": 2010,
+  "cz_acronym": "GP",
+  "data": {
+    "sources": [
+      {
+        "name": "Compustat",
+        "source_details": [
+          "annual industrial files",
+          "revenues (revt)",
+          "cost of goods sold (cogs)",
+          "total assets (at)",
+          "shares outstanding (csho)",
+          "fiscal year end price (prcc_f)"
+        ],
+        "evidence": []
+      },
+      {
+        "name": "CRSP",
+        "source_details": [
+          "monthly stock return files",
+          "market equity (me)",
+          "exchange code (exchcd)",
+          "share code (shrcd)"
+        ],
+        "evidence": []
+      }
+    ],
+    "required_fields": [
+      {
+        "field": "revenues",
+        "concept": "Total revenues (net sales) used in gross profit numerator.",
+        "source_detail": "revenues (revt)",
+        "evidence": []
+      },
+      {
+        "field": "cost_of_goods_sold",
+        "concept": "Cost of goods sold subtracted from revenues to get gross profit.",
+        "source_detail": "cost of goods sold (cogs)",
+        "evidence": []
+      },
+      {
+        "field": "total_assets",
+        "concept": "Total assets used as denominator for scaling.",
+        "source_detail": "total assets (at)",
+        "evidence": []
+      },
+      {
+        "field": "monthly_return",
+        "concept": "Monthly CRSP return for portfolio returns.",
+        "source_detail": "monthly stock return files",
+        "evidence": []
+      },
+      {
+        "field": "market_equity",
+        "concept": "Market equity for value-weighting and size controls.",
+        "source_detail": "market capitalization",
+        "evidence": []
+      },
+      {
+        "field": "listing_exchange",
+        "concept": "Exchange code for NYSE breakpoints and universe filter.",
+        "source_detail": "exchange code",
+        "evidence": []
+      },
+      {
+        "field": "share_code",
+        "concept": "Share code to restrict to ordinary common shares.",
+        "source_detail": "share code",
+        "evidence": []
+      },
+      {
+        "field": "sic_code",
+        "concept": "SIC code to exclude financial firms (SIC 6000-6999).",
+        "source_detail": "four-digit SIC",
+        "evidence": []
+      }
+    ],
+    "normalized_mapping": {
+      "revenues": "revt",
+      "cost_of_goods_sold": "cogs",
+      "total_assets": "at",
+      "monthly_return": "ret",
+      "market_equity": "me",
+      "listing_exchange": "exchcd",
+      "share_code": "shrcd",
+      "sic_code": "siccd"
+    }
+  },
+  "signal": {
+    "formula": {
+      "expression": "(revt - cogs) / at",
+      "paper_expression": "GP/A = (REVT - COGS) / AT",
+      "evidence": [
+        {
+          "location": "Section I, equation (1)",
+          "quote": "gross profitability, defined as revenues minus cost of goods sold scaled by assets",
+          "interpretation": "Direct formula: gross profit divided by total assets.",
+          "source_type": "paper"
+        }
+      ]
+    },
+    "required_fields": ["revenues", "cost_of_goods_sold", "total_assets"],
+    "field_sources": {},
+    "timing": {
+      "formation_month": 6,
+      "rebalance_frequency": "annual",
+      "holding_period": 12,
+      "accounting_lag": 6,
+      "skip_month": null,
+      "overlapping_portfolios": false,
+      "evidence": [
+        {
+          "location": "Section I",
+          "quote": "portfolios are formed annually in July",
+          "interpretation": "Annual July rebalance with 6-month accounting lag.",
+          "source_type": "paper"
+        }
+      ]
+    },
+    "missing_policy": {
+      "action": "winsorize",
+      "threshold": 0.005,
+      "winsorize_bounds": [0.005, 0.995],
+      "evidence": [
+        {
+          "location": "Section I",
+          "quote": "all variables are winsorized at the 0.5% level to reduce the influence of outliers",
+          "interpretation": "Symmetric winsorization at 0.5%/99.5% each year.",
+          "source_type": "paper"
+        }
+      ]
+    },
+    "sign": 1
+  },
+  "portfolio": {
+    "universe": "NYSE, Amex, and NASDAQ nonfinancial common stocks (shrcd in 10,11; exchcd in 1,2,3; SIC not 6000-6999) with positive total assets and non-missing revenues.",
+    "sort": {
+      "breakpoint_source": "nyse",
+      "ls_quantile": 10.0,
+      "quantiles": [],
+      "evidence": []
+    },
+    "breakpoints": {
+      "source": "nyse",
+      "quantiles": [],
+      "ls_quantile": 10.0,
+      "evidence": []
+    },
+    "weighting": "capped_vw",
+    "weighting_scheme": "capped_vw",
+    "long_leg": "high",
+    "short_leg": "low",
+    "implied_factor_direction": {
+      "long_leg": "high",
+      "short_leg": "low"
+    },
+    "filter": "",
+    "evidence": []
+  },
+  "reported_results": {
+    "return_horizon": "12-month post-formation",
+    "return_type": "raw",
+    "comparison_policy": {},
+    "return_calculation": {"input_return": {}, "portfolio_return": {}, "evidence": []},
+    "spreads": {
+      "capped_vw_monthly_high_minus_low": {
+        "value": 0.0033,
+        "t_stat": 2.49,
+        "units": "monthly return spread",
+        "source": {
+          "location": "Table 1",
+          "quote": "high GP/A decile earns 0.33% per month more than low decile",
+          "interpretation": "Capped-VW decile spread, 1963-2010."
+        }
+      }
+    },
+    "t_stats": [],
+    "main_spread": 0.0033,
+    "main_t_stat": 2.49,
+    "evidence": []
+  },
+  "extraction_sources": [
+    {
+      "type": "paper",
+      "ref": "The Other Side of Value: The Gross Profitability Premium",
+      "sections": ["Section I", "Table 1"]
+    }
+  ],
+  "ambiguous_fields": [],
+  "review_status": "approved",
+  "remediation_mode": null,
+  "codegen_ready": true,
+  "paper_faithful": true,
+  "review_notes": [],
+  "resolution_log": [
+    {
+      "field_path": "portfolio.weighting",
+      "canonical_field_path": "portfolio.weighting",
+      "old_value": "unspecified",
+      "new_value": "capped_vw",
+      "decision_type": "human_empirical_assumption",
+      "reason": "Novy-Marx uses capped value-weighting to limit microcap influence; cap at 5% of portfolio weight per stock.",
+      "reviewer": "human",
+      "paper_evidence": []
+    },
+    {
+      "field_path": "signal.missing_policy.action",
+      "canonical_field_path": "signal.missing_policy.action",
+      "old_value": "unspecified",
+      "new_value": "winsorize",
+      "decision_type": "paper_stated",
+      "reason": "Paper explicitly states 0.5%/99.5% winsorization.",
+      "reviewer": "human",
+      "paper_evidence": []
+    },
+    {
+      "field_path": "data.normalized_mapping",
+      "canonical_field_path": "data.normalized_mapping",
+      "old_value": {},
+      "new_value": {
+        "revenues": "revt",
+        "cost_of_goods_sold": "cogs",
+        "total_assets": "at",
+        "monthly_return": "ret",
+        "market_equity": "me",
+        "listing_exchange": "exchcd",
+        "share_code": "shrcd",
+        "sic_code": "siccd"
+      },
+      "decision_type": "data_dictionary_lookup",
+      "reason": "Auto-resolved by DataDictionary.normalize_fields().",
+      "reviewer": "data_layer",
+      "paper_evidence": []
+    }
+  ]
+}
