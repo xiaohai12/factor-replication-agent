@@ -1,0 +1,520 @@
+{
+  "schema_version": "methodspec.v1",
+  "factor_id": "LohWarachka2011_StreakSign",
+  "cz_acronym": null,
+  "annotation_status": "draft_human_annotation",
+  "review_status": "revision_patched",
+  "formula_convention": {
+    "time_index_base": "formation_month_m",
+    "default_accounting_period": "not_applicable_return_based_monthly_signal",
+    "suffix_rules": {
+      "_t": "value associated with formation year t unless otherwise specified",
+      "_t_minus_1": "lagged annual value relative to formation year t",
+      "_t_minus_2": "two-year lagged annual value relative to formation year t",
+      "_m": "monthly value at portfolio formation month m",
+      "_m_plus_1": "next-month holding-period return",
+      "lag(x,n)": "n-period lag of x at the field's data frequency"
+    },
+    "notes": "The signal is based on quarterly analyst-based earnings surprises observed before monthly portfolio formation. Stocks remain in the relevant portfolio for six months, creating overlapping monthly holdings."
+  },
+  "paper": {
+    "pdf_file": "projects/factor-replication-agent/paper_test/Streaks in earnings surprises and the crosssection of stock returns.pdf",
+    "title": "Streaks in Earnings Surprises and the Cross-section of Stock Returns",
+    "citation": "Loh and Warachka, forthcoming in Management Science, October 2011",
+    "paper_sections": [
+      "Abstract",
+      "1 Introduction",
+      "3 Data",
+      "4 Empirical Results",
+      "4.1 Streaks",
+      "4.3 Streaks versus the Magnitude of Earnings Surprises",
+      "Table 1",
+      "Table 3",
+      "Table 5"
+    ],
+    "evidence_sections": [
+      "Abstract",
+      "Section 3 Data",
+      "Section 4.1 Streaks",
+      "Section 4.3 Streaks versus the Magnitude of Earnings Surprises",
+      "Table 3",
+      "Table 5"
+    ]
+  },
+  "signal": {
+    "paper_variable_name": "Streak",
+    "factor_name": "Earnings-surprise streak sign",
+    "economic_intuition": {
+      "value": "Investors underreact to consecutive same-signed earnings surprises due to the gambler's fallacy; positive streaks predict high future returns and negative streaks predict low future returns.",
+      "source": {
+        "location": "Abstract",
+        "quote": "underreact to streaks",
+        "interpretation": "The abstract directly states the underreaction to streaks of same-signed earnings surprises."
+      }
+    },
+    "definition": {
+      "value": "A positive streak is at least two consecutive positive quarterly earnings surprises; a negative streak is at least two consecutive non-positive/negative quarterly earnings surprises. Earnings surprise equal to zero is classified as negative.",
+      "source": {
+        "location": "Section 4.1, p. 8",
+        "quote": "streak is defined",
+        "interpretation": "The paper defines streaks as consecutive same-signed earnings surprises and states the zero-surprise rule."
+      }
+    },
+    "formula": {
+      "expression": "streak_sign_m = +1 if the most recent and prior consecutive quarterly SURP signs form a positive streak of length >= 2; -1 if they form a negative streak of length >= 2; otherwise not in streak portfolio",
+      "paper_expression": "Streak = +1 for positive streaks; -1 for negative streaks; streak length at least two",
+      "calculation_steps": [
+        "Compute SURP_q = (actual_quarterly_earnings_q - mean_consensus_forecast_q) / stock_price_prior_month_q.",
+        "Classify SURP sign as positive if SURP_q > 0 and negative if SURP_q <= 0, because the paper classifies zero as negative.",
+        "Using quarterly SURP sign history, identify whether the most recent SURP extends a run of at least two consecutive same-signed SURPs.",
+        "Assign streak_sign = +1 for a positive streak and -1 for a negative streak.",
+        "Each month, buy stocks with positive streaks and sell stocks with negative streaks; exclude stocks with lagged price below five dollars and hold stocks for six months."
+      ],
+      "source": {
+        "location": "Section 3, p. 7; Section 4.1, p. 8",
+        "quote": "at least two consecutive",
+        "interpretation": "The paper defines SURP and the streak threshold of at least two consecutive same-signed surprises."
+      },
+      "inputs": [
+        "actual_quarterly_earnings",
+        "mean_consensus_forecast",
+        "stock_price_prior_month",
+        "earnings_surprise_history"
+      ]
+    },
+    "category": "categorical signal mapped to long/short legs",
+    "sign": {
+      "value": "positive",
+      "meaning": "Positive streaks are the long leg; negative streaks are the short leg.",
+      "source": {
+        "location": "Introduction, p. 2",
+        "quote": "buys stocks with positive streaks while selling stocks with negative streaks",
+        "interpretation": "The paper's first trading strategy buys positive streaks and sells negative streaks."
+      }
+    }
+  },
+  "data": {
+    "frequency": "quarterly earnings-surprise signal with monthly portfolio returns",
+    "return_data_frequency": "monthly",
+    "sources": [
+      {
+        "dataset": "Thomson Financial’s Institutional Brokers Estimate System (I/B/E/S) U.S. file",
+        "use": "Quarterly earnings forecasts, actual earnings, adjustment factors for split-adjusting unadjusted files, and mean consensus forecasts.",
+        "source_details": [
+          "I/B/E/S U.S. file from 1984 to 2009",
+          "unadjusted file",
+          "I/B/E/S adjustment factors",
+          "actual earnings"
+        ]
+      },
+      {
+        "dataset": "CRSP",
+        "use": "Monthly returns, ordinary-share share codes, prior-month stock price, and stock price normalization.",
+        "source_details": [
+          "monthly returns",
+          "share codes 10 or 11",
+          "stock price at the end of the prior month"
+        ]
+      },
+      {
+        "dataset": "CRSP delisting file",
+        "use": "Delisting returns added to stock returns.",
+        "source_details": [
+          "delisting returns"
+        ]
+      },
+      {
+        "dataset": "Fama-French and Carhart factor returns",
+        "use": "Three-factor and four-factor risk adjustment reported by the paper.",
+        "source_details": [
+          "Fama and French (1993)",
+          "four-factor models"
+        ]
+      },
+      {
+        "dataset": "DGTW characteristic portfolio procedure",
+        "use": "Daniel, Grinblatt, Titman, and Wermers characteristic-adjusted returns reported as comparison.",
+        "source_details": [
+          "DGTW-adjusted returns"
+        ]
+      }
+    ],
+    "required_fields": [
+      {
+        "field": "actual_quarterly_earnings",
+        "dataset": "Thomson Financial’s Institutional Brokers Estimate System (I/B/E/S) U.S. file",
+        "description": "I/B/E/S actual quarterly earnings used in SURP.",
+        "source_detail": "Actual earnings are from I/B/E/S."
+      },
+      {
+        "field": "mean_consensus_forecast",
+        "dataset": "Thomson Financial’s Institutional Brokers Estimate System (I/B/E/S) U.S. file",
+        "description": "Most recent mean consensus analyst forecast for the quarter.",
+        "source_detail": "SURP uses the most recent mean consensus forecast of analysts for the quarter."
+      },
+      {
+        "field": "stock_price_prior_month",
+        "dataset": "CRSP",
+        "description": "Stock price at the end of the prior month, adjusted to same per-share basis as SURP.",
+        "source_detail": "SURP is normalized by the firm’s stock price on CRSP at the end of the prior month."
+      },
+      {
+        "field": "share_code",
+        "dataset": "CRSP",
+        "description": "CRSP share code used to restrict to ordinary shares 10 or 11.",
+        "source_detail": "Monthly returns are obtained from CRSP for stocks classified as ordinary shares (share codes 10 or 11)."
+      },
+      {
+        "field": "book_to_market_ratio",
+        "dataset": "CRSP / accounting data as described by paper",
+        "description": "Book-to-market ratio required to be non-negative.",
+        "source_detail": "Firms in the sample are required to have a non-negative book-to-market ratio."
+      },
+      {
+        "field": "lagged_stock_price",
+        "dataset": "CRSP",
+        "description": "Lagged stock price used for the below-five-dollar trading-strategy exclusion.",
+        "source_detail": "Trading strategies exclude firms whose lagged stock prices are below five dollars."
+      },
+      {
+        "field": "monthly_stock_return",
+        "dataset": "CRSP",
+        "description": "Monthly return used for calendar-time portfolio returns.",
+        "source_detail": "Monthly returns are obtained from CRSP."
+      },
+      {
+        "field": "delisting_return",
+        "dataset": "CRSP delisting file",
+        "description": "Delisting return added to monthly return, with Shumway convention when missing and performance-related.",
+        "source_detail": "Delisting returns are added from the CRSP delisting file."
+      },
+      {
+        "field": "risk_free_rate",
+        "dataset": "risk-free rate",
+        "description": "Risk-free rate used to form excess returns in factor regressions; paper does not name a separate source in the table caption.",
+        "source_detail": "Monthly returns less the risk-free rate are regressed on factor models."
+      },
+      {
+        "field": "earnings_surprise_history",
+        "dataset": "derived from I/B/E/S and CRSP price",
+        "description": "Prior quarterly SURP signs used to identify streaks and reversals.",
+        "source_detail": "Streaks require consecutive earnings surprises with the same sign."
+      }
+    ],
+    "source_note": "Raw quarterly earnings forecast sample is 1984-2009. Streak/reversal classification sample begins in 1987 to obtain three years of prior earnings surprises. Main calendar-time return tests use 1987-2009 and six-month overlapping holding periods.",
+    "sample_coverage_notes": [
+      {
+        "topic": "split adjustment of I/B/E/S forecasts",
+        "paper_action": "Use unadjusted I/B/E/S file and split-adjust it with I/B/E/S adjustment factors.",
+        "details": "The paper avoids imprecise forecasts caused by I/B/E/S rounding in the adjusted summary file.",
+        "implementation_relevance": "SURP should be computed from split-adjusted actuals and forecasts on the same per-share basis.",
+        "normalizer_hint": "Use the paper-stated I/B/E/S label rather than downstream physical tables.",
+        "source": {
+          "location": "Section 3, p. 7",
+          "quote": "split-adjust the unadjusted file ourselves",
+          "interpretation": "This quote supports the paper's forecast-adjustment procedure."
+        }
+      },
+      {
+        "topic": "streak-classification start",
+        "paper_action": "Start streak/reversal sample in 1987 to obtain three years of prior earnings surprises.",
+        "details": "Raw I/B/E/S sample starts in 1984, but classification begins later.",
+        "implementation_relevance": "Do not begin executable streak portfolios in 1984.",
+        "normalizer_hint": "Separate raw earnings-surprise history from executable return sample.",
+        "source": {
+          "location": "Section 3, p. 7",
+          "quote": "sample begins in 1987",
+          "interpretation": "This quote supports the executable streak/reversal classification start year."
+        }
+      }
+    ]
+  },
+  "sample": {
+    "formation_years": {
+      "start": 1987,
+      "end": 2009
+    },
+    "return_sample": {
+      "start": {
+        "year": 1987,
+        "month": null
+      },
+      "end": {
+        "year": 2009,
+        "month": null
+      }
+    },
+    "source": {
+      "location": "Section 3, p. 7; Table 3 caption",
+      "quote": "1987 to 2009 sample period",
+      "interpretation": "The paper states that streak/reversal classification begins in 1987 and Table 3 reports the 1987-2009 sample period; exact start/end months are not stated in the extracted text and should not be inferred from the paper."
+    }
+  },
+  "timing": {
+    "formation": {
+      "month": null,
+      "date_rule": "monthly formation based on most recent quarterly SURP and prior SURP signs",
+      "description": "Each month, classify firms by the most recent earnings surprise and streak/reversal status, then hold selected stocks for six months."
+    },
+    "rebalance_frequency": "monthly overlapping holdings",
+    "holding_period_months": 6,
+    "return_window": {
+      "start": "paper_unspecified_exact_entry_after_most_recent_SURP_classification",
+      "end": "six-month holding period",
+      "note": "Paper states monthly formation based on the most recent SURP and six-month holdings, but does not specify the exact announcement-to-entry delay."
+    },
+    "accounting_lag_months": null,
+    "accounting_data_used": {
+      "current_period": {
+        "label": "most_recent_quarterly_earnings_surprise",
+        "description": "Most recent quarterly I/B/E/S actual minus consensus forecast, normalized by prior-month CRSP price.",
+        "used_for": "SURP sign, SURP magnitude, streak/reversal classification"
+      },
+      "lag_period": {
+        "label": "prior_earnings_surprise_history",
+        "description": "Prior quarterly SURP signs are used to identify streaks of at least two consecutive surprises and reversals.",
+        "used_for": "streak classification"
+      },
+      "base_time_index": "formation_month_m"
+    },
+    "skip_months": null,
+    "source": {
+      "location": "Table 3 caption",
+      "quote": "remain in the relevant portfolio for six months",
+      "interpretation": "This directly supports the six-month holding period and monthly calendar-time portfolio construction."
+    }
+  },
+  "universe": {
+    "description": "Stocks with I/B/E/S analyst forecast data and CRSP ordinary-share monthly returns, non-negative book-to-market ratio, and lagged price at least five dollars for trading strategies.",
+    "source": {
+      "location": "Section 3, p. 7",
+      "quote": "ordinary shares (share codes 10 or 11)",
+      "interpretation": "The paper states ordinary-share CRSP share-code and other sample/trading filters."
+    },
+    "exchange_names": {
+      "value": [],
+      "source": {
+        "location": "Section 3, p. 7",
+        "quote": "CRSP for stocks",
+        "interpretation": "The paper does not state exchange names for the main sample in the extracted text."
+      }
+    },
+    "filters": [
+      {
+        "field": "share_code",
+        "op": "in",
+        "value": [
+          10,
+          11
+        ],
+        "source": {
+          "location": "Section 3, p. 7",
+          "quote": "share codes 10 or 11",
+          "interpretation": "The sample includes CRSP ordinary shares with these share codes."
+        }
+      },
+      {
+        "field": "book_to_market_ratio",
+        "op": "gte",
+        "value": 0,
+        "source": {
+          "location": "Section 3, p. 7",
+          "quote": "non-negative book-to-market",
+          "interpretation": "The paper requires non-negative BM."
+        }
+      },
+      {
+        "field": "lagged_stock_price",
+        "op": "gte",
+        "value": 5,
+        "source": {
+          "location": "Section 4.1, p. 8",
+          "quote": "below five dollars",
+          "interpretation": "Trading strategies exclude stocks with lagged prices below five dollars."
+        }
+      },
+      {
+        "field": "earnings_surprise_history",
+        "op": "nonmissing",
+        "value": null,
+        "source": {
+          "location": "Section 3, p. 7",
+          "quote": "three years of prior earnings surprises",
+          "interpretation": "Streak/reversal classification requires prior earnings-surprise history."
+        }
+      }
+    ],
+    "missing_policy": {
+      "action": "exclude observations without required I/B/E/S forecasts/actuals, CRSP returns/prices, ordinary-share status, non-negative BM, or enough earnings-surprise history; add delisting returns and use -30% for missing performance-related delisting returns as stated",
+      "source": {
+        "location": "Section 3, p. 7",
+        "quote": "use -30%",
+        "interpretation": "The paper states the Shumway convention for missing performance-related delisting returns and lists required sample fields."
+      },
+      "confidence": "high"
+    },
+    "winsorize_bounds": {
+      "status": "winsorization at the 0.1 percentiles is stated for SURP variables in Fama-MacBeth regressions, not for the main calendar-time portfolio strategy",
+      "lower_pct": null,
+      "upper_pct": null,
+      "applies_to": "main_portfolio_spec",
+      "source": {
+        "location": "Section 4.5, p. 15",
+        "quote": "winsorized at the 0.1 percentiles",
+        "interpretation": "The winsorization statement applies to SURP variables in regressions, not the Table 3 calendar-time portfolios."
+      }
+    }
+  },
+  "portfolio": {
+    "sort": {
+      "variable": "streak_sign",
+      "role": "calendar-time trading strategy based on earnings-surprise streak classification",
+      "n_groups": null,
+      "group_type": "long-short signal legs rather than full quantile-only sort",
+      "ls_quantile": null,
+      "breakpoint_source": "paper_specific",
+      "source": {
+        "location": "Table 3 caption",
+        "quote": "streak portfolios and reversal portfolios",
+        "interpretation": "The paper separates stocks into streak/reversal portfolios and, for the PEAD strategy, also into SURP quintiles."
+      }
+    },
+    "weights": [
+      "equal_weight"
+    ],
+    "weights_source": {
+      "location": "Table 3 caption",
+      "quote": "Equally-weighted returns",
+      "interpretation": "The paper states equally weighted monthly returns for the main calendar-time trading strategies."
+    },
+    "weighting_scheme": null,
+    "paper_reports_explicit_simple_long_short_strategy": true,
+    "paper_spread_direction": "positive streak leg minus negative streak leg",
+    "implied_factor_direction": {
+      "long_leg": "positive streak portfolio",
+      "short_leg": "negative streak portfolio",
+      "use_for_backtest_if_needed": true,
+      "note": "First trading strategy ignores magnitude and trades on streak sign."
+    },
+    "overlapping_portfolios": true
+  },
+  "reported_results": {
+    "return_horizon": "six-month holding period with monthly calendar-time returns",
+    "return_type": "risk-adjusted alpha and characteristic-adjusted return",
+    "return_type_explanation": "raw = realized portfolio return before risk adjustment; alpha = risk-adjusted intercept; size_adjusted_bhar = compounded security return minus compounded benchmark return",
+    "main_table": "Table 3 Panel A: SURP Signs",
+    "spreads": {
+      "four_factor_alpha_spread_monthly_pct": 0.603,
+      "four_factor_alpha_t_stat": 8.12,
+      "fama_french_3factor_alpha_spread_monthly_pct": 0.663,
+      "fama_french_3factor_alpha_t_stat": 8.73,
+      "dgtw_adjusted_return_spread_monthly_pct": 0.383,
+      "dgtw_adjusted_return_t_stat": 5.74,
+      "source": {
+        "location": "Table 3 Panel A: SURP Signs",
+        "quote": "Four-factor Streaks Spread 0.603*** (8.12); Fama-French 3-factor Streaks Spread 0.663*** (8.73); DGTW Streaks Spread 0.383*** (5.74)",
+        "interpretation": "Table 3 Panel A reports positive-minus-negative streak spreads for four-factor alpha, Fama-French 3-factor alpha, and DGTW-adjusted average returns with associated t-statistics."
+      }
+    },
+    "comparison_policy": {
+      "preserve_paper_direction": true,
+      "align_backtest_to_paper_direction_before_comparison": true,
+      "note": "Use the paper's positive-streak-minus-negative-streak direction."
+    },
+    "return_calculation": {
+      "name": "factor_portfolio_return",
+      "input_return": {
+        "name": "monthly_excess_stock_return",
+        "paper_variable": "monthly returns less the risk-free rate",
+        "data_frequency": "monthly",
+        "expression": "monthly_stock_return_m_with_delisting - risk_free_rate_m",
+        "benchmark": "risk_free_rate",
+        "adjustments": [
+          "add CRSP delisting returns; use -30% if missing delisting return is performance-related"
+        ],
+        "source": {
+          "location": "Section 3, p. 7; Table 3 caption",
+          "quote": "Delisting returns are added",
+          "interpretation": "The paper states the delisting-return adjustment and that monthly returns less the risk-free rate are used in factor regressions."
+        }
+      },
+      "portfolio_return": {
+        "construction_type": "characteristic_sort",
+        "sorts": [
+          "streak_sign"
+        ],
+        "weighting": {
+          "type": "equal_weight",
+          "variants": []
+        },
+        "return_combination": {
+          "type": "extreme_group_spread",
+          "expression": "R_positive_streak - R_negative_streak",
+          "long_leg": "positive streak portfolio",
+          "short_leg": "negative streak portfolio",
+          "note": "First trading strategy ignores magnitude and trades on streak sign."
+        },
+        "regression": null,
+        "reported_frequency": "monthly",
+        "holding_period": "six months with overlapping monthly holdings",
+        "source": {
+          "location": "Table 3 caption",
+          "quote": "Stocks remain in the relevant portfolio for six months",
+          "interpretation": "The paper states six-month holdings and equal-weighted monthly calendar-time returns."
+        }
+      }
+    }
+  },
+  "robustness_or_secondary_specs": [
+    {
+      "topic": "reversal portfolios",
+      "description": "The same sign-based and SURP-magnitude strategies are implemented for reversals, which produce insignificant returns.",
+      "source": {
+        "location": "Introduction, p. 2",
+        "quote": "reversals signify the termination",
+        "interpretation": "Reversals are comparison portfolios rather than the main long-short streak target."
+      }
+    },
+    {
+      "topic": "streak length",
+      "description": "Table 4 splits streaks by length 2-3, 4-5, 6-9, and at least 10 quarters.",
+      "source": {
+        "location": "Table 4 caption",
+        "quote": "Streak length",
+        "interpretation": "This is a secondary specification by streak length."
+      }
+    },
+    {
+      "topic": "consistency trend definition",
+      "description": "Section 4.4 uses a broader consistency definition based on the majority sign of prior earnings surprises.",
+      "source": {
+        "location": "Section 4.4, p. 12",
+        "quote": "majority (50%)",
+        "interpretation": "This is a robustness/generalized trend definition."
+      }
+    },
+    {
+      "topic": "Fama-MacBeth regressions",
+      "description": "Section 4.5 confirms portfolio-level results with individual-firm regressions and controls.",
+      "source": {
+        "location": "Section 4.5, p. 14",
+        "quote": "Fama-MacBeth",
+        "interpretation": "This is a regression test rather than the main portfolio construction."
+      }
+    }
+  ],
+  "ambiguous_fields": [
+    {
+      "field": "exact_return_sample_months",
+      "status": "ambiguous",
+      "details": "The paper states the 1987-2009 sample period for streak/reversal portfolios but does not state exact first and last calendar months in the extracted text. Do not infer January/December from the paper; exact return months require an external replication convention or manual implementation decision."
+    },
+    {
+      "field": "portfolio_entry_timing_after_earnings_announcement",
+      "status": "unspecified",
+      "details": "The paper states monthly portfolios based on the most recent SURP and six-month holding periods, but does not specify the exact trading-day or calendar-month delay after earnings announcements for portfolio inclusion. Do not impose an unstated announcement-to-entry lag as a paper fact."
+    }
+  ],
+  "extensions": {},
+  "annotator_notes": "Paper-first extraction from the local PDF. No C&Z/OSAP/SignalDoc facts, physical WRDS table mappings, or unstated CRSP exchange filters were used."
+}

@@ -1,0 +1,619 @@
+{
+  "schema_version": "methodspec.v1",
+  "factor_id": "Valta_StrategicDefault_Shareholders_LowZ",
+  "cz_acronym": null,
+  "annotation_status": "draft_human_annotation",
+  "review_status": "pending",
+  "formula_convention": {
+    "time_index_base": "formation_month_m / formation_year_t",
+    "default_accounting_period": "fiscal_year_ending_in_calendar_year",
+    "suffix_rules": {
+      "_t": "value associated with formation year t unless otherwise specified",
+      "_t_minus_1": "lagged annual value relative to formation year t",
+      "_t_minus_2": "two-year lagged annual value relative to formation year t",
+      "_m": "monthly value at portfolio formation month m",
+      "_m_plus_1": "next-month holding-period return",
+      "lag(x,n)": "n-period lag of x at the field's data frequency"
+    },
+    "notes": "The paper matches accounting fiscal year-ends in calendar year t-1 with returns from July of year t to June of year t+1. Table 5 forms calendar-month quantile portfolios."
+  },
+  "paper": {
+    "pdf_file": "projects/factor-replication-agent/paper_test/Strategic default, debt structure, and stock returns.pdf",
+    "title": "Strategic Default, Debt Structure, and Stock Returns",
+    "citation": "Valta, Journal of Financial and Quantitative Analysis, forthcoming",
+    "paper_sections": [
+      "Abstract",
+      "I Introduction",
+      "II Model and Predictions",
+      "III Data and Descriptive Statistics",
+      "III.A Secured and Convertible debt",
+      "III.B Renegotiation frictions",
+      "III.C Distance from the Renegotiation Threshold",
+      "III.D Data",
+      "IV Results",
+      "IV.A Fama and MacBeth Analysis",
+      "IV.B Factor Model Regressions",
+      "Table 1",
+      "Table 5"
+    ],
+    "evidence_sections": [
+      "Abstract",
+      "Section III.A",
+      "Section III.B",
+      "Section III.C",
+      "Section III.D",
+      "Section IV.B",
+      "Table 1",
+      "Table 5"
+    ]
+  },
+  "signal": {
+    "paper_variable_name": "Shareholders",
+    "factor_name": "Renegotiation frictions proxied by normalized number of institutional shareholders",
+    "economic_intuition": {
+      "value": "More institutional shareholders proxy for higher renegotiation frictions; higher frictions reduce the strategic default option value and increase required stock returns, especially near the renegotiation threshold.",
+      "source": {
+        "location": "Section III.B, p. 17",
+        "quote": "proxy for renegotiation frictions",
+        "interpretation": "The paper motivates the number of institutional shareholders as a renegotiation-frictions proxy."
+      }
+    },
+    "definition": {
+      "value": "Logarithm of the number of different institutional shareholders divided by the logarithm of the market value of equity.",
+      "source": {
+        "location": "Section III.B, p. 17",
+        "quote": "logarithm of the number",
+        "interpretation": "The paper explicitly defines the Shareholders variable."
+      }
+    },
+    "formula": {
+      "expression": "log(number_of_institutional_shareholders) / log(market_value_of_equity)",
+      "paper_expression": "Log(Number of institutional shareholders) / log(Market equity)",
+      "calculation_steps": [
+        "Obtain the number of different institutional shareholders for the firm.",
+        "Obtain market value of equity.",
+        "Compute the normalized shareholder count as log(number_of_institutional_shareholders) divided by log(market_value_of_equity).",
+        "For the main Table 5 conditional test, restrict to the lowest Z-score quartile and sort monthly into five quantiles on Shareholders."
+      ],
+      "source": {
+        "location": "Table 1, p. 37",
+        "quote": "Log(Number of institutional shareholders) / log(Market equity)",
+        "interpretation": "Table 1 gives the executable formula for Shareholders."
+      },
+      "inputs": [
+        "number_of_institutional_shareholders",
+        "market_value_of_equity"
+      ]
+    },
+    "category": "continuous",
+    "sign": {
+      "value": "positive",
+      "meaning": "Higher Shareholders predicts higher returns; the long leg is high renegotiation frictions.",
+      "source": {
+        "location": "Section IV.B, p. 23",
+        "quote": "increase from quantile 1",
+        "interpretation": "The paper states average returns increase from low to high Shareholders in the low Z-score group."
+      }
+    }
+  },
+  "data": {
+    "frequency": "annual accounting/debt-structure signal with monthly portfolio returns",
+    "return_data_frequency": "monthly",
+    "sources": [
+      {
+        "dataset": "Center for Research in Security Prices (CRSP)",
+        "use": "Monthly stock market data, share codes, exchange listings, returns, market equity, and momentum.",
+        "source_details": [
+          "monthly stock market data",
+          "CRSP monthly returns file",
+          "share codes 10 and 11"
+        ]
+      },
+      {
+        "dataset": "Standard & Poor’s Compustat",
+        "use": "Annual financial statement data including total debt, secured debt, convertible debt, assets, liabilities, SIC and accounting variables.",
+        "source_details": [
+          "annual financial statement data",
+          "Compustat industrial annual file",
+          "secured debt (dm)",
+          "convertible debt (cvd)",
+          "total debt (dlc+dltt)"
+        ]
+      },
+      {
+        "dataset": "Thomson Financial Ownership Database",
+        "use": "Institutional ownership and number of institutional shareholders.",
+        "source_details": [
+          "institutional ownership data"
+        ]
+      },
+      {
+        "dataset": "Kenneth French data library",
+        "use": "Fama-French and momentum factor returns for reported factor-model alphas.",
+        "source_details": [
+          "factor-mimicking portfolios"
+        ]
+      },
+      {
+        "dataset": "Pastor and Stambaugh liquidity factor data",
+        "use": "Liquidity factor for reported five-factor alphas.",
+        "source_details": [
+          "Pastor and Stambaugh (2003) liquidity factor"
+        ]
+      }
+    ],
+    "required_fields": [
+      {
+        "field": "share_code",
+        "dataset": "CRSP monthly returns file",
+        "description": "CRSP share code used to include share codes 10 and 11.",
+        "source_detail": "The paper includes firms listed on NYSE, AMEX, and NASDAQ with share codes 10 and 11."
+      },
+      {
+        "field": "exchange_name",
+        "dataset": "CRSP monthly returns file",
+        "description": "Exchange name among NYSE, AMEX, and NASDAQ.",
+        "source_detail": "The paper includes firms listed on NYSE, AMEX, and NASDAQ."
+      },
+      {
+        "field": "sic_code",
+        "dataset": "Standard & Poor’s Compustat",
+        "description": "SIC code used to exclude financial and regulated firms.",
+        "source_detail": "The paper excludes financial firms with SIC 6000-6999 and regulated firms with SIC above 9000."
+      },
+      {
+        "field": "book_value_of_assets",
+        "dataset": "Standard & Poor’s Compustat",
+        "description": "Book value of assets required for sample inclusion and controls.",
+        "source_detail": "A firm must have information on the book value of assets."
+      },
+      {
+        "field": "market_value_of_equity",
+        "dataset": "CRSP / Compustat",
+        "description": "Market value of equity required for sample inclusion and size/shareholder normalization.",
+        "source_detail": "A firm must have information on the market value of equity."
+      },
+      {
+        "field": "momentum",
+        "dataset": "CRSP",
+        "description": "Past 12-month average return skipping the most recent month.",
+        "source_detail": "Momentum is the firm’s past 12-month average return, skipping the most recent month."
+      },
+      {
+        "field": "total_debt",
+        "dataset": "Standard & Poor’s Compustat",
+        "description": "Total debt, dlc plus dltt, used as denominator for secured and convertible debt proportions.",
+        "source_detail": "The paper states total debt as dlc+dltt."
+      },
+      {
+        "field": "institutional_ownership",
+        "dataset": "Thomson Financial Ownership Database",
+        "description": "Institutional ownership data required for Shareholders proxy and sample inclusion.",
+        "source_detail": "Institutional ownership data come from the Thomson Financial Ownership Database."
+      },
+      {
+        "field": "monthly_observation_count",
+        "dataset": "CRSP monthly returns file",
+        "description": "Minimum 12 monthly observations per firm required for sample inclusion.",
+        "source_detail": "The paper requires at least 12 monthly observations per firm."
+      },
+      {
+        "field": "stock_return",
+        "dataset": "CRSP monthly returns file",
+        "description": "Monthly stock return used to compute excess returns and portfolio alphas.",
+        "source_detail": "Monthly stock market data come from CRSP."
+      },
+      {
+        "field": "risk_free_rate",
+        "dataset": "risk free rate",
+        "description": "Risk-free rate used to form excess returns; the paper does not name a specific risk-free-rate dataset in Table 5.",
+        "source_detail": "Table 5 defines XRet as the return in excess of the risk free rate."
+      },
+      {
+        "field": "zscore",
+        "dataset": "CRSP & Compustat",
+        "description": "Altman Z-score used to assign firm-month observations to pooled Z-score quartiles; lowest quartile identifies firms close to the renegotiation threshold.",
+        "source_detail": "The paper calculates Z-score for every firm-month observation and splits observations into quartiles."
+      },
+      {
+        "field": "number_of_institutional_shareholders",
+        "dataset": "Thomson Financial Ownership Database",
+        "description": "Number of different institutional shareholders.",
+        "source_detail": "The paper uses the number of institutional shareholders as a proxy for renegotiation frictions."
+      },
+      {
+        "field": "zscore_quartile",
+        "dataset": "CRSP & Compustat",
+        "description": "Pooled quartile rank based on Altman Z-score; quartile 1 is the lowest Z-score group close to the renegotiation threshold.",
+        "source_detail": "The paper pools observations and splits the sample into quartiles based on the Z-score."
+      }
+    ],
+    "source_note": "Paper-stated sample is a panel of US firms over 1985 to 2012, with CRSP monthly returns, Compustat annual financials, and Thomson Financial Ownership data. Accounting data for fiscal year-ends in calendar year t-1 are matched with returns from July t to June t+1.",
+    "sample_coverage_notes": [
+      {
+        "topic": "sample period and final observations",
+        "paper_action": "Use US firm panel over 1985-2012 and require variable availability plus at least 12 monthly observations.",
+        "details": "Final sample has 638,593 firm-month observations.",
+        "implementation_relevance": "Backtests should enforce variable availability and minimum monthly observation requirements rather than only date coverage.",
+        "normalizer_hint": "Use paper-stated CRSP/Compustat/Thomson labels; do not insert physical WRDS table mappings.",
+        "source": {
+          "location": "Section III.D-E, pp. 18-19",
+          "quote": "638,593 firm-month observations",
+          "interpretation": "This states the final sample size after applying paper sample filters."
+        }
+      }
+    ]
+  },
+  "sample": {
+    "formation_years": {
+      "start": 1985,
+      "end": 2012
+    },
+    "return_sample": {
+      "start": {
+        "year": 1985,
+        "month": null
+      },
+      "end": {
+        "year": 2012,
+        "month": null
+      }
+    },
+    "source": {
+      "location": "Section III.D, p. 18; Table 5 caption, p. 42",
+      "quote": "period 1985 to 2012",
+      "interpretation": "The paper states the sample period as 1985 to 2012; Table 5 reports 324 months but does not state exact first and last calendar months in the excerpted table."
+    }
+  },
+  "timing": {
+    "formation": {
+      "month": null,
+      "date_rule": "beginning of each calendar month for Table 5 quantile portfolios; accounting data for fiscal year t-1 matched to July t-June t+1",
+      "description": "Stocks are sorted at the beginning of each calendar month using the relevant signal."
+    },
+    "rebalance_frequency": "monthly",
+    "holding_period_months": 1,
+    "return_window": {
+      "start": "current calendar month after beginning-of-month sort",
+      "end": "same month"
+    },
+    "accounting_lag_months": 6,
+    "accounting_data_used": {
+      "current_period": {
+        "label": "fiscal_year_ending_calendar_year_t_minus_1",
+        "description": "Accounting variables for fiscal year-ends in calendar year t-1 are matched with returns from July t to June t+1.",
+        "used_for": "debt-structure signals and controls"
+      },
+      "lag_period": {
+        "label": "not_separately_specified",
+        "description": "No additional lag beyond the paper's fiscal-year t-1 to July t matching rule is stated for main debt-structure variables.",
+        "used_for": "not_applicable"
+      },
+      "base_time_index": "formation_year_t / formation_month_m"
+    },
+    "skip_months": null,
+    "source": {
+      "location": "Section III.D, p. 18; Section IV.B, p. 22",
+      "quote": "beginning of each calendar month",
+      "interpretation": "This supports monthly portfolio formation; the accounting match quote supports the availability lag."
+    }
+  },
+  "universe": {
+    "description": "US firms listed on NYSE, AMEX, and NASDAQ with CRSP share codes 10 and 11 in the intersection of CRSP monthly returns and Compustat industrial annual files, excluding financial and regulated firms and requiring specified data availability.",
+    "source": {
+      "location": "Section III.D, p. 18",
+      "quote": "share codes 10 and 11",
+      "interpretation": "This quote supports the CRSP share-code universe and intersection with Compustat industrial annual file."
+    },
+    "exchange_names": {
+      "value": [
+        "NYSE",
+        "AMEX",
+        "NASDAQ"
+      ],
+      "source": {
+        "location": "Section III.D, p. 18",
+        "quote": "NYSE, AMEX, and NASDAQ",
+        "interpretation": "The paper names these exchanges."
+      }
+    },
+    "filters": [
+      {
+        "field": "exchange_name",
+        "op": "in",
+        "value": [
+          "NYSE",
+          "AMEX",
+          "NASDAQ"
+        ],
+        "source": {
+          "location": "Section III.D, p. 18",
+          "quote": "NYSE, AMEX, and NASDAQ",
+          "interpretation": "The universe includes firms listed on these exchanges."
+        }
+      },
+      {
+        "field": "share_code",
+        "op": "in",
+        "value": [
+          10,
+          11
+        ],
+        "source": {
+          "location": "Section III.D, p. 18",
+          "quote": "share codes 10 and 11",
+          "interpretation": "The paper restricts to CRSP share codes 10 and 11."
+        }
+      },
+      {
+        "field": "sic_code",
+        "op": "not_between",
+        "value": [
+          6000,
+          6999
+        ],
+        "source": {
+          "location": "Section III.D, p. 18",
+          "quote": "SIC codes between 6000 and 6999",
+          "interpretation": "Financial firms in this SIC range are excluded."
+        }
+      },
+      {
+        "field": "sic_code",
+        "op": "lte",
+        "value": 9000,
+        "source": {
+          "location": "Section III.D, p. 18",
+          "quote": "SIC codes above 9000",
+          "interpretation": "Regulated firms with SIC above 9000 are excluded."
+        }
+      },
+      {
+        "field": "book_value_of_assets",
+        "op": "nonmissing",
+        "value": null,
+        "source": {
+          "location": "Section III.D, p. 18",
+          "quote": "book value of assets",
+          "interpretation": "The paper requires this information for sample inclusion."
+        }
+      },
+      {
+        "field": "market_value_of_equity",
+        "op": "nonmissing",
+        "value": null,
+        "source": {
+          "location": "Section III.D, p. 18",
+          "quote": "market value of equity",
+          "interpretation": "The paper requires market value of equity for sample inclusion."
+        }
+      },
+      {
+        "field": "momentum",
+        "op": "nonmissing",
+        "value": null,
+        "source": {
+          "location": "Section III.D, p. 18",
+          "quote": "momentum",
+          "interpretation": "The paper requires momentum for sample inclusion."
+        }
+      },
+      {
+        "field": "total_debt",
+        "op": "nonmissing",
+        "value": null,
+        "source": {
+          "location": "Section III.D, p. 18",
+          "quote": "total debt (dlc+dltt)",
+          "interpretation": "The paper requires total debt for sample inclusion."
+        }
+      },
+      {
+        "field": "institutional_ownership",
+        "op": "nonmissing",
+        "value": null,
+        "source": {
+          "location": "Section III.D, p. 18",
+          "quote": "institutional ownership",
+          "interpretation": "The paper requires institutional ownership for sample inclusion."
+        }
+      },
+      {
+        "field": "monthly_observation_count",
+        "op": "gte",
+        "value": 12,
+        "source": {
+          "location": "Section III.D, p. 18",
+          "quote": "at least 12 monthly observations",
+          "interpretation": "The paper requires at least 12 monthly observations per firm."
+        }
+      },
+      {
+        "field": "zscore_quartile",
+        "op": "eq",
+        "value": 1,
+        "source": {
+          "location": "Section III.C, p. 17",
+          "quote": "lowest Z-score quartile",
+          "interpretation": "The paper identifies firms close to the renegotiation threshold as those in the lowest pooled Z-score quartile."
+        }
+      }
+    ],
+    "missing_policy": {
+      "action": "exclude observations without required accounting, return, debt-structure, momentum, and institutional ownership data; winsorize variables at 1% tails as stated",
+      "source": {
+        "location": "Section III.D, p. 18",
+        "quote": "must have information",
+        "interpretation": "The paper lists required fields and excludes observations without them."
+      },
+      "confidence": "high"
+    },
+    "winsorize_bounds": {
+      "status": "paper states all variables are winsorized at the one percent level in each tail",
+      "lower_pct": 1,
+      "upper_pct": 99,
+      "applies_to": "main_portfolio_spec",
+      "source": {
+        "location": "Section III.D, p. 18",
+        "quote": "one percent level in each tail",
+        "interpretation": "The paper explicitly states this winsorization rule for all variables."
+      }
+    }
+  },
+  "portfolio": {
+    "sort": {
+      "variable": "Shareholders",
+      "role": "simple portfolio sorting within the paper-stated sample or distress subsample",
+      "n_groups": 5,
+      "group_type": "quantile",
+      "ls_quantile": "5-1",
+      "breakpoint_source": "unspecified",
+      "source": {
+        "location": "Section IV.B, p. 22",
+        "quote": "five quantiles",
+        "interpretation": "The paper sorts stocks into five quantiles based on the signal."
+      }
+    },
+    "weights": [
+      "other"
+    ],
+    "weights_source": {
+      "location": "Section IV.B, p. 22",
+      "quote": "using all the individual stocks by quantile",
+      "interpretation": "The main table reports individual-stock quantile alphas as well as EW and VW portfolio alternatives."
+    },
+    "weighting_scheme": "Main reported Table 5 columns compute alphas using all individual stocks by quantile; additional columns use equal- and value-weighted monthly portfolio returns.",
+    "paper_reports_explicit_simple_long_short_strategy": true,
+    "paper_spread_direction": "highest quantile minus lowest quantile",
+    "implied_factor_direction": {
+      "long_leg": "highest signal quantile",
+      "short_leg": "lowest signal quantile",
+      "use_for_backtest_if_needed": true,
+      "note": "Main target is the distress subsample where the paper predicts the effect is strongest."
+    },
+    "overlapping_portfolios": false
+  },
+  "reported_results": {
+    "return_horizon": "monthly",
+    "return_type": "excess return and factor-model alpha",
+    "return_type_explanation": "raw = realized portfolio return before risk adjustment; alpha = risk-adjusted intercept; size_adjusted_bhar = compounded security return minus compounded benchmark return",
+    "main_table": "Table 5 Panel A, lowest Z-score quartile",
+    "spreads": {
+      "xret_5_minus_1_monthly_pct": 0.82,
+      "xret_t_stat": 7.64,
+      "three_factor_alpha_5_minus_1_monthly_pct": 0.59,
+      "four_factor_alpha_5_minus_1_monthly_pct": 0.67,
+      "five_factor_alpha_5_minus_1_monthly_pct": 0.71,
+      "ew_portfolio_five_factor_alpha_5_minus_1_monthly_pct": 0.74,
+      "vw_portfolio_five_factor_alpha_5_minus_1_monthly_pct": 0.64,
+      "source": {
+        "location": "Table 5 Panel A, p. 42",
+        "quote": "L/S 0.82% 0.59% 0.67% 0.71% 0.74% 0.64%; t-stat (7.64) (5.64) (6.29) (6.62) (2.27) (1.95)",
+        "interpretation": "These are the Shareholders low-Z-score-quartile high-minus-low monthly spread values and corresponding t-statistics across XRet, 3-factor, 4-factor, 5-factor, EW 5-factor, and VW 5-factor columns."
+      },
+      "three_factor_alpha_t_stat": 5.64,
+      "four_factor_alpha_t_stat": 6.29,
+      "five_factor_alpha_t_stat": 6.62,
+      "ew_portfolio_five_factor_alpha_t_stat": 2.27,
+      "vw_portfolio_five_factor_alpha_t_stat": 1.95
+    },
+    "comparison_policy": {
+      "preserve_paper_direction": true,
+      "align_backtest_to_paper_direction_before_comparison": true,
+      "note": "Use the paper's high-minus-low direction."
+    },
+    "return_calculation": {
+      "name": "factor_portfolio_return",
+      "input_return": {
+        "name": "monthly_excess_stock_return",
+        "paper_variable": "XRet",
+        "data_frequency": "monthly",
+        "expression": "stock_return_m - risk_free_rate_m",
+        "benchmark": "risk_free_rate",
+        "adjustments": [],
+        "source": {
+          "location": "Table 5 caption, p. 42",
+          "quote": "XRet is the return in excess",
+          "interpretation": "The paper defines XRet as return in excess of the risk-free rate."
+        }
+      },
+      "portfolio_return": {
+        "construction_type": "characteristic_sort",
+        "sorts": [
+          "Shareholders"
+        ],
+        "weighting": {
+          "type": "other",
+          "variants": [
+            "individual_stocks_by_quantile",
+            "equal_weight_portfolio",
+            "value_weight_portfolio"
+          ]
+        },
+        "return_combination": {
+          "type": "extreme_group_spread",
+          "expression": "R_quantile_5 - R_quantile_1",
+          "long_leg": "quantile 5 high signal",
+          "short_leg": "quantile 1 low signal",
+          "note": "Main target is the distress subsample where the paper predicts the effect is strongest."
+        },
+        "regression": null,
+        "reported_frequency": "monthly",
+        "holding_period": "one month",
+        "source": {
+          "location": "Table 5 caption, p. 42",
+          "quote": "L/S is the alpha",
+          "interpretation": "The table defines the high-minus-low zero-cost portfolio and reports monthly abnormal returns."
+        }
+      }
+    }
+  },
+  "robustness_or_secondary_specs": [
+    {
+      "topic": "Fama-MacBeth regressions",
+      "description": "Table 4 uses Fama-MacBeth regressions for the same predictors with controls.",
+      "source": {
+        "location": "Section IV.A, p. 20",
+        "quote": "Fama and MacBeth",
+        "interpretation": "Regression evidence is secondary to the executable Table 5 portfolio target."
+      }
+    },
+    {
+      "topic": "alternative renegotiation frictions proxy",
+      "description": "Robustness uses an institutional-ownership HHI proxy.",
+      "source": {
+        "location": "Section III.B, p. 17",
+        "quote": "Herfindahl index",
+        "interpretation": "The HHI proxy is an alternative robustness specification."
+      }
+    },
+    {
+      "topic": "alternative distress measures",
+      "description": "Robustness uses Zmijewski score and structural default probability instead of Altman Z-score.",
+      "source": {
+        "location": "Section III.C, p. 17",
+        "quote": "alternative measures of distress",
+        "interpretation": "These are robustness variants for distance from renegotiation threshold."
+      }
+    }
+  ],
+  "ambiguous_fields": [
+    {
+      "field": "exact_return_sample_months",
+      "status": "ambiguous",
+      "details": "The paper states sample period 1985 to 2012 and Table 5 reports 324 months, but the exact first and last portfolio months are not stated in the extracted text."
+    },
+    {
+      "field": "Table_5_individual_vs_EW_or_VW_main_comparison",
+      "status": "ambiguous",
+      "details": "Table 5 reports individual-stock quantile alphas plus EW and VW portfolio alphas. This spec uses the individual-stock XRet or alpha as the main reported comparison while preserving EW/VW values when central in the text."
+    },
+    {
+      "field": "zscore_lowest_quartile_encoding",
+      "status": "inferred_for_backtest_not_paper_stated",
+      "details": "Encoded the paper-stated lowest pooled Z-score quartile as zscore_quartile == 1 for codegen safety. The paper does not provide a numeric Z-score cutoff."
+    }
+  ],
+  "extensions": {},
+  "annotator_notes": "Paper-first extraction from local PDF. No C&Z/OSAP/SignalDoc facts, physical WRDS mappings, or CCM merge keys were used. Patched after audit: encoded lowest Z-score condition as zscore_quartile eq 1 where applicable, changed risk_free_rate dataset label to paper-first risk free rate, and completed Table 5 t-stat/source evidence."
+}

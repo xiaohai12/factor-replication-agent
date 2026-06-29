@@ -1,0 +1,577 @@
+{
+  "schema_version": "methodspec.v1",
+  "factor_id": "BlitzHuijMartens_ResidualMomentum",
+  "cz_acronym": null,
+  "annotation_status": "draft_human_annotation",
+  "review_status": "pending",
+  "formula_convention": {
+    "time_index_base": "formation_month_m",
+    "default_accounting_period": "not_applicable_return_based_monthly_signal",
+    "suffix_rules": {
+      "_t": "value associated with formation year t unless otherwise specified",
+      "_t_minus_1": "lagged annual value relative to formation year t",
+      "_t_minus_2": "two-year lagged annual value relative to formation year t",
+      "_m": "monthly value at portfolio formation month m",
+      "_m_plus_1": "next-month holding-period return",
+      "lag(x,n)": "n-period lag of x at the field's data frequency"
+    },
+    "notes": "This is a monthly return-based signal. At formation month m, residual momentum uses residual returns over months m-12 through m-2 and skips month m-1. Residual returns are estimated from a 36-month rolling Fama-French three-factor regression. No accounting variables are used."
+  },
+  "paper": {
+    "pdf_file": "Residual momentum.pdf",
+    "title": "Residual Momentum",
+    "citation": "Blitz, Huij, and Martens, Residual Momentum",
+    "paper_sections": [
+      "Abstract",
+      "1. Introduction",
+      "2. Residual Momentum versus Total Return Momentum",
+      "3. Data and Methodology",
+      "4. Empirical Results",
+      "5. Robustness Checks and Follow-up Empirical Tests",
+      "6. Summary and Concluding Comments",
+      "References"
+    ],
+    "evidence_sections": [
+      "Abstract",
+      "Section 3. Data and Methodology",
+      "Footnote 1",
+      "Table 2 caption and Panel B",
+      "Figure 1 caption"
+    ]
+  },
+  "signal": {
+    "paper_variable_name": "12-1M standardized residual return",
+    "factor_name": "Residual Momentum",
+    "economic_intuition": {
+      "value": "Rank stocks on firm-specific residual returns rather than total returns to reduce time-varying exposure to the Fama-French factors while preserving intermediate-term momentum information.",
+      "source": {
+        "location": "Abstract; Section 1 Introduction p.3",
+        "quote": "ranking stocks on residual stock returns instead of total returns",
+        "interpretation": "The paper's motivating idea is to replace total-return momentum rankings with rankings based on residual, firm-specific returns."
+      }
+    },
+    "definition": {
+      "value": "At each month, estimate each eligible stock's residual return from a Fama-French three-factor model, then rank stocks by their 12-month residual returns excluding the most recent month, standardized by the standard deviation of residual returns over the same 12-1M period.",
+      "source": {
+        "location": "Section 3 Data and Methodology pp.10-11",
+        "quote": "highest (lowest) 12-1M residual return standardized by its standard deviation",
+        "interpretation": "This directly defines the residual momentum sorting variable as the 12-1M residual return scaled by residual-return volatility over the same period."
+      }
+    },
+    "formula": {
+      "expression": "residual_momentum_i_m = sum(resid_ex_alpha_i,m-12:m-2) / std(resid_ex_alpha_i,m-12:m-2); resid_ex_alpha_i,s = excess_ret_i,s - beta1_i,m * RMRF_s - beta2_i,m * SMB_s - beta3_i,m * HML_s; betas beta1_i,m,beta2_i,m,beta3_i,m are estimated at formation month m from rolling_ols(excess_ret_i,tau = alpha_i,m + beta1_i,m*RMRF_tau + beta2_i,m*SMB_tau + beta3_i,m*HML_tau + error_i,tau, tau=m-36..m-1)",
+      "paper_expression": "r_i,t = alpha_i + beta_1,i RMRF_t + beta_2,i SMB_t + beta_3,i HML_t + epsilon_i,t; 12-1M residual return standardized by its standard deviation; estimated alpha is not included in the calculation of residual momentum",
+      "calculation_steps": [
+        {
+          "name": "compute_stock_excess_return",
+          "expression": "excess_ret_i_s = ret_i_s - rf_s",
+          "description": "Compute monthly stock return in excess of the risk-free rate before estimating the residual-return regression.",
+          "source": {
+            "location": "Section 3 Data and Methodology p.10",
+            "quote": "ri,t is the return on stock i in month t in excess of the risk-free rate",
+            "interpretation": "The dependent variable in Equation (1) is explicitly a stock excess return."
+          }
+        },
+        {
+          "name": "apply_complete_history_requirement",
+          "expression": "require complete_return_history(ret_i, months=m-36..m-1) for formation month m residual-regression eligibility",
+          "description": "Before estimating the formation-month residual model, require complete stock return history over the 36-month rolling regression window.",
+          "source": {
+            "location": "Section 3 Data and Methodology p.11",
+            "quote": "complete return history over the 36-month rolling regression window",
+            "interpretation": "The paper gives a clear eligibility rule for estimating residual returns."
+          }
+        },
+        {
+          "name": "estimate_formation_month_factor_exposures",
+          "expression": "alpha_i_m, beta1_i_m, beta2_i_m, beta3_i_m = rolling_ols(excess_ret_i_tau = alpha_i_m + beta1_i_m * RMRF_tau + beta2_i_m * SMB_tau + beta3_i_m * HML_tau + error_i_tau, tau=m-36..m-1)",
+          "description": "At each formation month, estimate Fama-French three-factor exposures from the prior 36 months of monthly returns.",
+          "source": {
+            "location": "Section 3 Data and Methodology pp.10-11; Equation (1)",
+            "quote": "We estimate the regressions over 36-month rolling windows",
+            "interpretation": "The paper states the Fama-French residual-return regression and that it is estimated from month t-36 through t-1."
+          }
+        },
+        {
+          "name": "compute_residual_returns_excluding_alpha",
+          "expression": "resid_ex_alpha_i_s = excess_ret_i_s - beta1_i_m * RMRF_s - beta2_i_m * SMB_s - beta3_i_m * HML_s for s=m-12..m-2",
+          "description": "Compute the residual-return series used for residual momentum over the 12-1M formation period using the estimated factor exposures, but do not subtract the estimated alpha.",
+          "source": {
+            "location": "Section 3 Data and Methodology p.11",
+            "quote": "we do not include the estimated alpha in the calculation of residual momentum",
+            "interpretation": "Although Equation (1) includes an intercept, the paper explicitly excludes the estimated alpha from the residual momentum calculation."
+          }
+        },
+        {
+          "name": "compute_12_1m_standardized_residual_momentum",
+          "expression": "residual_momentum_i_m = sum(resid_ex_alpha_i,m-12:m-2) / std(resid_ex_alpha_i,m-12:m-2)",
+          "description": "Aggregate residual returns over the preceding 12 months excluding the most recent month, then standardize by the residual-return standard deviation over that same period.",
+          "source": {
+            "location": "Section 3 Data and Methodology pp.10-11; Figure 1 caption p.55",
+            "quote": "past 12-month residual returns excluding the most recent month, standardized by the standard deviation",
+            "interpretation": "The quote supports a 12-1M residual-return signal scaled by residual-return volatility. The exact aggregation operator is not written as an equation, so this expression records the executable interpretation."
+          }
+        }
+      ],
+      "source": {
+        "location": "Section 3 Data and Methodology pp.10-11; Equation (1)",
+        "quote": "we do not include the estimated alpha in the calculation of residual momentum",
+        "interpretation": "Equation (1) defines the factor model used for residual returns; the subsequent text defines the standardized 12-1M residual momentum ranking variable and explicitly excludes alpha from the residual momentum calculation."
+      },
+      "inputs": [
+        "ret",
+        "rf",
+        "RMRF",
+        "SMB",
+        "HML"
+      ]
+    },
+    "category": "continuous",
+    "sign": {
+      "value": 1,
+      "meaning": "Stocks with higher standardized 12-1M residual returns are placed in the winner/top decile and have higher subsequent returns than stocks with lower residual momentum in the paper's top-minus-bottom spread.",
+      "source": {
+        "location": "Section 3 Data and Methodology p.11; Table 2 Panel B p.44",
+        "quote": "top-minus-bottom decile portfolio",
+        "interpretation": "The paper evaluates residual momentum as a top-minus-bottom portfolio; positive Panel B returns imply the higher residual-momentum leg outperforms the lower leg."
+      }
+    }
+  },
+  "data": {
+    "frequency": "monthly",
+    "return_data_frequency": "monthly",
+    "sources": [
+      {
+        "dataset": "crsp",
+        "use": "Monthly stock returns, stock price screen, and US equity universe membership; extractor records paper-stated source hints only.",
+        "source_details": [
+          "CRSP database"
+        ]
+      },
+      {
+        "dataset": "French (2010) webpage",
+        "use": "Fama-French common factors and risk-free rate used to estimate residual returns and reported alphas/betas; paper states these data come from French (2010) webpage.",
+        "source_details": [
+          "webpage of French (2010)"
+        ]
+      }
+    ],
+    "required_fields": [
+      {
+        "field": "ret",
+        "dataset": "crsp",
+        "description": "Monthly return on stock i used both for residual-return estimation and post-formation portfolio returns.",
+        "source_detail": "CRSP database"
+      },
+      {
+        "field": "price",
+        "dataset": "crsp",
+        "description": "Monthly stock price used for excluding stocks while price is below $1.",
+        "source_detail": "CRSP database"
+      },
+      {
+        "field": "domestic_primary_stock",
+        "dataset": "crsp",
+        "description": "Indicator or source concept needed to restrict the universe to domestic primary stocks, as stated by the paper.",
+        "source_detail": "CRSP database"
+      },
+      {
+        "field": "exchange_name",
+        "dataset": "crsp",
+        "description": "Stock-market listing name used to keep NYSE, AMEX, and Nasdaq stocks, as stated by the paper.",
+        "source_detail": "CRSP database"
+      },
+      {
+        "field": "security_type_or_listing_attributes",
+        "dataset": "crsp",
+        "description": "Paper-stated universe concepts needed to keep domestic primary stocks and exclude closed-end funds, REITs, unit trusts, ADRs, and foreign stocks.",
+        "source_detail": "CRSP database"
+      },
+      {
+        "field": "rf",
+        "dataset": "French (2010) webpage",
+        "description": "Risk-free rate used to compute stock excess returns in Equation (1).",
+        "source_detail": "webpage of French (2010)"
+      },
+      {
+        "field": "RMRF",
+        "dataset": "French (2010) webpage",
+        "description": "Fama-French market excess-return factor used in Equation (1).",
+        "source_detail": "webpage of French (2010)"
+      },
+      {
+        "field": "SMB",
+        "dataset": "French (2010) webpage",
+        "description": "Fama-French size factor used in Equation (1).",
+        "source_detail": "webpage of French (2010)"
+      },
+      {
+        "field": "HML",
+        "dataset": "French (2010) webpage",
+        "description": "Fama-French value factor used in Equation (1).",
+        "source_detail": "webpage of French (2010)"
+      }
+    ],
+    "source_note": "The executable target is the US equity residual momentum factor. Data requirements are limited to paper-stated CRSP stock data and common factor data from the webpage of French (2010); no physical WRDS table names or implementation merge keys are added. Raw paper sample coverage is January 1926 to December 2009; reported residual momentum strategy returns cover January 1930 to December 2009.",
+    "sample_coverage_notes": []
+  },
+  "sample": {
+    "formation_years": {
+      "start": 1930,
+      "end": 2009
+    },
+    "return_sample": {
+      "start": {
+        "year": 1930,
+        "month": 1
+      },
+      "end": {
+        "year": 2009,
+        "month": 12
+      }
+    },
+    "source": {
+      "location": "Section 3 Data and Methodology pp.9,12; Table 2 caption p.43",
+      "quote": "post-formation returns over the period January 1930 to December 2009",
+      "interpretation": "The paper states raw stock data cover January 1926 to December 2009, while reported strategy returns run January 1930 through December 2009. Formation years here are aligned to the executable/reported strategy period; raw data coverage is retained in data.source_note."
+    }
+  },
+  "timing": {
+    "formation": {
+      "month": null,
+      "date_rule": "each_calendar_month_using_prior_12_months_excluding_most_recent_month",
+      "description": "Each month, form decile portfolios using residual momentum measured over months m-12 through m-2; month m-1 is skipped."
+    },
+    "rebalance_frequency": "monthly",
+    "holding_period_months": 1,
+    "return_window": {
+      "start": "formation_month_m_holding_return",
+      "end": "same_calendar_month_end"
+    },
+    "accounting_lag_months": null,
+    "accounting_data_used": {
+      "current_period": {
+        "label": "not_applicable",
+        "description": "No accounting data are used.",
+        "used_for": "not_applicable"
+      },
+      "lag_period": {
+        "label": "not_applicable",
+        "description": "No accounting data are used.",
+        "used_for": "not_applicable"
+      },
+      "base_time_index": "formation_month_m"
+    },
+    "skip_months": 1,
+    "source": {
+      "location": "Section 3 Data and Methodology pp.10-12; Footnote 1",
+      "quote": "Month t-1 in the formation period of momentum strategies is typically skipped",
+      "interpretation": "The paper forms portfolios using a 12-1M signal, skipping the most recent month to separate intermediate-term momentum from short-term reversal, and uses one-month holding periods for the main executable target."
+    }
+  },
+  "universe": {
+    "description": "Domestic primary stocks listed on NYSE, AMEX, and Nasdaq in CRSP, excluding closed-end funds, REITs, unit trusts, ADRs, and foreign stocks; stock-months with price below $1 are excluded; residual-return estimation requires complete 36-month return history.",
+    "source": {
+      "location": "Section 3 Data and Methodology p.9",
+      "quote": "all domestic, primary stocks listed on the New York (NYSE), American (AMEX), and Nasdaq stock markets",
+      "interpretation": "This defines the exchange and domestic-primary-stock scope of the paper's US equity universe."
+    },
+    "exchange_names": {
+      "value": [
+        "NYSE",
+        "AMEX",
+        "Nasdaq"
+      ],
+      "source": {
+        "location": "Section 3 Data and Methodology p.9",
+        "quote": "New York (NYSE), American (AMEX), and Nasdaq stock markets",
+        "interpretation": "The paper explicitly names the included exchanges."
+      }
+    },
+    "filters": [
+      {
+        "field": "domestic_primary_stock",
+        "op": "is_true",
+        "value": true,
+        "source": {
+          "location": "Section 3 Data and Methodology p.9",
+          "quote": "all domestic, primary stocks",
+          "interpretation": "The universe is restricted to domestic primary stocks."
+        }
+      },
+      {
+        "field": "exchange_name",
+        "op": "in",
+        "value": [
+          "NYSE",
+          "AMEX",
+          "Nasdaq"
+        ],
+        "source": {
+          "location": "Section 3 Data and Methodology p.9",
+          "quote": "NYSE), American (AMEX), and Nasdaq",
+          "interpretation": "The paper includes stocks listed on these three stock markets."
+        }
+      },
+      {
+        "field": "security_type_or_listing_attributes",
+        "op": "not_in",
+        "value": [
+          "closed-end fund",
+          "REIT",
+          "unit trust",
+          "ADR",
+          "foreign stock"
+        ],
+        "source": {
+          "location": "Section 3 Data and Methodology pp.9-10",
+          "quote": "Closed-end funds, Real Estate Investment Trusts (REITs), unit trusts, American Depository Receipts (ADRs), and foreign stocks are excluded",
+          "interpretation": "This is the paper-stated list of excluded security categories; the canonical field name is kept broad because the paper does not give a physical database field."
+        }
+      },
+      {
+        "field": "price",
+        "op": "gte",
+        "value": 1,
+        "source": {
+          "location": "Section 3 Data and Methodology p.10",
+          "quote": "price is below $1",
+          "interpretation": "The paper excludes stocks during months when price is below one dollar; using gte 1 records the retained side of that screen."
+        }
+      }
+    ],
+    "missing_policy": {
+      "action": "exclude_if_incomplete_36_month_return_history_for_residual_regression",
+      "source": {
+        "location": "Section 3 Data and Methodology p.11",
+        "quote": "Only stocks which have a complete return history",
+        "interpretation": "A stock cannot enter the residual momentum sort unless the 36-month rolling regression can be estimated from complete return history."
+      },
+      "confidence": "high"
+    },
+    "winsorize_bounds": {
+      "status": "not mentioned or not specified in the paper for the main residual momentum portfolio specification",
+      "lower_pct": null,
+      "upper_pct": null,
+      "applies_to": "main_portfolio_spec",
+      "source": {
+        "location": "Section 3 Data and Methodology",
+        "quote": "mutually exclusive decile portfolios",
+        "interpretation": "The methodology describes decile sorting and a price screen but does not state winsorization or truncation bounds for the residual momentum signal."
+      }
+    }
+  },
+  "portfolio": {
+    "sort": {
+      "variable": "12-1M standardized residual return",
+      "role": "simple portfolio sorting",
+      "n_groups": 10,
+      "group_type": "decile",
+      "ls_quantile": 0.1,
+      "breakpoint_source": "unspecified",
+      "source": {
+        "location": "Section 3 Data and Methodology pp.10-11; Table 2 caption p.43",
+        "quote": "allocating stocks to mutually exclusive decile portfolios",
+        "interpretation": "The paper states that eligible stocks are allocated into deciles based on the residual momentum signal, but it does not state whether breakpoints are full-sample or NYSE-only; therefore the breakpoint source is recorded as unspecified."
+      }
+    },
+    "weights": [
+      "ew"
+    ],
+    "weights_source": {
+      "location": "Section 3 Data and Methodology p.12",
+      "quote": "we assign equal weights to the stocks in each decile",
+      "interpretation": "This directly states the within-decile weighting scheme."
+    },
+    "weighting_scheme": {
+      "type": "equal_weight",
+      "paper_formula": "equal-weight stocks within each decile; residual momentum return is top decile minus bottom decile",
+      "description": "Equal-weight each stock in each residual-momentum decile, then compute the top-minus-bottom decile spread.",
+      "long_short_rule": "long top residual-momentum decile and short bottom residual-momentum decile",
+      "source": {
+        "location": "Section 3 Data and Methodology p.12; Table 2 caption p.43",
+        "quote": "zero-investment top-minus-bottom decile portfolio",
+        "interpretation": "The paper describes the strategy return as a zero-investment spread between top and bottom deciles."
+      }
+    },
+    "paper_reports_explicit_simple_long_short_strategy": true,
+    "paper_spread_direction": "high_minus_low",
+    "implied_factor_direction": {
+      "long_leg": "top_decile_high_standardized_residual_return",
+      "short_leg": "bottom_decile_low_standardized_residual_return",
+      "use_for_backtest_if_needed": true,
+      "note": "The paper reports the residual momentum strategy as a top-minus-bottom decile portfolio."
+    },
+    "overlapping_portfolios": false
+  },
+  "reported_results": {
+    "return_horizon": "monthly",
+    "return_type": "raw_zero_investment_portfolio_return_and_factor_model_alpha",
+    "return_type_explanation": "raw = realized portfolio return before risk adjustment; alpha = risk-adjusted intercept; size_adjusted_bhar = compounded security return minus compounded benchmark return",
+    "main_table": "Table 2 Panel B. Residual momentum",
+    "spreads": {
+      "1M_equal_weight_top_minus_bottom": {
+        "direction": "high_minus_low",
+        "return_percent_annualized": 11.2,
+        "volatility_percent_annualized": 12.49,
+        "sharpe_ratio": 0.9,
+        "alpha_percent_annualized": 10.85,
+        "source": {
+          "location": "Table 2 Panel B p.44",
+          "quote": "1M 11.20 12.49 0.90 66% 10.85",
+          "interpretation": "For one-month holding periods, Panel B reports annualized return, volatility, Sharpe ratio, probability of positive return, and alpha for residual momentum; the alpha t-statistic below the row is 8.35."
+        },
+        "p_return_positive_percent": 66,
+        "alpha_t_stat": 8.35,
+        "factor_loadings": {
+          "RMRF": -0.12,
+          "SMB": -0.16,
+          "HML": -0.44,
+          "RMRF_UP": 0.19,
+          "SMB_UP": 0.23,
+          "HML_UP": 0.51,
+          "adjusted_r_squared": 0.17
+        }
+      }
+    },
+    "comparison_policy": {
+      "preserve_paper_direction": true,
+      "align_backtest_to_paper_direction_before_comparison": true,
+      "note": "Compare backtests to the paper's top-minus-bottom direction: long high standardized residual momentum and short low standardized residual momentum."
+    },
+    "return_calculation": {
+      "name": "factor_portfolio_return",
+      "input_return": {
+        "name": "monthly_stock_return",
+        "paper_variable": "return on stock i in month t",
+        "data_frequency": "monthly",
+        "expression": "ret_i,m",
+        "benchmark": null,
+        "adjustments": [],
+        "source": {
+          "location": "Section 3 Data and Methodology p.10; Table 2 caption p.43",
+          "quote": "returns of the resulting momentum strategies cover the period January 1930 to December 2009",
+          "interpretation": "The portfolio return is computed from monthly stock returns after the residual momentum sort. Risk-free adjustment is used in the residual-return regression, not as a benchmark subtraction from the reported raw strategy return."
+        }
+      },
+      "portfolio_return": {
+        "construction_type": "characteristic_sort",
+        "sorts": [
+          {
+            "variable": "12-1M_standardized_residual_return",
+            "group_type": "decile",
+            "n_groups": 10,
+            "breakpoint_source": "unspecified"
+          }
+        ],
+        "weighting": {
+          "type": "equal_weight",
+          "variants": []
+        },
+        "return_combination": {
+          "type": "extreme_group_spread",
+          "expression": "residual_momentum_return_m = ew_return(top_decile_high_residual_momentum, m) - ew_return(bottom_decile_low_residual_momentum, m)",
+          "long_leg": "top_decile_high_standardized_residual_return",
+          "short_leg": "bottom_decile_low_standardized_residual_return",
+          "note": "Main executable target uses one-month holding periods; longer holding periods are recorded as secondary specifications."
+        },
+        "regression": null,
+        "reported_frequency": "annualized_from_monthly_returns",
+        "holding_period": "1 month",
+        "source": {
+          "location": "Section 3 Data and Methodology p.12; Table 2 caption pp.43-44",
+          "quote": "zero-investment top-minus-bottom decile portfolio",
+          "interpretation": "This supports computing a monthly long-short return from equal-weight top and bottom residual-momentum deciles."
+        }
+      }
+    }
+  },
+  "robustness_or_secondary_specs": [
+    {
+      "name": "alternative_holding_periods",
+      "description": "The paper also forms deciles with quarterly, semi-annual, and yearly holding periods using the Jegadeesh and Titman overlapping-portfolios approach. The main executable spec here uses the one-month holding period highlighted in Table 2 and the figures.",
+      "is_main_spec": false,
+      "source": {
+        "location": "Section 3 Data and Methodology p.12; Table 2 caption p.43",
+        "quote": "monthly, quarterly, semi-annually, and yearly holding periods",
+        "interpretation": "These horizons are paper-tested variants but are not mixed into the main one-month executable target."
+      }
+    },
+    {
+      "name": "non_standardized_residual_returns",
+      "description": "The paper reports a robustness variant where residual returns are not standardized; the main specification standardizes residual returns by their standard deviation over the same period.",
+      "is_main_spec": false,
+      "source": {
+        "location": "Section 3 Data and Methodology footnote 2 p.12",
+        "quote": "residual momentum strategies where the returns are not standardized",
+        "interpretation": "This is explicitly described as an additional test, not the main residual momentum definition."
+      }
+    },
+    {
+      "name": "alternative_factor_model_for_residuals",
+      "description": "Robustness checks estimate residual returns relative to the Carhart four-factor model by adding the WML factor to Equation (1). The main spec uses the Fama-French three-factor model.",
+      "is_main_spec": false,
+      "source": {
+        "location": "Section 5 Robustness Checks p.37; Table 9 caption p.53",
+        "quote": "Carhart (1997) four-factor model",
+        "interpretation": "The paper treats the four-factor residual specification as a robustness check; the main definition uses Equation (1)."
+      }
+    }
+  ],
+  "ambiguous_fields": [
+    {
+      "field": "signal.formula.calculation_steps.residual_estimation_convention",
+      "status": "inferred",
+      "reason": "The paper says residual returns are estimated each month over the past 36 months and separately says the estimated alpha is not included in residual momentum. This JSON implements a formation-month 36-month regression, computes 12-1M residual returns using estimated factor loadings but excluding alpha, and records the aggregation operator separately as ambiguous.",
+      "source": {
+        "location": "Section 3 Data and Methodology pp.10-11; Table 2 caption p.43",
+        "quote": "Residual returns are estimated each month for all stocks over the past 36 months",
+        "interpretation": "This supports using a 36-month rolling formation-month regression; alpha exclusion is directly supported by the Section 3 alpha sentence."
+      },
+      "impact": "high",
+      "needs_human_confirmation": true
+    },
+    {
+      "field": "signal.formula.expression.aggregate_12_1M_residual_return",
+      "status": "inferred_for_backtest_not_paper_stated",
+      "reason": "The paper states ranking on past 12-month residual returns excluding the most recent month and standardizing by the standard deviation, but it does not write a closed-form equation specifying whether the 12-1M residual return is summed, compounded, or otherwise accumulated. The executable expression uses a monthly sum of residual returns as the closest paper-first interpretation.",
+      "source": {
+        "location": "Section 3 Data and Methodology pp.10-11; Figure 1 caption p.55",
+        "quote": "past 12-month residual returns excluding the most recent month",
+        "interpretation": "The wording gives the window but not the exact aggregation operator."
+      },
+      "impact": "medium",
+      "needs_human_confirmation": true
+    },
+    {
+      "field": "portfolio.sort.breakpoint_source",
+      "status": "unspecified",
+      "reason": "The paper says stocks are allocated to mutually exclusive decile portfolios but does not explicitly state full-sample or NYSE-only breakpoints. The executable field is therefore set to unspecified rather than overclaiming full_sample.",
+      "source": {
+        "location": "Section 3 Data and Methodology p.10",
+        "quote": "allocating stocks to mutually exclusive decile portfolios",
+        "interpretation": "No alternate breakpoint universe is stated."
+      },
+      "impact": "medium",
+      "needs_human_confirmation": false
+    },
+    {
+      "field": "sample.formation_years",
+      "status": "inferred",
+      "reason": "The paper explicitly gives raw stock data coverage from January 1926 to December 2009 and strategy returns from January 1930 to December 2009. Formation years are now aligned to the reported executable strategy period, while raw data coverage is retained in notes.",
+      "source": {
+        "location": "Section 3 Data and Methodology pp.9,12",
+        "quote": "sample period covers the period January 1926 to December 2009",
+        "interpretation": "Formation history begins within the stated data period and is needed before the January 1930 return sample."
+      },
+      "impact": "low",
+      "needs_human_confirmation": false
+    }
+  ],
+  "extensions": {
+    "paper_model_equation": {
+      "equation_1": "r_i,t = alpha_i + beta_1,i RMRF_t + beta_2,i SMB_t + beta_3,i HML_t + epsilon_i,t"
+    }
+  },
+  "annotator_notes": "Paper-first MethodSpec for the US equity residual momentum strategy in Blitz, Huij, and Martens. The main executable target is the equal-weighted, one-month holding-period, top-minus-bottom residual momentum decile spread. Quarterly, semi-annual, yearly, non-standardized, large-cap, post-1960, and four-factor-model variants are treated as secondary/robustness specifications rather than separate requirements in this JSON. No C&Z, OSAP, SignalDoc, WRDS physical table names, or implementation merge keys were used as evidence. Patched after audit: residual-return steps now use a formation-month 36-month regression convention, explicitly exclude estimated alpha from residual momentum, set breakpoint_source to unspecified, align formation_years with the reported strategy period, and enrich Table 2 Panel B metrics. Data source label patched from canonical french-factor-data to paper-first French (2010) webpage. Patched filter/required_fields consistency: filter field names now match declared required fields for downstream parser/codegen."
+}

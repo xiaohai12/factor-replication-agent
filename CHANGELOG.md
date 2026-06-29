@@ -1,5 +1,36 @@
 # Changelog
 
+## [0.8.0] - 2026-06-29
+
+### Added
+- `src/trace.py`: `PipelineTracer` — lightweight timestamped event logger for pipeline execution; used by E2E page and Trace & Logs page
+- `app.py`: Complete 7-page Streamlit dashboard redesign:
+  - **Pipeline — End to End** — one-click PDF-to-backtest with progress bar, stage-by-stage expandable output, feedback loop indicators, and trace
+  - **Extractor** — PDF upload + extraction + eval vs ground truth (`data/test_method_specs/`), batch eval across all 26 ground truth specs
+  - **Review & Resolve** — 3 tabs (Review / Resolution / Eval); resolution eval compares resolved values against ground truth
+  - **MetaCoder** — preserved from v0.7; load spec → hook detect → generate → sandbox → backtest script
+  - **Backtest & Experiments** — 3 tabs (Single Run / Dual-Track [disabled] / Ablation); config overrides, cumulative+monthly charts
+  - **Attribution** — load evidence runs, run ablation attribution, contribution breakdown bar chart, anomaly detection
+  - **Trace & Logs** — 3 tabs (Run Registry / Evidence Browser / Pipeline Trace); download artifacts and trace JSON
+
+### Changed
+- `app.py`: Ground truth source changed from SignalDoc.csv to `data/test_method_specs/*.methodspec.json` (26 human-curated specs)
+- `app.py`: Removed SignalDoc dependency for evaluation; all eval now uses field-level comparison against test MethodSpecs
+
+### Removed
+- `app.py`: Batch Evaluation and Evaluation History pages (replaced by per-page Eval panels)
+
+## [0.7.0] - 2026-06-29
+
+### Added
+- `src/meta_coder/script_generator.py`: `generate_backtest_script()` — generates a standalone runnable Python script combining signal plugin code + inline backtest engine + MethodSpec-derived config; output is a single file executable with `python3 <script>.py`
+- `app.py`: New **Backtest** page in Streamlit dashboard — select a plugin and resolved MethodSpec, load CRSP data (local or uploaded parquet), configure overrides (n_quantiles, breakpoint source, weighting, holding period, long leg, skip month), run BacktestEngine, display key metrics (mean return, t-stat, annualized return), cumulative and monthly return charts, signal diagnostics, and download results as CSV/JSON
+- `app.py`: MetaCoder page step 8 "Generate Backtest Script" — after sandbox passes, generates a self-contained backtest script with download/save options
+
+### Changed
+- `app.py`: Sidebar navigation now includes "Backtest" between MetaCoder and Batch Evaluation pages
+- `app.py`: Sidebar status shows Sandbox ✅ and Backtest ✅
+
 ## [0.6.9] - 2026-06-21
 
 ### Added
