@@ -20,7 +20,7 @@ from typing import Optional
 
 from pydantic import ValidationError
 
-from src.models.method_spec import (
+from src.infra.models.method_spec import (
     AmbiguousField,
     BreakpointSource,
     BreakpointSpec,
@@ -43,7 +43,7 @@ from src.models.method_spec import (
 )
 
 # Canonical prompt file — used as system prompt when available
-_PROMPT_PATH = Path(__file__).resolve().parents[2] / "prompts" / "extractor" / "methodspec_extractor.md"
+_PROMPT_PATH = Path(__file__).resolve().parents[3] / "prompts" / "extractor" / "methodspec_extractor.md"
 
 
 def _load_extraction_system_prompt() -> str:
@@ -364,7 +364,7 @@ class SemanticExtractor:
 
     def _call_llm_with_retry(self, messages: list[dict], pdf_bytes: bytes | None = None) -> dict | None:
         """Call LLM with inter-call delay. Raises RateLimitError on quota exhaustion."""
-        from src.llm import extract_usage
+        from src.infra.llm import extract_usage
         # Respect call_delay between requests
         elapsed = time.time() - self._last_call_time
         if elapsed < self.call_delay:

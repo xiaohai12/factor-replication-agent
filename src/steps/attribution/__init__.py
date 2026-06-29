@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 
-from src.models.run_record import RunRecord
+from src.infra.models.run_record import RunRecord
 
 
 @dataclass

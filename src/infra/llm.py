@@ -7,7 +7,7 @@ Supports three backends:
 3. OpenRouter / OpenAI-compatible API - set OPENROUTER_API_KEY env var
 
 Usage:
-    from src.llm import create_llm_client
+    from src.infra.llm import create_llm_client
 
     # Codex CLI (default)
     client = create_llm_client()

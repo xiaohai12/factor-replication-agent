@@ -29,19 +29,23 @@ and controlled pipeline components.
 
 ## Module Map
 
-| Path | Role |
-|---|---|
-| `src/extractor/` | Paper text to MethodSpec via LLM. Never receives SignalDoc.csv. |
-| `src/review_gate/` | MethodSpec completeness and empirical-impact review. |
-| `src/meta_coder/` | Approved MethodSpec to signal plugin code. |
-| `src/sandbox/` | Plugin syntax/schema/safety validation. |
-| `src/data_layer/` | Data dictionary, snapshots, CCM link, and point-in-time availability. |
-| `src/engine/` | Controlled empirical pipeline; most steps are still stubs. |
-| `src/controller/` | Dual-track and ablation orchestration. |
-| `src/attribution/` | Replication-gap attribution and anomaly flags. |
-| `src/models/` | Pydantic models, especially MethodSpec and PluginRecord. |
-| `src/llm.py` | LLM client wrappers for Codex, Copilot, and OpenRouter. |
-| `app.py` | Streamlit dashboard for extraction and evaluation. |
+| Path | Step | Role |
+|---|---|---|
+| `src/steps/extractor/` | 1 | Paper text to MethodSpec via LLM. Never receives SignalDoc.csv. |
+| `src/steps/reviewer/` | 2 | MethodSpec completeness and empirical-impact review + resolution. |
+| `src/steps/codegen/` | 3 | Approved MethodSpec to signal plugin code + hook functions. |
+| `src/steps/validator/` | 4 | Plugin syntax/schema/safety validation (future-leak scan). |
+| `src/steps/engine/` | 5 | Controlled backtest pipeline (fixed step order + hook dispatch). |
+| `src/steps/controller/` | 5b | Dual-track and ablation orchestration. |
+| `src/steps/attribution/` | 6 | Replication-gap attribution and anomaly flags. |
+| `src/infra/models/` | — | Pydantic models (MethodSpec, PluginRecord, RunRecord). |
+| `src/infra/data_layer/` | — | Data loaders, dictionary, snapshots, CCM link, time_avail. |
+| `src/infra/evidence/` | — | Evidence store + RunRegistry for run artifacts. |
+| `src/infra/llm.py` | — | LLM client wrappers for Codex, Copilot, and OpenRouter. |
+| `src/infra/trace.py` | — | Pipeline execution event logger. |
+| `src/evaluation/` | — | Ground truth matching + extraction accuracy metrics. |
+| `src/pipeline.py` | — | End-to-end orchestrator with feedback loops. |
+| `app.py` | — | 7-page Streamlit dashboard. |
 
 ## Common Commands
 

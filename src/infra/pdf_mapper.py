@@ -3,7 +3,7 @@
 Matches PDF filenames to SignalDoc factors using the Paper title column.
 
 Usage:
-    from src.pdf_mapper import build_pdf_factor_map, get_factor_to_pdf
+    from src.infra.pdf_mapper import build_pdf_factor_map, get_factor_to_pdf
 
     pdf_map = build_pdf_factor_map(papers_dir, signaldoc_path)
     # Returns: {"The Cross-Section of Expected Stock Returns.pdf": ["AM", "BMdec", ...], ...}

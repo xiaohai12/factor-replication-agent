@@ -5,7 +5,7 @@ from __future__ import annotations
 import hashlib
 from typing import Optional
 
-from src.models.plugin import PluginRecord
+from src.infra.models.plugin import PluginRecord
 
 
 class PluginRegistry:

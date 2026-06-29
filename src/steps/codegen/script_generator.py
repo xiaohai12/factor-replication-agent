@@ -14,8 +14,8 @@ import textwrap
 from pathlib import Path
 from typing import Any
 
-from src.engine import BacktestEngine, _ev
-from src.models.method_spec import MethodSpec
+from src.steps.engine import BacktestEngine, _ev
+from src.infra.models.method_spec import MethodSpec
 
 
 def generate_backtest_script(

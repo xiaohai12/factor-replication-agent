@@ -12,18 +12,18 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from src.attribution import AttributionLayer
-from src.controller import DualTrackController, ExperimentPlan
-from src.data_layer import DataLayer
-from src.engine import BacktestEngine
-from src.evidence import EvidenceStore, RunRegistry
-from src.extractor import SemanticExtractor
-from src.meta_coder import MetaCoder
-from src.models.method_spec import MethodSpec
-from src.models.run_record import RunRecord
-from src.registry import PluginRegistry
-from src.review_gate import ReviewGate
-from src.sandbox import AdversarialSandbox
+from src.steps.attribution import AttributionLayer
+from src.steps.controller import DualTrackController, ExperimentPlan
+from src.infra.data_layer import DataLayer
+from src.steps.engine import BacktestEngine
+from src.infra.evidence import EvidenceStore, RunRegistry
+from src.steps.extractor import SemanticExtractor
+from src.steps.codegen import MetaCoder
+from src.infra.models.method_spec import MethodSpec
+from src.infra.models.run_record import RunRecord
+from src.infra.registry import PluginRegistry
+from src.steps.reviewer import ReviewGate
+from src.steps.validator import AdversarialSandbox
 
 
 MAX_REPAIR_RETRIES = 3

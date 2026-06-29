@@ -22,14 +22,14 @@ try:
 except ImportError:
     fitz = None
 
-from src.llm import create_llm_client
-from src.extractor import (
+from src.infra.llm import create_llm_client
+from src.steps.extractor import (
     ExtractionMetrics,
     ExtractionResult,
     SemanticExtractor,
 )
-from src.pdf_mapper import build_pdf_factor_map, get_factor_to_pdf
-from src.models.method_spec import (
+from src.infra.pdf_mapper import build_pdf_factor_map, get_factor_to_pdf
+from src.infra.models.method_spec import (
     BreakpointSource,
     EvidenceSource,
     MissingAction,

@@ -18,7 +18,7 @@ from pathlib import Path
 
 import pytest
 
-from src.pdf_mapper import (
+from src.infra.pdf_mapper import (
     _normalize,
     _load_paper_title_map,
     build_pdf_factor_map,

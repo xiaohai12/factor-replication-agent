@@ -1,5 +1,37 @@
 # Changelog
 
+## [0.9.0] - 2026-06-29
+
+### Changed
+- **Major restructure of `src/`** — pipeline steps and infrastructure separated into clear namespaces:
+  - `src/steps/extractor/` — Step 1: Paper → MethodSpec (was `src/extractor/`)
+  - `src/steps/reviewer/` — Step 2: Review + Resolution (was `src/review_gate/`)
+  - `src/steps/codegen/` — Step 3: MethodSpec → Plugin (was `src/meta_coder/`)
+  - `src/steps/validator/` — Step 4: Syntax/Schema/Leak check (was `src/sandbox/`)
+  - `src/steps/engine/` — Step 5: Backtest (was `src/engine/`)
+  - `src/steps/controller/` — Step 5b: Multi-track experiments (was `src/controller/`)
+  - `src/steps/attribution/` — Step 6: Gap decomposition (was `src/attribution/`)
+  - `src/infra/models/` — Pydantic models (was `src/models/`)
+  - `src/infra/data_layer/` — Data loading + CCM (was `src/data_layer/`)
+  - `src/infra/evidence/` — Evidence store + RunRegistry (was `src/evidence/`)
+  - `src/infra/registry/` — Plugin registry (was `src/registry/`)
+  - `src/infra/llm.py` — LLM client (was `src/llm.py`)
+  - `src/infra/trace.py` — Pipeline tracer (was `src/trace.py`)
+  - `src/infra/pdf_mapper.py` — PDF tools (was `src/pdf_mapper.py`)
+- All imports across app.py, scripts/, tests/, and internal modules updated to new paths
+
+## [0.8.1] - 2026-06-29
+
+### Added
+- `prompts/meta_coder/signal_plugin_system.md`: Signal plugin generation system prompt (extracted from inline code)
+- `prompts/meta_coder/hook_system.md`: Hook function generation system prompt
+- `prompts/meta_coder/repair_plugin.md`: Plugin repair prompt template (with `{errors}` and `{code}` placeholders)
+- `src/evaluation/gt_matcher.py`: `GroundTruthMatcher` — matches agent-extracted specs to ground truth via PDF filename → factor_id → field comparison; supports exact factor_id, variable_name, formula similarity, and substring matching
+- `data/test_method_specs/spec_paper_mapping.json`: Mapping file (26 entries) with forward index (factor→paper) and reverse index (filename→factors)
+
+### Changed
+- `src/meta_coder/__init__.py`: Prompts now loaded from `prompts/meta_coder/*.md` files via `_load_prompt()`; inline string fallback preserved for backward compatibility
+
 ## [0.8.0] - 2026-06-29
 
 ### Added

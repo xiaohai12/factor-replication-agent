@@ -6,7 +6,7 @@ import json
 from pathlib import Path
 from typing import Optional
 
-from src.models.run_record import RunRecord
+from src.infra.models.run_record import RunRecord
 
 
 class EvidenceStore:

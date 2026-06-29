@@ -359,7 +359,7 @@ if page == "Pipeline — End to End":
     run_e2e = st.button("Run Full Pipeline", type="primary", key="e2e_run")
 
     if run_e2e:
-        from src.trace import PipelineTracer
+        from src.infra.trace import PipelineTracer
         tracer = PipelineTracer()
         stages = {}
         st.session_state["e2e_tracer"] = tracer
@@ -370,7 +370,7 @@ if page == "Pipeline — End to End":
             progress.progress(1 / 7, text="Stage 1/7 — Extracting...")
             tracer.log("extract", "started")
 
-            from src.models import MethodSpec as _MS
+            from src.infra.models import MethodSpec as _MS
 
             if input_mode == "Upload PDF" and e2e_pdf:
                 pdf_bytes = e2e_pdf.read()
@@ -378,8 +378,8 @@ if page == "Pipeline — End to End":
                 pdf_stem = Path(e2e_pdf.name).stem
                 _save_paper_text_cache(e2e_pdf.name, paper_text)
 
-                from src.extractor import SemanticExtractor
-                from src.llm import create_llm_client
+                from src.steps.extractor import SemanticExtractor
+                from src.infra.llm import create_llm_client
                 client = create_llm_client(provider=llm_provider, model=llm_model)
                 extractor = SemanticExtractor(llm_client=client)
                 _pdf_b = pdf_bytes if llm_provider in ("claude", "codex") else None
@@ -399,7 +399,7 @@ if page == "Pipeline — End to End":
             # Stage 2: Review
             progress.progress(2 / 7, text="Stage 2/7 — Reviewing...")
             tracer.log("review", "started")
-            from src.review_gate import ReviewGate
+            from src.steps.reviewer import ReviewGate
             gate = ReviewGate()
             review_result = gate.review(spec)
             tracer.log("review", "done", f"disposition={review_result.disposition}")
@@ -408,7 +408,7 @@ if page == "Pipeline — End to End":
             # Stage 3: Resolve (auto-apply sensible defaults)
             progress.progress(3 / 7, text="Stage 3/7 — Resolving...")
             tracer.log("resolve", "started")
-            from src.review_gate import SENSIBLE_DEFAULTS
+            from src.steps.reviewer import SENSIBLE_DEFAULTS
             spec_dict = json.loads(spec.model_dump_json())
             n_resolved = 0
             for note in review_result.field_notes:
@@ -427,9 +427,9 @@ if page == "Pipeline — End to End":
             # Stage 4: MetaCoder
             progress.progress(4 / 7, text="Stage 4/7 — Generating plugin...")
             tracer.log("metacoder", "started")
-            from src.meta_coder import MetaCoder
-            from src.llm import create_llm_client as _clc
-            from src.models.method_spec import ReviewStatus
+            from src.steps.codegen import MetaCoder
+            from src.infra.llm import create_llm_client as _clc
+            from src.infra.models.method_spec import ReviewStatus
             gen_spec = spec.model_copy(update={"codegen_ready": True, "review_status": ReviewStatus.APPROVED})
             llm = _clc(provider=llm_provider, model=llm_model)
             coder = MetaCoder(llm_client=llm)
@@ -440,7 +440,7 @@ if page == "Pipeline — End to End":
             # Stage 5: Sandbox
             progress.progress(5 / 7, text="Stage 5/7 — Sandbox validation...")
             tracer.log("sandbox", "started")
-            from src.sandbox import AdversarialSandbox
+            from src.steps.validator import AdversarialSandbox
             sandbox = AdversarialSandbox()
             report = sandbox.validate(plugin, spec)
             tracer.log("sandbox", "done" if report.passed else "FAILED", str(report.errors))
@@ -453,7 +453,7 @@ if page == "Pipeline — End to End":
             progress.progress(6 / 7, text="Stage 6/7 — Backtesting...")
             tracer.log("backtest", "started")
             if MSF_PATH.exists():
-                from src.engine import BacktestEngine
+                from src.steps.engine import BacktestEngine
                 engine = BacktestEngine(data_path=str(PROJECT_ROOT / "data"))
                 msf = pd.read_parquet(MSF_PATH)
                 # Standardize
@@ -567,7 +567,7 @@ elif page == "Extractor":
 
         if st.button("Load", key="ext_load_saved"):
             try:
-                from src.models import MethodSpec
+                from src.infra.models import MethodSpec
                 if imported_spec_file:
                     spec = MethodSpec.model_validate_json(imported_spec_file.getvalue().decode())
                 elif selected_spec_name:
@@ -596,8 +596,8 @@ elif page == "Extractor":
 
     if st.button("Extract MethodSpec", type="primary", disabled=not bool(paper_text), key="ext_run"):
         with st.spinner("Extracting..."):
-            from src.extractor import SemanticExtractor
-            from src.llm import create_llm_client
+            from src.steps.extractor import SemanticExtractor
+            from src.infra.llm import create_llm_client
             client = create_llm_client(provider=llm_provider, model=llm_model)
             extractor = SemanticExtractor(llm_client=client)
             _pdf_b = st.session_state.get("pdf_bytes") if llm_provider in ("claude", "codex") else None
@@ -708,7 +708,7 @@ elif page == "Review & Resolve":
     rr_selected = st.selectbox("Select MethodSpec to review", rr_options, key="rr_spec_sel")
 
     if rr_selected and st.button("Load", key="rr_load"):
-        from src.models import MethodSpec as _MS
+        from src.infra.models import MethodSpec as _MS
         try:
             rr_spec = _MS.model_validate_json(rr_map[rr_selected].read_text())
             st.session_state["rr_spec"] = rr_spec
@@ -728,13 +728,13 @@ elif page == "Review & Resolve":
         col_rules, col_llm = st.columns(2)
         with col_rules:
             if st.button("Run Rules Review", key="rr_rules"):
-                from src.review_gate import ReviewGate
+                from src.steps.reviewer import ReviewGate
                 review = ReviewGate().review(rr_spec)
                 st.session_state["rr_review"] = review
         with col_llm:
             if st.button("Run LLM Review", type="primary", key="rr_llm"):
-                from src.review_gate import ReviewGate
-                from src.llm import create_llm_client
+                from src.steps.reviewer import ReviewGate
+                from src.infra.llm import create_llm_client
                 with st.spinner("LLM reviewing..."):
                     try:
                         pt, pb = _resolve_review_inputs(llm_provider)
@@ -785,7 +785,7 @@ elif page == "Review & Resolve":
         if not review:
             st.info("Run a review first.")
         else:
-            from src.review_gate import SENSIBLE_DEFAULTS
+            from src.steps.reviewer import SENSIBLE_DEFAULTS
             if "rr_resolution_inputs" not in st.session_state:
                 st.session_state["rr_resolution_inputs"] = {}
 
@@ -821,7 +821,7 @@ elif page == "Review & Resolve":
 
             if st.button("Apply All Resolutions", type="primary", key="rr_apply"):
                 inputs = st.session_state.get("rr_resolution_inputs", {})
-                from src.models.method_spec import MethodSpec as _MS
+                from src.infra.models.method_spec import MethodSpec as _MS
                 spec_dict = json.loads(rr_spec.model_dump_json())
                 decisions = []
                 for fp, inp in inputs.items():
@@ -890,7 +890,7 @@ elif page == "MetaCoder":
         mc_uploaded = st.file_uploader("Or upload JSON", type=["json"], key="mc_upload")
 
     if st.button("Load MethodSpec", key="mc_load"):
-        from src.models import MethodSpec as _MS
+        from src.infra.models import MethodSpec as _MS
         try:
             if mc_uploaded:
                 mc_spec = _MS.model_validate_json(mc_uploaded.getvalue().decode())
@@ -920,7 +920,7 @@ elif page == "MetaCoder":
         # Hook detection
         st.subheader("3. Hook Detection")
         try:
-            from src.engine import BacktestEngine
+            from src.steps.engine import BacktestEngine
             hooks_needed = BacktestEngine._detect_hooks(mc_spec)
             if hooks_needed:
                 st.warning(f"**{len(hooks_needed)} non-standard step(s):**")
@@ -939,9 +939,9 @@ elif page == "MetaCoder":
             st.error("MethodSpec not codegen-ready. Go to Review & Resolve first.")
 
         if st.button("Generate Signal Plugin", type="primary", disabled=not approved, key="mc_gen"):
-            from src.llm import create_llm_client
-            from src.meta_coder import MetaCoder
-            from src.models.method_spec import ReviewStatus
+            from src.infra.llm import create_llm_client
+            from src.steps.codegen import MetaCoder
+            from src.infra.models.method_spec import ReviewStatus
             with st.spinner("Generating..."):
                 try:
                     gen_spec = mc_spec.model_copy(update={"codegen_ready": True, "review_status": ReviewStatus.APPROVED})
@@ -970,7 +970,7 @@ elif page == "MetaCoder":
             # Sandbox
             st.subheader("6. Sandbox Validation")
             if st.button("Run Sandbox", key="mc_sandbox"):
-                from src.sandbox import AdversarialSandbox
+                from src.steps.validator import AdversarialSandbox
                 report = AdversarialSandbox().validate(mc_plugin, mc_spec)
                 st.session_state["mc_sandbox_report"] = report
 
@@ -995,7 +995,7 @@ elif page == "MetaCoder":
                 bt_path = st.text_input("CRSP data path", value="data/local/msf.parquet", key="mc_bt_path")
                 if st.button("Generate Script", key="mc_gen_bt"):
                     try:
-                        from src.meta_coder.script_generator import generate_backtest_script
+                        from src.steps.codegen.script_generator import generate_backtest_script
                         script = generate_backtest_script(mc_spec, mc_plugin.code, data_path=bt_path)
                         st.session_state["mc_bt_script"] = script
                         st.success("Generated!")
@@ -1058,8 +1058,8 @@ elif page == "Backtest & Experiments":
         if st.button("Run Backtest", type="primary", disabled=not (can_run and has_data), key="bt_run"):
             with st.spinner("Running..."):
                 try:
-                    from src.engine import BacktestEngine
-                    from src.models import MethodSpec as _MS
+                    from src.steps.engine import BacktestEngine
+                    from src.infra.models import MethodSpec as _MS
                     import io
 
                     spec = _MS.model_validate_json((RESOLVED_DIR / bt_spec).read_text())
@@ -1180,8 +1180,8 @@ elif page == "Attribution":
         factor_sel = st.selectbox("Factor", evidence_factors, key="attr_factor")
         if factor_sel and st.button("Run Attribution", key="attr_run"):
             try:
-                from src.attribution import AttributionLayer
-                from src.evidence import EvidenceStore
+                from src.steps.attribution import AttributionLayer
+                from src.infra.evidence import EvidenceStore
                 store = EvidenceStore(base_path=str(EVIDENCE_DIR))
                 # Load runs for this factor
                 factor_dir = EVIDENCE_DIR / factor_sel
@@ -1235,7 +1235,7 @@ elif page == "Trace & Logs":
     with tab_registry:
         st.subheader("Run Registry")
         try:
-            from src.evidence import RunRegistry
+            from src.infra.evidence import RunRegistry
             registry = RunRegistry()
             # Try to load from evidence store
             if EVIDENCE_DIR.exists():
@@ -1247,7 +1247,7 @@ elif page == "Trace & Logs":
                         if meta.exists():
                             try:
                                 data = json.loads(meta.read_text())
-                                from src.models.run_record import RunRecord
+                                from src.infra.models.run_record import RunRecord
                                 run = RunRecord(**data)
                                 registry.register(run)
                             except Exception:

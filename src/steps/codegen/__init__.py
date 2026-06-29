@@ -13,11 +13,25 @@ import re
 from pathlib import Path
 from typing import Optional
 
-from src.models.method_spec import MethodSpec
-from src.models.plugin import PluginRecord
+from src.infra.models.method_spec import MethodSpec
+from src.infra.models.plugin import PluginRecord
 
 
 PLUGIN_OUTPUT_COLS = ["permno", "yyyymm", "signal"]
+
+# Prompt file paths
+_PROMPTS_DIR = Path(__file__).resolve().parents[3] / "prompts" / "meta_coder"
+_SIGNAL_SYSTEM_PROMPT_PATH = _PROMPTS_DIR / "signal_plugin_system.md"
+_HOOK_SYSTEM_PROMPT_PATH = _PROMPTS_DIR / "hook_system.md"
+_REPAIR_PROMPT_PATH = _PROMPTS_DIR / "repair_plugin.md"
+
+
+def _load_prompt(path: Path, fallback: str = "") -> str:
+    """Load prompt from file, fall back to inline string."""
+    if path.exists():
+        return path.read_text(encoding="utf-8").strip()
+    return fallback
+
 
 # Hook function signatures expected by BacktestEngine
 HOOK_SIGNATURES = {
@@ -36,82 +50,9 @@ HOOK_RETURN_DOCS = {
     "apply_missing_policy": "Return df with missing values handled per paper spec.",
 }
 
-METACODER_SYSTEM_PROMPT = """You are a financial signal plugin generator for a factor replication pipeline.
-
-Your task is to generate Python code that computes a raw factor signal from an intermediate data table.
-
-## Plugin contract
-
-Every plugin must define exactly one function:
-
-```python
-import pandas as pd
-
-def compute_signal(df: pd.DataFrame) -> pd.DataFrame:
-    ...
-    return result[["permno", "yyyymm", "signal"]]
-```
-
-## Input table schema
-- Columns: permno (int), time_avail_m (int, YYYYMM), plus accounting/market data columns
-- time_avail_m already reflects the accounting lag — do NOT add additional lag offsets
-- Compustat columns use standard mnemonics: at, sale, ceq, dltt, act, lct, dp, ib, etc.
-- CRSP columns: ret, shrout, prc, exchcd, shrcd, siccd, etc.
-
-## Hard rules
-1. Compute ONLY the signal formula — no portfolio construction, no breakpoints, no weighting
-2. NEVER use shift(-N), .future, or lead() — these introduce look-ahead bias
-3. NEVER make network calls or read files
-4. Rename time_avail_m → yyyymm in output
-5. Return exactly the columns ["permno", "yyyymm", "signal"]
-6. Drop rows where signal is NaN or infinite before returning
-7. Output ONLY Python code — no prose, no markdown fences
-
-## Example (book-to-market ratio)
-
-import pandas as pd
-
-def compute_signal(df: pd.DataFrame) -> pd.DataFrame:
-    df = df.copy()
-    df["mktcap"] = df["shrout"] * df["prc"].abs() / 1000
-    df["signal"] = df["ceq"] / df["mktcap"]
-    df = df[df["signal"].notna() & df["ceq"].notna() & (df["ceq"] > 0)]
-    return df[["permno", "time_avail_m", "signal"]].rename(columns={"time_avail_m": "yyyymm"})
-"""
-
-
-HOOK_SYSTEM_PROMPT = """You are a financial backtest hook generator for a factor replication pipeline.
-
-The pipeline has a fixed empirical skeleton. You generate ONLY the non-standard step functions
-that cannot be handled by the standard implementation. Each hook plugs into a specific step.
-
-## Available columns in the DataFrame passed to each hook
-- permno (int), yyyymm (int YYYYMM), signal (float)
-- ret (float): monthly return
-- me (float): market equity (abs(prc)*shrout/1000)
-- exchcd (int): exchange code (1=NYSE, 2=AMEX, 3=NASDAQ)
-- shrcd (int): share code (10 or 11 = ordinary common shares)
-- siccd (int): SIC code
-- Additional Compustat columns as available: at, sale, ceq, dltt, ib, etc.
-
-## config dict keys available in all hooks
-- breakpoint_source: "full_sample" | "nyse"
-- breakpoint_quantiles: int (e.g. 10 for deciles)
-- weighting_rule: "vw" | "ew" | ...
-- missing_action: "drop" | "winsorize" | ...
-- formation_month: int
-- holding_period_months: int
-- long_leg: "low" | "high"
-- short_leg: "high" | "low"
-
-## Hard rules
-1. Each hook implements EXACTLY the step described — no cross-step logic
-2. NEVER use shift(-N), .future, or lead() — look-ahead bias
-3. NEVER make network calls or read files
-4. Match the required return format exactly (see each hook's docstring)
-5. Output ONLY Python code — no prose, no markdown fences
-6. Use import pandas as pd and import numpy as np at the top
-"""
+# Load prompts from files (with inline fallbacks for backward compat)
+METACODER_SYSTEM_PROMPT = _load_prompt(_SIGNAL_SYSTEM_PROMPT_PATH)
+HOOK_SYSTEM_PROMPT = _load_prompt(_HOOK_SYSTEM_PROMPT_PATH)
 
 
 _UNICODE_QUOTE_MAP = str.maketrans({
@@ -186,8 +127,8 @@ class MetaCoder:
 
         user_prompt = self._build_prompt(spec)
 
-        from src.llm import extract_usage
-        from src.engine import BacktestEngine
+        from src.infra.llm import extract_usage
+        from src.steps.engine import BacktestEngine
 
         # Phase 1: detect which steps need hooks
         hooks_needed = BacktestEngine._detect_hooks(spec)
@@ -364,13 +305,17 @@ class MetaCoder:
             raise RuntimeError("llm_client required for repair_plugin()")
 
         error_block = "\n".join(f"  - {e}" for e in errors)
-        repair_prompt = (
-            f"Fix the following Python signal plugin. Correct ONLY syntax errors and schema issues.\n"
-            f"Do NOT change the empirical formula or any data assumptions.\n\n"
-            f"## Errors to fix\n{error_block}\n\n"
-            f"## Current code\n{plugin.code}\n\n"
-            f"Output ONLY the corrected Python code."
-        )
+        repair_template = _load_prompt(_REPAIR_PROMPT_PATH)
+        if repair_template and "{errors}" in repair_template:
+            repair_prompt = repair_template.replace("{errors}", error_block).replace("{code}", plugin.code)
+        else:
+            repair_prompt = (
+                f"Fix the following Python signal plugin. Correct ONLY syntax errors and schema issues.\n"
+                f"Do NOT change the empirical formula or any data assumptions.\n\n"
+                f"## Errors to fix\n{error_block}\n\n"
+                f"## Current code\n{plugin.code}\n\n"
+                f"Output ONLY the corrected Python code."
+            )
         response = self.llm_client.chat.completions.create(
             messages=[
                 {"role": "system", "content": METACODER_SYSTEM_PROMPT},

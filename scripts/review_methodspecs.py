@@ -16,9 +16,9 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
-from src.models.method_spec import MethodSpec
-from src.review_gate import ReviewGate, ReviewResult
-from src.llm import create_llm_client
+from src.infra.models.method_spec import MethodSpec
+from src.steps.reviewer import ReviewGate, ReviewResult
+from src.infra.llm import create_llm_client
 
 
 DEFAULT_INPUT_DIR = Path("data/method_specs/curated")

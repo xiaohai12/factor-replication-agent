@@ -15,8 +15,8 @@ from enum import Enum
 from pathlib import Path
 from typing import Any, Optional
 
-from src.data_layer import DataDictionary
-from src.models.method_spec import (
+from src.infra.data_layer import DataDictionary
+from src.infra.models.method_spec import (
     AmbiguousField,
     EvidenceCitation,
     EmpiricalImpact,
@@ -25,7 +25,7 @@ from src.models.method_spec import (
     RemediationMode,
 )
 
-DEFAULT_REVIEW_PROMPT_PATH = Path(__file__).resolve().parents[2] / "prompts" / "review_gate" / "methodspec_audit.md"
+DEFAULT_REVIEW_PROMPT_PATH = Path(__file__).resolve().parents[3] / "prompts" / "review_gate" / "methodspec_audit.md"
 
 _LLM_REVIEW_CONTRACT = """
 Return exactly one JSON object with this shape:
@@ -350,7 +350,7 @@ class ReviewGate:
             f"{_LLM_REVIEW_CONTRACT}"
         )
 
-        from src.llm import extract_usage
+        from src.infra.llm import extract_usage
         response = self.llm_client.chat.completions.create(
             messages=[
                 {"role": "system", "content": system_prompt},

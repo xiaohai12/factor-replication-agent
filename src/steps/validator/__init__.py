@@ -4,8 +4,8 @@ from __future__ import annotations
 
 import ast
 
-from src.models.method_spec import MethodSpec
-from src.models.plugin import PluginRecord, ValidationReport
+from src.infra.models.method_spec import MethodSpec
+from src.infra.models.plugin import PluginRecord, ValidationReport
 
 
 # Patterns that indicate potential future information leakage

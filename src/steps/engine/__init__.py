@@ -18,7 +18,7 @@ from typing import Any
 import numpy as np
 import pandas as pd
 
-from src.models.method_spec import (
+from src.infra.models.method_spec import (
     BreakpointSource,
     MissingAction,
     MethodSpec,

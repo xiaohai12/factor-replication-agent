@@ -1,4 +1,4 @@
-from src.models.method_spec import (
+from src.infra.models.method_spec import (
     AmbiguousField,
     BreakpointSpec,
     DataSourceHint,
@@ -16,9 +16,9 @@ from src.models.method_spec import (
     SignalSpec,
     SignalTiming,
 )
-from src.models.factor_spec import FactorSpec
-from src.models.plugin import PluginRecord
-from src.models.run_record import RunRecord
+from src.infra.models.factor_spec import FactorSpec
+from src.infra.models.plugin import PluginRecord
+from src.infra.models.run_record import RunRecord
 
 __all__ = [
     "MethodSpec",

@@ -14,9 +14,9 @@ try:
 except ImportError:
     fitz = None
 
-from src.extractor import ExtractionMetrics, SemanticExtractor
-from src.models.method_spec import MethodSpec
-from src.pdf_mapper import build_pdf_factor_map, get_factor_to_pdf
+from src.steps.extractor import ExtractionMetrics, SemanticExtractor
+from src.infra.models.method_spec import MethodSpec
+from src.infra.pdf_mapper import build_pdf_factor_map, get_factor_to_pdf
 
 
 # --- Paths ---
