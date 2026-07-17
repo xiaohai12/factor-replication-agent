@@ -11,7 +11,7 @@ build/
 
 # Data (large/downloaded artifacts are not committed)
 data/papers/
-data/osap/
+data/CZ code/
 
 # Curated research metadata is intentionally trackable:
 # data/gold_standard/

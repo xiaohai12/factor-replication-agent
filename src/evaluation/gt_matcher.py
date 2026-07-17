@@ -1,6 +1,6 @@
 """Ground Truth Matcher — match agent-extracted MethodSpec to ground truth.
 
-Uses the spec_paper_mapping.json to find ground truth specs given:
+Uses data/test_papers/paper_spec_mapping.json to find ground truth specs given:
   1. The uploaded PDF filename (finds all factors from that paper)
   2. The agent-extracted factor_id or formula (narrows to the specific signal)
 
@@ -24,7 +24,7 @@ from typing import Any
 
 
 _PROJECT_ROOT = Path(__file__).resolve().parents[2]
-_MAPPING_PATH = _PROJECT_ROOT / "data" / "test_method_specs" / "spec_paper_mapping.json"
+_MAPPING_PATH = _PROJECT_ROOT / "data" / "test_papers" / "paper_spec_mapping.json"
 _SPECS_DIR = _PROJECT_ROOT / "data" / "test_method_specs"
 
 
@@ -34,9 +34,36 @@ def _normalize(s: str) -> str:
 
 
 def _load_mapping() -> dict:
-    if _MAPPING_PATH.exists():
-        return json.loads(_MAPPING_PATH.read_text(encoding="utf-8"))
-    return {"factors": {}, "paper_to_factors": {}, "filename_to_factors": {}}
+    """Load paper_spec_mapping.json and convert to internal format."""
+    if not _MAPPING_PATH.exists():
+        return {"factors": {}, "paper_to_factors": {}, "filename_to_factors": {}}
+    raw = json.loads(_MAPPING_PATH.read_text(encoding="utf-8"))
+    papers = raw.get("papers", {})
+    spec_to_paper = raw.get("spec_to_paper", {})
+
+    # Build factors dict: factor_id → {spec_file, paper_pdf, paper_title, citation}
+    factors = {}
+    for paper_filename, info in papers.items():
+        for spec_name in info.get("method_specs", []):
+            factor_id = spec_name.replace(".methodspec.json", "")
+            factors[factor_id] = {
+                "spec_file": f"data/test_method_specs/{spec_name}",
+                "paper_pdf": f"data/test_papers/{paper_filename}",
+                "paper_title": info.get("title", ""),
+                "citation": info.get("citation", ""),
+            }
+
+    # Build filename_to_factors: paper filename → [factor_ids]
+    filename_to_factors = {}
+    for paper_filename, info in papers.items():
+        fids = [s.replace(".methodspec.json", "") for s in info.get("method_specs", [])]
+        filename_to_factors[paper_filename] = fids
+
+    return {
+        "factors": factors,
+        "paper_to_factors": filename_to_factors,
+        "filename_to_factors": filename_to_factors,
+    }
 
 
 def _load_spec(spec_file: str) -> dict | None:

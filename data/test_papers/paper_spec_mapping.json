@@ -1,0 +1,119 @@
+{
+  "description": "Maps test paper PDFs in data/test_papers/ to their corresponding MethodSpec files in data/test_method_specs/",
+  "papers": {
+    "Abarbanell, Bushee - 1996 - Abnormal Returns to a Fundamental Analysis Strategy.pdf": {
+      "title": "Abnormal Returns to a Fundamental Analysis Strategy",
+      "citation": "Abarbanell and Bushee (1998)",
+      "method_specs": [
+        "AB1998_AQ.methodspec.json",
+        "AB1998_AR.methodspec.json",
+        "AB1998_CAPX.methodspec.json",
+        "AB1998_EQ.methodspec.json",
+        "AB1998_ETR.methodspec.json",
+        "AB1998_GM.methodspec.json",
+        "AB1998_INV.methodspec.json",
+        "AB1998_LF.methodspec.json",
+        "AB1998_SA.methodspec.json"
+      ]
+    },
+    "Asset Growth and the Cross Section of Stock Returns.pdf": {
+      "title": "Asset Growth and the Cross-Section of Stock Returns",
+      "citation": "Cooper, Gulen, and Schill (2008)",
+      "method_specs": [
+        "AssetGrowth.methodspec.json"
+      ]
+    },
+    "Ball - 2016 - Accruals, cash flows, and operating profitability in the cross section of stock returns.pdf": {
+      "title": "Accruals, Cash Flows, and Operating Profitability in the Cross Section of Stock Returns",
+      "citation": "Ball, Gerakos, Linnainmaa, and Nikolaev (2016)",
+      "method_specs": [
+        "Ball2016_ACC.methodspec.json",
+        "Ball2016_RMWCbOP.methodspec.json",
+        "Ball2016_RMWOP.methodspec.json"
+      ]
+    },
+    "Frazzini, Pedersen - 2014 - Betting against beta.pdf": {
+      "title": "Betting Against Beta",
+      "citation": "Frazzini and Pedersen (2014)",
+      "method_specs": [
+        "FrazziniPedersen2014_BAB_US_Equity.methodspec.json"
+      ]
+    },
+    "Innovative efficiency and  stock returns.pdf": {
+      "title": "Innovative Efficiency and Stock Returns",
+      "citation": "Hirshleifer, Hsu, and Li (2012)",
+      "method_specs": [
+        "HirshleiferHsuLi2012_EMI1_PatentsRDC.methodspec.json",
+        "HirshleiferHsuLi2012_EMI2_CitationsRD.methodspec.json"
+      ]
+    },
+    "Organization capital and the  cross-section of expected returns.pdf": {
+      "title": "Organization Capital and the Cross-Section of Expected Returns",
+      "citation": "Eisfeldt and Papanikolaou (2013)",
+      "method_specs": [
+        "EisfeldtPapanikolaou2013_OMK.methodspec.json"
+      ]
+    },
+    "Residual momentum.pdf": {
+      "title": "Residual Momentum",
+      "citation": "Blitz, Huij, and Martens",
+      "method_specs": [
+        "BlitzHuijMartens_ResidualMomentum.methodspec.json"
+      ]
+    },
+    "Strategic default, debt structure, and stock returns.pdf": {
+      "title": "Strategic Default, Debt Structure, and Stock Returns",
+      "citation": "Valta",
+      "method_specs": [
+        "Valta_StrategicDefault_ConvertibleDebt.methodspec.json",
+        "Valta_StrategicDefault_SecuredDebt_LowZ.methodspec.json",
+        "Valta_StrategicDefault_Shareholders_LowZ.methodspec.json"
+      ]
+    },
+    "Streaks in earnings surprises and the crosssection of stock returns.pdf": {
+      "title": "Streaks in Earnings Surprises and the Cross-section of Stock Returns",
+      "citation": "Loh and Warachka (2011)",
+      "method_specs": [
+        "LohWarachka2011_StreakSURPQuintile.methodspec.json",
+        "LohWarachka2011_StreakSign.methodspec.json"
+      ]
+    },
+    "The Joint Cross Section of Stocks and Options.pdf": {
+      "title": "The Joint Cross Section of Stocks and Options",
+      "citation": "An, Ang, Bali, and Cakici (2013)",
+      "method_specs": [
+        "AnAngBaliCakici2013_DCVOL.methodspec.json",
+        "AnAngBaliCakici2013_DPVOL.methodspec.json",
+        "AnAngBaliCakici2013_DPVOL_minus_DCVOL.methodspec.json"
+      ]
+    }
+  },
+  "spec_to_paper": {
+    "AB1998_AQ.methodspec.json": "Abarbanell, Bushee - 1996 - Abnormal Returns to a Fundamental Analysis Strategy.pdf",
+    "AB1998_AR.methodspec.json": "Abarbanell, Bushee - 1996 - Abnormal Returns to a Fundamental Analysis Strategy.pdf",
+    "AB1998_CAPX.methodspec.json": "Abarbanell, Bushee - 1996 - Abnormal Returns to a Fundamental Analysis Strategy.pdf",
+    "AB1998_EQ.methodspec.json": "Abarbanell, Bushee - 1996 - Abnormal Returns to a Fundamental Analysis Strategy.pdf",
+    "AB1998_ETR.methodspec.json": "Abarbanell, Bushee - 1996 - Abnormal Returns to a Fundamental Analysis Strategy.pdf",
+    "AB1998_GM.methodspec.json": "Abarbanell, Bushee - 1996 - Abnormal Returns to a Fundamental Analysis Strategy.pdf",
+    "AB1998_INV.methodspec.json": "Abarbanell, Bushee - 1996 - Abnormal Returns to a Fundamental Analysis Strategy.pdf",
+    "AB1998_LF.methodspec.json": "Abarbanell, Bushee - 1996 - Abnormal Returns to a Fundamental Analysis Strategy.pdf",
+    "AB1998_SA.methodspec.json": "Abarbanell, Bushee - 1996 - Abnormal Returns to a Fundamental Analysis Strategy.pdf",
+    "AnAngBaliCakici2013_DCVOL.methodspec.json": "The Joint Cross Section of Stocks and Options.pdf",
+    "AnAngBaliCakici2013_DPVOL.methodspec.json": "The Joint Cross Section of Stocks and Options.pdf",
+    "AnAngBaliCakici2013_DPVOL_minus_DCVOL.methodspec.json": "The Joint Cross Section of Stocks and Options.pdf",
+    "AssetGrowth.methodspec.json": "Asset Growth and the Cross Section of Stock Returns.pdf",
+    "Ball2016_ACC.methodspec.json": "Ball - 2016 - Accruals, cash flows, and operating profitability in the cross section of stock returns.pdf",
+    "Ball2016_RMWCbOP.methodspec.json": "Ball - 2016 - Accruals, cash flows, and operating profitability in the cross section of stock returns.pdf",
+    "Ball2016_RMWOP.methodspec.json": "Ball - 2016 - Accruals, cash flows, and operating profitability in the cross section of stock returns.pdf",
+    "BlitzHuijMartens_ResidualMomentum.methodspec.json": "Residual momentum.pdf",
+    "EisfeldtPapanikolaou2013_OMK.methodspec.json": "Organization capital and the  cross-section of expected returns.pdf",
+    "FrazziniPedersen2014_BAB_US_Equity.methodspec.json": "Frazzini, Pedersen - 2014 - Betting against beta.pdf",
+    "HirshleiferHsuLi2012_EMI1_PatentsRDC.methodspec.json": "Innovative efficiency and  stock returns.pdf",
+    "HirshleiferHsuLi2012_EMI2_CitationsRD.methodspec.json": "Innovative efficiency and  stock returns.pdf",
+    "LohWarachka2011_StreakSURPQuintile.methodspec.json": "Streaks in earnings surprises and the crosssection of stock returns.pdf",
+    "LohWarachka2011_StreakSign.methodspec.json": "Streaks in earnings surprises and the crosssection of stock returns.pdf",
+    "Valta_StrategicDefault_ConvertibleDebt.methodspec.json": "Strategic default, debt structure, and stock returns.pdf",
+    "Valta_StrategicDefault_SecuredDebt_LowZ.methodspec.json": "Strategic default, debt structure, and stock returns.pdf",
+    "Valta_StrategicDefault_Shareholders_LowZ.methodspec.json": "Strategic default, debt structure, and stock returns.pdf"
+  }
+}

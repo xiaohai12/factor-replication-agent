@@ -998,7 +998,12 @@ elif page == "MetaCoder":
                         from src.steps.codegen.script_generator import generate_backtest_script
                         script = generate_backtest_script(mc_spec, mc_plugin.code, data_path=bt_path)
                         st.session_state["mc_bt_script"] = script
-                        st.success("Generated!")
+                        # Save to data/backtest_scripts/
+                        bt_scripts_dir = Path("data/backtest_scripts")
+                        bt_scripts_dir.mkdir(parents=True, exist_ok=True)
+                        bt_file = bt_scripts_dir / f"{mc_plugin.factor_id}_backtest.py"
+                        bt_file.write_text(script)
+                        st.success(f"Generated and saved to `{bt_file}`!")
                     except Exception as e:
                         st.error(str(e))
                 bt_script = st.session_state.get("mc_bt_script")
