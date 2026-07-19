@@ -113,6 +113,14 @@ class BacktestEngine:
             hooks["compute_breakpoints"] = "double/conditional sort"
             hooks["assign_portfolios"] = "double/conditional sort"
 
+        long_leg_text = str(spec.portfolio.long_leg or "").lower()
+        short_leg_text = str(spec.portfolio.short_leg or "").lower()
+        if any(
+            "average of" in t or " and " in t
+            for t in (long_leg_text, short_leg_text)
+        ):
+            hooks["compute_long_short"] = "multi-leg long/short combination (e.g. double-sort average)"
+
         return hooks
 
     # ------------------------------------------------------------------
@@ -151,16 +159,32 @@ class BacktestEngine:
     @staticmethod
     def _resolve_long_leg(spec: MethodSpec) -> str:
         ifd = spec.portfolio.implied_factor_direction
-        if isinstance(ifd, dict):
-            return str(ifd.get("long_leg", spec.portfolio.long_leg or "low"))
-        return spec.portfolio.long_leg or "low"
+        raw = ifd.get("long_leg") if isinstance(ifd, dict) else None
+        raw = raw or spec.portfolio.long_leg
+        return BacktestEngine._normalize_leg(raw, default="low")
 
     @staticmethod
     def _resolve_short_leg(spec: MethodSpec) -> str:
         ifd = spec.portfolio.implied_factor_direction
-        if isinstance(ifd, dict):
-            return str(ifd.get("short_leg", spec.portfolio.short_leg or "high"))
-        return spec.portfolio.short_leg or "high"
+        raw = ifd.get("short_leg") if isinstance(ifd, dict) else None
+        raw = raw or spec.portfolio.short_leg
+        return BacktestEngine._normalize_leg(raw, default="high")
+
+    @staticmethod
+    def _normalize_leg(value: Any, default: str) -> str:
+        """Map a leg descriptor to the 'low'/'high' token used by _compute_long_short.
+
+        MethodSpec long_leg/short_leg fields are often free-text descriptions
+        (e.g. "lowest asset-growth decile") rather than the bare 'low'/'high'
+        tokens BacktestEngine expects, so match by substring instead of
+        equality.
+        """
+        text = str(value or "").lower()
+        if "low" in text:
+            return "low"
+        if "high" in text:
+            return "high"
+        return default
 
     # ------------------------------------------------------------------
     # Hook loader
@@ -181,6 +205,7 @@ class BacktestEngine:
             "assign_portfolios",
             "compute_returns",
             "apply_missing_policy",
+            "compute_long_short",
         ]:
             fn_name = f"{step}_hook"
             if fn_name in ns and callable(ns[fn_name]):
@@ -219,7 +244,7 @@ class BacktestEngine:
         bps       = self._dispatch("compute_breakpoints", merged, config)
         ports     = self._dispatch_assign(merged, bps, config)
         rets      = self._dispatch("compute_returns", ports, config)
-        ls        = self._compute_long_short(rets, config)
+        ls        = self._dispatch("compute_long_short", rets, config)
         metrics   = self._compute_metrics(ls, config)
 
         return {"metrics": metrics, "return_series": ls, "config": config}

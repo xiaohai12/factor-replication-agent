@@ -209,17 +209,77 @@ class CCMLinker:
     ) -> pd.DataFrame:
         """Merge CRSP and Compustat data using point-in-time CCM links.
 
+        For each Compustat row (gvkey, ``date_col``), finds the permno valid
+        at that date via ``linkdt <= date <= linkenddt`` (open-ended
+        ``linkenddt`` treated as valid through the present). When multiple
+        links are valid at the same date, the ``linkprim == 'P'`` (primary)
+        link wins. Rows whose resolved permno is absent from ``crsp_df`` are
+        dropped (not present in the CRSP universe). All drops/ambiguities are
+        logged to ``self.link_issues``.
+
         Returns merged DataFrame with both permno and gvkey columns.
         """
         if self._link_table is None:
             raise RuntimeError("Link table not loaded. Call load_link_table first.")
-        # TODO: Implement point-in-time merge with linkdt/linkenddt range matching
-        raise NotImplementedError
+
+        self.link_issues = []
+        link = self._link_table.copy()
+        link["linkdt"] = pd.to_datetime(link["linkdt"])
+        link["linkenddt"] = pd.to_datetime(link["linkenddt"]).fillna(pd.Timestamp.max)
+
+        comp = compustat_df.copy()
+        comp["_dt"] = pd.to_datetime(comp[date_col])
+
+        merged_rows: list[dict] = []
+        for _, row in comp.iterrows():
+            candidates = link[link["gvkey"] == row["gvkey"]]
+            candidates = candidates[
+                (candidates["linkdt"] <= row["_dt"]) & (row["_dt"] <= candidates["linkenddt"])
+            ]
+            if candidates.empty:
+                self.link_issues.append(
+                    f"No CCM link for gvkey={row['gvkey']} at {row[date_col]}"
+                )
+                continue
+            if len(candidates) > 1 and "linkprim" in candidates.columns:
+                primary = candidates[candidates["linkprim"] == "P"]
+                if not primary.empty:
+                    candidates = primary
+                else:
+                    self.link_issues.append(
+                        f"Multiple non-primary links for gvkey={row['gvkey']} "
+                        f"at {row[date_col]}; using first match"
+                    )
+            link_row = candidates.iloc[0]
+            merged_row = row.drop(labels=["_dt"]).to_dict()
+            merged_row["permno"] = int(link_row["permno"])
+            merged_rows.append(merged_row)
+
+        if not merged_rows:
+            return compustat_df.iloc[0:0].assign(permno=pd.Series(dtype="int64"))
+
+        result = pd.DataFrame(merged_rows)
+        if crsp_df is not None and "permno" in crsp_df.columns:
+            valid_permnos = set(crsp_df["permno"].unique())
+            before = len(result)
+            result = result[result["permno"].isin(valid_permnos)].copy()
+            dropped = before - len(result)
+            if dropped:
+                self.link_issues.append(
+                    f"{dropped} row(s) dropped: linked permno not present in CRSP universe"
+                )
+        return result.reset_index(drop=True)
 
     def check_coverage(self, merged_df: pd.DataFrame) -> dict[str, Any]:
         """Check merge coverage and report potential issues."""
-        # TODO: Compute coverage stats and flag anomalies
-        raise NotImplementedError
+        n_rows = len(merged_df)
+        n_permno = int(merged_df["permno"].nunique()) if "permno" in merged_df.columns else 0
+        return {
+            "n_rows": n_rows,
+            "n_unique_permno": n_permno,
+            "n_link_issues": len(self.link_issues),
+            "link_issues": list(self.link_issues),
+        }
 
 
 # --- Main Data Layer Facade ---
@@ -249,22 +309,29 @@ class TimeAvailComputer:
         Returns:
             DataFrame with added 'time_avail_m' column (YYYYMM int format)
         """
-        # TODO: Implement time_avail_m = datadate + lag_months, converted to YYYYMM
-        raise NotImplementedError
+        df = df.copy()
+        dt = pd.to_datetime(df[date_col])
+        total_months = dt.dt.year * 12 + (dt.dt.month - 1) + lag_months
+        year, month = divmod(total_months, 12)
+        df["time_avail_m"] = (year * 100 + month + 1).astype(int)
+        return df
 
     def build_signal_master_table(
         self,
         crsp_df: pd.DataFrame,
         compustat_df: pd.DataFrame,
+        ccm_linker: "CCMLinker",
         lag_months: int = 6,
+        date_col: str = "datadate",
     ) -> pd.DataFrame:
         """Build merged panel keyed on [permno, time_avail_m].
 
         This is the intermediate table that signal plugins read from.
-        Analogous to C&Z's SignalMasterTable.parquet.
+        Analogous to C&Z's SignalMasterTable.parquet. Requires ``ccm_linker``
+        to already have its link table loaded via ``load_link_table()``.
         """
-        # TODO: Merge CRSP + Compustat via CCM, compute time_avail_m
-        raise NotImplementedError
+        merged = ccm_linker.merge(crsp_df, compustat_df, date_col=date_col)
+        return self.compute_time_avail_m(merged, date_col=date_col, lag_months=lag_months)
 
 
 class DataLayer:
@@ -302,6 +369,8 @@ class DataLayer:
         """
         crsp = self.get_snapshot_data(snapshot_id, "crsp_msf")
         compustat = self.get_snapshot_data(snapshot_id, "compustat_funda")
+        ccm_link = self.get_snapshot_data(snapshot_id, "ccm_link")
+        self.ccm_linker.load_link_table(ccm_link)
         return self.time_avail.build_signal_master_table(
-            crsp, compustat, lag_months=lag_months
+            crsp, compustat, self.ccm_linker, lag_months=lag_months
         )

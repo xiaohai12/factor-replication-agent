@@ -47,6 +47,15 @@ and controlled pipeline components.
 | `src/pipeline.py` | — | End-to-end orchestrator with feedback loops. |
 | `app.py` | — | 7-page Streamlit dashboard. |
 
+## Generated Artifacts vs. Fixtures
+
+- `runs/` — gitignored. Every pipeline-run-generated artifact (MethodSpecs at each
+  stage, plugins, `generate_backtest_script()` output, EvidenceStore RunRecords)
+  lives here. Safe to delete/regenerate at any time.
+- `tests/fixtures/` — committed. Resolved MethodSpecs + plugins that golden-number
+  tests (`tests/test_*_e2e.py`) and manual dashboard testing depend on. Promote a
+  `runs/` artifact here manually when it should become a durable reference.
+
 ## Common Commands
 
 ### Starting the Streamlit dashboard

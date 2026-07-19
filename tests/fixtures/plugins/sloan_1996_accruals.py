@@ -13,13 +13,9 @@ def compute_signal(df: pd.DataFrame) -> pd.DataFrame:
 
     df["signal"] = (delta_ca_ex_cash - delta_cl_ex_std - df["dp"]) / avg_at
 
-    def _winsorize(group: pd.DataFrame) -> pd.DataFrame:
-        lower = group["signal"].quantile(0.01)
-        upper = group["signal"].quantile(0.99)
-        group["signal"] = group["signal"].clip(lower=lower, upper=upper)
-        return group
-
-    df = df.groupby("time_avail_m", group_keys=False).apply(_winsorize)
+    df["signal"] = df.groupby("time_avail_m")["signal"].transform(
+        lambda s: s.clip(lower=s.quantile(0.01), upper=s.quantile(0.99))
+    )
 
     df["signal"] = df["signal"].replace([float("inf"), float("-inf")], pd.NA)
     df = df[df["signal"].notna()]
@@ -59,26 +55,20 @@ def apply_missing_policy_hook(df: pd.DataFrame, config: dict) -> pd.DataFrame:
     upper_q = 0.99
     winsor_cols = [col for col in ["act", "lct", "che", "dlc", "dp", "at", "signal"] if col in out.columns]
 
-    def _winsorize_frame(g: pd.DataFrame) -> pd.DataFrame:
-        g = g.copy()
-        for col in winsor_cols:
-            s = g[col]
-            non_missing = s.dropna()
-            if non_missing.empty:
-                continue
-            lower = non_missing.quantile(lower_q)
-            upper = non_missing.quantile(upper_q)
-            g[col] = s.clip(lower=lower, upper=upper)
-        return g
+    def _clip_col(s: pd.Series) -> pd.Series:
+        non_missing = s.dropna()
+        if non_missing.empty:
+            return s
+        lower = non_missing.quantile(lower_q)
+        upper = non_missing.quantile(upper_q)
+        return s.clip(lower=lower, upper=upper)
 
     if "yyyymm" in out.columns:
-        out = (
-            out.groupby("yyyymm", group_keys=False, sort=False)
-            .apply(_winsorize_frame)
-            .reset_index(drop=True)
-        )
+        for col in winsor_cols:
+            out[col] = out.groupby("yyyymm")[col].transform(_clip_col)
     else:
-        out = _winsorize_frame(out).reset_index(drop=True)
+        for col in winsor_cols:
+            out[col] = _clip_col(out[col])
 
     if "ret" in out.columns:
         out = out.dropna(subset=["ret"]).copy()

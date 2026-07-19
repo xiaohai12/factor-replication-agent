@@ -21,8 +21,8 @@ from src.steps.reviewer import ReviewGate, ReviewResult
 from src.infra.llm import create_llm_client
 
 
-DEFAULT_INPUT_DIR = Path("data/method_specs/curated")
-DEFAULT_OUTPUT_DIR = Path("data/method_specs/reviewed")
+DEFAULT_INPUT_DIR = Path("runs/method_specs/unreviewed")
+DEFAULT_OUTPUT_DIR = Path("runs/method_specs/reviewed")
 DEFAULT_PROMPT_PATH = Path("prompts/review_gate/methodspec_audit.md")
 DEFAULT_PAPERS_DIR = Path("data/papers")
 

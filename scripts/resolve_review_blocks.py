@@ -16,8 +16,8 @@ if str(REPO_ROOT) not in sys.path:
 from src.infra.models.method_spec import MethodSpec
 
 
-DEFAULT_RESOLUTION_DIR = Path("data/method_specs/resolutions")
-DEFAULT_RESOLVED_DIR = Path("data/method_specs/resolved")
+DEFAULT_RESOLUTION_DIR = Path("runs/method_specs/resolutions")
+DEFAULT_RESOLVED_DIR = Path("runs/method_specs/resolved")
 
 
 PATH_ALIASES = {

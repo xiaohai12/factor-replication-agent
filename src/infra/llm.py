@@ -275,7 +275,7 @@ class CopilotCLIClient:
         "Code Helper (Plugin).app/Contents/MacOS/Code Helper (Plugin)"
     )
 
-    SUPPORTED_MODELS = ["claude-opus-4-6", "claude-sonnet-4-6", "gpt-5.4"]
+    SUPPORTED_MODELS = ["claude-sonnet-5", "claude-opus-4-6", "claude-sonnet-4-6", "gpt-5.4"]
 
     def __init__(self, model: str = "claude-opus-4-6", agent_mode: bool = False):
         self.chat = _ChatNamespace(self)
@@ -445,7 +445,7 @@ class ClaudeCodeCLIClient:
     Set CLAUDE_CODE_BIN env var to override the binary path (default: auto-detected).
     """
 
-    SUPPORTED_MODELS = ["claude-sonnet-4-6", "claude-opus-4-8", "claude-haiku-4-5-20251001"]
+    SUPPORTED_MODELS = ["claude-sonnet-5", "claude-sonnet-4-6", "claude-opus-4-8", "claude-haiku-4-5-20251001"]
 
     def __init__(self, model: str = "claude-sonnet-4-6"):
         self.chat = _ChatNamespace(self)

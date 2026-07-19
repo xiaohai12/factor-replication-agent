@@ -9,7 +9,7 @@ Usage examples:
   python scripts/extract_methodspecs.py --paper data/test_papers/foo.pdf --factor AB1998_AQ,AB1998_AR
 
   # Batch: all PDFs in a directory (one factor per PDF, name inferred from filename)
-  python scripts/extract_methodspecs.py --dir data/papers/ --out-dir data/method_specs/curated/
+  python scripts/extract_methodspecs.py --dir data/papers/ --out-dir runs/method_specs/unreviewed/
 
   # Use Copilot CLI instead of Codex
   python scripts/extract_methodspecs.py --paper foo.pdf --factor BM --provider copilot
@@ -35,7 +35,7 @@ if str(REPO_ROOT) not in sys.path:
 from src.steps.extractor import RateLimitExhausted, SemanticExtractor
 from src.infra.llm import create_llm_client
 
-DEFAULT_OUTPUT_DIR = Path("data/method_specs/curated")
+DEFAULT_OUTPUT_DIR = Path("runs/method_specs/unreviewed")
 DEFAULT_PAPERS_DIR = Path("data/papers")
 
 

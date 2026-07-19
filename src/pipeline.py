@@ -10,7 +10,14 @@ Implements feedback loops (docs/architecture.md Section 3.1):
 
 from __future__ import annotations
 
+import hashlib
+import json
+import subprocess
+import sys
 from dataclasses import dataclass
+from pathlib import Path
+
+import pandas as pd
 
 from src.steps.attribution import AttributionLayer
 from src.steps.controller import DualTrackController, ExperimentPlan
@@ -19,8 +26,10 @@ from src.steps.engine import BacktestEngine
 from src.infra.evidence import EvidenceStore, RunRegistry
 from src.steps.extractor import SemanticExtractor
 from src.steps.codegen import MetaCoder
+from src.steps.codegen.script_generator import generate_backtest_script, _signal_needs_compustat
 from src.infra.models.method_spec import MethodSpec
-from src.infra.models.run_record import RunRecord
+from src.infra.models.plugin import PluginRecord
+from src.infra.models.run_record import RunMetrics, RunRecord
 from src.infra.registry import PluginRegistry
 from src.steps.reviewer import ReviewGate
 from src.steps.validator import AdversarialSandbox
@@ -66,7 +75,8 @@ class Pipeline:
         self,
         llm_client=None,
         data_path: str = "./data",
-        evidence_path: str = "./evidence",
+        evidence_path: str = "./runs/evidence",
+        scripts_path: str = "./runs/backtest_scripts",
     ):
         self.data_layer = DataLayer(data_path=data_path)
         self.extractor = SemanticExtractor(
@@ -85,6 +95,7 @@ class Pipeline:
         self.evidence_store = EvidenceStore(base_path=evidence_path)
         self.run_registry = RunRegistry()
         self.attribution = AttributionLayer()
+        self.scripts_path = Path(scripts_path)
 
     def run_factor(
         self,
@@ -217,6 +228,163 @@ class Pipeline:
 
         status.stage = "done"
         return runs, status
+
+    def run_from_method_spec(
+        self,
+        spec: MethodSpec,
+        snapshot_id: str,
+        plugin: PluginRecord | None = None,
+        config_overrides: dict | None = None,
+        track: str = "original_method",
+    ) -> RunRecord:
+        """Run the MVP chain starting from an already-approved MethodSpec.
+
+        This is the curated-MethodSpec path from docs/roadmap.md Phase 1: it
+        skips extraction and dual-track orchestration entirely.
+
+            approved MethodSpec -> MetaCoder (if plugin not supplied) -> Sandbox
+            -> generate_backtest_script() -> execute via subprocess -> EvidenceStore
+
+        The backtest is NOT run in-process: a standalone Python script is
+        generated (see src/steps/codegen/script_generator.py) and saved to
+        runs/backtest_scripts/{factor_id}_backtest.py, then executed as a
+        subprocess. That script is the actual source of the reported metrics,
+        so every run leaves behind an independently re-runnable audit artifact.
+        The registered snapshot's data files must already exist on disk
+        (crsp_msf.parquet, and for Compustat-based signals also
+        compustat_funda.parquet + ccm_link.parquet) — this method does not
+        generate data.
+
+        Args:
+            spec: Approved MethodSpec (review_status=approved, codegen_ready=True)
+            snapshot_id: Data snapshot registered on self.data_layer.snapshots
+            plugin: Optional pre-generated + already-validated PluginRecord.
+                When omitted, MetaCoder generates one (with bounded repair).
+            config_overrides: Optional BacktestEngine config overrides
+            track: Track label recorded on the returned RunRecord
+
+        Returns:
+            RunRecord with metrics, persisted to the evidence store.
+        """
+        if plugin is None:
+            plugin = self.meta_coder.generate_plugin(spec)
+            plugin = self._validate_with_repair(plugin, spec)
+        elif plugin.validation_status != "passed":
+            plugin = self._validate_with_repair(plugin, spec)
+
+        self.registry.register(plugin)
+
+        result = self._run_backtest_via_script(plugin, spec, snapshot_id, config_overrides)
+        metrics = result["metrics"]
+
+        config_hash = hashlib.sha256(
+            json.dumps(result["config"], sort_keys=True, default=str).encode()
+        ).hexdigest()[:16]
+
+        run = RunRecord(
+            run_id=f"{spec.factor_id}_{track}_{plugin.code_hash[:8]}",
+            factor_id=spec.factor_id,
+            plugin_id=plugin.plugin_id,
+            track=track,
+            method_spec_hash=spec.stable_hash(),
+            code_hash=plugin.code_hash,
+            config_hash=config_hash,
+            metrics=RunMetrics(
+                mean_return=metrics.get("mean_monthly_return"),
+                t_stat=metrics.get("t_stat"),
+                n_months=metrics.get("n_months"),
+            ),
+            status="success",
+        )
+        self.evidence_store.save_run(run)
+        self.run_registry.register(run)
+        return run
+
+    def _validate_with_repair(self, plugin: PluginRecord, spec: MethodSpec) -> PluginRecord:
+        """Run Sandbox validation with bounded MetaCoder repair (technical errors only)."""
+        for attempt in range(MAX_REPAIR_RETRIES + 1):
+            report = self.sandbox.validate(plugin, spec)
+            plugin.validation_report = report
+            if report.passed:
+                plugin.validation_status = "passed"
+                return plugin
+            if attempt < MAX_REPAIR_RETRIES:
+                plugin = self.meta_coder.repair_plugin(plugin, report.errors)
+            else:
+                raise RuntimeError(
+                    f"Plugin repair failed after {MAX_REPAIR_RETRIES} attempts: {report.errors}"
+                )
+        return plugin
+
+    def _run_backtest_via_script(
+        self,
+        plugin: PluginRecord,
+        spec: MethodSpec,
+        snapshot_id: str,
+        config_overrides: dict | None,
+    ) -> dict:
+        """Generate the standalone backtest script and execute it via subprocess.
+
+        The script is written to runs/backtest_scripts/{factor_id}_backtest.py
+        (a durable, independently-runnable audit artifact — see
+        src/steps/codegen/script_generator.py) and run with the current
+        Python interpreter. Results are read back from the CSV/metrics.json
+        the script itself writes, rather than computed in-process, so the
+        persisted script is always the actual source of the reported numbers.
+
+        Data is NOT auto-generated here: the registered snapshot's
+        storage_path must already contain crsp_msf.parquet (and, in
+        'compustat' mode, compustat_funda.parquet + ccm_link.parquet).
+        """
+        snapshot = self.data_layer.snapshots.get_snapshot(snapshot_id)
+        if snapshot is None:
+            raise RuntimeError(f"Snapshot '{snapshot_id}' not registered on this Pipeline's DataLayer")
+        storage_path = Path(snapshot.storage_path)
+
+        signal_input_mode = "compustat" if _signal_needs_compustat(spec) else "crsp_only"
+
+        scripts_dir = self.scripts_path
+        scripts_dir.mkdir(parents=True, exist_ok=True)
+        results_dir = scripts_dir / "results"
+        output_csv = results_dir / f"{spec.factor_id}.csv"
+
+        script = generate_backtest_script(
+            spec,
+            plugin.code,
+            data_path=str(storage_path / "crsp_msf.parquet"),
+            signal_input_mode=signal_input_mode,
+            compustat_data_path=str(storage_path / "compustat_funda.parquet"),
+            ccm_link_path=str(storage_path / "ccm_link.parquet"),
+            output_path=str(output_csv),
+            config_overrides=config_overrides,
+        )
+        script_path = scripts_dir / f"{spec.factor_id}_backtest.py"
+        script_path.write_text(script)
+
+        proc = subprocess.run(
+            [sys.executable, str(script_path)],
+            capture_output=True,
+            text=True,
+        )
+        if proc.returncode != 0:
+            raise RuntimeError(
+                f"Backtest script {script_path} failed (exit {proc.returncode}):\n"
+                f"--- stdout ---\n{proc.stdout}\n--- stderr ---\n{proc.stderr}"
+            )
+
+        metrics_path = output_csv.with_suffix(".metrics.json")
+        metrics = json.loads(metrics_path.read_text())
+        return_series = pd.read_csv(output_csv)
+
+        config = self.engine._build_config(spec, config_overrides)
+
+        return {
+            "metrics": metrics,
+            "return_series": return_series,
+            "config": config,
+            "script_path": str(script_path),
+            "stdout": proc.stdout,
+        }
 
     def _has_empirical_issues(self, report) -> bool:
         """Check if validation errors involve empirical assumptions."""

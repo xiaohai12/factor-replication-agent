@@ -249,21 +249,29 @@ Attribution 保证：两个 track 使用同一个 plugin（含相同 hook），�
 app.py                          # Streamlit dashboard（主要人工交互入口）
 
 data/
-  method_specs/
-    curated/                    # raw extracted MethodSpec（未审查）
-    reviewed/                   # reviewed MethodSpec + review report
-    resolutions/                # Review Gate 生成的逐字段 resolution 建议
-    resolved/                   # post-resolution MethodSpec（codegen_ready: true）
-                                # 含 data.normalized_mapping + resolution_log
-  plugins/                      # 生成的 per-factor signal plugin Python 文件
   paper_text_cache/             # PDF 转换后的文本缓存（审计用）
   eval_history/                 # 批量 extraction accuracy 评估记录
+  test_method_specs_human_labeled/  # 人工标注的 ground truth MethodSpec（评估用，非生成）
   local/                        # ⚠ 尚未建立（见 §10）
     funda.parquet               # Compustat annual（需人工导出后放置）
     msf.parquet                 # CRSP monthly（需人工导出后放置）
 
-evidence/                       # EvidenceStore 输出目录（运行后生成）
-  {factor_id}/{run_id}/         # per-run artifacts
+runs/                            # ⚠ gitignored — 所有 pipeline 运行时生成的产物统一放这里
+  method_specs/
+    unreviewed/                 # raw extracted MethodSpec（未审查）
+    reviewed/                   # reviewed MethodSpec + review report
+    resolutions/                # Review Gate 生成的逐字段 resolution 建议
+    resolved/                   # post-resolution MethodSpec（codegen_ready: true）
+                                 # 含 data.normalized_mapping + resolution_log
+  plugins/                      # 生成的 per-factor signal plugin Python 文件
+  backtest_scripts/             # generate_backtest_script() 生成的独立可运行回测脚本
+    results/                    # 脚本自己写的 CSV/metrics.json（临时，随时可删）
+  evidence/                     # EvidenceStore 输出目录：{factor_id}/{run_id}/metadata.json
+
+tests/
+  fixtures/                     # ⚠ 提交进 git —— 测试 & 手动调试用的固定参考样本
+    method_specs/               # golden-number 测试依赖的 resolved MethodSpec
+    plugins/                    # 对应的已验证 signal plugin
 
 src/
   pipeline.py                   # Pipeline 主编排器（含反馈回路，见 §3.1）

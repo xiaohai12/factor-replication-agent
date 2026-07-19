@@ -5,6 +5,7 @@ __pycache__/
 dist/
 build/
 *.egg
+data/synthetic_data/
 
 # Virtual environment
 .venv/
@@ -13,9 +14,13 @@ build/
 data/papers/
 data/CZ code/
 
+# All pipeline-run-generated artifacts (MethodSpecs, plugins, backtest scripts,
+# evidence/RunRecords) live under runs/ — a single gitignored directory.
+# Committed reference fixtures live in tests/fixtures/ instead (not ignored).
+runs/
+
 # Curated research metadata is intentionally trackable:
 # data/gold_standard/
-# data/method_specs/
 
 # IDE
 .idea/

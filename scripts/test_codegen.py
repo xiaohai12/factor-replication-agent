@@ -9,7 +9,7 @@ Runs:
   3    MetaCoder generates compute_signal() + hook functions via codex CLI (gpt-5.4)
   4    Future-Leak Scan validates the plugin
 
-Saves plugin to data/plugins/<factor_id>.py on success.
+Saves plugin to runs/plugins/<factor_id>.py on success.
 """
 
 from __future__ import annotations
@@ -29,19 +29,19 @@ from src.infra.models.method_spec import MethodSpec
 from src.steps.validator import AdversarialSandbox
 
 
-RESOLVED_DIR = ROOT / "data" / "method_specs" / "resolved"
-TEST_DIR     = ROOT / "data" / "method_specs" / "test"
-PLUGINS_DIR  = ROOT / "data" / "plugins"
+RESOLVED_DIR = ROOT / "runs" / "method_specs" / "resolved"
+FIXTURE_DIR  = ROOT / "tests" / "fixtures" / "method_specs"
+PLUGINS_DIR  = ROOT / "runs" / "plugins"
 
 
 def load_resolved_spec(factor_id: str) -> MethodSpec:
     filename = f"{factor_id}.resolved.methodspec.json"
-    for directory in (RESOLVED_DIR, TEST_DIR):
+    for directory in (RESOLVED_DIR, FIXTURE_DIR):
         path = directory / filename
         if path.exists():
             return MethodSpec(**json.loads(path.read_text()))
     raise FileNotFoundError(
-        f"Resolved MethodSpec not found in resolved/ or test/: {filename}"
+        f"Resolved MethodSpec not found in runs/method_specs/resolved/ or tests/fixtures/method_specs/: {filename}"
     )
 
 

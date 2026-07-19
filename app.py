@@ -38,20 +38,147 @@ SIGNALDOC_PATH = PROJECT_ROOT / "data" / "osap" / "SignalDoc.csv"
 PAPERS_DIR = PROJECT_ROOT / "data" / "papers"
 PAPER_TEXT_CACHE_DIR = PROJECT_ROOT / "data" / "paper_text_cache"
 PAPER_TEXT_CACHE_DIR.mkdir(parents=True, exist_ok=True)
-CURATED_METHODSPEC_DIR = PROJECT_ROOT / "data" / "method_specs" / "curated"
-CURATED_METHODSPEC_DIR.mkdir(parents=True, exist_ok=True)
-RESOLVED_DIR = PROJECT_ROOT / "data" / "method_specs" / "resolved"
+
+# All pipeline-run-generated artifacts (MethodSpecs, plugins, backtest scripts,
+# evidence) live under runs/ — a single gitignored directory — rather than
+# scattered across data/ and a top-level evidence/. See CHANGELOG.md.
+RUNS_DIR = PROJECT_ROOT / "runs"
+UNREVIEWED_METHODSPEC_DIR = RUNS_DIR / "method_specs" / "unreviewed"
+UNREVIEWED_METHODSPEC_DIR.mkdir(parents=True, exist_ok=True)
+RESOLVED_DIR = RUNS_DIR / "method_specs" / "resolved"
 RESOLVED_DIR.mkdir(parents=True, exist_ok=True)
-REVIEWED_DIR = PROJECT_ROOT / "data" / "method_specs" / "reviewed"
+REVIEWED_DIR = RUNS_DIR / "method_specs" / "reviewed"
 REVIEWED_DIR.mkdir(parents=True, exist_ok=True)
-RESOLUTIONS_DIR = PROJECT_ROOT / "data" / "method_specs" / "resolutions"
+RESOLUTIONS_DIR = RUNS_DIR / "method_specs" / "resolutions"
 RESOLUTIONS_DIR.mkdir(parents=True, exist_ok=True)
-PLUGINS_DIR = PROJECT_ROOT / "data" / "plugins"
+PLUGINS_DIR = RUNS_DIR / "plugins"
 PLUGINS_DIR.mkdir(parents=True, exist_ok=True)
-TEST_SPECS_DIR = PROJECT_ROOT / "data" / "test_method_specs"
-TEST_DIR = PROJECT_ROOT / "data" / "method_specs" / "test"
-EVIDENCE_DIR = PROJECT_ROOT / "evidence"
+BACKTEST_SCRIPTS_DIR = RUNS_DIR / "backtest_scripts"
+EVIDENCE_DIR = RUNS_DIR / "evidence"
+
+# Committed reference/test fixtures (resolved MethodSpecs + plugins that golden-
+# number tests and manual dashboard testing depend on) — tracked in git, unlike
+# runs/ above. See tests/test_*_e2e.py.
+FIXTURES_DIR = PROJECT_ROOT / "tests" / "fixtures"
+FIXTURE_METHODSPEC_DIR = FIXTURES_DIR / "method_specs"
+FIXTURE_PLUGINS_DIR = FIXTURES_DIR / "plugins"
+
+TEST_SPECS_DIR = PROJECT_ROOT / "data" / "test_method_specs_human_labeled"
 MSF_PATH = PROJECT_ROOT / "data" / "local" / "msf.parquet"
+SYNTHETIC_MSF_PATH = PROJECT_ROOT / "data" / "synthetic_data" / "local" / "msf.parquet"
+SYNTHETIC_SNAPSHOT_DIR = PROJECT_ROOT / "data" / "synthetic_data" / "mvp_v1"
+
+# Physical columns that CRSP-monthly-only signals need (no Compustat merge required).
+# Used to guess a sensible default "Signal Input Mode" for a given resolved MethodSpec.
+_CRSP_ONLY_COLUMNS = {"ret", "me", "shrcd", "exchcd", "siccd", "prc", "shrout", "date"}
+
+
+def _signal_needs_compustat(spec) -> bool:
+    """Best-effort guess: does this spec's signal need Compustat fields (vs CRSP-only)?
+
+    True if any paper-field -> physical-column mapping falls outside the known
+    CRSP-monthly column set (e.g. 'at', 'ceq', 'revt' -> Compustat annual fields).
+    Defaults to True (Compustat mode) when there's no mapping to inspect, since
+    most factors in this repo are accounting-based.
+    """
+    mapping = getattr(getattr(spec, "data", None), "normalized_mapping", None) or {}
+    if not mapping:
+        return True
+    return any(col not in _CRSP_ONLY_COLUMNS for col in mapping.values())
+
+
+def _ensure_synthetic_data() -> bool:
+    """Generate the bundled synthetic demo data on the fly if it isn't already on disk.
+
+    Uses the same deterministic builder as scripts/build_synthetic_data.py
+    (tests/synthetic_data/asset_growth_synthetic_data.py). Returns True if the
+    synthetic data is available (already present or just generated).
+    """
+    if SYNTHETIC_MSF_PATH.exists() and SYNTHETIC_SNAPSHOT_DIR.exists():
+        return True
+    try:
+        from tests.synthetic_data.asset_growth_synthetic_data import (
+            build_ccm_link,
+            build_compustat_funda,
+            build_crsp_msf,
+        )
+        SYNTHETIC_SNAPSHOT_DIR.mkdir(parents=True, exist_ok=True)
+        SYNTHETIC_MSF_PATH.parent.mkdir(parents=True, exist_ok=True)
+        crsp = build_crsp_msf()
+        crsp.to_parquet(SYNTHETIC_SNAPSHOT_DIR / "crsp_msf.parquet", index=False)
+        crsp.to_parquet(SYNTHETIC_MSF_PATH, index=False)
+        build_compustat_funda().to_parquet(SYNTHETIC_SNAPSHOT_DIR / "compustat_funda.parquet", index=False)
+        build_ccm_link().to_parquet(SYNTHETIC_SNAPSHOT_DIR / "ccm_link.parquet", index=False)
+        return True
+    except Exception as e:
+        st.error(f"Failed to auto-generate synthetic data: {e}")
+        return False
+
+
+def _run_backtest_via_script(
+    spec,
+    plugin_code: str,
+    *,
+    crsp_data_path,
+    signal_input_mode: str,
+    compustat_data_path=None,
+    ccm_link_path=None,
+    config_overrides: dict | None = None,
+) -> dict:
+    """Generate a standalone backtest script and execute it via subprocess.
+
+    Mirrors ``src.pipeline.Pipeline._run_backtest_via_script()``: the script
+    is written to ``runs/backtest_scripts/{factor_id}_backtest.py`` (a
+    durable, independently re-runnable audit artifact — see
+    src/steps/codegen/script_generator.py) and run with the current Python
+    interpreter. Results are read back from the CSV/metrics.json the script
+    itself writes, so the persisted script — not this dashboard process — is
+    the actual source of the reported numbers. No data is auto-generated
+    here; the given paths must already exist on disk.
+    """
+    import subprocess
+    import sys
+    from src.steps.codegen.script_generator import generate_backtest_script
+    from src.steps.engine import BacktestEngine
+
+    scripts_dir = BACKTEST_SCRIPTS_DIR
+    scripts_dir.mkdir(parents=True, exist_ok=True)
+    results_dir = scripts_dir / "results"
+    output_csv = results_dir / f"{spec.factor_id}.csv"
+
+    script = generate_backtest_script(
+        spec,
+        plugin_code,
+        data_path=str(crsp_data_path),
+        signal_input_mode=signal_input_mode,
+        compustat_data_path=str(compustat_data_path or "data/local/compustat_funda.parquet"),
+        ccm_link_path=str(ccm_link_path or "data/local/ccm_link.parquet"),
+        output_path=str(output_csv),
+        config_overrides=config_overrides,
+    )
+    script_path = scripts_dir / f"{spec.factor_id}_backtest.py"
+    script_path.write_text(script)
+
+    proc = subprocess.run([sys.executable, str(script_path)], capture_output=True, text=True)
+    if proc.returncode != 0:
+        raise RuntimeError(
+            f"Backtest script {script_path} failed (exit {proc.returncode}):\n"
+            f"--- stdout ---\n{proc.stdout}\n--- stderr ---\n{proc.stderr}"
+        )
+
+    metrics_path = output_csv.with_suffix(".metrics.json")
+    metrics = json.loads(metrics_path.read_text())
+    return_series = pd.read_csv(output_csv)
+    config = BacktestEngine()._build_config(spec, config_overrides)
+
+    return {
+        "metrics": metrics,
+        "return_series": return_series,
+        "config": config,
+        "script_path": str(script_path),
+        "stdout": proc.stdout,
+    }
+
 
 # ============================================================
 # Sidebar
@@ -75,7 +202,7 @@ st.sidebar.markdown("---")
 st.sidebar.markdown("**Module Status**")
 st.sidebar.markdown("- Extractor ✅")
 st.sidebar.markdown("- Review Gate ✅")
-_plugin_count = len(list(PLUGINS_DIR.glob("*.py"))) if PLUGINS_DIR.exists() else 0
+_plugin_count = len(list(PLUGINS_DIR.glob("*.py"))) + len(list(FIXTURE_PLUGINS_DIR.glob("*.py"))) if (PLUGINS_DIR.exists() or FIXTURE_PLUGINS_DIR.exists()) else 0
 st.sidebar.markdown(f"- MetaCoder {'✅' if _plugin_count else '🚧'} ({_plugin_count} plugins)")
 st.sidebar.markdown("- Sandbox ✅")
 st.sidebar.markdown("- Backtest ✅")
@@ -90,8 +217,8 @@ llm_provider = st.sidebar.selectbox(
 )
 _PROVIDER_MODELS = {
     "codex": ["gpt-5.4", "gpt-5.5"],
-    "copilot": ["claude-opus-4-6", "claude-sonnet-4-6", "gpt-5.4"],
-    "claude": ["claude-sonnet-4-6", "claude-opus-4-8", "claude-haiku-4-5-20251001"],
+    "copilot": ["claude-sonnet-5", "claude-opus-4-6", "claude-sonnet-4-6", "gpt-5.4"],
+    "claude": ["claude-sonnet-5", "claude-sonnet-4-6", "claude-opus-4-8", "claude-haiku-4-5-20251001"],
     "openrouter": ["openai/gpt-4o", "anthropic/claude-sonnet-4", "openai/gpt-5.4"],
 }
 llm_model = st.sidebar.selectbox(
@@ -102,7 +229,7 @@ llm_model = st.sidebar.selectbox(
 
 _gt_count = len(list(TEST_SPECS_DIR.glob("*.methodspec.json"))) if TEST_SPECS_DIR.exists() else 0
 st.sidebar.markdown("---")
-st.sidebar.markdown(f"**Ground Truth:** {_gt_count} specs in `test_method_specs/`")
+st.sidebar.markdown(f"**Ground Truth:** {_gt_count} specs in `test_method_specs_human_labeled/`")
 
 st.title("Factor Replication Agent")
 
@@ -191,7 +318,7 @@ def _save_review_artifacts(spec, review_result, raw_llm_review=None) -> None:
 
 
 def _load_ground_truth_specs() -> dict[str, dict]:
-    """Load all ground truth MethodSpecs from test_method_specs/."""
+    """Load all ground truth MethodSpecs from test_method_specs_human_labeled/."""
     specs = {}
     if TEST_SPECS_DIR.exists():
         for p in sorted(TEST_SPECS_DIR.glob("*.methodspec.json")):
@@ -330,6 +457,220 @@ def _status_val(note):
     return note.status.value if hasattr(note.status, "value") else str(note.status)
 
 
+def _e2e_review_result_to_dict(result) -> dict:
+    """Serialize a ReviewResult to the same shape scripts/review_methodspecs.py writes."""
+    return {
+        "review_id": result.review_id,
+        "methodspec_version": result.methodspec_version,
+        "reviewer": result.reviewer,
+        "disposition": result.disposition,
+        "remediation_mode": result.remediation_mode,
+        "codegen_ready": result.codegen_ready,
+        "paper_faithful": result.paper_faithful,
+        "approved": result.approved,
+        "issues": result.issues,
+        "warnings": result.warnings,
+        "field_notes": [
+            {
+                "field": note.field,
+                "status": _status_val(note),
+                "reason": note.reason,
+                "current_value": note.current_value,
+                "candidate_value": note.candidate_value,
+                "empirical_impact": note.empirical_impact,
+                "evidence": [e.model_dump(mode="json") for e in note.evidence],
+            }
+            for note in result.field_notes
+        ],
+        "blocked_fields": result.blocked_fields,
+        "requires_human": result.requires_human,
+    }
+
+
+def _e2e_run_stage_3_to_7(
+    spec, review_result, tracer, stages, human_resolutions,
+    e2e_data_src, e2e_signal_mode, llm_provider, llm_model,
+):
+    """Stage 3 (Resolve) through Stage 7 (Attribution) of the E2E pipeline.
+
+    Split out from Stage 1/2 (Extract/Review) so the page can pause between
+    them: if ReviewGate flags any field as needs_human_confirmation, the
+    caller collects human_resolutions via an inline selectbox (mirroring the
+    Review & Resolve page) before calling this function, instead of the
+    pipeline silently defaulting those fields like it used to.
+    """
+    from src.infra.models import MethodSpec as _MS
+    from src.steps.reviewer import SENSIBLE_DEFAULTS
+
+    progress = st.progress(3 / 7, text="Stage 3/7 — Resolving...")
+
+    # Stage 3: Resolve (human confirmations + sensible defaults for the rest)
+    tracer.log("resolve", "started")
+    spec_dict = json.loads(spec.model_dump_json())
+    decisions = []
+    for note in review_result.field_notes:
+        sv = _status_val(note)
+        if sv == "needs_human_confirmation":
+            val = human_resolutions.get(note.field)
+            if val not in (None, ""):
+                decisions.append({
+                    "field_path": note.field,
+                    "old_value": _res_get_path(spec_dict, note.field),
+                    "new_value": val,
+                    "decision_type": "human_confirmed",
+                    "reason": "Human confirmed via Pipeline — End to End page.",
+                    "reviewer": "human",
+                })
+                _res_set_path(spec_dict, note.field, val)
+        elif sv in ("approve_with_default", "needs_llm_review"):
+            default_val = SENSIBLE_DEFAULTS.get(note.field, note.candidate_value)
+            if default_val not in (None, "", "unspecified"):
+                decisions.append({
+                    "field_path": note.field,
+                    "old_value": _res_get_path(spec_dict, note.field),
+                    "new_value": default_val,
+                    "decision_type": "sensible_default",
+                    "reason": note.reason or "Sensible default.",
+                    "reviewer": "dashboard_auto_resolve",
+                })
+                _res_set_path(spec_dict, note.field, default_val)
+    spec_dict["codegen_ready"] = True
+    spec_dict["review_status"] = "approved"
+    spec = _MS.model_validate(spec_dict)
+    resolution_path = RESOLUTIONS_DIR / f"{spec.factor_id}.resolution.json"
+    resolution_path.write_text(json.dumps({
+        "factor_id": spec.factor_id,
+        "reviewer": "dashboard_e2e",
+        "created_at": datetime.now(timezone.utc).isoformat(),
+        "decisions": decisions,
+        "source": "Pipeline — End to End page, Stage 3",
+    }, indent=2, default=str) + "\n")
+    resolved_path = RESOLVED_DIR / f"{spec.factor_id}.resolved.methodspec.json"
+    resolved_path.write_text(spec.model_dump_json(indent=2) + "\n")
+    tracer.log("resolve", "done", f"{len(decisions)} field(s) resolved, saved to {resolved_path}")
+    stages["resolve"] = {"status": "done", "n_resolved": len(decisions)}
+
+    # Stage 4: MetaCoder
+    progress.progress(4 / 7, text="Stage 4/7 — Generating plugin...")
+    tracer.log("metacoder", "started")
+    from src.steps.codegen import MetaCoder
+    from src.infra.llm import create_llm_client as _clc
+    from src.infra.models.method_spec import ReviewStatus
+    gen_spec = spec.model_copy(update={"codegen_ready": True, "review_status": ReviewStatus.APPROVED})
+    llm = _clc(provider=llm_provider, model=llm_model)
+    coder = MetaCoder(llm_client=llm)
+    plugin = coder.generate_plugin(gen_spec)
+    plugin_path = PLUGINS_DIR / f"{plugin.factor_id}.py"
+    plugin_path.write_text(plugin.code)
+    tracer.log(
+        "metacoder", "done",
+        f"code_hash={plugin.code_hash}, hooks={len(plugin.hooks or {})}, saved to {plugin_path}",
+    )
+    stages["metacoder"] = {"status": "done", "code_hash": plugin.code_hash}
+
+    # Stage 5: Sandbox
+    progress.progress(5 / 7, text="Stage 5/7 — Sandbox validation...")
+    tracer.log("sandbox", "started")
+    from src.steps.validator import AdversarialSandbox
+    sandbox = AdversarialSandbox()
+    report = sandbox.validate(plugin, spec)
+    tracer.log("sandbox", "done" if report.passed else "FAILED", str(report.errors))
+    stages["sandbox"] = {"status": "passed" if report.passed else "failed", "errors": report.errors}
+
+    if not report.passed:
+        tracer.log("sandbox", "repair needed", level="warning")
+
+    # Stage 6: Backtest
+    progress.progress(6 / 7, text="Stage 6/7 — Backtesting...")
+    tracer.log("backtest", "started")
+    if e2e_data_src == "Bundled synthetic demo data":
+        _ensure_synthetic_data()
+    msf_path = (
+        SYNTHETIC_MSF_PATH if e2e_data_src == "Bundled synthetic demo data" else MSF_PATH
+    )
+    bt_result = None
+    if msf_path.exists():
+        import hashlib
+        from src.infra.evidence import EvidenceStore
+        from src.infra.models.run_record import RunRecord, RunMetrics
+
+        crsp_data_path = (
+            SYNTHETIC_SNAPSHOT_DIR / "crsp_msf.parquet"
+            if e2e_data_src == "Bundled synthetic demo data"
+            else MSF_PATH
+        )
+
+        if e2e_signal_mode == "Compustat + CRSP (via generated script)":
+            needs_compustat = True
+        elif e2e_signal_mode == "CRSP monthly only (price-based signals)":
+            needs_compustat = False
+        else:
+            needs_compustat = _signal_needs_compustat(spec)
+
+        backtest_skipped = False
+        compustat_data_path = None
+        ccm_link_path = None
+        if needs_compustat:
+            if not SYNTHETIC_SNAPSHOT_DIR.exists():
+                tracer.log(
+                    "backtest",
+                    "skipped — no Compustat snapshot available "
+                    "(run scripts/build_synthetic_data.py or choose CRSP-only signal input)",
+                    level="warning",
+                )
+                stages["backtest"] = {"status": "skipped", "reason": "no compustat snapshot"}
+                backtest_skipped = True
+            else:
+                compustat_data_path = SYNTHETIC_SNAPSHOT_DIR / "compustat_funda.parquet"
+                ccm_link_path = SYNTHETIC_SNAPSHOT_DIR / "ccm_link.parquet"
+
+        if not backtest_skipped:
+            bt_result = _run_backtest_via_script(
+                spec, plugin.code,
+                crsp_data_path=crsp_data_path,
+                signal_input_mode="compustat" if needs_compustat else "crsp_only",
+                compustat_data_path=compustat_data_path,
+                ccm_link_path=ccm_link_path,
+            )
+            tracer.log("backtest", "done", f"t_stat={bt_result['metrics'].get('t_stat', 'N/A'):.2f}")
+            stages["backtest"] = {"status": "done", "metrics": bt_result["metrics"]}
+
+            # Persist as an auditable RunRecord.
+            metrics = bt_result["metrics"]
+            run = RunRecord(
+                run_id=f"{spec.factor_id}_e2e_{plugin.code_hash[:8]}",
+                factor_id=spec.factor_id,
+                plugin_id=plugin.plugin_id,
+                track="dashboard_e2e",
+                method_spec_hash=spec.stable_hash(),
+                code_hash=plugin.code_hash,
+                config_hash=hashlib.sha256(
+                    json.dumps(bt_result["config"], sort_keys=True, default=str).encode()
+                ).hexdigest()[:16],
+                metrics=RunMetrics(
+                    mean_return=metrics.get("mean_monthly_return"),
+                    t_stat=metrics.get("t_stat"),
+                    n_months=metrics.get("n_months"),
+                ),
+                status="success",
+            )
+            EvidenceStore(base_path=str(EVIDENCE_DIR)).save_run(run)
+            stages["backtest"]["run_id"] = run.run_id
+    else:
+        tracer.log("backtest", f"skipped — {msf_path} not found", level="warning")
+        stages["backtest"] = {"status": "skipped", "reason": "no data"}
+
+    # Stage 7: Attribution (placeholder)
+    progress.progress(1.0, text="Stage 7/7 — Attribution...")
+    tracer.log("attribution", "skipped — requires dual-track runs")
+    stages["attribution"] = {"status": "skipped"}
+
+    st.session_state["e2e_stages"] = stages
+    st.session_state["e2e_spec"] = spec
+    st.session_state["e2e_plugin"] = plugin
+    st.session_state["e2e_bt_result"] = bt_result
+
+
 # ############################################################
 # PAGE 1: Pipeline — End to End
 # ############################################################
@@ -337,7 +678,9 @@ if page == "Pipeline — End to End":
     st.header("Pipeline — End to End")
     st.markdown(
         "Run the full pipeline from PDF upload through backtest in one go. "
-        "Each stage output is displayed in an expandable section."
+        "Each stage output is displayed in an expandable section. If a field "
+        "needs human confirmation, the pipeline pauses before generating code "
+        "and asks you to resolve it — it will not silently auto-approve."
     )
 
     # Input selection
@@ -347,7 +690,7 @@ if page == "Pipeline — End to End":
         e2e_pdf = st.file_uploader("Upload paper PDF", type=["pdf"], key="e2e_pdf")
     else:
         spec_files_e2e = []
-        for d, label in [(CURATED_METHODSPEC_DIR, "curated"), (RESOLVED_DIR, "resolved")]:
+        for d, label in [(UNREVIEWED_METHODSPEC_DIR, "unreviewed"), (RESOLVED_DIR, "resolved")]:
             if d.exists():
                 for p in sorted(d.glob("*.methodspec.json")) + sorted(d.glob("*.resolved.methodspec.json")):
                     spec_files_e2e.append((f"[{label}] {p.name}", p))
@@ -356,13 +699,36 @@ if page == "Pipeline — End to End":
         e2e_selected = st.selectbox("MethodSpec", e2e_spec_options, key="e2e_spec_sel")
         e2e_pdf = None
 
-    run_e2e = st.button("Run Full Pipeline", type="primary", key="e2e_run")
+    e2e_data_options = ["Bundled synthetic demo data", "Local (data/local/msf.parquet)"]
+    e2e_data_src = st.radio("CRSP Data", e2e_data_options, horizontal=True, key="e2e_data_src")
+    if e2e_data_src == "Bundled synthetic demo data":
+        if SYNTHETIC_MSF_PATH.exists():
+            st.caption(
+                "10 synthetic permnos, deterministic returns — for pipeline smoke-testing only, "
+                "not real backtest results. See docs/roadmap.md Phase 1."
+            )
+        else:
+            st.caption("Not generated yet — will be built automatically when you click Run.")
+    e2e_signal_mode = st.radio(
+        "Signal Input",
+        ["Auto-detect", "Compustat + CRSP (via generated script)", "CRSP monthly only (price-based signals)"],
+        horizontal=True,
+        key="e2e_signal_mode",
+        help="Auto-detect guesses from the resolved spec's data.normalized_mapping once "
+        "extraction/resolution finish. Override if it guesses wrong.",
+    )
+
+    run_e2e = st.button(
+        "Run Full Pipeline", type="primary", key="e2e_run",
+        disabled=st.session_state.get("e2e_awaiting_human", False),
+    )
 
     if run_e2e:
         from src.infra.trace import PipelineTracer
         tracer = PipelineTracer()
         stages = {}
         st.session_state["e2e_tracer"] = tracer
+        st.session_state.pop("e2e_awaiting_human", None)
         progress = st.progress(0, text="Starting...")
 
         try:
@@ -385,7 +751,12 @@ if page == "Pipeline — End to End":
                 _pdf_b = pdf_bytes if llm_provider in ("claude", "codex") else None
                 result = extractor.extract(pdf_stem, paper_text, pdf_bytes=_pdf_b)
                 spec = result.spec
-                tracer.log("extract", "done", f"{len(paper_text)} chars, factor_id={spec.factor_id}")
+                unreviewed_path = UNREVIEWED_METHODSPEC_DIR / f"{spec.factor_id}.methodspec.json"
+                unreviewed_path.write_text(spec.model_dump_json(indent=2) + "\n")
+                tracer.log(
+                    "extract", "done",
+                    f"{len(paper_text)} chars, factor_id={spec.factor_id}, saved to {unreviewed_path}",
+                )
             elif input_mode == "Select existing MethodSpec" and e2e_selected:
                 spec = _MS.model_validate_json(e2e_spec_map[e2e_selected].read_text())
                 paper_text = None
@@ -402,100 +773,92 @@ if page == "Pipeline — End to End":
             from src.steps.reviewer import ReviewGate
             gate = ReviewGate()
             review_result = gate.review(spec)
+            review_report_path = REVIEWED_DIR / f"{spec.factor_id}.review_report.json"
+            review_report_path.write_text(
+                json.dumps(_e2e_review_result_to_dict(review_result), indent=2, default=str) + "\n"
+            )
             tracer.log("review", "done", f"disposition={review_result.disposition}")
             stages["review"] = {"status": "done", "disposition": review_result.disposition}
-
-            # Stage 3: Resolve (auto-apply sensible defaults)
-            progress.progress(3 / 7, text="Stage 3/7 — Resolving...")
-            tracer.log("resolve", "started")
-            from src.steps.reviewer import SENSIBLE_DEFAULTS
-            spec_dict = json.loads(spec.model_dump_json())
-            n_resolved = 0
-            for note in review_result.field_notes:
-                sv = _status_val(note)
-                if sv in ("approve_with_default", "needs_llm_review"):
-                    default_val = SENSIBLE_DEFAULTS.get(note.field, note.candidate_value)
-                    if default_val not in (None, "", "unspecified"):
-                        _res_set_path(spec_dict, note.field, default_val)
-                        n_resolved += 1
-            spec_dict["codegen_ready"] = True
-            spec_dict["review_status"] = "approved"
-            spec = _MS.model_validate(spec_dict)
-            tracer.log("resolve", "done", f"{n_resolved} fields auto-resolved")
-            stages["resolve"] = {"status": "done", "n_resolved": n_resolved}
-
-            # Stage 4: MetaCoder
-            progress.progress(4 / 7, text="Stage 4/7 — Generating plugin...")
-            tracer.log("metacoder", "started")
-            from src.steps.codegen import MetaCoder
-            from src.infra.llm import create_llm_client as _clc
-            from src.infra.models.method_spec import ReviewStatus
-            gen_spec = spec.model_copy(update={"codegen_ready": True, "review_status": ReviewStatus.APPROVED})
-            llm = _clc(provider=llm_provider, model=llm_model)
-            coder = MetaCoder(llm_client=llm)
-            plugin = coder.generate_plugin(gen_spec)
-            tracer.log("metacoder", "done", f"code_hash={plugin.code_hash}, hooks={len(plugin.hooks or {})}")
-            stages["metacoder"] = {"status": "done", "code_hash": plugin.code_hash}
-
-            # Stage 5: Sandbox
-            progress.progress(5 / 7, text="Stage 5/7 — Sandbox validation...")
-            tracer.log("sandbox", "started")
-            from src.steps.validator import AdversarialSandbox
-            sandbox = AdversarialSandbox()
-            report = sandbox.validate(plugin, spec)
-            tracer.log("sandbox", "done" if report.passed else "FAILED", str(report.errors))
-            stages["sandbox"] = {"status": "passed" if report.passed else "failed", "errors": report.errors}
-
-            if not report.passed:
-                tracer.log("sandbox", "repair needed", level="warning")
-
-            # Stage 6: Backtest
-            progress.progress(6 / 7, text="Stage 6/7 — Backtesting...")
-            tracer.log("backtest", "started")
-            if MSF_PATH.exists():
-                from src.steps.engine import BacktestEngine
-                engine = BacktestEngine(data_path=str(PROJECT_ROOT / "data"))
-                msf = pd.read_parquet(MSF_PATH)
-                # Standardize
-                msf.columns = [c.lower() for c in msf.columns]
-                if "date" in msf.columns and "yyyymm" not in msf.columns:
-                    msf["yyyymm"] = pd.to_datetime(msf["date"]).dt.year * 100 + pd.to_datetime(msf["date"]).dt.month
-                for c in ("permno", "yyyymm"):
-                    if c in msf.columns:
-                        msf[c] = msf[c].astype(int)
-
-                plugin_ns = {}
-                exec(compile(plugin.code, f"<plugin:{plugin.factor_id}>", "exec"), plugin_ns)
-                compute_signal = plugin_ns["compute_signal"]
-                signal_df = compute_signal(msf)
-
-                def _patched_load(config):
-                    return msf
-                engine._load_data = _patched_load
-                bt_result = engine.run(signal=signal_df, spec=spec, plugin=plugin)
-                tracer.log("backtest", "done", f"t_stat={bt_result['metrics'].get('t_stat', 'N/A'):.2f}")
-                stages["backtest"] = {"status": "done", "metrics": bt_result["metrics"]}
-            else:
-                tracer.log("backtest", "skipped — data/local/msf.parquet not found", level="warning")
-                stages["backtest"] = {"status": "skipped", "reason": "no data"}
-                bt_result = None
-
-            # Stage 7: Attribution (placeholder)
-            progress.progress(7 / 7, text="Stage 7/7 — Attribution...")
-            tracer.log("attribution", "skipped — requires dual-track runs")
-            stages["attribution"] = {"status": "skipped"}
-
-            progress.progress(1.0, text="Pipeline complete!")
             st.session_state["e2e_stages"] = stages
-            st.session_state["e2e_spec"] = spec
-            st.session_state["e2e_plugin"] = plugin
-            st.session_state["e2e_bt_result"] = bt_result
+
+            human_fields = [n for n in review_result.field_notes if _status_val(n) == "needs_human_confirmation"]
+            if human_fields:
+                tracer.log(
+                    "resolve",
+                    f"paused — {len(human_fields)} field(s) need human confirmation",
+                    level="warning",
+                )
+                st.session_state["e2e_awaiting_human"] = True
+                st.session_state["e2e_pending_spec"] = spec
+                st.session_state["e2e_pending_review_result"] = review_result
+                st.session_state["e2e_pending_tracer"] = tracer
+                st.session_state["e2e_pending_stages"] = stages
+                st.session_state["e2e_pending_data_src"] = e2e_data_src
+                st.session_state["e2e_pending_signal_mode"] = e2e_signal_mode
+                st.session_state["e2e_pending_llm_provider"] = llm_provider
+                st.session_state["e2e_pending_llm_model"] = llm_model
+                st.rerun()
+            else:
+                _e2e_run_stage_3_to_7(
+                    spec, review_result, tracer, stages, {},
+                    e2e_data_src, e2e_signal_mode, llm_provider, llm_model,
+                )
 
         except Exception as e:
             tracer.log("pipeline", f"ERROR: {e}", level="error")
             st.error(f"Pipeline failed: {e}")
             st.code(traceback.format_exc())
             st.session_state["e2e_stages"] = stages
+
+    # Human-confirmation gate — rendered whenever the pipeline is paused on it.
+    if st.session_state.get("e2e_awaiting_human"):
+        st.markdown("---")
+        st.warning(
+            "⏸️ Pipeline paused — the fields below need human confirmation "
+            "before codegen. Resolve them, then continue."
+        )
+        review_result = st.session_state["e2e_pending_review_result"]
+        human_fields = [n for n in review_result.field_notes if _status_val(n) == "needs_human_confirmation"]
+        human_resolutions = {}
+        for note in human_fields:
+            fp = note.field
+            opts = _field_options(fp, note.current_value, note.candidate_value)
+            with st.expander(f"🔴 {fp}", expanded=True):
+                st.caption(note.reason)
+                labels = [l for l, _ in opts]
+                sel = st.selectbox("Resolution:", labels, key=f"e2e_hres_{fp}")
+                val = dict(opts)[sel]
+                if val == "__custom__":
+                    val = st.text_input("Custom:", key=f"e2e_hcustom_{fp}")
+                human_resolutions[fp] = val
+
+        if st.button("Continue Pipeline", type="primary", key="e2e_continue"):
+            spec = st.session_state["e2e_pending_spec"]
+            tracer = st.session_state["e2e_pending_tracer"]
+            stages = st.session_state["e2e_pending_stages"]
+            e2e_data_src_pending = st.session_state["e2e_pending_data_src"]
+            e2e_signal_mode_pending = st.session_state["e2e_pending_signal_mode"]
+            provider_pending = st.session_state["e2e_pending_llm_provider"]
+            model_pending = st.session_state["e2e_pending_llm_model"]
+            try:
+                _e2e_run_stage_3_to_7(
+                    spec, review_result, tracer, stages, human_resolutions,
+                    e2e_data_src_pending, e2e_signal_mode_pending, provider_pending, model_pending,
+                )
+            except Exception as e:
+                tracer.log("pipeline", f"ERROR: {e}", level="error")
+                st.error(f"Pipeline failed: {e}")
+                st.code(traceback.format_exc())
+                st.session_state["e2e_stages"] = stages
+            finally:
+                st.session_state["e2e_awaiting_human"] = False
+                for k in (
+                    "e2e_pending_spec", "e2e_pending_review_result", "e2e_pending_tracer",
+                    "e2e_pending_stages", "e2e_pending_data_src", "e2e_pending_signal_mode",
+                    "e2e_pending_llm_provider", "e2e_pending_llm_model",
+                ):
+                    st.session_state.pop(k, None)
+            st.rerun()
 
     # Display results
     stages = st.session_state.get("e2e_stages", {})
@@ -557,7 +920,7 @@ elif page == "Extractor":
         st.success(f"Extracted **{len(paper_text):,}** chars from `{uploaded_pdf.name}`")
 
     with st.expander("Import Existing MethodSpec"):
-        saved_specs = sorted(CURATED_METHODSPEC_DIR.glob("*.methodspec.json"))
+        saved_specs = sorted(UNREVIEWED_METHODSPEC_DIR.glob("*.methodspec.json"))
         saved_texts = sorted(PAPER_TEXT_CACHE_DIR.glob("*.txt"))
         spec_options = [""] + [p.name for p in saved_specs]
         selected_spec_name = st.selectbox("Saved MethodSpec", spec_options, index=0, key="ext_saved_spec")
@@ -571,7 +934,7 @@ elif page == "Extractor":
                 if imported_spec_file:
                     spec = MethodSpec.model_validate_json(imported_spec_file.getvalue().decode())
                 elif selected_spec_name:
-                    spec = MethodSpec.model_validate_json((CURATED_METHODSPEC_DIR / selected_spec_name).read_text())
+                    spec = MethodSpec.model_validate_json((UNREVIEWED_METHODSPEC_DIR / selected_spec_name).read_text())
                 else:
                     st.warning("Select or upload a spec.")
                     spec = None
@@ -607,7 +970,7 @@ elif page == "Extractor":
             st.session_state["extraction_token_usage"] = result.token_usage
             if result.spec:
                 fid = result.spec.factor_id or _pdf_stem
-                out_path = CURATED_METHODSPEC_DIR / f"{fid}.methodspec.json"
+                out_path = UNREVIEWED_METHODSPEC_DIR / f"{fid}.methodspec.json"
                 out_path.write_text(result.spec.model_dump_json(indent=2) + "\n")
                 st.session_state["extracted_spec_path"] = str(out_path)
                 st.success(f"Extracted: **{fid}**")
@@ -663,7 +1026,7 @@ elif page == "Extractor":
                 })
             st.table(eval_data)
         else:
-            st.info(f"No ground truth found for `{spec.factor_id}` in `data/test_method_specs/`.")
+            st.info(f"No ground truth found for `{spec.factor_id}` in `data/test_method_specs_human_labeled/`.")
 
         # Batch eval
         with st.expander("Batch Eval — All Ground Truth Specs"):
@@ -672,11 +1035,11 @@ elif page == "Extractor":
                         "For full re-extraction, use the CLI scripts.")
                 batch_results = []
                 for fid, gt_data in gt_specs.items():
-                    # Check if we have a curated spec
-                    curated = CURATED_METHODSPEC_DIR / f"{fid}.methodspec.json"
-                    if curated.exists():
+                    # Check if we have an unreviewed spec
+                    unreviewed_spec = UNREVIEWED_METHODSPEC_DIR / f"{fid}.methodspec.json"
+                    if unreviewed_spec.exists():
                         try:
-                            ext_data = json.loads(curated.read_text())
+                            ext_data = json.loads(unreviewed_spec.read_text())
                             comps = _compare_specs(ext_data, gt_data)
                             m = _compute_eval_metrics(comps)
                             batch_results.append({"factor_id": fid, **m})
@@ -685,7 +1048,7 @@ elif page == "Extractor":
                 if batch_results:
                     st.dataframe(pd.DataFrame(batch_results), use_container_width=True)
                 else:
-                    st.caption("No curated specs found to compare.")
+                    st.caption("No unreviewed specs found to compare.")
 
 
 # ############################################################
@@ -698,7 +1061,7 @@ elif page == "Review & Resolve":
 
     # --- Load spec ---
     spec_files_rr = []
-    for d, label in [(CURATED_METHODSPEC_DIR, "curated"), (RESOLVED_DIR, "resolved")]:
+    for d, label in [(UNREVIEWED_METHODSPEC_DIR, "unreviewed"), (RESOLVED_DIR, "resolved")]:
         if d.exists():
             for p in sorted(d.glob("*.methodspec.json")) + sorted(d.glob("*.resolved.methodspec.json")):
                 spec_files_rr.append((f"[{label}] {p.name}", p))
@@ -864,7 +1227,7 @@ elif page == "Review & Resolve":
                           "Correct": "✅" if c["match"] else "❌"} for c in comps]
             st.table(eval_data)
         else:
-            st.info(f"No ground truth for `{resolved.factor_id}` in `test_method_specs/`.")
+            st.info(f"No ground truth for `{resolved.factor_id}` in `test_method_specs_human_labeled/`.")
 
 
 # ############################################################
@@ -876,7 +1239,7 @@ elif page == "MetaCoder":
 
     st.subheader("1. Load Resolved MethodSpec")
     _spec_files_mc: list[tuple[str, Path]] = []
-    for _dir, _label in ((RESOLVED_DIR, "resolved"), (TEST_DIR, "test")):
+    for _dir, _label in ((RESOLVED_DIR, "resolved"), (FIXTURE_METHODSPEC_DIR, "fixture")):
         if _dir and _dir.exists():
             for _p in sorted(_dir.glob("*.resolved.methodspec.json")):
                 _spec_files_mc.append((f"[{_label}] {_p.name}", _p))
@@ -998,8 +1361,8 @@ elif page == "MetaCoder":
                         from src.steps.codegen.script_generator import generate_backtest_script
                         script = generate_backtest_script(mc_spec, mc_plugin.code, data_path=bt_path)
                         st.session_state["mc_bt_script"] = script
-                        # Save to data/backtest_scripts/
-                        bt_scripts_dir = Path("data/backtest_scripts")
+                        # Save to runs/backtest_scripts/
+                        bt_scripts_dir = BACKTEST_SCRIPTS_DIR
                         bt_scripts_dir.mkdir(parents=True, exist_ok=True)
                         bt_file = bt_scripts_dir / f"{mc_plugin.factor_id}_backtest.py"
                         bt_file.write_text(script)
@@ -1012,7 +1375,7 @@ elif page == "MetaCoder":
                     st.download_button("Download Script", bt_script, f"{mc_plugin.factor_id}_backtest.py", key="mc_dl_bt")
 
     # Existing plugins
-    existing = sorted(PLUGINS_DIR.glob("*.py"))
+    existing = sorted(PLUGINS_DIR.glob("*.py")) + sorted(FIXTURE_PLUGINS_DIR.glob("*.py"))
     if existing:
         st.markdown("---")
         st.subheader("Existing Plugins")
@@ -1032,19 +1395,63 @@ elif page == "Backtest & Experiments":
     with tab_single:
         st.subheader("Single Backtest Run")
 
-        plugin_files = sorted(PLUGINS_DIR.glob("*.py")) if PLUGINS_DIR.exists() else []
-        spec_files_bt = sorted(RESOLVED_DIR.glob("*.resolved.methodspec.json")) if RESOLVED_DIR.exists() else []
+        plugin_map = {p.name: p for p in sorted(PLUGINS_DIR.glob("*.py"))}
+        plugin_map.update({f"[fixture] {p.name}": p for p in sorted(FIXTURE_PLUGINS_DIR.glob("*.py"))})
+        spec_map = {p.name: p for p in sorted(RESOLVED_DIR.glob("*.resolved.methodspec.json"))}
+        spec_map.update({f"[fixture] {p.name}": p for p in sorted(FIXTURE_METHODSPEC_DIR.glob("*.resolved.methodspec.json"))})
 
         col_p, col_s = st.columns(2)
         with col_p:
-            bt_plugin = st.selectbox("Plugin", [""] + [f.name for f in plugin_files], key="bt_plugin")
+            bt_plugin = st.selectbox("Plugin", [""] + list(plugin_map), key="bt_plugin")
         with col_s:
-            bt_spec = st.selectbox("MethodSpec", [""] + [f.name for f in spec_files_bt], key="bt_spec")
+            bt_spec = st.selectbox("MethodSpec", [""] + list(spec_map), key="bt_spec")
 
-        data_src = st.radio("CRSP Data", ["Local (data/local/msf.parquet)", "Upload"], horizontal=True, key="bt_data_src")
+        bt_spec_obj = None
+        if bt_spec:
+            from src.infra.models import MethodSpec as _MS
+            try:
+                bt_spec_obj = _MS.model_validate_json(spec_map[bt_spec].read_text())
+            except Exception as e:
+                st.error(f"Failed to load spec: {e}")
+
+        data_options = ["Bundled synthetic demo data", "Local (data/local/msf.parquet)", "Upload"]
+        data_src = st.radio("CRSP Data", data_options, horizontal=True, key="bt_data_src")
+        if data_src == "Bundled synthetic demo data":
+            if SYNTHETIC_MSF_PATH.exists():
+                st.caption(
+                    "10 synthetic permnos, deterministic returns — for pipeline smoke-testing only, "
+                    "not real backtest results. See docs/roadmap.md Phase 1."
+                )
+            else:
+                st.caption(
+                    "Not generated yet — will be built automatically (via "
+                    "scripts/build_synthetic_data.py's generator) when you click Run."
+                )
         bt_uploaded_msf = None
         if data_src == "Upload":
             bt_uploaded_msf = st.file_uploader("Upload msf.parquet", type=["parquet"], key="bt_msf_upload")
+
+        signal_mode_default = 0
+        if bt_spec_obj is not None and not _signal_needs_compustat(bt_spec_obj):
+            signal_mode_default = 1
+        signal_mode = st.radio(
+            "Signal Input",
+            ["Compustat + CRSP (via generated script)", "CRSP monthly only (price-based signals)"],
+            index=signal_mode_default,
+            horizontal=True,
+            key="bt_signal_mode",
+            help="Compustat mode builds the SignalMasterTable inline inside the generated backtest "
+            "script (CCM link + accounting lag) for accounting-based signals (e.g. asset growth, "
+            "book-to-market). CRSP-only mode is for signals computed directly from monthly returns "
+            "(e.g. momentum) and only works with the bundled/local CRSP monthly file.",
+        )
+        needs_compustat = signal_mode.startswith("Compustat")
+        if needs_compustat and data_src != "Bundled synthetic demo data" and not SYNTHETIC_SNAPSHOT_DIR.exists():
+            st.warning(
+                "Compustat mode currently only has a data source for the bundled synthetic "
+                "snapshot (`data/synthetic_data/mvp_v1/`). Real WRDS snapshots aren't wired into "
+                "this page yet — see docs/roadmap.md Phase 4."
+            )
 
         with st.expander("Config Overrides"):
             ov1, ov2, ov3 = st.columns(3)
@@ -1058,30 +1465,49 @@ elif page == "Backtest & Experiments":
                 ov_ll = st.selectbox("Long leg", ["(spec)", "low", "high"], key="bt_ll")
 
         can_run = bool(bt_plugin and bt_spec)
-        has_data = MSF_PATH.exists() or bt_uploaded_msf is not None
+        has_data = (
+            data_src == "Bundled synthetic demo data"
+            or (data_src == "Local (data/local/msf.parquet)" and MSF_PATH.exists())
+            or bt_uploaded_msf is not None
+        )
+        has_compustat_data = (data_src == "Bundled synthetic demo data") or SYNTHETIC_SNAPSHOT_DIR.exists() if needs_compustat else True
 
-        if st.button("Run Backtest", type="primary", disabled=not (can_run and has_data), key="bt_run"):
-            with st.spinner("Running..."):
+        if st.button("Run Backtest", type="primary", disabled=not (can_run and has_data and has_compustat_data), key="bt_run"):
+            with st.spinner("Generating backtest script and running via subprocess..."):
                 try:
-                    from src.steps.engine import BacktestEngine
-                    from src.infra.models import MethodSpec as _MS
-                    import io
+                    from src.infra.models.plugin import PluginRecord
+                    from src.infra.models.run_record import RunRecord, RunMetrics
+                    from src.infra.evidence import EvidenceStore
+                    import hashlib
 
-                    spec = _MS.model_validate_json((RESOLVED_DIR / bt_spec).read_text())
-                    plugin_code = (PLUGINS_DIR / bt_plugin).read_text()
-                    plugin_ns = {}
-                    exec(compile(plugin_code, bt_plugin, "exec"), plugin_ns)
-                    compute_signal = plugin_ns["compute_signal"]
+                    if data_src == "Bundled synthetic demo data":
+                        _ensure_synthetic_data()
 
-                    msf = pd.read_parquet(io.BytesIO(bt_uploaded_msf.getvalue())) if bt_uploaded_msf else pd.read_parquet(MSF_PATH)
-                    msf.columns = [c.lower() for c in msf.columns]
-                    if "date" in msf.columns and "yyyymm" not in msf.columns:
-                        msf["yyyymm"] = pd.to_datetime(msf["date"]).dt.year * 100 + pd.to_datetime(msf["date"]).dt.month
-                    for c in ("permno", "yyyymm"):
-                        if c in msf.columns:
-                            msf[c] = msf[c].astype(int)
+                    spec = bt_spec_obj
+                    plugin_code = plugin_map[bt_plugin].read_text()
 
-                    signal_df = compute_signal(msf)
+                    if data_src == "Bundled synthetic demo data":
+                        crsp_data_path = SYNTHETIC_SNAPSHOT_DIR / "crsp_msf.parquet"
+                    elif data_src == "Local (data/local/msf.parquet)":
+                        crsp_data_path = MSF_PATH
+                    else:
+                        # Uploaded file: the generated script reads from a real path on
+                        # disk, so materialize the upload there first.
+                        uploads_dir = BACKTEST_SCRIPTS_DIR / "_uploads"
+                        uploads_dir.mkdir(parents=True, exist_ok=True)
+                        crsp_data_path = uploads_dir / f"{spec.factor_id}_uploaded_msf.parquet"
+                        crsp_data_path.write_bytes(bt_uploaded_msf.getvalue())
+
+                    compustat_data_path = None
+                    ccm_link_path = None
+                    if needs_compustat:
+                        if not SYNTHETIC_SNAPSHOT_DIR.exists():
+                            raise RuntimeError(
+                                "No Compustat snapshot available. Run scripts/build_synthetic_data.py "
+                                "or select 'CRSP monthly only' signal input."
+                            )
+                        compustat_data_path = SYNTHETIC_SNAPSHOT_DIR / "compustat_funda.parquet"
+                        ccm_link_path = SYNTHETIC_SNAPSHOT_DIR / "ccm_link.parquet"
 
                     overrides = {}
                     if ov_nq != 10: overrides["breakpoint_quantiles"] = ov_nq
@@ -1090,12 +1516,47 @@ elif page == "Backtest & Experiments":
                     if ov_hp != 12: overrides["holding_period_months"] = ov_hp
                     if ov_ll != "(spec)": overrides["long_leg"] = ov_ll
 
-                    engine = BacktestEngine(data_path=str(PROJECT_ROOT / "data"))
-                    engine._load_data = lambda config: msf
-                    result = engine.run(signal=signal_df, spec=spec, config_overrides=overrides or None)
+                    code_hash = hashlib.sha256(plugin_code.encode()).hexdigest()[:16]
+                    plugin_record = PluginRecord(
+                        plugin_id=f"{spec.factor_id}_v{spec.version}",
+                        factor_id=spec.factor_id,
+                        method_spec_version=spec.version,
+                        code=plugin_code,
+                        code_hash=code_hash,
+                    )
+
+                    result = _run_backtest_via_script(
+                        spec, plugin_code,
+                        crsp_data_path=crsp_data_path,
+                        signal_input_mode="compustat" if needs_compustat else "crsp_only",
+                        compustat_data_path=compustat_data_path,
+                        ccm_link_path=ccm_link_path,
+                        config_overrides=overrides or None,
+                    )
                     st.session_state["bt_result"] = result
-                    st.session_state["bt_signal"] = signal_df
-                    st.success("Done!")
+
+                    # Persist as an auditable RunRecord (same shape as Pipeline.run_from_method_spec()).
+                    metrics = result["metrics"]
+                    run = RunRecord(
+                        run_id=f"{spec.factor_id}_dashboard_{code_hash[:8]}",
+                        factor_id=spec.factor_id,
+                        plugin_id=plugin_record.plugin_id,
+                        track="dashboard_single_run",
+                        method_spec_hash=spec.stable_hash(),
+                        code_hash=code_hash,
+                        config_hash=hashlib.sha256(
+                            json.dumps(result["config"], sort_keys=True, default=str).encode()
+                        ).hexdigest()[:16],
+                        metrics=RunMetrics(
+                            mean_return=metrics.get("mean_monthly_return"),
+                            t_stat=metrics.get("t_stat"),
+                            n_months=metrics.get("n_months"),
+                        ),
+                        status="success",
+                    )
+                    EvidenceStore(base_path=str(EVIDENCE_DIR)).save_run(run)
+                    st.session_state["bt_run_record"] = run
+                    st.success(f"Done! Saved as run `{run.run_id}` in evidence/.")
                 except Exception as e:
                     st.error(str(e))
                     st.code(traceback.format_exc())

@@ -40,6 +40,7 @@ HOOK_SIGNATURES = {
     "assign_portfolios":    "assign_portfolios_hook(df: pd.DataFrame, breakpoints: pd.DataFrame, config: dict) -> pd.DataFrame",
     "compute_returns":      "compute_returns_hook(df: pd.DataFrame, config: dict) -> pd.DataFrame",
     "apply_missing_policy": "apply_missing_policy_hook(df: pd.DataFrame, config: dict) -> pd.DataFrame",
+    "compute_long_short":   "compute_long_short_hook(df: pd.DataFrame, config: dict) -> pd.DataFrame",
 }
 
 HOOK_RETURN_DOCS = {
@@ -48,6 +49,12 @@ HOOK_RETURN_DOCS = {
     "assign_portfolios":    "Return df with added int column 'portfolio' (1..N), drop rows without assignment.",
     "compute_returns":      "Return DataFrame with columns [yyyymm, portfolio, ret].",
     "apply_missing_policy": "Return df with missing values handled per paper spec.",
+    "compute_long_short":   "Input df has columns [yyyymm, portfolio, ret] (one row per portfolio per month, "
+                            "portfolio ids as assigned by compute_breakpoints/assign_portfolios). Return "
+                            "DataFrame with columns [yyyymm, ls_return] — the factor's long-short (or "
+                            "multi-leg average, e.g. Fama-French style 0.5*(legA1+legA2) - 0.5*(legB1+legB2)) "
+                            "combination return per month, per the MethodSpec's portfolio.long_leg/short_leg "
+                            "description.",
 }
 
 # Load prompts from files (with inline fallbacks for backward compat)

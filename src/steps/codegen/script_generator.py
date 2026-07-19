@@ -1,46 +1,92 @@
 """Backtest Script Generator - Produce standalone runnable backtest scripts.
 
 After MetaCoder generates a plugin, this module combines:
-  1. The signal plugin code (compute_signal function)
+  1. The signal plugin code (compute_signal function + any *_hook functions)
   2. BacktestEngine configuration derived from the resolved MethodSpec
-  3. Data loading, signal computation, portfolio formation, and metrics output
+  3. Data loading (CRSP-only or Compustat+CCM), signal computation, portfolio
+     formation, hook dispatch, and metrics output
 
 into a single self-contained Python script that can be executed independently.
+Mirrors src/steps/engine/BacktestEngine.run()'s exact step order and hook
+dispatch mechanism (apply_missing_policy -> filter_universe -> merge_signal ->
+compute_breakpoints -> assign_portfolios -> compute_returns -> compute_long_short)
+so results match the in-process engine, including for hook-dependent factors
+(e.g. sloan_1996_accruals's winsorize hook, ball2016's double-sort hooks).
 """
 
 from __future__ import annotations
 
-import textwrap
-from pathlib import Path
 from typing import Any
 
-from src.steps.engine import BacktestEngine, _ev
+from src.steps.engine import BacktestEngine
 from src.infra.models.method_spec import MethodSpec
+
+
+# Physical columns that CRSP-monthly-only signals need (no Compustat merge
+# required). Mirrors the same heuristic used by app.py's dashboard pages.
+_CRSP_ONLY_COLUMNS = {"ret", "me", "shrcd", "exchcd", "siccd", "prc", "shrout", "date"}
+
+
+def _signal_needs_compustat(spec: MethodSpec) -> bool:
+    """Best-effort guess: does this spec's signal need Compustat fields (vs CRSP-only)?"""
+    mapping = spec.data.normalized_mapping or {}
+    if not mapping:
+        return True
+    return any(col not in _CRSP_ONLY_COLUMNS for col in mapping.values())
 
 
 def generate_backtest_script(
     spec: MethodSpec,
     plugin_code: str,
     data_path: str = "data/local/msf.parquet",
+    signal_input_mode: str | None = None,
+    compustat_data_path: str = "data/local/compustat_funda.parquet",
+    ccm_link_path: str = "data/local/ccm_link.parquet",
     output_path: str | None = None,
+    config_overrides: dict[str, Any] | None = None,
 ) -> str:
     """Generate a standalone backtest script from a MethodSpec and plugin code.
 
     Args:
         spec: Resolved MethodSpec with all empirical decisions finalized.
-        plugin_code: The signal plugin source code (containing compute_signal).
+        plugin_code: The signal plugin source code (compute_signal + any hooks).
         data_path: Relative path to the CRSP monthly parquet file.
+        signal_input_mode: "compustat" (build a SignalMasterTable via inline CCM
+            linking + accounting lag before calling compute_signal) or
+            "crsp_only" (alias yyyymm -> time_avail_m and call compute_signal
+            directly on CRSP monthly data, for price-based signals like
+            momentum). Auto-guessed from spec.data.normalized_mapping when
+            not given.
+        compustat_data_path: Compustat annual parquet path (compustat mode only).
+        ccm_link_path: CCM link table parquet path (compustat mode only).
         output_path: If given, path where backtest results CSV will be saved.
+        config_overrides: Optional per-run config overrides (e.g. for ablation
+            experiments), merged into the resolved-spec-derived config.
 
     Returns:
         Complete Python script as a string.
     """
     # Build config from MethodSpec (same logic as BacktestEngine._build_config)
     engine = BacktestEngine()
-    config = engine._build_config(spec, None)
+    config = engine._build_config(spec, config_overrides)
 
     # Format config as a Python dict literal
     config_lines = _format_config(config)
+
+    if signal_input_mode is None:
+        signal_input_mode = "compustat" if _signal_needs_compustat(spec) else "crsp_only"
+    if signal_input_mode not in ("compustat", "crsp_only"):
+        raise ValueError("signal_input_mode must be 'compustat' or 'crsp_only'")
+
+    if signal_input_mode == "compustat":
+        compustat_requirements = (
+            f"  - Compustat annual data at: {compustat_data_path}\n"
+            f"    Expected columns: gvkey, datadate, plus whatever fields compute_signal() uses\n"
+            f"  - CCM link table at: {ccm_link_path}\n"
+            f"    Expected columns: gvkey, permno, linktype, linkprim, linkdt, linkenddt"
+        )
+    else:
+        compustat_requirements = ""
 
     # Determine output filename
     factor_id = spec.factor_id or "factor"
@@ -52,6 +98,11 @@ def generate_backtest_script(
         factor_name=spec.factor_name,
         paper_ref=spec.paper_ref or "",
         data_path=data_path,
+        compustat_data_path=compustat_data_path,
+        ccm_link_path=ccm_link_path,
+        compustat_requirements=compustat_requirements,
+        accounting_lag_months=spec.accounting_lag_months or 6,
+        signal_input_mode=signal_input_mode,
         output_path=output_path,
         config_dict=config_lines,
         plugin_code=_indent_plugin(plugin_code),
@@ -90,10 +141,13 @@ Paper: {paper_ref}
 Auto-generated by factor-replication-agent.
 This is a standalone script: run it with `python3 <filename>.py`
 
+Signal input mode: {signal_input_mode}
+
 Requirements:
   - pandas, numpy
   - CRSP monthly data at: {data_path}
     Expected columns: permno, yyyymm (or date), ret, me, shrcd, exchcd, siccd
+{compustat_requirements}
 """
 
 import sys
@@ -111,17 +165,31 @@ CONFIG = {{
 {config_dict}
 }}
 
+DATA_PATH = "{data_path}"
+COMPUSTAT_DATA_PATH = "{compustat_data_path}"
+CCM_LINK_PATH = "{ccm_link_path}"
+ACCOUNTING_LAG_MONTHS = {accounting_lag_months}
+SIGNAL_INPUT_MODE = "{signal_input_mode}"  # "compustat" or "crsp_only"
+
 
 # ===========================================================================
-# SIGNAL PLUGIN (generated by MetaCoder)
+# SIGNAL PLUGIN (generated by MetaCoder) — compute_signal() + any *_hook functions
 # ===========================================================================
 
 {plugin_code}
 
 
 # ===========================================================================
-# BACKTEST ENGINE (inline minimal implementation)
+# BACKTEST ENGINE (inline implementation, mirrors src/steps/engine/BacktestEngine)
 # ===========================================================================
+
+def _dispatch(hook_name: str, fallback, *args):
+    """Call the plugin's hook function if it's defined above, else the standard fallback."""
+    hook_fn = globals().get(hook_name)
+    if callable(hook_fn):
+        return hook_fn(*args)
+    return fallback(*args)
+
 
 def load_data(data_path: str) -> pd.DataFrame:
     """Load CRSP monthly stock file."""
@@ -147,7 +215,65 @@ def load_data(data_path: str) -> pd.DataFrame:
     return df
 
 
-def filter_universe(df: pd.DataFrame) -> pd.DataFrame:
+def build_signal_master_table(
+    crsp_path: str, compustat_path: str, ccm_link_path: str, lag_months: int
+) -> pd.DataFrame:
+    """Merge Compustat annual data to permno via CCM link, then add
+    time_avail_m = fiscal period end + lag_months, converted to YYYYMM.
+
+    Inline equivalent of src/infra/data_layer.CCMLinker.merge() +
+    TimeAvailComputer.compute_time_avail_m() so this script has no dependency
+    on the rest of the repo.
+    """
+    crsp = pd.read_parquet(crsp_path)
+    crsp.columns = [c.lower() for c in crsp.columns]
+    compustat = pd.read_parquet(compustat_path)
+
+    link = pd.read_parquet(ccm_link_path)
+    link = link.copy()
+    link["linkdt"] = pd.to_datetime(link["linkdt"])
+    link["linkenddt"] = pd.to_datetime(link["linkenddt"]).fillna(pd.Timestamp.max)
+
+    comp = compustat.copy()
+    comp["_dt"] = pd.to_datetime(comp["datadate"])
+
+    merged_rows = []
+    for _, row in comp.iterrows():
+        candidates = link[link["gvkey"] == row["gvkey"]]
+        candidates = candidates[
+            (candidates["linkdt"] <= row["_dt"]) & (row["_dt"] <= candidates["linkenddt"])
+        ]
+        if candidates.empty:
+            continue
+        if len(candidates) > 1 and "linkprim" in candidates.columns:
+            primary = candidates[candidates["linkprim"] == "P"]
+            if not primary.empty:
+                candidates = primary
+        link_row = candidates.iloc[0]
+        merged_row = row.drop(labels=["_dt"]).to_dict()
+        merged_row["permno"] = int(link_row["permno"])
+        merged_rows.append(merged_row)
+
+    result = pd.DataFrame(merged_rows)
+    if not result.empty and "permno" in crsp.columns:
+        valid_permnos = set(crsp["permno"].unique())
+        result = result[result["permno"].isin(valid_permnos)].copy()
+
+    dt = pd.to_datetime(result["datadate"])
+    total_months = dt.dt.year * 12 + (dt.dt.month - 1) + lag_months
+    year, month = divmod(total_months, 12)
+    result["time_avail_m"] = (year * 100 + month + 1).astype(int)
+    return result
+
+
+def apply_missing_policy(df: pd.DataFrame, config: dict) -> pd.DataFrame:
+    """Standard missing-value policy: drop rows with missing return."""
+    if config.get("missing_action", "drop") in ("drop", "unspecified"):
+        return df.dropna(subset=["ret"]).copy()
+    return df
+
+
+def filter_universe(df: pd.DataFrame, config: dict) -> pd.DataFrame:
     """Filter to common stocks on major exchanges."""
     mask = df["shrcd"].isin([10, 11]) & df["exchcd"].isin([1, 2, 3])
     if "siccd" in df.columns:
@@ -241,7 +367,8 @@ def compute_portfolio_returns(df: pd.DataFrame, config: dict) -> pd.DataFrame:
 
 
 def compute_long_short(rets: pd.DataFrame, config: dict) -> pd.DataFrame:
-    """Compute long-short spread returns."""
+    """Compute long-short spread returns (config['long_leg']/['short_leg']
+    are already resolved to 'low'/'high' tokens by BacktestEngine._build_config)."""
     n = int(config.get("breakpoint_quantiles", 10))
     long_leg = config.get("long_leg", "low")
     long_port = 1 if long_leg == "low" else n
@@ -302,51 +429,51 @@ def compute_metrics(ls: pd.DataFrame) -> dict:
 
 def main():
     print(f"=== Backtest: {{CONFIG.get('factor_id', '{factor_id}')}} ===")
+    print(f"Signal input mode: {{SIGNAL_INPUT_MODE}}")
     print()
 
-    # 1. Load data
-    data_path = "{data_path}"
-    print(f"Loading CRSP data from: {{data_path}}")
-    msf = load_data(data_path)
-    print(f"  Loaded: {{len(msf):,}} rows, columns: {{list(msf.columns[:10])}}")
+    # 1. Build signal input and compute signal
+    if SIGNAL_INPUT_MODE == "compustat":
+        print(f"Building SignalMasterTable (CCM link + {{ACCOUNTING_LAG_MONTHS}}mo lag)...")
+        signal_input = build_signal_master_table(
+            DATA_PATH, COMPUSTAT_DATA_PATH, CCM_LINK_PATH, ACCOUNTING_LAG_MONTHS
+        )
+        print(f"  SignalMasterTable: {{len(signal_input):,}} rows")
+    else:
+        raw = load_data(DATA_PATH)
+        signal_input = raw.rename(columns={{"yyyymm": "time_avail_m"}})
 
-    # 2. Filter universe
-    msf = filter_universe(msf)
-    print(f"  After universe filter: {{len(msf):,}} rows")
-
-    # 3. Compute signal
     print("Computing signal...")
-    signal = compute_signal(msf)
+    signal = compute_signal(signal_input)
     print(f"  Signal: {{len(signal):,}} observations, {{signal['permno'].nunique():,}} unique firms")
-    print(f"  Date range: {{signal['yyyymm'].min()}} – {{signal['yyyymm'].max()}}")
+    print(f"  Date range: {{signal['yyyymm'].min()}} - {{signal['yyyymm'].max()}}")
 
-    # 4. Expand signal to holding period
-    print("Expanding signal to holding period months...")
+    # 2. Load CRSP monthly returns, apply missing-value policy + universe filter
+    msf = load_data(DATA_PATH)
+    msf = _dispatch("apply_missing_policy_hook", apply_missing_policy, msf, CONFIG)
+    msf = _dispatch("filter_universe_hook", filter_universe, msf, CONFIG)
+    print(f"  CRSP rows after missing/universe policy: {{len(msf):,}}")
+
+    # 3. Expand signal to holding period, merge with returns
     expanded = expand_signal_to_holding(signal, CONFIG)
-    print(f"  Expanded: {{len(expanded):,}} stock-month assignments")
-
-    # 5. Merge with CRSP returns
     merged = msf.merge(expanded, on=["permno", "yyyymm"], how="inner")
     print(f"  Merged with returns: {{len(merged):,}} stock-months")
 
-    # 6. Compute breakpoints
+    # 4. Breakpoints -> portfolios -> portfolio returns -> long-short
     print("Computing breakpoints...")
-    breakpoints = compute_breakpoints(merged, CONFIG)
+    breakpoints = _dispatch("compute_breakpoints_hook", compute_breakpoints, merged, CONFIG)
     print(f"  Breakpoints computed for {{len(breakpoints)}} months")
 
-    # 7. Assign portfolios
-    portfolios = assign_portfolios(merged, breakpoints, CONFIG)
+    portfolios = _dispatch("assign_portfolios_hook", assign_portfolios, merged, breakpoints, CONFIG)
     print(f"  Assigned to portfolios: {{len(portfolios):,}} stock-months")
 
-    # 8. Compute portfolio returns
-    port_returns = compute_portfolio_returns(portfolios, CONFIG)
+    port_returns = _dispatch("compute_returns_hook", compute_portfolio_returns, portfolios, CONFIG)
     print(f"  Portfolio returns: {{len(port_returns)}} portfolio-months")
 
-    # 9. Long-short spread
-    ls_returns = compute_long_short(port_returns, CONFIG)
+    ls_returns = _dispatch("compute_long_short_hook", compute_long_short, port_returns, CONFIG)
     print(f"  Long-short series: {{len(ls_returns)}} months")
 
-    # 10. Metrics
+    # 5. Metrics
     metrics = compute_metrics(ls_returns)
     print()
     print("=" * 50)

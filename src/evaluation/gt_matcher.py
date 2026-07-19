@@ -25,7 +25,7 @@ from typing import Any
 
 _PROJECT_ROOT = Path(__file__).resolve().parents[2]
 _MAPPING_PATH = _PROJECT_ROOT / "data" / "test_papers" / "paper_spec_mapping.json"
-_SPECS_DIR = _PROJECT_ROOT / "data" / "test_method_specs"
+_SPECS_DIR = _PROJECT_ROOT / "data" / "test_method_specs_human_labeled"
 
 
 def _normalize(s: str) -> str:
@@ -47,7 +47,7 @@ def _load_mapping() -> dict:
         for spec_name in info.get("method_specs", []):
             factor_id = spec_name.replace(".methodspec.json", "")
             factors[factor_id] = {
-                "spec_file": f"data/test_method_specs/{spec_name}",
+                "spec_file": f"data/test_method_specs_human_labeled/{spec_name}",
                 "paper_pdf": f"data/test_papers/{paper_filename}",
                 "paper_title": info.get("title", ""),
                 "citation": info.get("citation", ""),
@@ -70,7 +70,7 @@ def _load_spec(spec_file: str) -> dict | None:
     """Load a ground truth spec by its relative path."""
     path = _PROJECT_ROOT / spec_file
     if not path.exists():
-        # Try just the filename in test_method_specs/
+        # Try just the filename in test_method_specs_human_labeled/
         path = _SPECS_DIR / Path(spec_file).name
     if path.exists():
         return json.loads(path.read_text(encoding="utf-8"))
@@ -101,7 +101,7 @@ def _formula_similarity(a: str | None, b: str | None) -> float:
 
 
 class GroundTruthMatcher:
-    """Match agent-extracted specs to ground truth from test_method_specs/."""
+    """Match agent-extracted specs to ground truth from test_method_specs_human_labeled/."""
 
     def __init__(self):
         self._mapping = _load_mapping()

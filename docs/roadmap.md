@@ -6,13 +6,23 @@ The project foundation is in place:
 
 - The core positioning is clear: let the LLM write factor signal logic, not control empirical conclusions.
 - `docs/architecture.md` defines the Controlled Meta-Coder + Adversarial Sandbox architecture.
-- The repository structure has been organized around `docs/`, `prompts/`, `schemas/`, and `data/method_specs/curated/`.
+- The repository structure has been organized around `docs/`, `prompts/`, `schemas/`, and `runs/method_specs/unreviewed/`.
 - `MethodSpec` has been upgraded toward the `methodspec.v1` paper-first schema.
 - Module skeletons exist for all pipeline components; most backtest and data-layer methods are stubs (`raise NotImplementedError`).
 
 ---
 
 ## 1. MVP: End-to-End Minimal Workflow
+
+**Status: done (2026-07-17).** `Pipeline.run_from_method_spec()` runs the curated-MethodSpec
+chain (MetaCoder/repair loop → Sandbox → `DataLayer.get_signal_master_table()` → plugin
+`compute_signal()` → `BacktestEngine.run()` → `EvidenceStore`) against the synthetic data in
+`data/synthetic_data/`, and `tests/test_mvp_e2e.py` verifies the `cooper_gulen_schill_2008_asset_growth`
+result against independently-derived golden numbers
+(`tests/synthetic_data/asset_growth_synthetic_data.py`). `ReviewGate` and full extraction-driven
+`Pipeline.run_factor()` still require a live LLM client and are exercised manually /
+via `scripts/`, not in the deterministic synthetic-data test. `DualTrackController` remains a
+stub — it is explicitly scoped to Phase 5, not the Phase 1 MVP chain.
 
 **Goal:** run one complete factor replication workflow with every component genuinely implemented — no stubs, no mock returns, no `raise NotImplementedError` shortcuts.
 
@@ -25,12 +35,12 @@ curated MethodSpec
 -> Review Gate          (real LLM review, Evidence × Impact matrix)
 -> MetaCoder            (real LLM plugin generation, repair loop)
 -> Adversarial Sandbox  (syntax, schema, future-leak, reproducibility)
--> DataLayer            (fixture parquet → SignalMasterTable)
--> BacktestEngine       (all 10 steps on fixture data)
+-> DataLayer            (synthetic parquet → SignalMasterTable)
+-> BacktestEngine       (all 10 steps on synthetic data)
 -> EvidenceStore        (RunRecord with hashes persisted)
 ```
 
-This phase uses fixture data (small synthetic parquet snapshots), not WRDS production data.
+This phase uses synthetic data (small deterministic parquet snapshots), not WRDS production data.
 
 ### What "genuinely implemented" means per module
 
@@ -39,33 +49,33 @@ This phase uses fixture data (small synthetic parquet snapshots), not WRDS produ
 | `ReviewGate` | LLM review runs, Evidence × Impact matrix fires, disposition (`auto_approve` / `needs_human_confirmation` / `blocked`) is returned |
 | `MetaCoder` | LLM prompt is sent, plugin code is generated, repair loop runs up to 3 retries for syntax/schema errors only |
 | `AdversarialSandbox` | Syntax check, schema check, future-leak scan (`shift(-`, `.future`, `lead(`), reproducibility check all execute |
-| `DataLayer` | `SnapshotManager` loads fixture parquet; `TimeAvailComputer` computes `time_avail_m`; `CCMLinker` does point-in-time merge on fixture data |
-| `BacktestEngine` | All 10 steps run on fixture data: load → lag → missing policy → universe filter → breakpoints → portfolio assignment → EW returns → long-short → metrics → evidence log |
-| `EvidenceStore` | `RunRecord` with MethodSpec hash, plugin code hash, fixture snapshot hash, and metrics is persisted to `evidence/` |
+| `DataLayer` | `SnapshotManager` loads synthetic parquet; `TimeAvailComputer` computes `time_avail_m`; `CCMLinker` does point-in-time merge on synthetic data |
+| `BacktestEngine` | All 10 steps run on synthetic data: load → lag → missing policy → universe filter → breakpoints → portfolio assignment → EW returns → long-short → metrics → evidence log |
+| `EvidenceStore` | `RunRecord` with MethodSpec hash, plugin code hash, synthetic-data snapshot hash, and metrics is persisted to `runs/evidence/` |
 
-Fixture data requirements:
+Synthetic data requirements:
 - Synthetic CRSP monthly returns parquet (~50 stocks × 60 months)
 - Synthetic Compustat annual parquet (same permno universe)
-- CCM link table fixture
+- CCM link table (synthetic)
 - Pre-computed expected output (golden numbers) for at least one factor so correctness can be verified, not just reproducibility
 
 ### Deliverables
 
-- Fixture parquet files in `data/fixtures/`.
+- Synthetic parquet files in `data/synthetic_data/`.
 - All `raise NotImplementedError` stubs removed from the MVP path.
-- `BacktestEngine` 10-step lifecycle fully implemented on fixture data.
+- `BacktestEngine` 10-step lifecycle fully implemented on synthetic data.
 - `MetaCoder.generate_plugin()` and `repair_plugin()` fully implemented.
-- `DataLayer` CCMLinker, TimeAvailComputer, SnapshotManager implemented on fixtures.
+- `DataLayer` CCMLinker, TimeAvailComputer, SnapshotManager implemented on synthetic data.
 - One curated MethodSpec (e.g., `AssetGrowth`) runs end-to-end.
 - Evidence artifacts saved and traceable.
-- A test that checks fixture output matches the pre-computed golden numbers.
+- A test that checks synthetic-data output matches the pre-computed golden numbers.
 
 ### Completion criteria
 
 - One command runs one factor through the full MVP chain with no stub bypasses.
-- The result matches the pre-computed golden numbers on fixture data (correctness, not just reproducibility).
+- The result matches the pre-computed golden numbers on synthetic data (correctness, not just reproducibility).
 - Every module executes real logic: no mock returns, no hardcoded outputs.
-- Evidence traces MethodSpec hash, plugin code hash, fixture snapshot hash, and metrics.
+- Evidence traces MethodSpec hash, plugin code hash, synthetic-data snapshot hash, and metrics.
 - When ReviewGate blocks or MetaCoder exhausts repair retries, the run fails with a clear, traceable error — no silent fallbacks.
 
 ---
@@ -86,8 +96,8 @@ Core work:
 
 ### Deliverables
 
-- `data/method_specs/extracted/` — raw LLM-extracted specs.
-- `data/method_specs/reviewed/` — after ReviewGate pass.
+- `runs/method_specs/unreviewed/` — raw LLM-extracted specs.
+- `runs/method_specs/reviewed/` — after ReviewGate pass.
 - Field-level extraction accuracy report per paper.
 - A benchmark over the curated pilot papers.
 
@@ -131,9 +141,9 @@ Core work:
 
 ## 4. Real Data Layer
 
-**Goal:** move from fixture data to frozen real-data snapshots (WRDS CRSP + Compustat).
+**Goal:** move from synthetic data to frozen real-data snapshots (WRDS CRSP + Compustat).
 
-The backtest engine and data layer are already implemented in Phase 1 on fixtures. Phase 4 is a data swap: same logic, real data. The main new work is data pipeline correctness and snapshot management.
+The backtest engine and data layer are already implemented in Phase 1 on synthetic data. Phase 4 is a data swap: same logic, real data. The main new work is data pipeline correctness and snapshot management.
 
 Core work:
 
@@ -234,10 +244,10 @@ Core work:
 ## Phase Execution Order
 
 ```text
-1. MVP              — fixture data, all modules real, curated MethodSpec as input
+1. MVP              — synthetic data, all modules real, curated MethodSpec as input
 2. Extraction       — add paper→MethodSpec step, measure extraction quality
 3. Plugin quality   — measure and improve MetaCoder pass rates
-4. Real data        — swap fixtures for frozen WRDS snapshots
+4. Real data        — swap synthetic data for frozen WRDS snapshots
 5. Dual-track       — original vs. standardized, gap attribution
 6. C&Z evaluation   — benchmark against external reference
 7. Research UI      — dashboard for artifact inspection
@@ -245,6 +255,6 @@ Core work:
 
 The boundary between phases is intentional:
 
-- Phases 1–3 can be done without WRDS access (fixture data + LLM API).
+- Phases 1–3 can be done without WRDS access (synthetic data + LLM API).
 - Phase 4 requires WRDS access; it only changes the data source, not the engine logic.
 - Phases 5–7 build on a working real-data pipeline.

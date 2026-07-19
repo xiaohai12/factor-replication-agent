@@ -1,4 +1,4 @@
-"""Validate curated MethodSpec JSON files against the current Pydantic model."""
+"""Validate unreviewed MethodSpec JSON files against the current Pydantic model."""
 
 from __future__ import annotations
 
@@ -24,7 +24,7 @@ from src.infra.models.method_spec import (
 )
 
 
-DEFAULT_METHODSPEC_DIR = Path("data/method_specs/curated")
+DEFAULT_METHODSPEC_DIR = Path("runs/method_specs/unreviewed")
 
 
 @dataclass
