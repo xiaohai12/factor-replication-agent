@@ -130,16 +130,17 @@ def _run_backtest_via_script(
     Mirrors ``src.pipeline.Pipeline._run_backtest_via_script()``: the script
     is written to ``runs/backtest_scripts/{factor_id}_backtest.py`` (a
     durable, independently re-runnable audit artifact — see
-    src/steps/codegen/script_generator.py) and run with the current Python
+    src/steps/step3_codegen/script_generator.py) and run with the current Python
     interpreter. Results are read back from the CSV/metrics.json the script
     itself writes, so the persisted script — not this dashboard process — is
     the actual source of the reported numbers. No data is auto-generated
     here; the given paths must already exist on disk.
     """
+    import os
     import subprocess
     import sys
-    from src.steps.codegen.script_generator import generate_backtest_script
-    from src.steps.engine import BacktestEngine
+    from src.steps.step3_codegen.script_generator import generate_backtest_script
+    from src.steps.step5_engine import BacktestEngine
 
     scripts_dir = BACKTEST_SCRIPTS_DIR
     scripts_dir.mkdir(parents=True, exist_ok=True)
@@ -159,7 +160,17 @@ def _run_backtest_via_script(
     script_path = scripts_dir / f"{spec.factor_id}_backtest.py"
     script_path.write_text(script)
 
-    proc = subprocess.run([sys.executable, str(script_path)], capture_output=True, text=True)
+    # See src/pipeline.py._run_backtest_via_script for why this is needed:
+    # the generated script does `from src...` imports, but this repo's
+    # editable install only puts `src/` itself on sys.path, and Python puts
+    # the *script's own directory* (not the repo root) on sys.path[0] — so
+    # PYTHONPATH must be set explicitly for the subprocess to find `src`.
+    repo_root = Path(__file__).resolve().parent
+    env = {**os.environ, "PYTHONPATH": f"{repo_root}{os.pathsep}{os.environ.get('PYTHONPATH', '')}"}
+
+    proc = subprocess.run(
+        [sys.executable, str(script_path)], capture_output=True, text=True, env=env
+    )
     if proc.returncode != 0:
         raise RuntimeError(
             f"Backtest script {script_path} failed (exit {proc.returncode}):\n"
@@ -500,7 +511,7 @@ def _e2e_run_stage_3_to_7(
     pipeline silently defaulting those fields like it used to.
     """
     from src.infra.models import MethodSpec as _MS
-    from src.steps.reviewer import SENSIBLE_DEFAULTS
+    from src.steps.step2_reviewer import SENSIBLE_DEFAULTS
 
     progress = st.progress(3 / 7, text="Stage 3/7 — Resolving...")
 
@@ -553,7 +564,7 @@ def _e2e_run_stage_3_to_7(
     # Stage 4: MetaCoder
     progress.progress(4 / 7, text="Stage 4/7 — Generating plugin...")
     tracer.log("metacoder", "started")
-    from src.steps.codegen import MetaCoder
+    from src.steps.step3_codegen import MetaCoder
     from src.infra.llm import create_llm_client as _clc
     from src.infra.models.method_spec import ReviewStatus
     gen_spec = spec.model_copy(update={"codegen_ready": True, "review_status": ReviewStatus.APPROVED})
@@ -571,7 +582,7 @@ def _e2e_run_stage_3_to_7(
     # Stage 5: Sandbox
     progress.progress(5 / 7, text="Stage 5/7 — Sandbox validation...")
     tracer.log("sandbox", "started")
-    from src.steps.validator import AdversarialSandbox
+    from src.steps.step4_validator import AdversarialSandbox
     sandbox = AdversarialSandbox()
     report = sandbox.validate(plugin, spec)
     tracer.log("sandbox", "done" if report.passed else "FAILED", str(report.errors))
@@ -744,7 +755,7 @@ if page == "Pipeline — End to End":
                 pdf_stem = Path(e2e_pdf.name).stem
                 _save_paper_text_cache(e2e_pdf.name, paper_text)
 
-                from src.steps.extractor import SemanticExtractor
+                from src.steps.step1_extractor import SemanticExtractor
                 from src.infra.llm import create_llm_client
                 client = create_llm_client(provider=llm_provider, model=llm_model)
                 extractor = SemanticExtractor(llm_client=client)
@@ -770,7 +781,7 @@ if page == "Pipeline — End to End":
             # Stage 2: Review
             progress.progress(2 / 7, text="Stage 2/7 — Reviewing...")
             tracer.log("review", "started")
-            from src.steps.reviewer import ReviewGate
+            from src.steps.step2_reviewer import ReviewGate
             gate = ReviewGate()
             review_result = gate.review(spec)
             review_report_path = REVIEWED_DIR / f"{spec.factor_id}.review_report.json"
@@ -886,6 +897,16 @@ if page == "Pipeline — End to End":
             mc3.metric("Annualized", f"{m.get('annualized_return', 0)*100:.1f}%")
             mc4.metric("N Months", m.get("n_months", 0))
 
+            script_path = bt_result.get("script_path")
+            if script_path:
+                st.caption(f"Full backtest script saved to `{script_path}`")
+                with st.expander("View generated backtest script"):
+                    script_code = Path(script_path).read_text()
+                    st.code(script_code, language="python")
+                    st.download_button(
+                        "Download Script", script_code, Path(script_path).name, key="e2e_dl_script"
+                    )
+
     # Trace
     tracer = st.session_state.get("e2e_tracer")
     if tracer:
@@ -959,7 +980,7 @@ elif page == "Extractor":
 
     if st.button("Extract MethodSpec", type="primary", disabled=not bool(paper_text), key="ext_run"):
         with st.spinner("Extracting..."):
-            from src.steps.extractor import SemanticExtractor
+            from src.steps.step1_extractor import SemanticExtractor
             from src.infra.llm import create_llm_client
             client = create_llm_client(provider=llm_provider, model=llm_model)
             extractor = SemanticExtractor(llm_client=client)
@@ -1091,12 +1112,12 @@ elif page == "Review & Resolve":
         col_rules, col_llm = st.columns(2)
         with col_rules:
             if st.button("Run Rules Review", key="rr_rules"):
-                from src.steps.reviewer import ReviewGate
+                from src.steps.step2_reviewer import ReviewGate
                 review = ReviewGate().review(rr_spec)
                 st.session_state["rr_review"] = review
         with col_llm:
             if st.button("Run LLM Review", type="primary", key="rr_llm"):
-                from src.steps.reviewer import ReviewGate
+                from src.steps.step2_reviewer import ReviewGate
                 from src.infra.llm import create_llm_client
                 with st.spinner("LLM reviewing..."):
                     try:
@@ -1148,7 +1169,7 @@ elif page == "Review & Resolve":
         if not review:
             st.info("Run a review first.")
         else:
-            from src.steps.reviewer import SENSIBLE_DEFAULTS
+            from src.steps.step2_reviewer import SENSIBLE_DEFAULTS
             if "rr_resolution_inputs" not in st.session_state:
                 st.session_state["rr_resolution_inputs"] = {}
 
@@ -1213,9 +1234,47 @@ elif page == "Review & Resolve":
 
     with tab_eval:
         st.subheader("Resolution Eval vs Ground Truth")
-        resolved = st.session_state.get("rr_resolved", rr_spec)
+
+        # Pick which resolved MethodSpec to evaluate — defaults to whatever's
+        # currently loaded/resolved on this page, but can be overridden to any
+        # saved resolved spec or committed fixture.
+        current_resolved = st.session_state.get("rr_resolved", rr_spec)
+        eval_spec_map: dict[str, Path] = {}
+        for _dir, _label in ((RESOLVED_DIR, "resolved"), (FIXTURE_METHODSPEC_DIR, "fixture")):
+            if _dir.exists():
+                for _p in sorted(_dir.glob("*.resolved.methodspec.json")):
+                    eval_spec_map[f"[{_label}] {_p.name}"] = _p
+        current_label = f"(current) {current_resolved.factor_id}" if current_resolved else None
+        eval_spec_options = ([current_label] if current_label else []) + list(eval_spec_map)
+        eval_spec_choice = st.selectbox("MethodSpec to evaluate", eval_spec_options, key="rr_eval_spec_sel")
+
+        if eval_spec_choice == current_label:
+            resolved = current_resolved
+        elif eval_spec_choice:
+            from src.infra.models import MethodSpec as _MS
+            try:
+                resolved = _MS.model_validate_json(eval_spec_map[eval_spec_choice].read_text())
+            except Exception as e:
+                st.error(f"Failed to load spec: {e}")
+                resolved = None
+        else:
+            resolved = None
+
         gt_specs = _load_ground_truth_specs()
-        gt = gt_specs.get(resolved.factor_id) or gt_specs.get(getattr(resolved, "cz_acronym", "") or "")
+        if resolved:
+            gt_options = [""] + sorted(gt_specs.keys())
+            auto_match = resolved.factor_id if resolved.factor_id in gt_specs else (
+                getattr(resolved, "cz_acronym", "") or ""
+            )
+            default_idx = gt_options.index(auto_match) if auto_match in gt_options else 0
+            gt_choice = st.selectbox(
+                "Ground truth factor", gt_options, index=default_idx, key="rr_eval_gt_sel",
+                help="Defaults to an auto-match on factor_id/cz_acronym; override to compare "
+                "against any ground truth entry.",
+            )
+            gt = gt_specs.get(gt_choice) if gt_choice else None
+        else:
+            gt = None
         if gt:
             ext_dict = json.loads(resolved.model_dump_json())
             comps = _compare_specs(ext_dict, gt)
@@ -1226,8 +1285,10 @@ elif page == "Review & Resolve":
             eval_data = [{"Field": c["field"], "Resolved": c["extracted"], "Ground Truth": c["ground_truth"],
                           "Correct": "✅" if c["match"] else "❌"} for c in comps]
             st.table(eval_data)
+        elif resolved:
+            st.info(f"No ground truth selected/found for `{resolved.factor_id}` in `test_method_specs_human_labeled/`.")
         else:
-            st.info(f"No ground truth for `{resolved.factor_id}` in `test_method_specs_human_labeled/`.")
+            st.info("Select a MethodSpec to evaluate.")
 
 
 # ############################################################
@@ -1283,7 +1344,7 @@ elif page == "MetaCoder":
         # Hook detection
         st.subheader("3. Hook Detection")
         try:
-            from src.steps.engine import BacktestEngine
+            from src.steps.step5_engine import BacktestEngine
             hooks_needed = BacktestEngine._detect_hooks(mc_spec)
             if hooks_needed:
                 st.warning(f"**{len(hooks_needed)} non-standard step(s):**")
@@ -1303,7 +1364,7 @@ elif page == "MetaCoder":
 
         if st.button("Generate Signal Plugin", type="primary", disabled=not approved, key="mc_gen"):
             from src.infra.llm import create_llm_client
-            from src.steps.codegen import MetaCoder
+            from src.steps.step3_codegen import MetaCoder
             from src.infra.models.method_spec import ReviewStatus
             with st.spinner("Generating..."):
                 try:
@@ -1333,7 +1394,7 @@ elif page == "MetaCoder":
             # Sandbox
             st.subheader("6. Sandbox Validation")
             if st.button("Run Sandbox", key="mc_sandbox"):
-                from src.steps.validator import AdversarialSandbox
+                from src.steps.step4_validator import AdversarialSandbox
                 report = AdversarialSandbox().validate(mc_plugin, mc_spec)
                 st.session_state["mc_sandbox_report"] = report
 
@@ -1358,7 +1419,7 @@ elif page == "MetaCoder":
                 bt_path = st.text_input("CRSP data path", value="data/local/msf.parquet", key="mc_bt_path")
                 if st.button("Generate Script", key="mc_gen_bt"):
                     try:
-                        from src.steps.codegen.script_generator import generate_backtest_script
+                        from src.steps.step3_codegen.script_generator import generate_backtest_script
                         script = generate_backtest_script(mc_spec, mc_plugin.code, data_path=bt_path)
                         st.session_state["mc_bt_script"] = script
                         # Save to runs/backtest_scripts/
@@ -1570,6 +1631,16 @@ elif page == "Backtest & Experiments":
             mc3.metric("Annualized", f"{m.get('annualized_return', 0)*100:.1f}%")
             mc4.metric("N Months", m.get("n_months", 0))
 
+            script_path = bt_result.get("script_path")
+            if script_path:
+                st.caption(f"Full backtest script saved to `{script_path}`")
+                with st.expander("View generated backtest script"):
+                    script_code = Path(script_path).read_text()
+                    st.code(script_code, language="python")
+                    st.download_button(
+                        "Download Script", script_code, Path(script_path).name, key="bt_dl_script"
+                    )
+
             ls = bt_result.get("return_series", pd.DataFrame())
             if not ls.empty and "ls_return" in ls.columns:
                 chart = ls.copy()
@@ -1646,7 +1717,7 @@ elif page == "Attribution":
         factor_sel = st.selectbox("Factor", evidence_factors, key="attr_factor")
         if factor_sel and st.button("Run Attribution", key="attr_run"):
             try:
-                from src.steps.attribution import AttributionLayer
+                from src.steps.step7_attribution import AttributionLayer
                 from src.infra.evidence import EvidenceStore
                 store = EvidenceStore(base_path=str(EVIDENCE_DIR))
                 # Load runs for this factor

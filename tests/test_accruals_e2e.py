@@ -116,7 +116,7 @@ def test_signal_master_table_has_expected_shape(pipeline, approved_spec):
 
 
 def test_accruals_hook_is_detected_for_winsorize_missing_action(approved_spec):
-    from src.steps.engine import BacktestEngine
+    from src.steps.step5_engine import BacktestEngine
     hooks = BacktestEngine._detect_hooks(approved_spec)
     assert "apply_missing_policy" in hooks
 

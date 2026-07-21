@@ -32,7 +32,7 @@ tags: [architecture, factor-replication, agent, quant]
 | 原则 | 说明 |
 |---|---|
 | LLM 只生成 signal + hooks | `compute_signal()` 由 LLM 生成；非标准回测步骤由 LLM 生成 hook 函数；标准步骤由 BacktestEngine 固定代码处理 |
-| 回测骨架固定，步骤顺序不变 | 11 个步骤的执行顺序固定（见 §3）；每步走 standard 路径还是 hook 路径由 MethodSpec 判断，但顺序本身不允许 LLM 改变 |
+| 回测骨架固定，步骤顺序不变 | 固定顺序的执行链路（见 §3、§4.6 完整列表）；每步走 standard／multi-dim／overlap／hook 路径由 MethodSpec 判断，但顺序本身不允许 LLM 改变 |
 | standard vs hook 由 MethodSpec 驱动 | BacktestEngine 对每个步骤维护 standard set；MethodSpec 字段值在 standard set 内走 config，超出则触发 LLM 生成对应 hook 函数 |
 | paper-first MethodSpec | 从论文原文提取方法事实；C&Z / OSAP 只作 evaluation，不覆盖 paper-stated 内容 |
 | 所有决定都在 MethodSpec 里 | Resolution Applier 将 unspecified 字段决定写入 MethodSpec 的具体字段（`resolution_log` 追踪来源）；列名映射写入 `data.normalized_mapping`；不维护单独的 impl_config 文件 |
@@ -65,11 +65,11 @@ tags: [architecture, factor-replication, agent, quant]
         ▼
 [3. Meta-Coder]
 输入: resolved MethodSpec（列名映射和所有决定已在 spec 字段中）
-① BacktestEngine._detect_hooks(spec) 判断哪些步骤需要 hook
+① BacktestEngine._detect_hooks(spec) 判断哪些步骤需要 hook（2026-07-20 起大幅收窄，见 §4.6——filter_universe/多维排序/return_combination/overlapping/Fama-MacBeth 均已默认走确定性标准实现，只有真正 paper-specific 的情况才 hook）
 ② LLM 生成 compute_signal() — 所有因子必有
-③ LLM 生成 hook 函数（仅当步骤超出 standard set 时）：
-     compute_breakpoints_hook / filter_universe_hook /
-     assign_portfolios_hook / compute_returns_hook 等
+③ LLM 生成 hook 函数（仅当步骤超出 standard set 时，参见 §4.6 表格）：
+     compute_breakpoints_hook / assign_portfolios_hook /
+     compute_returns_hook / apply_missing_policy_hook 等
 输出: per-factor plugin（compute_signal + 按需 hook 函数）
         │
         ▼
@@ -164,11 +164,11 @@ signal_plugin_{factor_id}.py
   │     只做公式计算，禁止处理 lag
   │     输出 [permno, yyyymm, signal]
   │
-  └── {step}_hook(df, config)              ← 仅当该步骤超出 standard set 时生成
-        例：compute_breakpoints_hook       — double-sort / 非标准分位
-            filter_universe_hook          — industry-neutral / 自定义过滤
-            assign_portfolios_hook        — conditional sort / 复杂分组
-            compute_returns_hook          — 非标准权重 / capped VW
+  └── {step}_hook(df, config)              ← 仅当该步骤超出 standard set 时生成（2026-07-20 起
+        例：compute_breakpoints_hook          实际触发条件已收窄很多，见 §4.6 完整表格）
+            assign_portfolios_hook        — 3+ 维排序，或无法识别 size 维度的多维排序
+            compute_returns_hook          — 非标准权重（capped_vw）/ factor_model_alpha 等
+            apply_missing_policy_hook     — winsorize 等列选择是 paper-specific 的 missing_action
 ```
 
 Hook 函数边界：
@@ -198,48 +198,89 @@ Meta-Coder 还实现 `repair_plugin(plugin, errors)`，在 Future-Leak Scan 命�
 
 ### 4.6 BacktestEngine：Standard Set + Hook 机制
 
-BacktestEngine 对每个步骤维护一个 **standard set**——值在集合内走固定实现（读 config），超出集合则期望 plugin 提供对应 hook 函数。
+**（2026-07-20 更新，见 `plan.md` Phase 0-7 / `CHANGELOG.md` 对应条目；2026-07-21 步骤目录改为带序号命名）** `src/steps/step5_engine/` 现在拆成三个文件：
+
+| 文件 | 职责 |
+|---|---|
+| `__init__.py` | 编排：`BacktestEngine`、`Step` Protocol、`BacktestContext` dataclass、`run()`/`run_with_config()`/`_dispatch()` |
+| `steps.py` | 计算：所有 standard 步骤的纯函数实现（无 class state） |
+| `registry.py` | 选择：`STANDARD`、`detect_hooks()`、`build_config()`、`load_hooks()` |
+
+单一执行路径：`src/steps/step3_codegen/script_generator.py` 生成的独立脚本现在是薄封装，直接 `import BacktestEngine` 调 `run_with_config()`，不再内联重复实现 9 步逻辑——engine 与生成脚本不可能再互相漂移。
+
+BacktestEngine 对每个步骤维护一个 **standard set**——值在集合内走固定实现（读 config），超出集合则期望 plugin 提供对应 hook 函数。集合取值直接引用 `src/infra/models/method_spec.py` 里定义的枚举：
 
 ```python
 STANDARD = {
-    "breakpoint_source": {"full_sample", "nyse"},
-    "weighting":         {"vw", "ew"},
-    "sort_type":         {"single_sort"},
-    "missing_action":    {"drop", "unspecified"},
-    "universe_filter":   {"standard_crsp"},   # shrcd/exchcd 标准组合
+    "breakpoint_source":       {"full_sample", "nyse"},
+    "weighting":               {"vw", "ew"},
+    "missing_action":          {"drop", "unspecified"},
+    "portfolio_construction":  {"characteristic_sort", "regression_weighted", "unspecified"},
+    "return_combination":      {"extreme_group_spread", "average_leg_spread",
+                                 "single_signal_portfolio_return", "full_portfolio_return",
+                                 "unspecified"},
 }
 ```
 
-**`_detect_hooks(spec) → dict[step, reason]`**
+`filter_universe` 曾经**无条件**不在 `STANDARD` 里（每次都生成 hook）。Phase 2.5 把 `UniverseFilterSpec`/`FilterOp` DSL 接入 `steps.filter_universe()`（`apply_universe_filters`，覆盖全部 14 个 FilterOp 取值），现在 filter_universe **默认走确定性实现**；plugin 若定义了 `filter_universe_hook` 仍然优先生效（这是插件作者的选择，不是 `detect_hooks()` 会预测的东西）。
 
-对比 resolved MethodSpec 字段与 STANDARD，返回哪些步骤需要 hook：
+**`detect_hooks(spec) → dict[step, reason]`**
+
+全部走确定性字段比较，不做自由文本关键词匹配：
 
 | MethodSpec 字段 / 值 | 触发 hook |
 |---|---|
-| `portfolio.sort.type = "double_sort"` | `compute_breakpoints_hook` + `assign_portfolios_hook` |
-| `universe` 含 industry-neutral 条件 | `filter_universe_hook` |
-| `weighting` 不在 `{vw, ew}` | `compute_returns_hook` |
-| `missing_policy.action = "winsorize"` | `apply_missing_policy_hook` |
+| `breakpoint_source` 不在 `{full_sample, nyse}`（含 `conditional`/`paper_specific`） | `compute_breakpoints_hook` |
+| `weighting` 不在 `{vw, ew}`（如 `capped_vw`） | `compute_returns_hook` |
+| `missing_policy.action` 不在 `{drop, unspecified}`（`winsorize` 等——刻意保留 hook：具体要 winsorize 哪些列是 paper-specific 的，引擎无法安全猜测） | `apply_missing_policy_hook` |
+| `overlapping_portfolios=true` **且** `len(sorts) > 1` 同时出现 | `merge_signal_hook`（重叠 cohort 与多维排序两条标准路径 v1 不支持同时启用） |
+| `len(portfolio_return.sorts) > 1` 且 `resolve_sort_dims()` 无法映射（非「特征 x size」两维排序，或 3+ 维） | `compute_breakpoints_hook` + `assign_portfolios_hook` |
+| `portfolio_return.construction_type` 不在 `{characteristic_sort, regression_weighted, unspecified}`（如 `factor_model_alpha`、`event_window_return`、`other`） | `compute_returns_hook` |
+| `portfolio_return.return_combination.type` 不在 STANDARD 集合（如 `alpha_estimate`、`other`） | `compute_long_short_hook` |
 
-**执行时，每步优先调 hook，无 hook 走标准实现：**
+**已从「无条件 hook」变为「默认标准，仅特定组合仍需 hook」的四类**（Phase 2.5/3/4/5/7）：
+- `filter_universe`：Phase 2.5 起默认确定性（DSL），不再无条件 hook。
+- 多维排序：Phase 3 起「特征 x size」两维排序走 `compute_breakpoints_multi`/`assign_portfolios_multi`，只有 resolve_sort_dims() 无法识别的组合才 hook。
+- `return_combination`：Phase 4 起 `average_leg_spread`/`full_portfolio_return` 也走标准 `compute_long_short`（四种组合类型统一实现），只有 `alpha_estimate`/`other` 仍 hook。
+- `overlapping_portfolios`：Phase 5 起默认走 `merge_signal_overlap` 等标准重叠 cohort 实现，只有与多维排序同时出现才 hook。
+- `portfolio_construction`：Phase 7 起 `regression_weighted` 路由到标准 Fama-MacBeth estimator（`steps.compute_fama_macbeth`，走 `linearmodels`），完全跳过 sort/breakpoints/assign/returns/combine 链路，不再需要 hook。
+
+因为 `reported_results.return_calculation.portfolio_return` 字段较深、容易在提取阶段漏填，ReviewGate 的 `_check_portfolio_structure_consistency` 安全网检查仍然保留：自由文本明显暗示复杂结构但结构化字段为空时 block，要求人工补齐。
+
+**执行时，每步优先调 hook；否则走标准/多维/重叠三选一的分发：**
 
 ```python
-bp = plugin.hooks.get("compute_breakpoints", self._compute_breakpoints)(merged, config)
+def _dispatch(self, step, *args, config):
+    if step in self._hooks:
+        return self._hooks[step](*args, config)
+    if config.get("overlapping") and step in self._OVERLAP_STEPS:
+        return getattr(steps, f"{step}_overlap")(*args, config)
+    if len(config.get("sort_dims") or []) > 1 and step in self._MULTI_DIM_STEPS:
+        return getattr(steps, f"{step}_multi")(*args, config)
+    return getattr(steps, step)(*args, config)
 ```
 
-**标准步骤实现（所有因子共用）：**
+**标准步骤实现（所有因子共用，固定执行顺序，`run_with_config()` 中）：**
 
 | 步骤 | Standard 实现 |
 |---|---|
-| `merge_signal` | 年度 signal 展开到 Jul t – Jun t+1，merge 到 msf |
-| `filter_universe` | `shrcd in (10,11)`、`exchcd in (1,2,3)`、排除金融股、2 年 seasoning |
-| `compute_breakpoints` | full_sample 或 NYSE 子集的分位断点 |
-| `assign_portfolios` | 按断点单排序分组 |
-| `compute_returns` | VW（`me` 权重）或 EW |
-| `compute_long_short` | 方向取 MethodSpec `implied_factor_direction` |
-| `compute_metrics` | 月度均值、Newey-West t-stat、coverage、microcap share |
+| `load_data` | 读 `msf.parquet`（或 `load_daily_msf` 把日频源数据压缩成月度面板，Phase 6） |
+| `apply_delisting_returns` | 有 `dlret` 列时按 CRSP 惯例并入 `ret`；无该列则 no-op（Phase 2.5） |
+| `apply_missing_policy` | 默认 drop；`winsorize` 等仍需 hook（见上） |
+| `filter_universe` | 基线 `shrcd in (10,11)`/`exchcd in (1,2,3)`/排除金融股，叠加 `portfolio.universe_filters` 的 FilterOp DSL（Phase 2.5），可选 microcap 排除 |
+| `apply_excess_returns` | 有 `factors`（含 `rf`）且 `return_basis=excess`（默认）时减去无风险利率；否则 no-op（Phase 6，非 `_dispatch` 分发，直接调用） |
+| `merge_signal` | 年度 signal 展开持有；`overlapping=true` 时走 `merge_signal_overlap`（多个错开 cohort 各自形成子组合，按月平均，Phase 5） |
+| **[Fama-MacBeth 分支]** | `estimator="fama_macbeth"` 时到这里整体跳过以下 sort 相关步骤，改走 `steps.compute_fama_macbeth`（Phase 7） |
+| `neutralize_signal` | 确定性 no-op scaffold（`neutralization="none"` 默认），非 none 时需 hook（Phase 2.5） |
+| `compute_breakpoints` | full_sample/NYSE 分位断点；`sort_dims` 2+ 维时走 `compute_breakpoints_multi`（Phase 3） |
+| `assign_portfolios` | 按断点单排序分组；多维时走 `assign_portfolios_multi`（独立/条件排序） |
+| `compute_returns` | VW（`me` 权重）或 EW；多维/重叠各有对应变体 |
+| `compute_long_short` | 支持 `extreme_group_spread`/`average_leg_spread`/`single_signal_portfolio_return`/`full_portfolio_return` 四种组合（Phase 4） |
+| `compute_metrics` | 月度均值、Newey-West t-stat、Sharpe（Phase 2）；有 `factors` 时额外算 `compute_factor_alphas`（CAPM/FF3/FF5，`statsmodels` OLS+HAC） |
 
 Attribution 保证：两个 track 使用同一个 plugin（含相同 hook），只改 config → 结果差异 100% 来自 config 选择。
+
+
 
 ---
 

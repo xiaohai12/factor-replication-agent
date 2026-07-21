@@ -17,12 +17,13 @@ from typing import Any, Optional
 
 from src.infra.data_layer import DataDictionary
 from src.infra.models.method_spec import (
-    AmbiguousField,
     EvidenceCitation,
     EmpiricalImpact,
     EvidenceSource,
     MethodSpec,
+    PortfolioConstructionType,
     RemediationMode,
+    ReturnCombinationType,
 )
 
 DEFAULT_REVIEW_PROMPT_PATH = Path(__file__).resolve().parents[3] / "prompts" / "review_gate" / "methodspec_audit.md"
@@ -85,11 +86,16 @@ HIGH_IMPACT_FIELDS = {
     "portfolio.weighting",
     "portfolio.weighting_scheme",
     "portfolio.universe",
+    "portfolio.universe_filters",
     "portfolio.long_leg",
     "portfolio.short_leg",
+    "portfolio.filter",
     "portfolio.implied_factor_direction",
     "reported_results.comparison_policy",
     "reported_results.return_calculation",
+    "reported_results.return_calculation.portfolio_return.construction_type",
+    "reported_results.return_calculation.portfolio_return.sorts",
+    "reported_results.return_calculation.portfolio_return.return_combination",
     "reported_results.return_horizon",
     "reported_results.spreads",
 }
@@ -207,8 +213,10 @@ class ReviewGate:
         self._check_required_fields(spec, result)
         self._check_paper_evidence(spec, result)
         self._check_data_fields_exist(spec, result)
+        self._check_source_mapping_resolved(spec, result)
         self._check_timing_consistency(spec, result)
         self._check_reported_results_contract(spec, result)
+        self._check_portfolio_structure_consistency(spec, result)
         self._check_ambiguous_fields(spec, result)
 
         # Determine overall disposition
@@ -257,6 +265,36 @@ class ReviewGate:
             if not self.data_dictionary.exists(f):
                 result.issues.append(f"Field '{f}' not found in data dictionary")
 
+    def _check_source_mapping_resolved(self, spec: MethodSpec, result: ReviewResult) -> None:
+        """New-source safety net (plan.md data-loader Phase 4).
+
+        `data.normalized_mapping` says which physical source each field comes
+        from; `spec.resolved_sources()` groups those by source. The data loader
+        can only join a source it has a registered join for (`SIGNAL_SOURCES`:
+        key/link/date/lag). A field mapped to a source the loader DOESN'T know
+        would silently fail or guess at run time — exactly the "new data
+        source appears" case. Block here so a human registers the source ONCE
+        (a per-source, reusable-forever step) before approval, rather than
+        letting the loader improvise per paper.
+
+        Only blocks on an UNKNOWN source; an empty/partial mapping is left to
+        the existing evidence warnings (early drafts shouldn't be hard-blocked
+        for this).
+        """
+        from src.infra.data_layer import SIGNAL_SOURCES
+
+        for source in spec.resolved_sources():
+            if source not in SIGNAL_SOURCES:
+                field_path = f"data.normalized_mapping[source={source}]"
+                result.blocked_fields.append(field_path)
+                result.issues.append(
+                    f"data.normalized_mapping references source '{source}', which the "
+                    "data loader has no registered join for (not in SIGNAL_SOURCES). "
+                    "Register the source once (key/link/date/lag, + link table if "
+                    "needed) before approval — then every future paper using it is "
+                    "handled automatically."
+                )
+
     def _check_timing_consistency(self, spec: MethodSpec, result: ReviewResult) -> None:
         """Check timing assumptions are internally consistent."""
         timing = spec.signal.timing
@@ -276,10 +314,54 @@ class ReviewGate:
             result.warnings.append(
                 "reported_results.main_spread is set but return_calculation.input_return is unspecified"
             )
-        weighting = calc.portfolio_return.get("weighting") if calc.portfolio_return else None
+        weighting = calc.portfolio_return.weighting
         if weighting and str(weighting) != spec.portfolio.weighting.value:
             result.warnings.append(
                 "reported_results portfolio_return.weighting differs from portfolio.weighting"
+            )
+
+    def _check_portfolio_structure_consistency(self, spec: MethodSpec, result: ReviewResult) -> None:
+        """Safety net for BacktestEngine._detect_hooks()'s deterministic checks.
+
+        _detect_hooks() decides whether compute_breakpoints/assign_portfolios/
+        compute_long_short need a hook purely from the structured
+        reported_results.return_calculation.portfolio_return
+        (sorts/construction_type/return_combination) fields -- it no longer
+        reads free-text prose. That structured field is deeply nested and
+        easy for extraction to leave unpopulated even when the paper-facing
+        prose fields (portfolio.filter/long_leg/short_leg) clearly describe a
+        double sort or a multi-leg combination. If that happens,
+        _detect_hooks() would silently treat the factor as a standard
+        single-variable sort and produce a plausible-looking but wrong
+        backtest. Block here instead, so a human fills in the structured
+        field before codegen.
+
+        Note: filter_universe is unconditionally LLM-generated (see
+        BacktestEngine.FILTER_UNIVERSE_ALWAYS_HOOK_REASON), so there's no
+        equivalent "silently falls back to standard" risk for
+        portfolio.universe_filters to guard against here.
+        """
+        portfolio_return = spec.reported_results.return_calculation.portfolio_return
+
+        sort_text = " ".join([
+            spec.portfolio.filter or "",
+            str(spec.portfolio.long_leg or ""),
+            str(spec.portfolio.short_leg or ""),
+        ]).lower()
+        sort_signal_words = ("double", "conditional", "interact", "two-way", "average of", " and ")
+        sort_structure_populated = (
+            bool(portfolio_return.sorts)
+            or portfolio_return.construction_type != PortfolioConstructionType.UNSPECIFIED
+            or portfolio_return.return_combination.type != ReturnCombinationType.UNSPECIFIED
+        )
+        if any(k in sort_text for k in sort_signal_words) and not sort_structure_populated:
+            result.blocked_fields.append("reported_results.return_calculation.portfolio_return")
+            result.issues.append(
+                "portfolio.filter/long_leg/short_leg suggest a double-sort or multi-leg "
+                "construction, but reported_results.return_calculation.portfolio_return "
+                "(sorts/construction_type/return_combination) is unpopulated -- "
+                "BacktestEngine._detect_hooks() will silently treat this as a standard "
+                "single-variable sort. Populate portfolio_return before approval."
             )
 
     def _check_ambiguous_fields(self, spec: MethodSpec, result: ReviewResult) -> None:

@@ -18,6 +18,16 @@ dependencies = [
 dev = [
     "pytest>=7.0",
     "ruff>=0.4",
+    # Build-time only: fetch Ken French FF/rf factors -> snapshot parquet.
+    # Never imported at run time (see scripts/fetch_ff_factors.py).
+    "pandas-datareader>=0.10",
+]
+# Statistical libraries for metrics/estimators. Pinned for reproducible,
+# auditable numbers. Statistical computation only -- no empirical/portfolio
+# decisions (see plan.md "Tooling / libraries").
+research = [
+    "statsmodels==0.14.6",
+    "linearmodels==7.0",
 ]
 
 [build-system]

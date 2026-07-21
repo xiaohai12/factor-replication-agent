@@ -95,9 +95,22 @@ def generated_plugin() -> PluginRecord:
 
 
 def test_multi_leg_long_short_hook_is_detected(approved_spec):
-    from src.steps.engine import BacktestEngine
+    """This spec's 2x3 double sort (market_value_of_equity x
+    cash_based_operating_profitability) isn't resolved by
+    registry.resolve_sort_dims() -- neither variable name is recognized as
+    size-like by its narrow v1 heuristic (plan.md Phase 3) -- so
+    compute_breakpoints/assign_portfolios are still hooked. Its
+    return_combination ("average_leg_spread") is standard as of Phase 4,
+    though, so compute_long_short is no longer flagged even though this
+    fixture's plugin still supplies a hand-written compute_long_short_hook
+    (hooks loaded from a plugin always take priority over the standard
+    implementation regardless of what detect_hooks predicts).
+    """
+    from src.steps.step5_engine import BacktestEngine
     hooks = BacktestEngine._detect_hooks(approved_spec)
-    assert "compute_long_short" in hooks
+    assert "compute_breakpoints" in hooks
+    assert "assign_portfolios" in hooks
+    assert "compute_long_short" not in hooks
 
 
 def test_signal_master_table_has_expected_shape(pipeline, approved_spec):

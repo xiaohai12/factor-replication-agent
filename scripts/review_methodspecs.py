@@ -17,7 +17,7 @@ if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
 from src.infra.models.method_spec import MethodSpec
-from src.steps.reviewer import ReviewGate, ReviewResult
+from src.steps.step2_reviewer import ReviewGate, ReviewResult
 from src.infra.llm import create_llm_client
 
 

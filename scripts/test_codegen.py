@@ -22,11 +22,11 @@ from pathlib import Path
 ROOT = Path(__file__).parent.parent
 sys.path.insert(0, str(ROOT))
 
-from src.steps.engine import BacktestEngine
+from src.steps.step5_engine import BacktestEngine
 from src.infra.llm import CodexCLIClient
-from src.steps.codegen import MetaCoder
+from src.steps.step3_codegen import MetaCoder
 from src.infra.models.method_spec import MethodSpec
-from src.steps.validator import AdversarialSandbox
+from src.steps.step4_validator import AdversarialSandbox
 
 
 RESOLVED_DIR = ROOT / "runs" / "method_specs" / "resolved"

@@ -374,6 +374,8 @@ Parser rule:
 - If `reported_results.return_calculation.portfolio_return.construction_type = "characteristic_sort"`, codegen may use `portfolio.sort` / `portfolio_return.sorts` to build sorted portfolio legs.
 - If `construction_type = "regression_weighted"`, codegen must not infer a simple high-minus-low portfolio from `portfolio.sort`; use the regression and weighting scheme instead.
 
+`BacktestEngine._detect_hooks()` (see docs/architecture.md §4.6) reads `portfolio_return.sorts` / `construction_type` / `return_combination.type` and `portfolio.universe_filters` directly to decide which steps need a plugin hook — these are no longer just paper-facing documentation fields, they drive codegen. Leaving them unpopulated when the paper prose (`portfolio.filter`/`long_leg`/`short_leg`/`universe`) clearly describes a non-standard construction will be caught by ReviewGate's consistency check and blocked for human confirmation rather than silently falling back to a standard single-variable sort.
+
 ### 2.11 Portfolio weighting scheme
 
 Use a **two-layer design**:

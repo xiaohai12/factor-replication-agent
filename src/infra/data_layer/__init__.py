@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Optional
 
@@ -374,3 +374,356 @@ class DataLayer:
         return self.time_avail.build_signal_master_table(
             crsp, compustat, self.ccm_linker, lag_months=lag_months
         )
+
+
+# ---------------------------------------------------------------------------
+# Panel assembly from raw WRDS-shaped source tables — DECLARATIVE.
+#
+# Real vendors ship a firm's data across SEPARATE tables (CRSP: msf returns /
+# msenames attributes / msedelist delistings), but the BacktestEngine wants one
+# flat panel keyed [permno, yyyymm]. Rather than a bespoke per-source function,
+# each source declares its ROLE in `SOURCE_SCHEMA` and one generic
+# `assemble_panel()` interprets it — same declarative spirit as this module's
+# DataDictionary/_CONCEPT_MAP and the engine's FilterOp DSL. Adding a source is
+# a schema entry, not new imperative code.
+#
+# This is DETERMINISTIC controlled infrastructure (like C&Z's single
+# SignalMasterTable.py shared by every signal), NOT an LLM-generated hook:
+# per-AGENTS.md, empirical data construction is never LLM-decided. Paper-to-
+# paper differences (which sources/fields, lag, imputation) belong in the
+# reviewed MethodSpec, not here.
+#
+# Roles a source can play:
+#   base       — the primary table; supplies `ret`, derives `yyyymm` from a
+#                date column and any `derive`d columns (e.g. me = |prc|*shrout).
+#   pit_attrs  — attributes joined by key with a point-in-time validity window
+#                (namedt<=date<=nameendt), e.g. exchange/share/SIC codes.
+#   fold_last  — a value folded onto each key's LAST panel month (CRSP delisting
+#                return convention); consumed later by apply_delisting_returns.
+# ---------------------------------------------------------------------------
+
+# Named column-derivation ops referenced by a source's `derive` clause.
+_DERIVE_OPS = {
+    # market equity = |prc| * shrout  (CRSP prc is negative for a bid/ask midpoint)
+    "abs_mul": lambda df, cols: df[cols[0]].abs() * df[cols[1]],
+}
+
+# Default schema for the standard CRSP monthly returns panel.
+SOURCE_SCHEMA: dict[str, dict[str, Any]] = {
+    "crsp_msf": {
+        "role": "base",
+        "date_col": "date",
+        "derive": {"me": {"op": "abs_mul", "cols": ["prc", "shrout"]}},
+        "keep": ["permno", "yyyymm", "ret", "me"],
+    },
+    "crsp_msenames": {
+        "role": "pit_attrs",
+        "on": "permno",
+        "window": ["namedt", "nameendt"],
+        "attrs": ["shrcd", "exchcd", "siccd"],
+    },
+    "crsp_msedelist": {
+        "role": "fold_last",
+        "on": "permno",
+        "value": "dlret",
+        "order": "yyyymm",
+    },
+}
+
+
+def _load_base(d: Path, name: str, spec: dict) -> pd.DataFrame:
+    df = pd.read_parquet(d / f"{name}.parquet")
+    df["_date"] = pd.to_datetime(df[spec["date_col"]])
+    df["yyyymm"] = df["_date"].dt.year * 100 + df["_date"].dt.month
+    for new_col, rule in spec.get("derive", {}).items():
+        df[new_col] = _DERIVE_OPS[rule["op"]](df, rule["cols"])
+    return df
+
+
+def _apply_pit_attrs(panel: pd.DataFrame, attrs: pd.DataFrame, spec: dict) -> pd.DataFrame:
+    on, (lo, hi) = spec["on"], spec["window"]
+    merged = panel.merge(attrs[[on, lo, hi, *spec["attrs"]]], on=on, how="left")
+    dt = merged["_date"]
+    in_window = (pd.to_datetime(merged[lo]) <= dt) & (dt <= pd.to_datetime(merged[hi]))
+    # keep the attribute row valid at each date; rows with no matching window
+    # (rare edge at a switch boundary) fall back to the first attribute row.
+    merged = merged[in_window | merged[lo].isna()].copy()
+    return merged.drop_duplicates(subset=[on, "yyyymm"], keep="first")
+
+
+def _apply_fold_last(panel: pd.DataFrame, tbl: pd.DataFrame, spec: dict) -> pd.DataFrame:
+    on, value, order = spec["on"], spec["value"], spec["order"]
+    val_by_key = tbl.drop_duplicates(on).set_index(on)[value]
+    last = panel.groupby(on)[order].transform("max")
+    is_last = panel[order] == last
+    # float NaN (not pd.NA) so the column stays float64 — an object-dtype column
+    # breaks downstream float writes (e.g. steps.apply_delisting_returns) under
+    # pandas 3.x strict setitem.
+    panel[value] = float("nan")
+    panel.loc[is_last, value] = panel.loc[is_last, on].map(val_by_key).astype(float)
+    return panel
+
+
+def assemble_panel(data_dir: str | Path, schema: dict[str, dict] | None = None) -> pd.DataFrame:
+    """Assemble a flat [permno, yyyymm, ...] panel from raw source tables per a
+    declarative `schema` (defaults to `SOURCE_SCHEMA`, the standard CRSP panel).
+
+    Reads each source named in `schema` from `data_dir/<name>.parquet` and
+    applies it according to its declared `role` (see module comment above).
+    Optional sources whose file is absent are simply skipped. Returns the base
+    `keep` columns plus each pit_attrs `attrs` and each present fold_last
+    `value`.
+    """
+    schema = schema or SOURCE_SCHEMA
+    d = Path(data_dir)
+
+    base_name = next(n for n, s in schema.items() if s["role"] == "base")
+    panel = _load_base(d, base_name, schema[base_name])
+    keep = list(schema[base_name]["keep"])
+
+    for name, spec in schema.items():
+        if spec["role"] == "base":
+            continue
+        path = d / f"{name}.parquet"
+        if not path.exists():
+            continue
+        tbl = pd.read_parquet(path)
+        if spec["role"] == "pit_attrs":
+            panel = _apply_pit_attrs(panel, tbl, spec)
+            keep += spec["attrs"]
+        elif spec["role"] == "fold_last":
+            panel = _apply_fold_last(panel, tbl, spec)
+            keep.append(spec["value"])
+
+    out = panel[[c for c in keep if c in panel.columns]].copy()
+    out["permno"] = out["permno"].astype(int)
+    out["yyyymm"] = out["yyyymm"].astype(int)
+    return out.reset_index(drop=True)
+
+
+def build_crsp_monthly_panel(data_dir: str | Path) -> pd.DataFrame:
+    """Assemble the standard CRSP monthly returns panel (thin wrapper over the
+    declarative `assemble_panel` using `SOURCE_SCHEMA`). Kept as a named entry
+    point for `BacktestEngine._load_data` and tests."""
+    return assemble_panel(data_dir, SOURCE_SCHEMA)
+
+
+# ---------------------------------------------------------------------------
+# SIGNAL-INPUT source registry — the maintained "link for join" (plan.md
+# data-loader Phase 2). Each signal-input source declares, ONCE, how it links
+# to permno and when its data becomes available — a PER-SOURCE property reused
+# by every paper, not re-decided per paper. Adding a new data source = adding
+# one entry here (a human-reviewed, one-time registration; ReviewGate blocks a
+# spec whose mapping references a source absent from this registry).
+#
+# Fields:
+#   key   — the source's native identifier column.
+#   link  — how to reach permno: None (already permno-keyed), or a key into
+#           LINK_TABLES ("ccm"/"ibes_crsp_link"/"optionm_crsp_link").
+#   date  — the source's observation-date column (drives point-in-time linking
+#           and the availability month); None for already-monthly/permno data.
+#   lag   — accounting-availability lag in months: an int, or the name of a
+#           MethodSpec field to read it from (e.g. "accounting_lag_months").
+# ---------------------------------------------------------------------------
+
+SIGNAL_SOURCES: dict[str, dict[str, Any]] = {
+    "crsp_msf":      {"key": "permno", "link": None,                "date": None,       "lag": 0},
+    "comp_funda":    {"key": "gvkey",  "link": "ccm",               "date": "datadate", "lag": "accounting_lag_months"},
+    "comp_fundq":    {"key": "gvkey",  "link": "ccm",               "date": "datadate", "lag": "accounting_lag_months"},
+    "ibes_statsumu": {"key": "ticker", "link": "ibes_crsp_link",    "date": "statpers", "lag": 0},
+    "optionm_vsurf": {"key": "secid",  "link": "optionm_crsp_link", "date": "date",     "lag": 0},
+    "tr_13f":        {"key": "permno", "link": None,                "date": "rdate",    "lag": 0},
+    "patents_nber":  {"key": "gvkey",  "link": "ccm",               "date": None,       "lag": 0},
+}
+
+# Physical schema of each link table (how key -> permno with a validity window).
+LINK_TABLES: dict[str, dict[str, str]] = {
+    "ccm":               {"key": "gvkey",  "permno": "lpermno", "start": "linkdt", "end": "linkenddt"},
+    "ibes_crsp_link":    {"key": "ticker", "permno": "permno",  "start": "sdate",  "end": "edate"},
+    "optionm_crsp_link": {"key": "secid",  "permno": "permno",  "start": "sdate",  "end": "edate"},
+}
+
+
+def link_to_permno(
+    df: pd.DataFrame,
+    source_name: str,
+    link_tables: dict[str, pd.DataFrame],
+    *,
+    date_col: str | None = None,
+) -> pd.DataFrame:
+    """Resolve a signal-input source's native key to `permno` (plan.md
+    data-loader Phase 2), point-in-time.
+
+    Uses `SIGNAL_SOURCES[source_name]` + `LINK_TABLES` to attach a `permno`
+    column: `link=None` sources already have one; otherwise the source's `key`
+    is joined to the declared link table and filtered to the row valid at the
+    source's observation date (`start <= date <= end`, open-ended `end`
+    treated as valid through the present). Exactly one output row per input row
+    (primary link wins on ties). Rows that resolve to no permno are dropped.
+    """
+    spec = SIGNAL_SOURCES[source_name]
+    if spec.get("link") is None:
+        return df
+
+    key = spec["key"]
+    ls = LINK_TABLES[spec["link"]]
+    link_df = link_tables[spec["link"]][[ls["key"], ls["permno"], ls["start"], ls["end"]]].rename(
+        columns={ls["key"]: key, ls["permno"]: "permno"}
+    )
+
+    work = df.reset_index(drop=True).copy()
+    work["_row"] = range(len(work))
+    merged = work.merge(link_df, on=key, how="left")
+
+    dcol = date_col or spec.get("date")
+    if dcol and dcol in merged.columns:
+        dt = pd.to_datetime(merged[dcol], errors="coerce")
+        start = pd.to_datetime(merged[ls["start"]], errors="coerce")
+        end = pd.to_datetime(merged[ls["end"]], errors="coerce").fillna(pd.Timestamp.max)
+        keep = (start <= dt) & (dt <= end)
+        merged = merged[keep | merged["permno"].isna()]
+
+    merged = merged.drop(columns=[ls["start"], ls["end"]])
+    merged = merged.dropna(subset=["permno"])
+    # one row per original source row (primary link wins on ties)
+    merged = merged.sort_values("permno").drop_duplicates("_row", keep="first")
+    merged["permno"] = merged["permno"].astype(int)
+    return merged.drop(columns=["_row"]).reset_index(drop=True)
+
+
+# File name of each link table on disk (LINK_TABLES key -> parquet stem).
+_LINK_TABLE_FILES = {
+    "ccm": "ccm_lnkhist",
+    "ibes_crsp_link": "ibes_crsp_link",
+    "optionm_crsp_link": "optionm_crsp_link",
+}
+
+
+def _load_link_tables(d: Path) -> dict[str, pd.DataFrame]:
+    out: dict[str, pd.DataFrame] = {}
+    for link, stem in _LINK_TABLE_FILES.items():
+        p = d / f"{stem}.parquet"
+        if p.exists():
+            out[link] = pd.read_parquet(p)
+    return out
+
+
+def _resolve_lag(lag: Any, accounting_lag_months: int) -> int:
+    """A source's `lag` is either an int (months) or a marker string
+    ("accounting_lag_months") meaning "use the spec's accounting lag"."""
+    if isinstance(lag, str):
+        return int(accounting_lag_months or 0)
+    return int(lag or 0)
+
+
+def _load_source_frame(
+    d: Path, source_name: str, cols: list[str], accounting_lag_months: int, link_tables: dict
+) -> pd.DataFrame | None:
+    """Load one signal-input source, resolved to [permno, time_avail_m, *cols].
+
+    Reads ONLY the needed columns (+ key + date), links to permno, and computes
+    the availability month `time_avail_m` = observation month + the source's
+    lag. CRSP fields come from the assembled monthly panel (time_avail_m =
+    yyyymm)."""
+    if source_name not in SIGNAL_SOURCES:
+        raise ValueError(
+            f"Unknown signal source {source_name!r}: not in SIGNAL_SOURCES. "
+            "Register the source once (key/link/date/lag) before use."
+        )
+    src = SIGNAL_SOURCES[source_name]
+
+    if source_name == "crsp_msf":
+        panel = build_crsp_monthly_panel(d)
+        keep = ["permno", "yyyymm", *[c for c in cols if c in panel.columns]]
+        return panel[keep].rename(columns={"yyyymm": "time_avail_m"})
+
+    path = d / f"{source_name}.parquet"
+    if not path.exists():
+        return None
+    key, date_col = src["key"], src.get("date")
+    read_cols = [c for c in {key, *( [date_col] if date_col else [] ), *cols} if c]
+    df = pd.read_parquet(path, columns=read_cols)
+    df = link_to_permno(df, source_name, link_tables)
+
+    lag = _resolve_lag(src["lag"], accounting_lag_months)
+    if date_col and date_col in df.columns:
+        dt = pd.to_datetime(df[date_col], errors="coerce")
+        total = dt.dt.year * 12 + (dt.dt.month - 1) + lag
+        df["time_avail_m"] = (total // 12) * 100 + (total % 12) + 1
+    else:
+        # no observation-date column -> can't compute availability (e.g. the
+        # year-based patents source); documented v1 gap.
+        df["time_avail_m"] = pd.NA
+
+    out = df[["permno", "time_avail_m", *cols]].dropna(subset=["time_avail_m"])
+    out["time_avail_m"] = out["time_avail_m"].astype(int)
+    return out
+
+
+def signal_input_sources(spec: Any) -> dict[str, list[str]]:
+    """Group the SIGNAL-FORMULA fields by physical source: {source: [columns]}.
+
+    Only `spec.signal.required_fields` (falling back to `spec.data.required_fields`)
+    are included — universe/weighting CRSP fields stay engine-side. Shared by
+    `assemble_signal_master_table` and codegen (which bakes this map into the
+    generated standalone script so it needs no MethodSpec at run time)."""
+    formula_concepts = set(spec.signal.required_fields) or {f.field for f in spec.data.required_fields}
+    out: dict[str, list[str]] = {}
+    for source, pairs in spec.resolved_sources().items():
+        cols = [col for concept, col in pairs if concept in formula_concepts]
+        if cols:
+            out[source] = cols
+    return out
+
+
+def assemble_signal_master_table_from_sources(
+    data_dir: str | Path,
+    by_source: dict[str, list[str]],
+    accounting_lag_months: int = 6,
+) -> pd.DataFrame:
+    """Spec-free core of `assemble_signal_master_table`: build the
+    [permno, time_avail_m, ...] table from an explicit {source: [columns]} map.
+
+    Used directly by the generated standalone backtest script (which has no
+    MethodSpec object at run time, only baked constants). See
+    `assemble_signal_master_table` for the MethodSpec-driven wrapper and the
+    v1 as-of-join limitation."""
+    d = Path(data_dir)
+    link_tables = _load_link_tables(d)
+    frames = [
+        f for name, cols in by_source.items()
+        if (f := _load_source_frame(d, name, cols, accounting_lag_months, link_tables)) is not None
+    ]
+    if not frames:
+        return pd.DataFrame(columns=["permno", "time_avail_m"])
+
+    master = frames[0]
+    for f in frames[1:]:
+        master = master.merge(f, on=["permno", "time_avail_m"], how="outer")
+    return master.sort_values(["permno", "time_avail_m"]).reset_index(drop=True)
+
+
+def assemble_signal_master_table(spec: Any, data_dir: str | Path) -> pd.DataFrame:
+    """Assemble the signal-formula input table keyed [permno, time_avail_m]
+    from however many sources the spec's fields span (plan.md data-loader
+    Phase 3) — replacing the binary crsp_only/compustat heuristic.
+
+    Only the SIGNAL-FORMULA fields (`spec.signal.required_fields`, falling back
+    to `spec.data.required_fields`) are pulled — universe/weighting CRSP fields
+    stay engine-side. Each field is resolved to its (source, physical column)
+    via `spec.resolved_sources()`; each source is read for ONLY its needed
+    columns, linked to permno, given an availability month, and merged on
+    [permno, time_avail_m].
+
+    v1 limitation: cross-source alignment is an exact [permno, time_avail_m]
+    outer merge, not an as-of join — fine for single-source signals (the common
+    case) and same-frequency multi-source; mixing annual+monthly sources in one
+    formula would need an as-of join (future).
+    """
+    return assemble_signal_master_table_from_sources(
+        data_dir, signal_input_sources(spec), spec.accounting_lag_months or 6
+    )
+
+
+
+

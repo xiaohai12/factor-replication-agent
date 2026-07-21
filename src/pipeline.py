@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 import subprocess
 import sys
 from dataclasses import dataclass
@@ -19,20 +20,20 @@ from pathlib import Path
 
 import pandas as pd
 
-from src.steps.attribution import AttributionLayer
-from src.steps.controller import DualTrackController, ExperimentPlan
+from src.steps.step7_attribution import AttributionLayer
+from src.steps.step6_dual_track_controller import DualTrackController, ExperimentPlan
 from src.infra.data_layer import DataLayer
-from src.steps.engine import BacktestEngine
+from src.steps.step5_engine import BacktestEngine
 from src.infra.evidence import EvidenceStore, RunRegistry
-from src.steps.extractor import SemanticExtractor
-from src.steps.codegen import MetaCoder
-from src.steps.codegen.script_generator import generate_backtest_script, _signal_needs_compustat
+from src.steps.step1_extractor import SemanticExtractor
+from src.steps.step3_codegen import MetaCoder
+from src.steps.step3_codegen.script_generator import generate_backtest_script, pick_signal_input_mode
 from src.infra.models.method_spec import MethodSpec
 from src.infra.models.plugin import PluginRecord
 from src.infra.models.run_record import RunMetrics, RunRecord
 from src.infra.registry import PluginRegistry
-from src.steps.reviewer import ReviewGate
-from src.steps.validator import AdversarialSandbox
+from src.steps.step2_reviewer import ReviewGate
+from src.steps.step4_validator import AdversarialSandbox
 
 
 MAX_REPAIR_RETRIES = 3
@@ -246,7 +247,7 @@ class Pipeline:
             -> generate_backtest_script() -> execute via subprocess -> EvidenceStore
 
         The backtest is NOT run in-process: a standalone Python script is
-        generated (see src/steps/codegen/script_generator.py) and saved to
+        generated (see src/steps/step3_codegen/script_generator.py) and saved to
         runs/backtest_scripts/{factor_id}_backtest.py, then executed as a
         subprocess. That script is the actual source of the reported metrics,
         so every run leaves behind an independently re-runnable audit artifact.
@@ -293,6 +294,12 @@ class Pipeline:
                 mean_return=metrics.get("mean_monthly_return"),
                 t_stat=metrics.get("t_stat"),
                 n_months=metrics.get("n_months"),
+                # Phase 2 (plan.md): populated when factor data was available
+                # for this run (see _run_backtest_via_script); None otherwise.
+                sharpe_ratio=metrics.get("sharpe_ratio"),
+                alpha_capm=metrics.get("alpha_capm"),
+                alpha_ff3=metrics.get("alpha_ff3"),
+                alpha_ff5=metrics.get("alpha_ff5"),
             ),
             status="success",
         )
@@ -327,7 +334,7 @@ class Pipeline:
 
         The script is written to runs/backtest_scripts/{factor_id}_backtest.py
         (a durable, independently-runnable audit artifact — see
-        src/steps/codegen/script_generator.py) and run with the current
+        src/steps/step3_codegen/script_generator.py) and run with the current
         Python interpreter. Results are read back from the CSV/metrics.json
         the script itself writes, rather than computed in-process, so the
         persisted script is always the actual source of the reported numbers.
@@ -341,12 +348,24 @@ class Pipeline:
             raise RuntimeError(f"Snapshot '{snapshot_id}' not registered on this Pipeline's DataLayer")
         storage_path = Path(snapshot.storage_path)
 
-        signal_input_mode = "compustat" if _signal_needs_compustat(spec) else "crsp_only"
+        signal_input_mode = pick_signal_input_mode(spec)
 
         scripts_dir = self.scripts_path
         scripts_dir.mkdir(parents=True, exist_ok=True)
         results_dir = scripts_dir / "results"
         output_csv = results_dir / f"{spec.factor_id}.csv"
+
+        # Phase 2 (plan.md): FF factor + rf data for alpha metrics, if
+        # available. Checked per-snapshot first (most reproducible — matches
+        # the snapshot's own pull date), falling back to the shared
+        # data/local/ff_factors.parquet fetched once via
+        # scripts/fetch_ff_factors.py. Neither is required; alphas are simply
+        # omitted from metrics when no factor data is found.
+        ff_factors_path = None
+        for candidate in (storage_path / "ff_factors.parquet", self.data_layer.data_path / "local" / "ff_factors.parquet"):
+            if candidate.exists():
+                ff_factors_path = str(candidate)
+                break
 
         script = generate_backtest_script(
             spec,
@@ -357,14 +376,31 @@ class Pipeline:
             ccm_link_path=str(storage_path / "ccm_link.parquet"),
             output_path=str(output_csv),
             config_overrides=config_overrides,
+            ff_factors_path=ff_factors_path,
+            signal_data_dir=str(storage_path),
         )
         script_path = scripts_dir / f"{spec.factor_id}_backtest.py"
         script_path.write_text(script)
+
+        # The generated script does `from src...` imports (see
+        # script_generator.py's module docstring — Phase 0 unification made
+        # it a thin wrapper around BacktestEngine instead of a fully
+        # self-contained script). This repo's editable install only puts
+        # `src/` itself on sys.path (its .pth file points at .../src, not the
+        # repo root — see `pip show factor-replication-agent`), and Python
+        # puts a *script's own directory* (not the cwd) on sys.path[0], so
+        # `from src...` only resolves when the script happens to run with the
+        # repo root on sys.path already. Since this script is written to an
+        # arbitrary scripts_dir (e.g. a pytest tmp_path), explicitly prepend
+        # the repo root to PYTHONPATH for the subprocess.
+        repo_root = Path(__file__).resolve().parent.parent
+        env = {**os.environ, "PYTHONPATH": f"{repo_root}{os.pathsep}{os.environ.get('PYTHONPATH', '')}"}
 
         proc = subprocess.run(
             [sys.executable, str(script_path)],
             capture_output=True,
             text=True,
+            env=env,
         )
         if proc.returncode != 0:
             raise RuntimeError(

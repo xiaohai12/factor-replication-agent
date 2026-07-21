@@ -33,28 +33,62 @@ def _load_prompt(path: Path, fallback: str = "") -> str:
     return fallback
 
 
-# Hook function signatures expected by BacktestEngine
+# Hook function signatures expected by BacktestEngine. This is the full set
+# BacktestEngine._load_hooks()/registry.load_hooks() will load from a plugin
+# if defined -- but detect_hooks() only ever requests a small, genuinely
+# non-standard subset of these in practice (see plan.md Phase 8 / docs/
+# architecture.md §4.6): most factors need zero hooks now that
+# filter_universe, multi-dim sorts, overlapping-cohort holding, all four
+# return_combination types, and Fama-MacBeth are standard.
 HOOK_SIGNATURES = {
     "filter_universe":      "filter_universe_hook(df: pd.DataFrame, config: dict) -> pd.DataFrame",
+    "merge_signal":         "merge_signal_hook(df: pd.DataFrame, signal: pd.DataFrame, config: dict) -> pd.DataFrame",
     "compute_breakpoints":  "compute_breakpoints_hook(df: pd.DataFrame, config: dict) -> pd.DataFrame",
     "assign_portfolios":    "assign_portfolios_hook(df: pd.DataFrame, breakpoints: pd.DataFrame, config: dict) -> pd.DataFrame",
     "compute_returns":      "compute_returns_hook(df: pd.DataFrame, config: dict) -> pd.DataFrame",
     "apply_missing_policy": "apply_missing_policy_hook(df: pd.DataFrame, config: dict) -> pd.DataFrame",
     "compute_long_short":   "compute_long_short_hook(df: pd.DataFrame, config: dict) -> pd.DataFrame",
+    "apply_delisting_returns": "apply_delisting_returns_hook(df: pd.DataFrame, config: dict) -> pd.DataFrame",
+    "neutralize_signal":    "neutralize_signal_hook(df: pd.DataFrame, config: dict) -> pd.DataFrame",
 }
 
 HOOK_RETURN_DOCS = {
-    "filter_universe":      "Return filtered df with same columns as input.",
-    "compute_breakpoints":  "Return DataFrame indexed by yyyymm with columns q0..qN (N = config['breakpoint_quantiles']).",
+    "filter_universe":      "Return filtered df with same columns as input. Only write this hook if the "
+                            "paper's universe rule genuinely can't be expressed via config['universe_filters'] "
+                            "(a {field, op, value} list already handled by the standard implementation).",
+    "merge_signal":         "df has monthly CRSP rows [permno, yyyymm, ret, me, ...]; signal has annual rows "
+                            "[permno, yyyymm, signal]. Return df merged with an expanded version of signal, one "
+                            "row per (permno, yyyymm) the signal is held for -- e.g. for overlapping portfolios, "
+                            "average across the multiple staggered cohorts still open in a given month instead "
+                            "of holding one formation's value flat. Note: the standard implementation already "
+                            "handles overlapping_portfolios=true (config['overlapping']) with per-cohort "
+                            "breakpoints and averaging -- only write this hook if that standard cohort model "
+                            "doesn't match the paper's construction.",
+    "compute_breakpoints":  "Return DataFrame indexed by yyyymm with columns q0..qN (N = config['breakpoint_quantiles']). "
+                            "Note: the standard implementation already handles a characteristic x size double "
+                            "sort (config['sort_dims']) -- only write this hook for 3+ dimensional sorts or "
+                            "double sorts on two non-size characteristics.",
     "assign_portfolios":    "Return df with added int column 'portfolio' (1..N), drop rows without assignment.",
     "compute_returns":      "Return DataFrame with columns [yyyymm, portfolio, ret].",
-    "apply_missing_policy": "Return df with missing values handled per paper spec.",
+    "apply_missing_policy": "Return df with missing values handled per paper spec (e.g. winsorize specific "
+                            "accounting/signal columns at given percentiles -- which columns to winsorize is "
+                            "paper-specific, so this isn't standardized).",
     "compute_long_short":   "Input df has columns [yyyymm, portfolio, ret] (one row per portfolio per month, "
                             "portfolio ids as assigned by compute_breakpoints/assign_portfolios). Return "
                             "DataFrame with columns [yyyymm, ls_return] — the factor's long-short (or "
                             "multi-leg average, e.g. Fama-French style 0.5*(legA1+legA2) - 0.5*(legB1+legB2)) "
-                            "combination return per month, per the MethodSpec's portfolio.long_leg/short_leg "
-                            "description.",
+                            "combination return per month. Note: the standard implementation already handles "
+                            "extreme_group_spread/average_leg_spread/single_signal_portfolio_return/"
+                            "full_portfolio_return (config['return_combination_type']) -- only write this hook "
+                            "for a genuinely different combination.",
+    "apply_delisting_returns": "Return df with `ret` adjusted for delisting per the paper's convention. The "
+                            "standard implementation already folds in a `dlret` column via "
+                            "(1+ret)*(1+dlret)-1 when present -- only write this hook for a different "
+                            "delisting-return convention.",
+    "neutralize_signal":    "Return df with `signal` cross-sectionally neutralized (e.g. industry-adjusted, "
+                            "residualized against another characteristic, beta-neutralized). No standard "
+                            "implementation exists for this yet (config['neutralization'] is a no-op scaffold) "
+                            "-- write this hook whenever the paper requires signal neutralization.",
 }
 
 # Load prompts from files (with inline fallbacks for backward compat)
@@ -135,7 +169,7 @@ class MetaCoder:
         user_prompt = self._build_prompt(spec)
 
         from src.infra.llm import extract_usage
-        from src.steps.engine import BacktestEngine
+        from src.steps.step5_engine import BacktestEngine
 
         # Phase 1: detect which steps need hooks
         hooks_needed = BacktestEngine._detect_hooks(spec)

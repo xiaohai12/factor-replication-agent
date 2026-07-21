@@ -19,6 +19,9 @@ and controlled pipeline components.
 ## Required Workflow
 
 - Update `CHANGELOG.md` for every code or repo-instruction change.
+- Record challenging or major decisions (methodology, empirical trade-offs,
+  deviations from the C&Z/original reference, architectural constraints) in
+  `docs/decision-log.md`, capturing the rationale for later paper write-up.
 - Prefer targeted reads: use `rg`, `rg --files`, and narrow `sed` windows.
 - Cap large command outputs. Summarize important lines instead of dumping logs.
 - Do not read large PDFs, converted paper text, or many MethodSpec JSONs
@@ -31,13 +34,13 @@ and controlled pipeline components.
 
 | Path | Step | Role |
 |---|---|---|
-| `src/steps/extractor/` | 1 | Paper text to MethodSpec via LLM. Never receives SignalDoc.csv. |
-| `src/steps/reviewer/` | 2 | MethodSpec completeness and empirical-impact review + resolution. |
-| `src/steps/codegen/` | 3 | Approved MethodSpec to signal plugin code + hook functions. |
-| `src/steps/validator/` | 4 | Plugin syntax/schema/safety validation (future-leak scan). |
-| `src/steps/engine/` | 5 | Controlled backtest pipeline (fixed step order + hook dispatch). |
-| `src/steps/controller/` | 5b | Dual-track and ablation orchestration. |
-| `src/steps/attribution/` | 6 | Replication-gap attribution and anomaly flags. |
+| `src/steps/step1_extractor/` | 1 | Paper text to MethodSpec via LLM. Never receives SignalDoc.csv. |
+| `src/steps/step2_reviewer/` | 2 | MethodSpec completeness and empirical-impact review + resolution. |
+| `src/steps/step3_codegen/` | 3 | Approved MethodSpec to signal plugin code + hook functions. |
+| `src/steps/step4_validator/` | 4 | Plugin syntax/schema/safety validation (future-leak scan). |
+| `src/steps/step5_engine/` | 5 | Controlled backtest pipeline (fixed step order + hook dispatch). |
+| `src/steps/step6_dual_track_controller/` | 6 | Dual-track and ablation orchestration. |
+| `src/steps/step7_attribution/` | 7 | Replication-gap attribution and anomaly flags. |
 | `src/infra/models/` | — | Pydantic models (MethodSpec, PluginRecord, RunRecord). |
 | `src/infra/data_layer/` | — | Data loaders, dictionary, snapshots, CCM link, time_avail. |
 | `src/infra/evidence/` | — | Evidence store + RunRegistry for run artifacts. |

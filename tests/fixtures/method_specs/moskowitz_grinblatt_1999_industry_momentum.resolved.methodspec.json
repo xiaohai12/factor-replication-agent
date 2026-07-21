@@ -86,6 +86,14 @@
   },
   "portfolio": {
     "universe": "NYSE, Amex, and NASDAQ common stocks, industry-neutral sort (stocks ranked within industry groups, then industry-neutral long-short).",
+    "universe_filters": [
+      {
+        "field": "me",
+        "op": "nonmissing",
+        "value": null,
+        "evidence": []
+      }
+    ],
     "sort": {
       "breakpoint_source": "full_sample",
       "ls_quantile": 10.0,

@@ -1,5 +1,559 @@
 # Changelog
 
+## [Unreleased]
+
+### Changed — numbered `src/steps/` subfolders for pipeline order
+- Renamed all `src/steps/` subpackages to include their pipeline-order prefix
+  (matching the AGENTS.md Module Map step numbers), since Python module names
+  can't start with a digit alone: `extractor` → `step1_extractor`,
+  `reviewer` → `step2_reviewer`, `codegen` → `step3_codegen`,
+  `validator` → `step4_validator`, `engine` → `step5_engine`,
+  `controller` → `step6_dual_track_controller`, `attribution` →
+  `step7_attribution`. `controller` is now a full top-level step (6, renamed
+  after the `DualTrackController` class it contains) rather than `5b`, and
+  `attribution` shifted to 7 to keep the sequence contiguous.
+- Updated all `src.steps.*` imports and path references across `app.py`,
+  `src/`, `scripts/`, `tests/`, and current docs (`AGENTS.md`, `plan.md`,
+  `docs/architecture.md`) accordingly. Historical `CHANGELOG.md`/
+  `docs/decision-log.md` entries referencing the old paths were left as-is.
+
+### Added — decision log for paper write-up
+- New `docs/decision-log.md`: append-only record of challenging/major decisions
+  (context, options, rationale, empirical impact, trade-offs) to preserve the
+  reasoning behind methodology and reference-deviation choices for the paper.
+- `AGENTS.md` workflow now requires logging such decisions there.
+- Backfilled the log with the BacktestEngine (fixed step order + standard/hook
+  dispatch; ResearchDesign-as-config + daily-source-only) and DataLayer
+  (layer-level lag, declarative panel assembly, concept→column dictionary)
+  decisions and their rationale.
+
+## [0.14.0] - 2026-07-20
+
+### Added — CZ-import engine generality (plan.md CZ-import Phases A/B/C)
+- Phase A — sample-period segmented metrics: `steps.compute_metrics` emits an
+  optional nested `by_sample_period` (in-sample / between / post-publication),
+  mirroring C&Z `sumportmonth`; top-level metrics byte-identical when no window
+  supplied. Added `MethodSpec.publication_year`; `build_config` passes
+  start/end/publication years. Core split factored into `_series_metrics` /
+  `_sample_period_metrics`. Tests: `tests/test_sample_period_metrics.py`.
+- Phase B — discrete sort form: `compute_breakpoints`/`assign_portfolios`
+  branch on `config["cat_form"]` (mirrors C&Z `Cat.Form`), fixing a
+  silent-wrong path where discrete categorical signals were quantile-cut.
+  `continuous` (quantile) + `discrete` (one portfolio per distinct value,
+  global sorted support) are STANDARD; anything else (incl. C&Z "custom") is
+  left to a hook. `compute_long_short` uses min/max present portfolio for
+  discrete. Tests: `tests/test_discrete_sort.py`.
+- Phase C — rebalance-frequency-aware hold: `steps.merge_signal` caps the
+  non-overlapping hold window at the rebalance step from
+  `config["rebalance_frequency"]` (annual=12/quarterly=3/monthly=1) via
+  `_rebalance_step_months`; annual unchanged (min(12,12)=12). Tests:
+  `tests/test_calendar_rebalance.py`.
+
+### Changed — data loading: locate by name + read realistic multi-source layout
+- `BacktestEngine._load_data` locates the returns table by name
+  (`<data_path>/raw/<returns_table>.parquet`, default `crsp_msf`; legacy
+  `local/msf.parquet` fallback) and gains `config["returns_layout"]`:
+  `"panel"` (default, pre-flattened file) or `"crsp_raw"` (assemble from the
+  separate raw WRDS tables in `config["returns_dir"]`). Golden tests unchanged.
+- `data_layer`: declarative `SOURCE_SCHEMA` (each source declares a ROLE:
+  `base` / `pit_attrs` / `fold_last`) + one generic `assemble_panel()` builds
+  the flat `[permno, yyyymm, ret, me, exchcd, shrcd, siccd (+dlret)]` panel
+  from the separate CRSP tables (msf + msenames point-in-time + msedelist
+  folded into last month). `build_crsp_monthly_panel` is a thin wrapper.
+  Deterministic controlled infra (not an LLM hook), same declarative spirit as
+  `DataDictionary`/`FilterOp`. Tests: `tests/test_crsp_raw_panel.py`.
+- Removed a pre-existing unused `dataclasses.field` import in `data_layer`.
+
+### Added — realistic WRDS-schema synthetic data for the 10 test papers
+- `scripts/build_test_papers_synthetic_data.py` generates 16 tables to
+  `data/synthetic_data/test_papers_v1/` mirroring REAL WRDS schemas (column
+  names from `data/CZ code/.../DataDownloads/*.py` + OptionMetrics `vsurfd`).
+  Faithful table separation (crsp_msf/msenames/msedelist/msedist) and REAL
+  independent link tables (ccm_lnkhist, ibes_crsp_link, optionm_crsp_link) with
+  realistic validity windows — nothing pre-joined. Includes rows to exercise
+  universe filters, negative `prc`, missing returns, and delistings.
+
+Full suite: 136 passed / 26 skipped; ruff clean.
+
+## [0.13.15] - 2026-07-20
+
+### Changed — Phase 8: prune hooks + docs (plan.md) — plan complete
+- Reviewed `registry.detect_hooks()` holistically; confirmed it's already
+  narrow after Phases 2.5-7's incremental pruning (no further changes to
+  the function itself this phase — see plan.md Phase 8 for the reasoning,
+  including why `missing_action != drop` is deliberately kept hooked rather
+  than guessed at, verified against the real `sloan_1996_accruals` fixture).
+- `src/steps/codegen/__init__.py`: added `HOOK_SIGNATURES`/`HOOK_RETURN_DOCS`
+  entries for `apply_delisting_returns`/`neutralize_signal` (completing the
+  documented contract to match `registry.load_hooks()`'s hookable-step
+  list), each noting what the standard implementation already covers.
+- `prompts/meta_coder/hook_system.md`: updated config-keys section
+  (`universe_filters` DSL, `skip_month`) and noted most factors need zero
+  hooks now.
+- `docs/architecture.md`: rewrote §4.6 (module split into
+  `engine/{__init__,steps,registry}.py`, current `STANDARD` sets, full
+  current `detect_hooks()` table, "no longer unconditional" summary for
+  filter_universe/multi-dim sort/return_combination/overlapping/
+  Fama-MacBeth, updated standard step list) plus smaller fixes elsewhere
+  that referenced the old "11 fixed steps"/"filter_universe always hooked"
+  design.
+- `plan.md`: marked all phases (0-8) complete with a status header.
+- Verified: `pytest tests/` unaffected (115 passed / 26 skipped, no test
+  changes needed this phase); `ruff check src/` shows only pre-existing
+  issues in files untouched throughout this entire plan (`src/evaluation/`,
+  `src/infra/llm.py`, `src/infra/trace.py`, `src/steps/attribution/`,
+  `src/steps/reviewer/`) — zero new lint issues anywhere this plan touched.
+
+**This completes the BacktestEngine Generalization Plan** (`plan.md`,
+Phases 0-8). Summary of the whole effort: unified the previously-duplicated
+in-process engine and generated-script code paths into one implementation;
+split it into context/steps/registry modules with a uniform `Step` contract;
+built a deterministic ResearchDesign layer (universe filter DSL, delisting
+returns, neutralization scaffold) so sample-construction choices no longer
+default to LLM hooks; generalized sorting to standard N-dim (characteristic
+x size) double sorts; generalized return combination to all four standard
+types (fixing a real single-leg bug along the way); added the standard
+overlapping-cohort (Jegadeesh-Titman) holding model; added factor-model
+alphas (CAPM/FF3/FF5 via `statsmodels`) and Sharpe ratio; added daily-source-
+data loading + excess-return support; added a genuinely separate Fama-MacBeth
+estimator via `linearmodels`; and finally confirmed the hook surface is now
+narrow and honestly documented. 71 new tests added across 8 new test files,
+all with hand-computed/exact-recovery expected values; zero regressions in
+the pre-existing 44-test golden-number suite at every step.
+
+## [0.13.14] - 2026-07-20
+
+### Changed — Phase 7: Fama-MacBeth regression estimator (plan.md)
+- `src/steps/engine/steps.py`: added `compute_fama_macbeth(merged, config)`
+  — regresses `ret` on `signal` (+constant) period-by-period via
+  `linearmodels.panel.FamaMacBeth`, averaging the slope over time with
+  Fama-MacBeth SEs. Supports `config["winsorize_signal_pct"]` (deterministic
+  clipping, not a hook). Raises `RuntimeError` if `linearmodels` isn't
+  installed (it's the explicitly requested estimator, unlike
+  `compute_factor_alphas`'s graceful `{}` degradation).
+- `src/steps/engine/registry.py`: added `REGRESSION_WEIGHTED` to
+  `STANDARD["portfolio_construction"]`; `build_config()` now resolves
+  `config["estimator"]` (`"fama_macbeth"` when `construction_type ==
+  "regression_weighted"`, else `"portfolio_sort"`).
+- `src/steps/engine/__init__.py`: `run_with_config()` branches to
+  `compute_fama_macbeth` entirely (skipping breakpoints/assign/returns/
+  combine) right after `merge_signal` when `config["estimator"] ==
+  "fama_macbeth"`; returns an empty `return_series` for this estimator (no
+  portfolio-level series).
+- `tests/test_fama_macbeth.py` (new, 5 tests): synthetic balanced panel
+  recovering exact intercept/slope for positive/negative/near-zero true
+  slopes; winsorization changes the recovered slope with an injected
+  outlier; missing-data rows dropped correctly.
+- `tests/test_engine_hooks.py`: updated the construction-type hook test
+  (`FACTOR_MODEL_ALPHA` is now the "still non-standard" exemplar, since
+  `REGRESSION_WEIGHTED` is standard).
+- Verified: `pytest tests/` — 115 passed / 26 skipped (was 109/26; all new
+  tests, zero regressions). `ruff check` clean.
+
+## [0.13.13] - 2026-07-20
+
+### Changed — Phase 6: daily source data + excess returns (plan.md)
+- `src/steps/engine/steps.py`: added `load_daily_msf(path)` — loads daily
+  CRSP-shaped data and compounds it into the standard `yyyymm`-keyed monthly
+  panel (`ret` = compounded monthly return, `me` from the last trading day
+  of the month), so signals needing daily prices as input can flow through
+  the existing monthly-rebalanced engine unchanged. Documented v1 scope
+  limit: "daily source data, monthly output", not genuine daily-frequency
+  rebalancing (deferred as an explicit ext, per the original plan). Added
+  `apply_excess_returns(df, factors, config)` — subtracts `rf` when
+  `config["return_basis"] == "excess"` and factor data with an `rf` column
+  is supplied; no-op otherwise.
+- `src/steps/engine/registry.py`: `build_config()` now resolves
+  `return_basis` (default `"excess"`, the canonical default) and
+  `return_frequency` (from `spec.reported_results.return_horizon`; not yet
+  consumed by the standard steps, which are already frequency-agnostic given
+  a `yyyymm`-keyed panel — this documents intent for now).
+- `src/steps/engine/__init__.py`: `run_with_config()` now calls
+  `apply_excess_returns` directly (not via `_dispatch()`/hooks, since it
+  needs `ctx.factors`) right after `filter_universe`; a no-op for every
+  existing test (none currently supply `factors`). Class docstring step
+  list renumbered.
+- `tests/test_daily_frequency.py` (new, 8 tests): hand-computed compounding
+  across multiple trading days/permnos/months, last-trading-day `me`, and
+  all `apply_excess_returns` branches.
+- Verified: `pytest tests/` — 109 passed / 26 skipped (was 101/26; all new
+  tests, zero regressions). `ruff check` clean.
+
+## [0.13.12] - 2026-07-20
+
+### Changed — Phase 2: factor data + rich metrics (plan.md)
+- `scripts/fetch_ff_factors.py` (new): fetches monthly FF3/FF5/UMD/rf via
+  `pandas-datareader` (Ken French Data Library, no WRDS needed) and writes a
+  parquet snapshot. Build-time only, never called at run time. Verified
+  against the live Ken French site (network-reachable from this
+  environment).
+- `src/steps/engine/steps.py`: added `compute_factor_alphas(ls, factors,
+  config)` — CAPM/FF3/FF5 alpha regressions via `statsmodels` OLS with
+  Newey-West (HAC) SEs, gracefully returning `{}` if `statsmodels` isn't
+  installed or `ls` has no single series (`full_portfolio_return` shape).
+  Added `sharpe_ratio` directly to `compute_metrics` (no new dependency).
+  Kept the existing hand-rolled `newey_west_var` unchanged for the primary
+  t-stat (statsmodels HAC uses different normalization/df conventions —
+  golden numbers stay byte-identical).
+- `src/steps/engine/__init__.py`: `run()`/`run_with_config()` gained an
+  optional `factors` parameter (mirrors Phase 0's `data` parameter); when
+  given, `compute_factor_alphas`'s output is merged into the metrics dict.
+- `src/steps/codegen/script_generator.py`: `generate_backtest_script()`
+  gained an optional `ff_factors_path` parameter; the generated script loads
+  it (if present at run time) and passes `factors=` through.
+- `src/pipeline.py`: `_run_backtest_via_script()` now looks for
+  `ff_factors.parquet` per-snapshot first, then falls back to the shared
+  `data/local/ff_factors.parquet` — alphas are simply omitted when neither
+  exists. `RunMetrics` mapping now populates `sharpe_ratio`/`alpha_capm`/
+  `alpha_ff3`/`alpha_ff5` (fields already existed on the model, unused until
+  now).
+- `pyproject.toml`: updated `research` extra pins to the actually-installed/
+  tested versions (`statsmodels==0.14.6`, `linearmodels==7.0`; superseding
+  the earlier placeholder pins `0.14.2`/`6.0`).
+- `tests/test_factor_alphas.py` (new, 10 tests): synthetic
+  `ls_return = alpha + beta*mktrf` series (zero noise) so OLS recovers the
+  exact alpha/beta; missing rmw/cma, no factors, too-few-months, and
+  full_portfolio_return edge cases; `sharpe_ratio` correctness including a
+  float-precision guard for near-constant series.
+- **Deferred, documented as an honest gap, not attempted this pass**:
+  `coverage`/`microcap_share` as populated metrics (need portfolio-level
+  universe-size context not yet threaded to the metrics step); excess-vs-raw
+  return basis for single-leg combination modes (moot for the long-short
+  spread itself, since rf cancels in a long/short difference).
+- Verified: `pytest tests/` — 101 passed / 26 skipped (was 91/26; all new
+  tests, zero regressions). `ruff check` clean.
+
+## [0.13.11] - 2026-07-20
+
+### Changed — Phase 5: overlapping-cohort holding as standard (plan.md)
+- `src/steps/engine/steps.py`: added `merge_signal_overlap`,
+  `compute_breakpoints_overlap`, `assign_portfolios_overlap`,
+  `compute_returns_overlap`, `compute_long_short_overlap` — the standard
+  Jegadeesh-Titman overlapping-cohort convention: each formation month opens
+  a "cohort" held for `holding_period_months` (after `skip_month`); several
+  cohorts can be simultaneously open; each computes its own breakpoints/
+  portfolio assignment from its own formation-date signal cross-section; the
+  reported series averages every open cohort's long-short spread each month.
+- `src/steps/engine/registry.py`: `build_config()` now resolves
+  `config["overlapping"]`. `detect_hooks()` no longer flags `merge_signal`
+  for `overlapping_portfolios=true` alone; still flags it when combined with
+  a multi-dimensional sort (not supported together in this v1).
+- `src/steps/engine/__init__.py`: `_dispatch()` now routes `merge_signal`/
+  `compute_breakpoints`/`assign_portfolios`/`compute_returns`/
+  `compute_long_short` to their `_overlap` counterparts when
+  `config["overlapping"]` is true (`_OVERLAP_STEPS`), checked before the
+  Phase 3 multi-dim routing.
+- `tests/test_overlapping_holding.py` (new, 8 tests): hand-built 2-stock/
+  3-cohort scenario with a deliberately swapped cohort so multi-cohort
+  months genuinely exercise per-cohort breakpoints and averaging across
+  differing (not just repeated) compositions; every month's expected
+  `ls_return` is hand-computed and matched exactly.
+- `tests/test_engine_hooks.py`: updated overlapping-portfolio tests for the
+  new (intentional) hook-detection contract.
+- Confirmed safe: no existing e2e test exercises
+  `jegadeesh_titman_1993_momentum` (fixture defines no hooks, isn't wired
+  into any golden-number test).
+- Verified: `pytest tests/` — 91 passed / 26 skipped (was 82/26; all new
+  tests, zero regressions). `ruff check` clean.
+
+## [0.13.10] - 2026-07-20
+
+### Changed — Phase 4: generalized return combination (plan.md)
+- `src/steps/engine/steps.py`: `compute_long_short` now implements all four
+  `ReturnCombinationType` values via `config["return_combination_type"]`
+  (`extreme_group_spread`, `average_leg_spread`, `single_signal_portfolio_return`,
+  `full_portfolio_return`). Kept the `compute_long_short`/
+  `compute_long_short_hook` name for hook-contract backward compatibility
+  (a rename to `combine_returns` is deferred to Phase 8). **Bug fix**:
+  `single_signal_portfolio_return` was already marked STANDARD but the old
+  implementation always computed a spread regardless of combination type —
+  any such factor run through the standard path silently got a wrong
+  result; fixed. `compute_metrics` now detects the `full_portfolio_return`
+  shape (no `ls_return` column) and reports coverage diagnostics instead of
+  a mean/t-stat for it.
+- `src/steps/engine/registry.py`: added `AVERAGE_LEG_SPREAD`/
+  `FULL_PORTFOLIO_RETURN` to `STANDARD["return_combination"]`; `build_config()`
+  now resolves `config["return_combination_type"]`.
+- `tests/test_return_combination.py` (new, 8 tests): all four combination
+  modes + the metrics shape-detection.
+- `tests/test_engine_hooks.py` / `tests/test_ball2016_e2e.py`: updated
+  hook-detection expectations for the new (intentional) contract —
+  `average_leg_spread`/`full_portfolio_return` no longer flagged; ball2016's
+  multi-dim sort remains correctly hooked (Phase 3's heuristic doesn't
+  recognize its variable names), with no runtime effect either way since its
+  plugin's hand-written hooks always take priority.
+- Verified: `pytest tests/` — 82 passed / 26 skipped (was 73/26; all new
+  tests, zero regressions). `ruff check` clean.
+
+## [0.13.9] - 2026-07-20
+
+### Changed — Phase 3: generalized N-dim sorting (plan.md)
+- `src/steps/engine/steps.py`: added `compute_breakpoints_multi`,
+  `assign_portfolios_multi`, `compute_returns_multi`,
+  `compute_long_short_multi` (+ `_dimension_breakpoints`/`_assign_bucket`
+  helpers) — a standard multi-dimensional sort supporting independent and
+  dependent (conditional) breakpoints per dimension.
+- `src/steps/engine/registry.py`: added `resolve_sort_dims()` (+
+  `_sort_variable_column()`) mapping `portfolio_return.sorts[]` onto the
+  engine's available columns (`signal`, `me`) — narrowly scoped to
+  exactly-2-dimensional characteristic x size sorts. `build_config()` now
+  resolves `config["sort_dims"]`. `detect_hooks()` no longer flags
+  `compute_breakpoints`/`assign_portfolios` for multi-dim sorts that
+  `resolve_sort_dims()` can map; anything it can't (3+ dims, or 2 dims
+  without exactly one size-like dimension) still requests a hook.
+- `src/steps/engine/__init__.py`: `_dispatch()` now routes
+  `compute_breakpoints`/`assign_portfolios`/`compute_returns`/
+  `compute_long_short` to their `_multi` counterparts when
+  `config["sort_dims"]` has 2+ entries (`_MULTI_DIM_STEPS`); a plugin hook
+  for the plain step name still takes priority over either variant.
+- `tests/test_multi_sort.py` (new, 11 tests): hand-checkable 2x2
+  independent-sort panel verifying exact bucket assignment, per-cell
+  returns, and the averaged long-short spread; `resolve_sort_dims` mapping
+  tests (2-dim resolves, unrecognized/degenerate/3-dim cases correctly
+  don't).
+- `tests/test_engine_hooks.py`: updated sort tests for the new (intentional)
+  hook-detection contract — a resolvable characteristic x size double sort
+  is no longer hooked; unresolvable multi-dim sorts still are.
+- Confirmed safe for the ball2016 (2x3 double-sort) golden e2e test: its
+  hand-written plugin already defines `compute_breakpoints_hook`/
+  `assign_portfolios_hook`/`compute_long_short_hook`, and `_dispatch()`
+  always prefers a loaded plugin hook over any standard function (single-
+  or multi-dim) regardless of what `detect_hooks()`/`resolve_sort_dims()`
+  predict — so this change is purely additive there too.
+- Verified: `pytest tests/` — 73 passed / 26 skipped (was 60/26; all new
+  tests, zero regressions). `ruff check` clean.
+
+## [0.13.8] - 2026-07-20
+
+### Changed — Phase 2.5: deterministic ResearchDesign layer (plan.md)
+- `src/steps/engine/steps.py`: added `apply_universe_filters` +
+  `_apply_filter_op` (deterministic `FilterOp` DSL — eq/neq/in/not_in/
+  between/not_between/gt/gte/lt/lte/nonmissing/nonzero/is_true/is_false),
+  `apply_delisting_returns` (folds CRSP `dlret` into `ret`, no-op without a
+  `dlret` column), and `neutralize_signal` (no-op scaffold, config
+  `neutralization="none"` default; raises `NotImplementedError` for any
+  other value pending a plugin hook). `filter_universe` now layers
+  `universe_filters` DSL results + optional `microcap_exclude` (NYSE p20 ME
+  threshold, off by default) on top of the existing baseline screen.
+- `src/steps/engine/registry.py`: **removed the unconditional
+  `filter_universe -> hook` rule** from `detect_hooks()` — filter_universe is
+  standard by default now (a `filter_universe_hook` in a plugin still
+  overrides it). `build_config()` now also resolves `universe_filters`
+  (serialized from `spec.portfolio.universe_filters`), plus
+  `apply_delisting_returns`/`microcap_exclude`/`neutralization` defaults.
+  `load_hooks()`'s hookable-step list gained `apply_delisting_returns` and
+  `neutralize_signal`.
+- `src/steps/engine/__init__.py`: `run_with_config()` now dispatches
+  `apply_delisting_returns` (after `load_data`) and `neutralize_signal`
+  (after `merge_signal`); class docstring step list updated.
+- `tests/test_engine_hooks.py`: updated for the new hook-detection contract
+  (filter_universe no longer flagged); replaced
+  `TestDetectHooksFilterUniverseAlwaysHook` with
+  `TestDetectHooksFilterUniverseIsDeterministic`.
+- `tests/test_research_design.py` (new): 14 unit tests for the DSL/delisting/
+  neutralization/microcap functions directly.
+- Confirmed safe for existing golden e2e tests: none of the
+  accruals/ball2016/mvp fixture specs populate `universe_filters`, none of
+  their synthetic CRSP fixtures have a `dlret` column, and none of their
+  hand-written plugins define a `filter_universe_hook` (they already relied
+  on the deterministic fallback) — so this is purely additive for them.
+- Verified: `pytest tests/` — 60 passed / 26 skipped (was 44/26; all new
+  tests, zero regressions). `ruff check` clean.
+
+## [0.13.7] - 2026-07-20
+
+### Changed — Phase 1: split BacktestEngine into context/steps/registry (plan.md)
+- `src/steps/engine/__init__.py`: now orchestration-only. Added `Step`
+  Protocol (documents the existing `(*args, config) -> DataFrame` contract
+  that both standard steps and LLM hooks satisfy) and `BacktestContext`
+  dataclass (carries config/hooks/data/merged/breakpoints/portfolios/
+  returns/long_short/metrics/trace through one `run_with_config()` call, for
+  traceability). `_dispatch()` now looks up standard steps via
+  `getattr(steps, step)` instead of `getattr(self, f"_{step}")`.
+- `src/steps/engine/steps.py` (new): the 9 standard step implementations as
+  plain functions (`load_msf`, `apply_missing_policy`, `filter_universe`,
+  `merge_signal`, `compute_breakpoints`, `assign_portfolios`,
+  `compute_returns`, `compute_long_short`, `compute_metrics`,
+  `newey_west_var`) — no class state, byte-identical logic to before.
+- `src/steps/engine/registry.py` (new): `STANDARD`,
+  `FILTER_UNIVERSE_ALWAYS_HOOK_REASON`, `detect_hooks()`, `build_config()`,
+  `load_hooks()`, `resolve_long_leg`/`resolve_short_leg`/`normalize_leg` — the
+  "what needs an LLM hook / how does a MethodSpec resolve into config" logic,
+  moved out of `BacktestEngine` verbatim.
+- `BacktestEngine`'s public API is unchanged: `_detect_hooks` (classmethod),
+  `_build_config`, `_load_hooks`, `_resolve_long_leg`/`_resolve_short_leg`/
+  `_normalize_leg` all still exist as thin delegations to `registry.py`, so
+  every existing caller (`pipeline.py`, `script_generator.py`, `app.py`,
+  `tests/test_engine_hooks.py`, etc.) is unaffected.
+- Verified: `pytest tests/` unchanged at 44 passed / 26 skipped;
+  `ruff check` clean on all three engine files.
+
+## [0.13.6] - 2026-07-20
+
+### Changed — Phase 0: unify BacktestEngine execution path (plan.md)
+- `src/steps/engine/__init__.py`: added `BacktestEngine.run_with_config(signal,
+  config, plugin=None, data=None)` — the 9-step lifecycle now lives in exactly
+  one place, shared by `run()` (which builds `config` from a `MethodSpec`) and
+  by the standalone scripts `script_generator.py` produces. Also added an
+  optional `data` param to `run()`/`run_with_config()` so callers with a
+  different data layout (e.g. a per-snapshot path) can load the MSF file
+  themselves and pass it in, instead of going through `_load_data()`'s fixed
+  `<data_path>/local/msf.parquet` assumption. Purely additive — no existing
+  call site changes behavior (`data=None` preserves prior `_load_data()` path).
+- `src/steps/codegen/script_generator.py`: rewrote the generated backtest
+  script to be a thin wrapper — it now imports `BacktestEngine` and calls
+  `run_with_config()` instead of re-implementing the 9-step lifecycle inline.
+  Also replaced the inline CCM-linking/time_avail logic with
+  `src.infra.data_layer.CCMLinker` + `TimeAvailComputer` (the same classes
+  `DataLayer.get_signal_master_table()` uses), removing a second, separate
+  duplication. Plugin code is now embedded as a `repr()`-escaped string
+  constant (`PLUGIN_CODE`) and `exec()`'d once, then reused both to define
+  `compute_signal`/hooks at module level and to build a `PluginRecord` for
+  `BacktestEngine._load_hooks()` — so hook loading goes through the same code
+  path as the in-process engine.
+  - Dropped `std_monthly`/`sharpe_annual` and `ret_long`/`ret_short` from the
+    generated script's output (the in-process `BacktestEngine._compute_metrics`/
+    `_compute_long_short` never had them; confirmed via `tests/` grep that
+    nothing reads these fields). Phase 2 will reintroduce Sharpe (and add
+    alpha) properly as canonical engine metrics.
+  - Accepted tradeoff (per plan.md "Decisions"): the generated script now
+    depends on this repo being installed/importable (`from src...`) rather
+    than being fully self-contained.
+- **Real bug found & fixed while wiring this up**: this repo's editable
+  install (`__editable__.factor_replication_agent-*.pth`) points
+  `sys.path` at `<repo>/src` itself, NOT the repo root — so `from src.xxx
+  import ...` only ever resolved when the process's cwd happened to be the
+  repo root (e.g. `pytest` invoked from there), never via the editable
+  install itself. Since Python puts a script's *own directory* on
+  `sys.path[0]` (not the cwd), the generated script — written to
+  `runs/backtest_scripts/` or a pytest `tmp_path` — could not `import src...`
+  when run via `subprocess.run([sys.executable, script_path])`. Fixed by
+  explicitly setting `PYTHONPATH` to the repo root for the subprocess in both
+  `src/pipeline.py:_run_backtest_via_script()` and `app.py`'s equivalent
+  helper (`os` import added to both).
+- Verified: `pytest tests/` unchanged at 44 passed / 26 skipped before and
+  after (same golden numbers for `test_accruals_e2e.py`,
+  `test_ball2016_e2e.py`, `test_mvp_e2e.py`).
+
+## [0.13.5] - 2026-07-20
+
+### Added — Engine generalization plan + tooling decisions
+- `plan.md` (repo root): phased plan to restructure `BacktestEngine` into a
+  methodology-aware, config-driven engine with a single source of truth
+  (unify in-process engine + `script_generator` inline duplicate). Covers a
+  paper-agnostic canonical standard set (tiered v1/ext), a deterministic
+  ResearchDesign layer (Phase 2.5) so sample construction/filters/timing/
+  delisting/neutralization never fall to LLM hooks, and a four-layer design
+  (SignalBuilder / ResearchDesign / Estimator / Evaluator).
+- `plan.md`: tooling decision — adopt narrow statistical libs only
+  (`linearmodels` for Fama-MacBeth, `statsmodels` for factor-alpha regressions),
+  fetch Ken French FF/rf factors once via `scripts/fetch_ff_factors.py` and
+  snapshot (no WRDS), use OSAP portfolios as the validation oracle. Explicitly
+  reject qlib/zipline/backtrader/vectorbt/QuantLib/alphalens (they make
+  empirical/execution decisions, violating the controlled-meta-coder constraint).
+- `pyproject.toml`: added pinned `research` optional-dependency group
+  (`statsmodels==0.14.2`, `linearmodels==6.0`) and build-time `pandas-datareader`
+  in `dev` (never imported at run time).
+- `plan.md`: added modularity approach (uniform `Step` Protocol + stateless
+  pure-function steps + `BacktestContext` dataclass; classes only at
+  polymorphism points) and a progressive file-split policy — Phase 1 splits the
+  single engine file into 3 by concern (`__init__.py`/`steps.py`/`registry.py`),
+  further files only when a layer gains a second implementation.
+
+## [0.13.4] - 2026-07-20
+
+### Changed — `merge_signal` is now hookable (overlapping portfolios)
+- `_merge_signal()`'s standard implementation assumes non-overlapping ("clean calendar hold")
+  portfolios: it takes the most recently formed signal value and holds it flat for
+  `holding_period_months`. This silently produces the wrong result for papers with **overlapping**
+  portfolios (e.g. Jegadeesh-Titman 1993 momentum, which forms a new cohort every month and blends
+  returns across the several still-open cohorts) — `spec.signal.timing.overlapping_portfolios` was
+  already extracted and stored on `MethodSpec` but nothing read it, and `merge_signal` wasn't even
+  in the list of hookable steps
+- `src/steps/engine/__init__.py`: added `"merge_signal"` to `_load_hooks()`'s hookable-step list;
+  `_detect_hooks()` now flags `merge_signal` whenever `signal.timing.overlapping_portfolios` is
+  true; `run()` now dispatches `merge_signal` through `_dispatch()` like every other step
+- `src/steps/codegen/__init__.py`: added `HOOK_SIGNATURES`/`HOOK_RETURN_DOCS` entries for
+  `merge_signal_hook(df, signal, config)` so MetaCoder knows what to generate
+- Note: `tests/fixtures/method_specs/jegadeesh_titman_1993_momentum.resolved.methodspec.json`
+  already has `overlapping_portfolios: true`, but its existing hand-written plugin
+  (`tests/fixtures/plugins/jegadeesh_titman_1993_momentum.py`) has no `merge_signal_hook` — this
+  fixture isn't exercised by any current e2e test, so nothing broke, but it's a pre-existing gap
+  worth fixing before this fixture is wired into a golden-number test
+- `tests/test_engine_hooks.py`: added coverage for the true/false/unspecified cases
+
+## [0.13.3] - 2026-07-19
+
+### Changed — `BacktestEngine` reordered for readability (no behavior change)
+- `src/steps/engine/__init__.py`: reordered `BacktestEngine`'s methods to match reading order
+  instead of implementation-history order. `run()` now comes right after `__init__` (it reads like
+  a table of contents for the whole pipeline), followed immediately by the 9 standard step methods
+  in the same order `run()` calls them, each with a one-line docstring naming the real-world
+  backtesting question it answers. `_detect_hooks`/`_build_config`/`_load_hooks` (the "controlled
+  codegen" internal machinery, not needed to understand what a backtest *does*) moved to a clearly
+  labeled section at the bottom of the class
+- Merged `_dispatch`/`_dispatch_assign` into a single `_dispatch(self, step, *args, config)` —
+  `*args` covers both the 2-arg (`df`) and 3-arg (`df, breakpoints`) cases, so there's no longer a
+  second near-duplicate dispatcher just because `assign_portfolios` needs one extra argument
+- Purely a code move + one merge; `python3 -m pytest tests/` passes unchanged (41 passed, 26 skipped)
+
+## [0.13.2] - 2026-07-19
+
+### Changed — `BacktestEngine._detect_hooks()` no longer keyword-matches free text
+- `_detect_hooks()` used to decide whether a factor needs a double-sort/multi-leg/non-standard
+  universe hook by keyword-matching free-text `portfolio.filter`/`long_leg`/`short_leg`/`universe`
+  strings (e.g. checking for `"double"`, `"average of"`, `"industry"`). Replaced with the same
+  deterministic `STANDARD` set pattern already used for `breakpoint_source`/`weighting`/
+  `missing_action`: compares typed `MethodSpec` fields against `STANDARD` sets drawn directly from
+  the model's own enums
+- `src/infra/models/method_spec.py`: promoted `reported_results.return_calculation.portfolio_return`
+  from a loose `dict[str, Any]` to a typed `PortfolioReturnSpec` model (`construction_type`,
+  `sorts: list[SortLegSpec]`, `return_combination: ReturnCombinationSpec`), and added
+  `portfolio.universe_filters: list[UniverseFilterSpec]`. New enums `PortfolioConstructionType`,
+  `ReturnCombinationType`, `FilterOp` mirror the vocabulary already documented in
+  `prompts/extractor/methodspec_extractor.md`'s Allowed Values section. `_detect_hooks()` now flags
+  `compute_breakpoints`/`assign_portfolios` when `len(portfolio_return.sorts) > 1`,
+  `compute_returns` when `construction_type` isn't `characteristic_sort`, and `compute_long_short`
+  when `return_combination.type` isn't `extreme_group_spread`/`single_signal_portfolio_return`
+- `filter_universe` is now **unconditionally** LLM-generated instead of being gated by a `STANDARD`
+  field-name comparison — comparing only `universe_filters[].field` against `{shrcd, exchcd,
+  siccd}` duplicated `_filter_universe()`'s hardcoded logic in a second, independently-maintained
+  location and couldn't express value-level differences (e.g. `shrcd in (10,11,12)` vs the
+  standard implementation's `(10,11)` would have silently passed as "standard"). Every factor's
+  `filter_universe_hook` is now generated by MetaCoder from `portfolio.universe_filters`/`universe`
+  every time; `BacktestEngine._filter_universe()` remains only as a defensive fallback for runs
+  with no plugin/hook
+- Bug fix: `MethodSpec._normalize_breakpoint_source()` was collapsing extractor-stated
+  `"conditional"`/`"paper_specific"` breakpoint sources to `"unspecified"`, which
+  `BacktestEngine._build_config()` then silently defaulted to `"full_sample"` — a paper-stated
+  conditional sort was being run as a standard full-sample sort with no hook and no warning.
+  `BreakpointSource` enum gained `CONDITIONAL`/`PAPER_SPECIFIC` members; the normalizer now passes
+  them through instead of discarding them
+- `src/steps/reviewer/__init__.py`: new `ReviewGate._check_portfolio_structure_consistency()` acts
+  as a safety net for the `sorts`/`construction_type`/`return_combination` checks above — that
+  structured field is deeply nested and easy for extraction to leave unpopulated even when the
+  shallower prose fields clearly describe a complex construction. This check blocks approval
+  (`blocked_fields`) when `portfolio.filter`/`long_leg`/`short_leg` prose suggests a double-sort or
+  multi-leg combination but `portfolio_return` is empty — instead of `_detect_hooks()` silently
+  treating the spec as standard. (No equivalent check is needed for `universe_filters` since
+  `filter_universe` is now unconditionally hooked.) Also added
+  `portfolio.filter`/`portfolio.universe_filters` and the finer-grained `portfolio_return.*` dotted
+  paths to `HIGH_IMPACT_FIELDS`, and fixed a `.get("weighting")` dict-style access in
+  `_check_reported_results_contract()` that would have broken once `portfolio_return` became a
+  typed model (now `.weighting` attribute access)
+- Migrated 3 existing fixtures to populate the new structured fields so they keep triggering the
+  same hooks as before: `tests/fixtures/method_specs/fama_french_1993_double_sort_hml`,
+  `hou_xue_zhang_2015_investment`, `moskowitz_grinblatt_1999_industry_momentum`
+  `.resolved.methodspec.json`
+- New `tests/test_engine_hooks.py`: unit tests for every `_detect_hooks()` STANDARD branch
+  (positive + negative case each) and the new `ReviewGate` safety-net check
+
+## [0.13.1] - 2026-07-19
+
+### Changed
+- `app.py`: **Backtest & Experiments → Single Run** and **Pipeline — End to End** result displays now surface the generated standalone backtest script — a caption showing the `runs/backtest_scripts/{factor_id}_backtest.py` path it was saved to, plus a "View generated backtest script" expander with the full code and a download button. The script was already being generated and persisted there by `_run_backtest_via_script()`; it just wasn't shown in the UI, so it looked like only the MetaCoder page's separate "Generate Backtest Script" button produced a visible/downloadable script
+- Also added a "Resolution Eval vs Ground Truth" file picker on the Review & Resolve page's Eval tab: dropdowns to manually choose which resolved MethodSpec (from `runs/method_specs/resolved/` or `tests/fixtures/method_specs/`) and which ground-truth factor to compare, instead of being limited to whatever was auto-matched from the current page session
+
 ## [0.13.0] - 2026-07-19
 
 ### Changed — folder structure redesign: all generated artifacts under `runs/`, gitignored

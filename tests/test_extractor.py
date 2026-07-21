@@ -23,7 +23,7 @@ except ImportError:
     fitz = None
 
 from src.infra.llm import create_llm_client
-from src.steps.extractor import (
+from src.steps.step1_extractor import (
     ExtractionMetrics,
     ExtractionResult,
     SemanticExtractor,

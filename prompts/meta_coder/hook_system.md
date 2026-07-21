@@ -19,8 +19,18 @@ that cannot be handled by the standard implementation. Each hook plugs into a sp
 - missing_action: "drop" | "winsorize" | ...
 - formation_month: int
 - holding_period_months: int
+- skip_month: int
 - long_leg: "low" | "high"
 - short_leg: "high" | "low"
+- universe_filters: list[{"field", "op", "value"}] (deterministic FilterOp DSL —
+  handled by the standard filter_universe step; only write filter_universe_hook
+  when a universe rule genuinely can't be expressed this way)
+- sort_dims / overlapping / return_combination_type / estimator: internal to the
+  standard steps (multi-dim sort, overlapping-cohort holding, return combination
+  type, Fama-MacBeth) — you should not need to read these directly; they exist so
+  the standard implementation handles most factors without a hook at all. Only
+  write a hook when the step you're asked for genuinely cannot be expressed by
+  the standard implementation for this factor.
 
 ## Hard rules
 1. Each hook implements EXACTLY the step described — no cross-step logic

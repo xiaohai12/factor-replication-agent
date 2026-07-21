@@ -161,6 +161,14 @@
   },
   "portfolio": {
     "universe": "NYSE, Amex, and NASDAQ nonfinancial common stocks (size-adjusted: microcaps below NYSE 20th percentile excluded from primary test universe to reduce noise).",
+    "universe_filters": [
+      {
+        "field": "me",
+        "op": "gte",
+        "value": "NYSE 20th percentile market equity breakpoint (monthly)",
+        "evidence": []
+      }
+    ],
     "sort": {
       "breakpoint_source": "nyse",
       "ls_quantile": 10.0,

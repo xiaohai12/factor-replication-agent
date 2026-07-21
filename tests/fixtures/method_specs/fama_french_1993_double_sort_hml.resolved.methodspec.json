@@ -187,7 +187,39 @@
     "return_horizon": "monthly, July t to June t+1",
     "return_type": "raw",
     "comparison_policy": {},
-    "return_calculation": {"input_return": {}, "portfolio_return": {}, "evidence": []},
+    "return_calculation": {
+      "input_return": {},
+      "portfolio_return": {
+        "construction_type": "characteristic_sort",
+        "sorts": [
+          {
+            "variable": "size",
+            "groups": ["small", "big"],
+            "breakpoint": "NYSE median market equity",
+            "independent_sort": true
+          },
+          {
+            "variable": "book_to_market",
+            "groups": ["low", "medium", "high"],
+            "breakpoint": "NYSE 30/40/30 percentile breakpoints",
+            "independent_sort": true
+          }
+        ],
+        "weighting": {"type": "value_weighted", "variants": []},
+        "return_combination": {
+          "type": "average_leg_spread",
+          "expression": "0.5 * (ret_small_high_bm + ret_big_high_bm) - 0.5 * (ret_small_low_bm + ret_big_low_bm)",
+          "long_leg": "average of small-high-BM and big-high-BM portfolios",
+          "short_leg": "average of small-low-BM and big-low-BM portfolios",
+          "note": "HML = average of top-BM portfolios minus average of bottom-BM portfolios across size groups."
+        },
+        "regression": null,
+        "reported_frequency": "monthly",
+        "holding_period": "12 months, formed each June",
+        "evidence": []
+      },
+      "evidence": []
+    },
     "spreads": {
       "hml_monthly_vw": {
         "value": 0.0046,

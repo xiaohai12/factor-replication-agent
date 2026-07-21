@@ -29,14 +29,61 @@ class RebalanceFrequency(str, Enum):
 class WeightingRule(str, Enum):
     EQUAL_WEIGHTED = "ew"
     VALUE_WEIGHTED = "vw"
-    CAPPED_VALUE_WEIGHTED = "capped_vw"
     UNSPECIFIED = "unspecified"
 
 
 class BreakpointSource(str, Enum):
     NYSE = "nyse"
     FULL_SAMPLE = "full_sample"
+    CONDITIONAL = "conditional"
+    PAPER_SPECIFIC = "paper_specific"
     UNSPECIFIED = "unspecified"
+
+
+class PortfolioConstructionType(str, Enum):
+    """Mirrors prompts/extractor/methodspec_extractor.md Allowed Values for
+    portfolio_return.construction_type. Keep this vocabulary in sync with that
+    prompt file."""
+
+    CHARACTERISTIC_SORT = "characteristic_sort"
+    REGRESSION_WEIGHTED = "regression_weighted"
+    FACTOR_MODEL_ALPHA = "factor_model_alpha"
+    EVENT_WINDOW_RETURN = "event_window_return"
+    OTHER = "other"
+    UNSPECIFIED = "unspecified"
+
+
+class ReturnCombinationType(str, Enum):
+    """Mirrors prompts/extractor/methodspec_extractor.md Allowed Values for
+    return_combination.type. Keep this vocabulary in sync with that prompt file."""
+
+    EXTREME_GROUP_SPREAD = "extreme_group_spread"
+    AVERAGE_LEG_SPREAD = "average_leg_spread"
+    SINGLE_SIGNAL_PORTFOLIO_RETURN = "single_signal_portfolio_return"
+    FULL_PORTFOLIO_RETURN = "full_portfolio_return"
+    ALPHA_ESTIMATE = "alpha_estimate"
+    OTHER = "other"
+    UNSPECIFIED = "unspecified"
+
+
+class FilterOp(str, Enum):
+    """Mirrors prompts/extractor/methodspec_extractor.md Allowed Values for
+    universe.filters[].op. Keep this vocabulary in sync with that prompt file."""
+
+    EQ = "eq"
+    NEQ = "neq"
+    IN = "in"
+    NOT_IN = "not_in"
+    BETWEEN = "between"
+    NOT_BETWEEN = "not_between"
+    GT = "gt"
+    GTE = "gte"
+    LT = "lt"
+    LTE = "lte"
+    NONMISSING = "nonmissing"
+    NONZERO = "nonzero"
+    IS_TRUE = "is_true"
+    IS_FALSE = "is_false"
 
 
 class MissingAction(str, Enum):
@@ -74,6 +121,24 @@ class RemediationMode(str, Enum):
     RESOLVE_EXISTING_JSON = "resolve_existing_json"
     TARGETED_REEXTRACTION = "targeted_reextraction"
     FULL_REGENERATION = "full_regeneration"
+
+
+def _coerce_enum_field(data: Any, field_name: str, enum_cls: type[Enum]) -> Any:
+    """Tolerantly map an unexpected raw value to "other"/"unspecified" before
+    Pydantic validation runs, so an LLM-produced value that doesn't match the
+    allowed vocabulary (prompts/extractor/methodspec_extractor.md Allowed
+    Values) degrades gracefully instead of raising a hard ValidationError.
+    """
+    if not isinstance(data, dict) or field_name not in data:
+        return data
+    value = data.get(field_name)
+    if value is None or isinstance(value, enum_cls):
+        return data
+    valid_values = {member.value for member in enum_cls}
+    if value not in valid_values:
+        data = dict(data)
+        data[field_name] = "other" if "other" in valid_values else "unspecified"
+    return data
 
 
 # --- Evidence and paper-first source models ---
@@ -141,8 +206,39 @@ class DataSpec(BaseModel):
     required_fields: list[RequiredFieldSpec] = Field(default_factory=list)
     normalized_mapping: dict[str, Any] = Field(
         default_factory=dict,
-        description="Output from Data Catalog / Normalizer, not extractor-owned.",
+        description=(
+            "Output from Data Catalog / Normalizer, not extractor-owned. "
+            "Maps a paper concept to its physical source+column. Two forms are "
+            "accepted: the richer {concept: {'source': 'comp_funda', 'column': "
+            "'act'}} (records WHICH source each field comes from, so the loader "
+            "knows what to read and how to join), or the legacy {concept: "
+            "'act'} plain-column form (source inferred: CRSP monthly cols -> "
+            "'crsp_msf', else 'comp_funda'). See MethodSpec.resolved_sources()."
+        ),
     )
+
+
+# Physical CRSP monthly columns — used to infer the source of a LEGACY
+# plain-string normalized_mapping value (pre-dating the richer {source, column}
+# form). Mirrors script_generator._CRSP_ONLY_COLUMNS so the inferred grouping
+# matches the historical crsp_only/compustat binary behavior.
+_CRSP_MONTHLY_COLUMNS = {
+    "ret", "me", "shrcd", "exchcd", "siccd", "prc", "shrout", "date",
+    "permno", "yyyymm",
+}
+
+
+def _normalize_mapping_entry(value: Any) -> tuple[str, str]:
+    """Return (source, column) for a single normalized_mapping value.
+
+    Accepts the richer form {"source": ..., "column": ...} or a legacy plain
+    column string (whose source is inferred: CRSP monthly columns ->
+    "crsp_msf", everything else -> "comp_funda")."""
+    if isinstance(value, dict):
+        return str(value.get("source", "") or ""), str(value.get("column", "") or "")
+    col = str(value)
+    source = "crsp_msf" if col in _CRSP_MONTHLY_COLUMNS else "comp_funda"
+    return source, col
 
 
 # --- Signal, timing, portfolio, and reported-result models ---
@@ -213,8 +309,24 @@ class PortfolioSortSpec(BaseModel):
     evidence: list[EvidenceCitation] = Field(default_factory=list)
 
 
+class UniverseFilterSpec(BaseModel):
+    """Row-level sample restriction, mirrors universe.filters[] from the
+    extraction prompt schema (prompts/extractor/methodspec_extractor.md).
+
+    Used by BacktestEngine._detect_hooks() to decide, deterministically,
+    whether a paper's universe restriction goes beyond the standard
+    shrcd/exchcd/siccd filter that _filter_universe() implements.
+    """
+
+    field: str
+    op: FilterOp = Field(default=FilterOp.NONMISSING)
+    value: Any = None
+    evidence: list[EvidenceCitation] = Field(default_factory=list)
+
+
 class PortfolioSpec(BaseModel):
     universe: str = Field(default="unspecified")
+    universe_filters: list[UniverseFilterSpec] = Field(default_factory=list)
     sort: PortfolioSortSpec = Field(default_factory=PortfolioSortSpec)
     breakpoints: BreakpointSpec = Field(default_factory=BreakpointSpec)
     weighting: WeightingRule = Field(default=WeightingRule.UNSPECIFIED)
@@ -244,9 +356,79 @@ class PortfolioSpec(BaseModel):
             self.weighting = self.weighting_scheme
 
 
+class SortLegSpec(BaseModel):
+    """One dimension of a (possibly multi-dimensional) portfolio sort.
+
+    Mirrors reported_results.return_calculation.portfolio_return.sorts[] from
+    the extraction prompt schema. `len(portfolio_return.sorts) > 1` is the
+    deterministic signal BacktestEngine._detect_hooks() uses to flag a
+    double/conditional sort, instead of keyword-matching portfolio.filter.
+    """
+
+    variable: str = Field(default="")
+    groups: list[str] = Field(default_factory=list)
+    breakpoint: str = Field(default="")
+    independent_sort: Optional[bool] = None
+
+    @model_validator(mode="before")
+    @classmethod
+    def _accept_bare_variable_name(cls, data: Any) -> Any:
+        # Some hand-curated specs list sorts as bare strings, e.g.
+        # "sorts": ["asset_growth_decile"], instead of the full
+        # {variable, groups, breakpoint, independent_sort} shape.
+        if isinstance(data, str):
+            return {"variable": data}
+        return data
+
+
+class ReturnCombinationSpec(BaseModel):
+    """Mirrors reported_results.return_calculation.portfolio_return
+    .return_combination from the extraction prompt schema."""
+
+    type: ReturnCombinationType = Field(default=ReturnCombinationType.UNSPECIFIED)
+    expression: str = Field(default="")
+    long_leg: str = Field(default="")
+    short_leg: str = Field(default="")
+    note: str = Field(default="")
+
+    @model_validator(mode="before")
+    @classmethod
+    def _tolerate_unknown_type(cls, data: Any) -> Any:
+        return _coerce_enum_field(data, "type", ReturnCombinationType)
+
+
+class PortfolioReturnSpec(BaseModel):
+    """Mirrors reported_results.return_calculation.portfolio_return from the
+    extraction prompt schema. Replaces the previous loose `dict[str, Any]` so
+    BacktestEngine._detect_hooks() can compare against typed STANDARD sets
+    instead of guessing from free-text fields.
+    """
+
+    construction_type: PortfolioConstructionType = Field(
+        default=PortfolioConstructionType.UNSPECIFIED
+    )
+    sorts: list[SortLegSpec] = Field(default_factory=list)
+    # Loosely typed: extraction/curation sometimes stores this as a dict
+    # ({"type": ..., "variants": [...]}), sometimes as a raw string. Not
+    # consumed by BacktestEngine._detect_hooks(), so it isn't worth a strict
+    # schema -- only reviewer._check_reported_results_contract() reads it,
+    # as an informational cross-check.
+    weighting: Any = Field(default_factory=dict)
+    return_combination: ReturnCombinationSpec = Field(default_factory=ReturnCombinationSpec)
+    regression: Optional[dict[str, Any]] = None
+    reported_frequency: str = Field(default="")
+    holding_period: str = Field(default="")
+    evidence: list[EvidenceCitation] = Field(default_factory=list)
+
+    @model_validator(mode="before")
+    @classmethod
+    def _tolerate_unknown_construction_type(cls, data: Any) -> Any:
+        return _coerce_enum_field(data, "construction_type", PortfolioConstructionType)
+
+
 class ReturnCalculationSpec(BaseModel):
     input_return: str | dict[str, Any] = Field(default="unspecified")
-    portfolio_return: dict[str, Any] = Field(default_factory=dict)
+    portfolio_return: PortfolioReturnSpec = Field(default_factory=PortfolioReturnSpec)
     evidence: list[EvidenceCitation] = Field(default_factory=list)
 
 
@@ -307,6 +489,7 @@ class MethodSpec(BaseModel):
     sign: Optional[int] = Field(default=None)
     sample_start_year: Optional[int] = None
     sample_end_year: Optional[int] = None
+    publication_year: Optional[int] = None
     cz_acronym: Optional[str] = Field(default=None)
 
     data: DataSpec = Field(default_factory=DataSpec)
@@ -424,9 +607,29 @@ class MethodSpec(BaseModel):
             if not weighting and isinstance(weights, list) and weights:
                 weighting = weights[0]
 
+            raw_universe_filters = raw_universe.get("filters", [])
+            derived_universe_filters = []
+            if isinstance(raw_universe_filters, list):
+                for f in raw_universe_filters:
+                    if not isinstance(f, dict):
+                        continue
+                    derived_universe_filters.append({
+                        "field": f.get("field", ""),
+                        "op": f.get("op", "nonmissing"),
+                        "value": f.get("value"),
+                        "evidence": [f["source"]] if isinstance(f.get("source"), dict) else [],
+                    })
+            # Prefer universe_filters already stored directly under portfolio
+            # (e.g. resolved/curated specs) over the raw top-level
+            # universe.filters[] (e.g. fresh extractor output); don't let an
+            # empty top-level universe.filters[] silently wipe out
+            # already-resolved data.
+            universe_filters = raw_portfolio.get("universe_filters") or derived_universe_filters
+
             data["portfolio"] = {
                 **raw_portfolio,
                 "universe": raw_universe.get("description", raw_portfolio.get("universe", "unspecified")),
+                "universe_filters": universe_filters,
                 "sort": {
                     "breakpoint_source": cls._normalize_breakpoint_source(
                         sort.get("breakpoint_source", "unspecified")
@@ -500,7 +703,11 @@ class MethodSpec(BaseModel):
             return "nyse"
         if value in {"full_sample", "all_stocks", "all_eligible"}:
             return "full_sample"
-        if value in {"paper_specific", "conditional", "other", None, ""}:
+        if value == "conditional":
+            return "conditional"
+        if value == "paper_specific":
+            return "paper_specific"
+        if value in {"other", None, ""}:
             return "unspecified"
         return "unspecified"
 
@@ -632,6 +839,26 @@ class MethodSpec(BaseModel):
         if self.signal.required_fields:
             return self.signal.required_fields
         return [f.field for f in self.data.required_fields]
+
+    def resolved_sources(self) -> dict[str, list[tuple[str, str]]]:
+        """Group `data.normalized_mapping` by physical source.
+
+        Returns {source_name: [(concept, column), ...]} for every mapped field,
+        supporting both the richer {concept: {"source","column"}} form and the
+        legacy {concept: "column"} form (source inferred, see
+        `_normalize_mapping_entry`).
+
+        The data loader uses this to read ONLY the needed columns from each
+        source and join each source into the CRSP backbone; ReviewGate uses it
+        to verify every source is one the loader knows how to join (see
+        `SIGNAL_SOURCES`)."""
+        groups: dict[str, list[tuple[str, str]]] = {}
+        for concept, value in (self.data.normalized_mapping or {}).items():
+            source, column = _normalize_mapping_entry(value)
+            if not column:
+                continue
+            groups.setdefault(source, []).append((concept, column))
+        return groups
 
     @property
     def formation_month(self) -> Optional[int]:
