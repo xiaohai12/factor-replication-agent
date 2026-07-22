@@ -36,11 +36,12 @@ and controlled pipeline components.
 |---|---|---|
 | `src/steps/step1_extractor/` | 1 | Paper text to MethodSpec via LLM. Never receives SignalDoc.csv. |
 | `src/steps/step2_reviewer/` | 2 | MethodSpec completeness and empirical-impact review + resolution. |
-| `src/steps/step3_codegen/` | 3 | Approved MethodSpec to signal plugin code + hook functions. |
-| `src/steps/step4_validator/` | 4 | Plugin syntax/schema/safety validation (future-leak scan). |
-| `src/steps/step5_engine/` | 5 | Controlled backtest pipeline (fixed step order + hook dispatch). |
-| `src/steps/step6_dual_track_controller/` | 6 | Dual-track and ablation orchestration. |
+| `src/steps/step3_codegen/` | 3 | Approved MethodSpec to signal plugin code + hook functions, then assembles those into the one complete standalone backtest script (`script_generator.generate_backtest_script`) that step4/step5 operate on unchanged. The script-assembly call is exposed as `BacktestRunner.build_script()` (physically in the step5 module, since it also needs `DataLayer` snapshot-path resolution that step3_codegen doesn't have) but is conceptually step3's output. |
+| `src/steps/step4_validator/` | 4 | Plugin syntax/schema/safety validation (future-leak scan) + a compute_signal execution smoke test on the script step3 built. |
+| `src/steps/step5_backtest_runner/` | 5 | Execute the standalone backtest script (already built by step3) via subprocess (`BacktestRunner.execute()`) — literally "run the generated file". Used by both `Pipeline.run_from_method_spec` (single track) and `DualTrackController` (multi-track), so there's one implementation of "execute" either way. |
+| `src/steps/step6_dual_track_controller/` | 6 | Dual-track and ablation orchestration: runs each track via `BacktestRunner` (step5), with its own bounded repair loop back to `MetaCoder` (step3) on an execution failure. |
 | `src/steps/step7_attribution/` | 7 | Replication-gap attribution and anomaly flags. |
+| `src/infra/backtest_engine/` | — | The controlled backtest lifecycle engine (`BacktestExecutor`, standard step computations, hook loading). Shared infrastructure used by pipeline.py/step6/app.py and the generated script's runtime import — not itself "step 5" (see step5 row above), which is just the build+execute action around it. |
 | `src/infra/models/` | — | Pydantic models (MethodSpec, PluginRecord, RunRecord). |
 | `src/infra/data_layer/` | — | Data loaders, dictionary, snapshots, CCM link, time_avail. |
 | `src/infra/evidence/` | — | Evidence store + RunRegistry for run artifacts. |
@@ -108,4 +109,4 @@ Claude, or Copilot. If the current model is excessive for the task, recommend sw
 - Never let LLM output decide empirical parameters without MethodSpec review.
 - Never call `MetaCoder.generate_plugin()` when `codegen_ready=False`.
 - Never repair empirical issues in the sandbox repair loop; only syntax/schema errors are repairable.
-- Never modify `BacktestEngine` during active experiments; use config overrides for ablations.
+- Never modify `BacktestExecutor` during active experiments; use config overrides for ablations.

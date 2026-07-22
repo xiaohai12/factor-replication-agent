@@ -3,9 +3,9 @@
 Pure, stateless functions: `(df, ..., config) -> df`. No class state — every
 step reads only its explicit arguments, so results are fully traceable and a
 step can be swapped for an LLM-generated hook of the identical shape (see
-`Step` Protocol in `src/steps/step5_engine/__init__.py`) without any special-casing.
+`Step` Protocol in `src/infra/backtest_engine/__init__.py`) without any special-casing.
 
-Order matches `BacktestEngine.run_with_config()`:
+Order matches `BacktestExecutor.run_with_config()`:
   load_msf -> apply_delisting_returns -> apply_missing_policy ->
   filter_universe -> merge_signal -> neutralize_signal ->
   compute_breakpoints -> assign_portfolios -> compute_returns ->
@@ -335,7 +335,7 @@ def _rebalance_step_months(config: dict) -> int | None:
 # momentum/reversal-style factors (`signal.timing.overlapping_portfolios`).
 # Dispatched instead of the non-overlapping merge_signal/compute_breakpoints/
 # assign_portfolios/compute_returns/compute_long_short above when
-# `config["overlapping"]` is true (see `BacktestEngine._dispatch()`'s
+# `config["overlapping"]` is true (see `BacktestExecutor._dispatch()`'s
 # `_OVERLAP_STEPS` name-mangling). Not combined with the multi-dim sort in
 # this v1 (a plugin hook is still needed for that combination).
 #
@@ -639,10 +639,10 @@ def compute_long_short(rets: pd.DataFrame, config: dict) -> pd.DataFrame:
 # Multi-dimensional sort (plan.md Phase 3). Used instead of the single-dim
 # compute_breakpoints/assign_portfolios/compute_returns/compute_long_short
 # above when `config["sort_dims"]` has 2+ dimensions (see
-# `registry.resolve_sort_dims` for how a MethodSpec's
+# `step3_codegen.registry.resolve_sort_dims` for how a MethodSpec's
 # `portfolio_return.sorts[]` maps onto this — deliberately narrow v1: only
 # a characteristic x size double sort is resolved as standard; anything else
-# still routes to a hook). Dispatched via `BacktestEngine._dispatch()`'s
+# still routes to a hook). Dispatched via `BacktestExecutor._dispatch()`'s
 # `_MULTI_DIM_STEPS` name-mangling (`compute_breakpoints` -> `..._multi`).
 # ---------------------------------------------------------------------------
 
@@ -980,8 +980,8 @@ def compute_factor_alphas(ls: pd.DataFrame, factors: pd.DataFrame, config: dict)
 # Fama-MacBeth regression estimator (plan.md Phase 7). A genuinely different
 # ESTIMATOR from the portfolio-sort pipeline above (not a variant of it):
 # routed via `config["estimator"] == "fama_macbeth"` (set in
-# registry.build_config() from `construction_type == "regression_weighted"`),
-# `BacktestEngine.run_with_config()` branches to this INSTEAD of the sort/
+# step3_codegen.registry.build_config() from `construction_type == "regression_weighted"`),
+# `BacktestExecutor.run_with_config()` branches to this INSTEAD of the sort/
 # breakpoints/assign/returns/combine chain entirely, right after
 # merge_signal.
 # ---------------------------------------------------------------------------

@@ -16,7 +16,7 @@ except ImportError:
 
 from src.steps.step1_extractor import ExtractionMetrics, SemanticExtractor
 from src.infra.models.method_spec import MethodSpec
-from src.infra.pdf_mapper import build_pdf_factor_map, get_factor_to_pdf
+from src.infra.pdf_mapper import build_pdf_factor_map
 
 
 # --- Paths ---

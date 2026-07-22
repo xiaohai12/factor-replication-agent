@@ -33,8 +33,8 @@ def _load_prompt(path: Path, fallback: str = "") -> str:
     return fallback
 
 
-# Hook function signatures expected by BacktestEngine. This is the full set
-# BacktestEngine._load_hooks()/registry.load_hooks() will load from a plugin
+# Hook function signatures expected by BacktestExecutor. This is the full set
+# BacktestExecutor._load_hooks()/registry.load_hooks() will load from a plugin
 # if defined -- but detect_hooks() only ever requests a small, genuinely
 # non-standard subset of these in practice (see plan.md Phase 8 / docs/
 # architecture.md §4.6): most factors need zero hooks now that
@@ -169,10 +169,10 @@ class MetaCoder:
         user_prompt = self._build_prompt(spec)
 
         from src.infra.llm import extract_usage
-        from src.steps.step5_engine import BacktestEngine
+        from src.steps.step3_codegen import registry as codegen_registry
 
         # Phase 1: detect which steps need hooks
-        hooks_needed = BacktestEngine._detect_hooks(spec)
+        hooks_needed = codegen_registry.detect_hooks(spec)
 
         # Phase 2a: generate compute_signal()
         response = self.llm_client.chat.completions.create(
@@ -298,7 +298,7 @@ class MetaCoder:
             f"Generate the following hook functions for factor: {spec.factor_name}",
             f"Factor ID: {spec.factor_id}",
             "",
-            "These hooks replace the standard BacktestEngine implementation for specific steps.",
+            "These hooks replace the standard BacktestExecutor implementation for specific steps.",
             "Generate ALL of the functions listed below in a single code block.",
             "",
         ]

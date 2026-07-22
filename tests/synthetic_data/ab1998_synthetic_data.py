@@ -8,7 +8,7 @@ factor's formula needs (matching data.required_fields in the ground-truth
 specs) — it does not build plugins, resolved MethodSpecs, or golden-number
 tests (unlike asset_growth_synthetic_data.py / accruals_synthetic_data.py).
 The paper's actual return construction uses daily buy-and-hold abnormal
-returns against a size-decile benchmark, which this repo's BacktestEngine
+returns against a size-decile benchmark, which this repo's BacktestExecutor
 doesn't implement (it's monthly VW/EW only) — out of scope here.
 
 Reuses the same 10 permnos / CCM link / CRSP monthly panel as

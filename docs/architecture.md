@@ -31,9 +31,9 @@ tags: [architecture, factor-replication, agent, quant]
 
 | 原则 | 说明 |
 |---|---|
-| LLM 只生成 signal + hooks | `compute_signal()` 由 LLM 生成；非标准回测步骤由 LLM 生成 hook 函数；标准步骤由 BacktestEngine 固定代码处理 |
+| LLM 只生成 signal + hooks | `compute_signal()` 由 LLM 生成；非标准回测步骤由 LLM 生成 hook 函数；标准步骤由 BacktestExecutor 固定代码处理 |
 | 回测骨架固定，步骤顺序不变 | 固定顺序的执行链路（见 §3、§4.6 完整列表）；每步走 standard／multi-dim／overlap／hook 路径由 MethodSpec 判断，但顺序本身不允许 LLM 改变 |
-| standard vs hook 由 MethodSpec 驱动 | BacktestEngine 对每个步骤维护 standard set；MethodSpec 字段值在 standard set 内走 config，超出则触发 LLM 生成对应 hook 函数 |
+| standard vs hook 由 MethodSpec 驱动 | BacktestExecutor 对每个步骤维护 standard set；MethodSpec 字段值在 standard set 内走 config，超出则触发 LLM 生成对应 hook 函数 |
 | paper-first MethodSpec | 从论文原文提取方法事实；C&Z / OSAP 只作 evaluation，不覆盖 paper-stated 内容 |
 | 所有决定都在 MethodSpec 里 | Resolution Applier 将 unspecified 字段决定写入 MethodSpec 的具体字段（`resolution_log` 追踪来源）；列名映射写入 `data.normalized_mapping`；不维护单独的 impl_config 文件 |
 | 反馈回路有界 | 每个 factor 最多回溯 3 次（`MAX_BACKTRACK_DEPTH=3`）；超过即转人工干预 |
@@ -65,7 +65,7 @@ tags: [architecture, factor-replication, agent, quant]
         ▼
 [3. Meta-Coder]
 输入: resolved MethodSpec（列名映射和所有决定已在 spec 字段中）
-① BacktestEngine._detect_hooks(spec) 判断哪些步骤需要 hook（2026-07-20 起大幅收窄，见 §4.6——filter_universe/多维排序/return_combination/overlapping/Fama-MacBeth 均已默认走确定性标准实现，只有真正 paper-specific 的情况才 hook）
+① BacktestExecutor._detect_hooks(spec) 判断哪些步骤需要 hook（2026-07-20 起大幅收窄，见 §4.6——filter_universe/多维排序/return_combination/overlapping/Fama-MacBeth 均已默认走确定性标准实现，只有真正 paper-specific 的情况才 hook）
 ② LLM 生成 compute_signal() — 所有因子必有
 ③ LLM 生成 hook 函数（仅当步骤超出 standard set 时，参见 §4.6 表格）：
      compute_breakpoints_hook / assign_portfolios_hook /
@@ -98,14 +98,29 @@ tags: [architecture, factor-replication, agent, quant]
 
 ### 3.1 反馈回路 / Feedback Loops
 
-`src/pipeline.py` 的 `Pipeline` 类实现以下有界回路（全局上限 `MAX_BACKTRACK_DEPTH = 3`）：
+> **2026-07-22 更新**：本节最初描述的 `Pipeline.run_factor()` 曾因为在仓库里没有
+> 任何调用方、且下表里除 Sandbox→Meta-Coder 之外的三条回路始终只是 TODO 占位
+> （递增 `backtrack_count` 后立刻失败，从未真正回调上游阶段）而被删除（详见
+> `docs/decision-log.md` 对应条目）。同一天，1/2/6/7 步（SemanticExtractor /
+> ReviewGate / DualTrackController / AttributionLayer）被重新接入编排层，新方法
+> `Pipeline.run_full_pipeline()` 跑完全部 7 步，但**刻意不实现**下表里除
+> Sandbox→Meta-Coder 之外的三条跨阶段回路——遇到 Review 未通过 / Sandbox 经验性
+> 问题 / Attribution 异常时直接 fail-fast 并在返回的 `PipelineStatus` 上报告
+> 是哪一步失败，而不是假装会自动重试。每一步也都可以单独调用来测试/调试
+> （`pipeline.extractor`/`pipeline.review_gate`/`pipeline.meta_coder`/
+> `pipeline.sandbox`/`pipeline.runner`/`pipeline.controller`/
+> `pipeline.attribution`）。真正的跨阶段回路仍然是 roadmap Phase 2 的范围。
 
-| 触发条件 | 回路方向 | 上限 |
-|---|---|---|
-| Future-Leak Scan 发现禁用模式 | Scan → Meta-Coder 重新生成 | `MAX_REPAIR_RETRIES = 3` |
-| Review Gate 未通过（非 `requires_human`） | Review Gate → Extractor 重新提取 | 计入 backtrack_count |
-| Attribution 检测到**异常**（sign flip 或 >50% gap） | Attribution → Review Gate 触发重审 | 计入 backtrack_count |
-| backtrack_count ≥ 3 | 任何阶段 → `needs_manual_intervention = True` | — |
+`src/pipeline.py` 的 `Pipeline.run_full_pipeline()` 目前串联下面 7 步（全局
+`MAX_BACKTRACK_DEPTH` 已随旧 `run_factor()` 一起移除，不再使用）：
+
+| 触发条件 | 回路方向 | 上限 | 实现状态 |
+|---|---|---|---|
+| Future-Leak Scan / 技术性校验失败 | Sandbox → Meta-Coder 重新生成 | `MAX_REPAIR_RETRIES = 3` | ✅ 已实现（`_validate_with_repair()`，`run_from_method_spec()`/`run_full_pipeline()` 共用） |
+| Review Gate 未通过（非 `requires_human`） | Review Gate → Extractor 重新提取 | — | ❌ 未实现：`run_full_pipeline()` 直接 fail-fast 返回，不自动重新提取 |
+| Sandbox 检测到经验性问题（temporal leakage 等） | Sandbox → Review Gate 重新送审 | — | ❌ 未实现：同上，直接 fail-fast |
+| Attribution 检测到**异常**（sign flip 或 >50% gap） | Attribution → Review Gate 触发重审 | — | ❌ 未实现：`attribute_ablation()` 的结果目前不会触发任何回路 |
+
 
 流水线阶段状态机：`pending → extract → review → generate → validate → run → attribute → done / failed`。
 
@@ -152,7 +167,7 @@ tags: [architecture, factor-replication, agent, quant]
 
 **阶段 1：Hook 检测**
 
-调用 `BacktestEngine._detect_hooks(spec)`，对比 MethodSpec 字段值与各步骤的 standard set，返回需要 LLM 生成的 hook 列表。
+调用 `BacktestExecutor._detect_hooks(spec)`，对比 MethodSpec 字段值与各步骤的 standard set，返回需要 LLM 生成的 hook 列表。
 
 **阶段 2：LLM 代码生成**
 
@@ -196,19 +211,21 @@ Meta-Coder 还实现 `repair_plugin(plugin, errors)`，在 Future-Leak Scan 命�
 
 `build_signal_master_table`：`time_avail_m = datadate + lag_months → YYYYMM`，输出年度表 keyed `[permno, time_avail_m]`，`at` 已按时点对齐——signal plugin 只读列，不处理 lag。
 
-### 4.6 BacktestEngine：Standard Set + Hook 机制
+### 4.6 BacktestExecutor：Standard Set + Hook 机制
 
-**（2026-07-20 更新，见 `plan.md` Phase 0-7 / `CHANGELOG.md` 对应条目；2026-07-21 步骤目录改为带序号命名）** `src/steps/step5_engine/` 现在拆成三个文件：
+**（2026-07-20 更新，见 `plan.md` Phase 0-7 / `CHANGELOG.md` 对应条目；2026-07-21 步骤目录改为带序号命名；2026-07-21 `BacktestEngine` 类名与目录改名为 `BacktestExecutor`/`step5_executor`；2026-07-22 生成时决策层 `registry.py` 移到 `step3_codegen/`；2026-07-22 整个引擎库从 `src/steps/step5_executor/` 搬到 `src/infra/backtest_engine/`——它是被 `pipeline.py`/`step6`/`app.py`/十几个单测共用的计算基础设施，不是任何一个编号 step 的私有实现；"Step 5" 现在特指 `pipeline.py` 里"生成脚本 → 校验 → subprocess 执行"这个动作本身，见 §3 表格）** `src/infra/backtest_engine/` 现在是两个文件 + 一个瘦身后的 `registry.py`：
 
 | 文件 | 职责 |
 |---|---|
-| `__init__.py` | 编排：`BacktestEngine`、`Step` Protocol、`BacktestContext` dataclass、`run()`/`run_with_config()`/`_dispatch()` |
+| `__init__.py` | 编排：`BacktestExecutor`、`Step` Protocol、`BacktestContext` dataclass、`run()`/`run_with_config()`/`_dispatch()` |
 | `steps.py` | 计算：所有 standard 步骤的纯函数实现（无 class state） |
-| `registry.py` | 选择：`STANDARD`、`detect_hooks()`、`build_config()`、`load_hooks()` |
+| `registry.py` | 运行时：只剩 `load_hooks()`（`run_with_config()` 唯一会调的"registry"逻辑） |
 
-单一执行路径：`src/steps/step3_codegen/script_generator.py` 生成的独立脚本现在是薄封装，直接 `import BacktestEngine` 调 `run_with_config()`，不再内联重复实现 9 步逻辑——engine 与生成脚本不可能再互相漂移。
+`STANDARD`、`detect_hooks()`、`build_config()` 这三个**只在生成时**被调用（从不被 `run_with_config()`/`_dispatch()` 自己调用）的选择逻辑，住在 `src/steps/step3_codegen/registry.py`——这样 `step3_codegen`（生成 `compute_signal()` + hook 代码、组装完整回测脚本）不再需要依赖引擎库；`BacktestExecutor._detect_hooks()`/`_build_config()`/`_resolve_long_leg()`/`_resolve_short_leg()`/`_normalize_leg()` 仍然保留在 `src/infra/backtest_engine/__init__.py` 里，作为对旧调用方（含测试）的薄委托，转发到 `step3_codegen.registry`。
 
-BacktestEngine 对每个步骤维护一个 **standard set**——值在集合内走固定实现（读 config），超出集合则期望 plugin 提供对应 hook 函数。集合取值直接引用 `src/infra/models/method_spec.py` 里定义的枚举：
+单一执行路径：`src/steps/step3_codegen/script_generator.py` 生成的独立脚本现在是薄封装，直接 `import BacktestExecutor` 调 `run_with_config()`，不再内联重复实现 9 步逻辑——engine 与生成脚本不可能再互相漂移。
+
+BacktestExecutor 对每个步骤维护一个 **standard set**——值在集合内走固定实现（读 config），超出集合则期望 plugin 提供对应 hook 函数。集合取值直接引用 `src/infra/models/method_spec.py` 里定义的枚举：
 
 ```python
 STANDARD = {
@@ -369,12 +386,13 @@ python scripts/review_methodspecs.py --factor cooper_gulen_schill_2008_asset_gro
 # Step 3: 应用 resolution（审查后生成 codegen_ready=true 的 JSON）
 python scripts/resolve_review_blocks.py --factor cooper_gulen_schill_2008_asset_growth
 
-# Step 4: 通过 Pipeline 生成 plugin + 运行实验（需先准备 data/local/*.parquet）
+# Step 4: 通过 Pipeline 生成 plugin + 运行实验（需先准备 data/local/*.parquet 并注册 snapshot）
 python - <<'EOF'
 from src.pipeline import Pipeline
 pipeline = Pipeline()
 runs, status = pipeline.run_factor(
     factor_id="cooper_gulen_schill_2008_asset_growth",
+    snapshot_id="<registered snapshot id>",
     paper_text=open("data/paper_text_cache/cgs2008.txt").read(),
 )
 print(status)
@@ -467,10 +485,10 @@ Run Registry 记录每个 factor × variant 的状态：`pending / running / suc
 | Plugin Registry | ⏳ 暂不需要 | pilot 阶段用文件路径追溯即可；多因子跨实验时扩展 |
 | Evidence Store + Run Registry | ✅ 已实现 | 磁盘持久化，per-run artifact 目录 |
 | Dual-Track Controller | ✅ 已实现 | `ExperimentPlan` + `HXZ_STANDARD_CONFIG` |
-| Pipeline 反馈回路 | ✅ 已实现 | `src/pipeline.py`，见 §3.1 |
+| Pipeline 反馈回路 | ⚠️ 部分实现 | `src/pipeline.py`，见 §3.1——`run_full_pipeline()` 已把 1/2/6/7 步接回编排层，但只有 Sandbox→Meta-Coder 技术性修复是真正实现的回路，其余三条仍是 fail-fast（Phase 2 范围） |
 | Streamlit Dashboard | ✅ 已实现 | `app.py`，覆盖 extract → review → resolve → codegen |
-| BacktestEngine standard steps | ✅ 已实现 | 全部 7 个 standard 步骤实现；`_detect_hooks(spec)` + `_build_config()` 完成 |
-| BacktestEngine hook dispatch | ✅ 已实现 | 每步 `_dispatch()` — hook 优先，无 hook 走 standard；见 §4.6 |
+| BacktestExecutor standard steps | ✅ 已实现 | 全部 7 个 standard 步骤实现；`_detect_hooks(spec)` + `_build_config()` 完成 |
+| BacktestExecutor hook dispatch | ✅ 已实现 | 每步 `_dispatch()` — hook 优先，无 hook 走 standard；见 §4.6 |
 | Attribution Layer | 🚧 基础结构已有 | `AttributionResult` 结构定义完毕，分解算法待实现 |
 | data/local/*.parquet | ⏳ 未建立 | 需人工从 WRDS 导出 funda + msf 后放置 |
 | WRDS 实时连接 / CCM merge | ⏳ 未实现 | 需要数据版本管理或定期更新时扩展 |

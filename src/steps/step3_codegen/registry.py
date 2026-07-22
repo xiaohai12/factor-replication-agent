@@ -1,10 +1,24 @@
-"""Selection logic for the controlled backtest lifecycle: which steps are
-"standard" (built-in) vs. need an LLM-generated hook, how a MethodSpec
-resolves into a run config, and how a plugin's hook functions get loaded.
+"""Codegen decision layer: which steps are "standard" (built-in on
+BacktestExecutor) vs. need an LLM-generated hook, and how a MethodSpec
+resolves into a run config.
 
 This module answers "what does the LLM need to generate for this MethodSpec"
 (the controlled-codegen side of the system) — not "what does a backtest
-compute" (see `steps.py` for that).
+compute" (that's `src/infra/backtest_engine/steps.py`) and not "how does a
+plugin's hook get loaded at run time" (that's
+`src/infra/backtest_engine/registry.py::load_hooks`).
+
+Lives in `step3_codegen/` (not `src/infra/backtest_engine/`) because every
+function here is only ever called at generation time — by
+`MetaCoder.generate_plugin()` (`detect_hooks`) and
+`script_generator.generate_backtest_script()` (`build_config`) — never by
+`BacktestExecutor`'s own run-time dispatch (`run_with_config`/`_dispatch`),
+which only consumes the already-resolved config dict `build_config` produced.
+`BacktestExecutor._detect_hooks()`/`_build_config()`/`_resolve_long_leg()`/
+`_resolve_short_leg()`/`_normalize_leg()` remain as thin backward-compatible
+delegates to this module (existing callers, including tests, use those
+names) — the engine library depends on this decision layer for those
+delegates, but this module never depends on the engine library.
 """
 
 from __future__ import annotations
@@ -22,7 +36,7 @@ from src.infra.models.method_spec import (
 
 
 # ---------------------------------------------------------------------------
-# Standard set — values for which BacktestEngine has a built-in implementation.
+# Standard set — values for which BacktestExecutor has a built-in implementation.
 # Anything outside triggers a hook request to MetaCoder. Values are drawn
 # directly from the MethodSpec enums (src/infra/models/method_spec.py) so the
 # two stay in sync instead of duplicating strings.
@@ -45,8 +59,8 @@ STANDARD: dict[str, set[str]] = {
         PortfolioConstructionType.CHARACTERISTIC_SORT.value,
         # REGRESSION_WEIGHTED added Phase 7 (plan.md): routed to the
         # Fama-MacBeth estimator (steps.compute_fama_macbeth) entirely
-        # instead of compute_returns -- see registry.build_config()'s
-        # "estimator" field and BacktestEngine.run_with_config()'s branch.
+        # instead of compute_returns -- see build_config()'s "estimator"
+        # field and BacktestExecutor.run_with_config()'s branch.
         PortfolioConstructionType.REGRESSION_WEIGHTED.value,
         PortfolioConstructionType.UNSPECIFIED.value,
     },
@@ -120,7 +134,7 @@ def detect_hooks(spec: MethodSpec) -> dict[str, str]:
         # Phase 5 (plan.md): overlapping-cohort holding is now standard
         # (steps.merge_signal_overlap + friends) -- no longer unconditionally
         # hooked. Not yet combined with a multi-dimensional sort in this v1
-        # (BacktestEngine._dispatch() only routes to one alternate path or
+        # (BacktestExecutor._dispatch() only routes to one alternate path or
         # the other); that specific combination still needs a hook.
         if len(portfolio_return.sorts) > 1:
             hooks["merge_signal"] = (
@@ -238,7 +252,7 @@ def build_config(spec: MethodSpec, overrides: dict | None) -> dict:
         "overlapping": bool(spec.signal.timing.overlapping_portfolios),
         # Return basis / frequency (plan.md Phase 6). "excess" only actually
         # takes effect when factor data with an `rf` column is supplied to
-        # BacktestEngine.run(factors=...) -- see steps.apply_excess_returns.
+        # BacktestExecutor.run(factors=...) -- see steps.apply_excess_returns.
         # return_frequency isn't consumed by the standard steps yet (which
         # are frequency-agnostic given a `yyyymm`-keyed panel); it documents
         # intent and is available for callers that load daily source data
@@ -249,7 +263,7 @@ def build_config(spec: MethodSpec, overrides: dict | None) -> dict:
         # standard sort/breakpoints/assign/returns/combine chain;
         # "fama_macbeth" (construction_type=regression_weighted) routes to
         # steps.compute_fama_macbeth entirely instead, right after
-        # merge_signal -- see BacktestEngine.run_with_config().
+        # merge_signal -- see BacktestExecutor.run_with_config().
         "estimator": (
             "fama_macbeth"
             if ev(spec.reported_results.return_calculation.portfolio_return.construction_type)
@@ -340,29 +354,3 @@ def normalize_leg(value: Any, default: str) -> str:
     if "high" in text:
         return "high"
     return default
-
-
-def load_hooks(plugin) -> dict[str, Any]:
-    """Exec plugin code and extract hook callables."""
-    if plugin is None:
-        return {}
-    ns: dict = {}
-    exec(  # noqa: S102
-        compile(plugin.code, f"<plugin:{plugin.factor_id}>", "exec"), ns
-    )
-    loaded: dict[str, Any] = {}
-    for step in [
-        "filter_universe",
-        "merge_signal",
-        "compute_breakpoints",
-        "assign_portfolios",
-        "compute_returns",
-        "apply_missing_policy",
-        "apply_delisting_returns",
-        "neutralize_signal",
-        "compute_long_short",
-    ]:
-        fn_name = f"{step}_hook"
-        if fn_name in ns and callable(ns[fn_name]):
-            loaded[step] = ns[fn_name]
-    return loaded

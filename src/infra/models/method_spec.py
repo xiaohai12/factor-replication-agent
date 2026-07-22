@@ -313,7 +313,7 @@ class UniverseFilterSpec(BaseModel):
     """Row-level sample restriction, mirrors universe.filters[] from the
     extraction prompt schema (prompts/extractor/methodspec_extractor.md).
 
-    Used by BacktestEngine._detect_hooks() to decide, deterministically,
+    Used by BacktestExecutor._detect_hooks() to decide, deterministically,
     whether a paper's universe restriction goes beyond the standard
     shrcd/exchcd/siccd filter that _filter_universe() implements.
     """
@@ -361,7 +361,7 @@ class SortLegSpec(BaseModel):
 
     Mirrors reported_results.return_calculation.portfolio_return.sorts[] from
     the extraction prompt schema. `len(portfolio_return.sorts) > 1` is the
-    deterministic signal BacktestEngine._detect_hooks() uses to flag a
+    deterministic signal BacktestExecutor._detect_hooks() uses to flag a
     double/conditional sort, instead of keyword-matching portfolio.filter.
     """
 
@@ -400,7 +400,7 @@ class ReturnCombinationSpec(BaseModel):
 class PortfolioReturnSpec(BaseModel):
     """Mirrors reported_results.return_calculation.portfolio_return from the
     extraction prompt schema. Replaces the previous loose `dict[str, Any]` so
-    BacktestEngine._detect_hooks() can compare against typed STANDARD sets
+    BacktestExecutor._detect_hooks() can compare against typed STANDARD sets
     instead of guessing from free-text fields.
     """
 
@@ -410,7 +410,7 @@ class PortfolioReturnSpec(BaseModel):
     sorts: list[SortLegSpec] = Field(default_factory=list)
     # Loosely typed: extraction/curation sometimes stores this as a dict
     # ({"type": ..., "variants": [...]}), sometimes as a raw string. Not
-    # consumed by BacktestEngine._detect_hooks(), so it isn't worth a strict
+    # consumed by BacktestExecutor._detect_hooks(), so it isn't worth a strict
     # schema -- only reviewer._check_reported_results_contract() reads it,
     # as an informational cross-check.
     weighting: Any = Field(default_factory=dict)

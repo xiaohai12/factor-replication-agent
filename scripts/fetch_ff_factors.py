@@ -3,7 +3,7 @@
 Library and snapshot them to parquet (plan.md Phase 2).
 
 Build-time only: run this once (or whenever you want to refresh the factor
-data), never at backtest run time -- BacktestEngine only ever reads the
+data), never at backtest run time -- BacktestExecutor only ever reads the
 parquet this script writes, so a run's numbers stay reproducible even if
 Ken French's site is unreachable later. Requires the `pandas-datareader`
 dev dependency (see pyproject.toml) -- NOT a runtime dependency.

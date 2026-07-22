@@ -13,8 +13,8 @@ import pandas as pd
 import pytest
 
 from src.infra.models.method_spec import MethodSpec, SignalSpec, SortLegSpec
-from src.steps.step5_engine import steps
-from src.steps.step5_engine.registry import resolve_sort_dims
+from src.infra.backtest_engine import steps
+from src.steps.step3_codegen.registry import resolve_sort_dims
 
 
 def _two_by_two_panel() -> pd.DataFrame:

@@ -321,7 +321,7 @@ class ReviewGate:
             )
 
     def _check_portfolio_structure_consistency(self, spec: MethodSpec, result: ReviewResult) -> None:
-        """Safety net for BacktestEngine._detect_hooks()'s deterministic checks.
+        """Safety net for BacktestExecutor._detect_hooks()'s deterministic checks.
 
         _detect_hooks() decides whether compute_breakpoints/assign_portfolios/
         compute_long_short need a hook purely from the structured
@@ -337,7 +337,7 @@ class ReviewGate:
         field before codegen.
 
         Note: filter_universe is unconditionally LLM-generated (see
-        BacktestEngine.FILTER_UNIVERSE_ALWAYS_HOOK_REASON), so there's no
+        BacktestExecutor.FILTER_UNIVERSE_ALWAYS_HOOK_REASON), so there's no
         equivalent "silently falls back to standard" risk for
         portfolio.universe_filters to guard against here.
         """
@@ -360,7 +360,7 @@ class ReviewGate:
                 "portfolio.filter/long_leg/short_leg suggest a double-sort or multi-leg "
                 "construction, but reported_results.return_calculation.portfolio_return "
                 "(sorts/construction_type/return_combination) is unpopulated -- "
-                "BacktestEngine._detect_hooks() will silently treat this as a standard "
+                "BacktestExecutor._detect_hooks() will silently treat this as a standard "
                 "single-variable sort. Populate portfolio_return before approval."
             )
 

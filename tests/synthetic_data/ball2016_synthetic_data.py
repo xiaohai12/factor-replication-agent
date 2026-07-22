@@ -8,7 +8,7 @@ tests/fixtures/plugins/ball2016_cash_based_operating_profitability_factor.py's
 compute_breakpoints_hook / assign_portfolios_hook / compute_long_short_hook
 (portfolio ids 1=small-weak 2=small-mid 3=small-robust 4=big-weak 5=big-mid
 6=big-robust). This exercises the general `compute_long_short` hook point
-added to BacktestEngine for multi-leg long/short combinations.
+added to BacktestExecutor for multi-leg long/short combinations.
 
 Design:
 - 10 permnos. Profitability signal is evenly spaced by permno rank

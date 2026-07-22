@@ -1,4 +1,4 @@
-"""MVP end-to-end test: curated MethodSpec -> DataLayer -> plugin -> BacktestEngine.
+"""MVP end-to-end test: curated MethodSpec -> DataLayer -> plugin -> BacktestExecutor.
 
 Exercises the full Phase 1 MVP chain from docs/roadmap.md on synthetic data
 (no network / LLM calls):
@@ -6,7 +6,7 @@ Exercises the full Phase 1 MVP chain from docs/roadmap.md on synthetic data
     approved MethodSpec (cooper_gulen_schill_2008_asset_growth)
     -> DataLayer.get_signal_master_table()   (CCMLinker + TimeAvailComputer)
     -> plugin.compute_signal()               (already-generated, sandbox-passed plugin)
-    -> BacktestEngine.run()                  (9-step controlled lifecycle)
+    -> BacktestExecutor.run()                (9-step controlled lifecycle)
     -> Pipeline.run_from_method_spec()       (persists a RunRecord to EvidenceStore)
 
 Metrics are checked against golden numbers derived independently in
@@ -53,7 +53,7 @@ def pipeline(tmp_path) -> Pipeline:
     local_dir.mkdir(parents=True)
 
     crsp = build_crsp_msf()
-    # BacktestEngine._load_data reads data_path/local/msf.parquet directly.
+    # BacktestExecutor._load_data reads data_path/local/msf.parquet directly.
     crsp.to_parquet(local_dir / "msf.parquet", index=False)
 
     pipe = Pipeline(

@@ -9,11 +9,32 @@ Hook dispatch pattern (each step):
     result = fn(data, config)
 
 Module layout (see plan.md "Progressive file split"):
-  - `__init__.py` (this file) — orchestration: `BacktestEngine`, `Step`
+  - `__init__.py` (this file) — orchestration: `BacktestExecutor`, `Step`
     Protocol, `BacktestContext`, `run()`/`run_with_config()`/`_dispatch()`.
   - `steps.py` — the standard step pure functions (computation).
-  - `registry.py` — `STANDARD` sets, `detect_hooks`, `build_config`,
-    `load_hooks` (selection: what's standard vs. needs an LLM hook).
+  - `registry.py` — `load_hooks` only (run-time hook loading; the one piece
+    of "registry" logic `run_with_config()` itself calls).
+
+The generation-time decision layer (which steps are "standard", how a
+MethodSpec resolves into a run config: `STANDARD`, `detect_hooks`,
+`build_config`, `resolve_long_leg`/`resolve_short_leg`/`normalize_leg`) lives
+in `src/steps/step3_codegen/registry.py` instead — it's only ever called at
+generation time (by MetaCoder/script_generator), never by this module's own
+dispatch, so step3_codegen owns it and doesn't need to depend on this package
+for it. `BacktestExecutor._detect_hooks()`/`_build_config()`/etc. below remain
+as thin backward-compatible delegates to that module for existing callers
+(including tests) that use those names.
+
+Lives in `src/infra/` (not `src/steps/`) because this is shared computation
+infrastructure used by many callers with no single "owning" step —
+`pipeline.py` (orchestration), `step6_dual_track_controller` (ablation
+experiments), `app.py` (dashboard), and a dozen unit tests that exercise
+`steps.py` directly as a standalone computation library, the same way
+`src/infra/data_layer` (`DataLayer`/`CCMLinker`/`TimeAvailComputer`) is used
+by many callers rather than being one step's private implementation. "Step 5"
+as a pipeline action is just build-script + validate + subprocess-execute
+(see `Pipeline._build_script`/`_execute_script`) — this package is the engine
+library that script imports and runs, not the action of running it.
 """
 
 from __future__ import annotations
@@ -25,13 +46,8 @@ from typing import Any, Protocol
 import pandas as pd
 
 from src.infra.models.method_spec import MethodSpec
-from src.steps.step5_engine import registry, steps
-
-# Re-exported for backward compatibility: code that imported these names
-# directly from `src.steps.step5_engine` (e.g. `from src.steps.step5_engine import
-# BacktestEngine, STANDARD`) keeps working.
-STANDARD = registry.STANDARD
-FILTER_UNIVERSE_ALWAYS_HOOK_REASON = registry.FILTER_UNIVERSE_ALWAYS_HOOK_REASON
+from src.steps.step3_codegen import registry as codegen_registry
+from src.infra.backtest_engine import registry, steps
 
 
 class Step(Protocol):
@@ -68,13 +84,7 @@ class BacktestContext:
     trace: list[str] = field(default_factory=list)
 
 
-def _newey_west_var(x, lags: int) -> float:
-    """Deprecated alias — use `steps.newey_west_var`. Kept for any external
-    code that imported the private name directly from this module."""
-    return steps.newey_west_var(x, lags)
-
-
-class BacktestEngine:
+class BacktestExecutor:
     """Controlled backtesting lifecycle engine.
 
     Executes the fixed empirical pipeline. Standard steps are built-in;
@@ -82,8 +92,6 @@ class BacktestEngine:
 
     Steps (order is frozen):
       1. load_data          — load returns table by name
-                              (raw/<returns_table>.parquet, default crsp_msf;
-                              legacy local/msf.parquet fallback)
       2. apply_delisting_returns — fold CRSP dlret into ret (deterministic;
                               no-op when no dlret column, plan.md Phase 2.5)
       3. apply_missing_policy — drop / winsorize
@@ -104,9 +112,9 @@ class BacktestEngine:
                               alphas when factor data is supplied)
 
     This class is orchestration only — see `steps.py` for what each standard
-    step actually computes and `registry.py` for how hook-need/config are
-    decided. `run()` below is the entry point and reads like a table of
-    contents for the whole pipeline.
+    step actually computes and `src/steps/step3_codegen/registry.py` for how
+    hook-need/config are decided. `run()` below is the entry point and reads
+    like a table of contents for the whole pipeline.
     """
 
     def __init__(self, data_path: str | None = None):
@@ -237,8 +245,8 @@ class BacktestEngine:
     #: Steps that get routed to an `_overlap` counterpart in `steps.py` when
     #: `config["overlapping"]` is true (plan.md Phase 5). Takes priority over
     #: `_MULTI_DIM_STEPS` routing (the two aren't combined in this v1 — see
-    #: `registry.detect_hooks()`, which still requests a hook for that
-    #: specific combination).
+    #: `step3_codegen.registry.detect_hooks()`, which still requests a hook
+    #: for that specific combination).
     _OVERLAP_STEPS = {
         "merge_signal",
         "compute_breakpoints",
@@ -304,20 +312,21 @@ class BacktestEngine:
         return steps.load_msf(path)
 
     # ------------------------------------------------------------------
-    # Hook detection & config resolution — thin delegation to registry.py,
-    # kept as methods/classmethods here for backward compatibility (existing
-    # callers use `BacktestEngine._detect_hooks(spec)` and
+    # Hook detection & config resolution — thin delegation to
+    # step3_codegen.registry (the generation-time decision layer), kept as
+    # methods/classmethods here for backward compatibility (existing callers
+    # use `BacktestExecutor._detect_hooks(spec)` and
     # `engine._build_config(spec, overrides)`).
     # ------------------------------------------------------------------
 
     @classmethod
     def _detect_hooks(cls, spec: MethodSpec) -> dict[str, str]:
         """Return {step_name: reason} for steps that need LLM-generated hooks."""
-        return registry.detect_hooks(spec)
+        return codegen_registry.detect_hooks(spec)
 
     def _build_config(self, spec: MethodSpec, overrides: dict | None) -> dict:
         """Build run config entirely from resolved MethodSpec fields."""
-        return registry.build_config(spec, overrides)
+        return codegen_registry.build_config(spec, overrides)
 
     def _load_hooks(self, plugin) -> dict[str, Any]:
         """Exec plugin code and extract hook callables."""
@@ -325,13 +334,13 @@ class BacktestEngine:
 
     @staticmethod
     def _resolve_long_leg(spec: MethodSpec) -> str:
-        return registry.resolve_long_leg(spec)
+        return codegen_registry.resolve_long_leg(spec)
 
     @staticmethod
     def _resolve_short_leg(spec: MethodSpec) -> str:
-        return registry.resolve_short_leg(spec)
+        return codegen_registry.resolve_short_leg(spec)
 
     @staticmethod
     def _normalize_leg(value: Any, default: str) -> str:
-        return registry.normalize_leg(value, default)
+        return codegen_registry.normalize_leg(value, default)
 

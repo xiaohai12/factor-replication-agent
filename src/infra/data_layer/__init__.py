@@ -380,7 +380,7 @@ class DataLayer:
 # Panel assembly from raw WRDS-shaped source tables — DECLARATIVE.
 #
 # Real vendors ship a firm's data across SEPARATE tables (CRSP: msf returns /
-# msenames attributes / msedelist delistings), but the BacktestEngine wants one
+# msenames attributes / msedelist delistings), but the BacktestExecutor wants one
 # flat panel keyed [permno, yyyymm]. Rather than a bespoke per-source function,
 # each source declares its ROLE in `SOURCE_SCHEMA` and one generic
 # `assemble_panel()` interprets it — same declarative spirit as this module's
@@ -504,7 +504,7 @@ def assemble_panel(data_dir: str | Path, schema: dict[str, dict] | None = None) 
 def build_crsp_monthly_panel(data_dir: str | Path) -> pd.DataFrame:
     """Assemble the standard CRSP monthly returns panel (thin wrapper over the
     declarative `assemble_panel` using `SOURCE_SCHEMA`). Kept as a named entry
-    point for `BacktestEngine._load_data` and tests."""
+    point for `BacktestExecutor._load_data` and tests."""
     return assemble_panel(data_dir, SOURCE_SCHEMA)
 
 

@@ -8,7 +8,7 @@ Exercises the full Phase 1 MVP chain from docs/roadmap.md on synthetic data
     -> plugin.compute_signal()               (already-generated plugin, incl.
                                                its own per-formation-date
                                                1%/99% winsorization)
-    -> BacktestEngine.run()                  (9-step controlled lifecycle,
+    -> BacktestExecutor.run()                (9-step controlled lifecycle,
                                                dispatching apply_missing_policy
                                                to the plugin's hook since
                                                missing_action='winsorize' is
@@ -62,7 +62,7 @@ def pipeline(tmp_path) -> Pipeline:
     local_dir.mkdir(parents=True)
 
     crsp = build_crsp_msf()
-    # BacktestEngine._load_data reads data_path/local/msf.parquet directly.
+    # BacktestExecutor._load_data reads data_path/local/msf.parquet directly.
     crsp.to_parquet(local_dir / "msf.parquet", index=False)
 
     pipe = Pipeline(
@@ -116,8 +116,8 @@ def test_signal_master_table_has_expected_shape(pipeline, approved_spec):
 
 
 def test_accruals_hook_is_detected_for_winsorize_missing_action(approved_spec):
-    from src.steps.step5_engine import BacktestEngine
-    hooks = BacktestEngine._detect_hooks(approved_spec)
+    from src.infra.backtest_engine import BacktestExecutor
+    hooks = BacktestExecutor._detect_hooks(approved_spec)
     assert "apply_missing_policy" in hooks
 
 

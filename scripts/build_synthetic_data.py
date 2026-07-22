@@ -4,7 +4,7 @@ Writes:
 - data/synthetic_data/mvp_v1/crsp_msf.parquet        (DataLayer snapshot table)
 - data/synthetic_data/mvp_v1/compustat_funda.parquet  (DataLayer snapshot table)
 - data/synthetic_data/mvp_v1/ccm_link.parquet         (DataLayer snapshot table)
-- data/synthetic_data/local/msf.parquet               (raw CRSP file BacktestEngine reads directly)
+- data/synthetic_data/local/msf.parquet               (raw CRSP file BacktestExecutor reads directly)
 
 Run with: python3 scripts/build_synthetic_data.py
 """

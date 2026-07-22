@@ -6,12 +6,12 @@ factor is a 2x3 double sort (size x profitability) combined as
 0.5*(small-robust + big-robust) - 0.5*(small-weak + big-weak), which the
 standard single-variable `_compute_long_short()` cannot express. This test
 verifies:
-  1. `BacktestEngine._detect_hooks()` correctly flags `compute_long_short` as
+  1. `BacktestExecutor._detect_hooks()` correctly flags `compute_long_short` as
      needed for this spec's multi-leg long_leg/short_leg description.
   2. The plugin's `compute_breakpoints_hook`/`assign_portfolios_hook`/
      `compute_long_short_hook` (all hand-written here, mirroring what
      MetaCoder would generate against the new hook signature) run through
-     `BacktestEngine.run()` end-to-end via `Pipeline.run_from_method_spec()`.
+     `BacktestExecutor.run()` end-to-end via `Pipeline.run_from_method_spec()`.
   3. The resulting metrics match golden numbers derived independently in
      tests/synthetic_data/ball2016_synthetic_data.py.
 """
@@ -106,8 +106,8 @@ def test_multi_leg_long_short_hook_is_detected(approved_spec):
     (hooks loaded from a plugin always take priority over the standard
     implementation regardless of what detect_hooks predicts).
     """
-    from src.steps.step5_engine import BacktestEngine
-    hooks = BacktestEngine._detect_hooks(approved_spec)
+    from src.infra.backtest_engine import BacktestExecutor
+    hooks = BacktestExecutor._detect_hooks(approved_spec)
     assert "compute_breakpoints" in hooks
     assert "assign_portfolios" in hooks
     assert "compute_long_short" not in hooks

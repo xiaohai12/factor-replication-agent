@@ -17,7 +17,7 @@ from __future__ import annotations
 import pandas as pd
 import pytest
 
-from src.steps.step5_engine import steps
+from src.infra.backtest_engine import steps
 
 
 def _signal() -> pd.DataFrame:

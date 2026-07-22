@@ -22,7 +22,7 @@ from pathlib import Path
 ROOT = Path(__file__).parent.parent
 sys.path.insert(0, str(ROOT))
 
-from src.steps.step5_engine import BacktestEngine
+from src.infra.backtest_engine import BacktestExecutor
 from src.infra.llm import CodexCLIClient
 from src.steps.step3_codegen import MetaCoder
 from src.infra.models.method_spec import MethodSpec
@@ -61,7 +61,7 @@ def run(factor_id: str) -> int:
 
     # ── Step 2.5b: hook detection ────────────────────────────────────────────
     print("[2.5b] Detecting non-standard backtest steps...")
-    hooks_needed = BacktestEngine._detect_hooks(spec)
+    hooks_needed = BacktestExecutor._detect_hooks(spec)
     if hooks_needed:
         for step, reason in hooks_needed.items():
             print(f"       HOOK needed: {step} — {reason}")

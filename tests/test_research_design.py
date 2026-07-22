@@ -1,7 +1,7 @@
 """Unit tests for the deterministic ResearchDesign steps added in plan.md
 Phase 2.5: universe filter DSL, delisting-return handling, and the
 neutralization scaffold. These are pure functions in
-`src/steps/step5_engine/steps.py`, tested directly (no MethodSpec/plugin needed).
+`src/infra/backtest_engine/steps.py`, tested directly (no MethodSpec/plugin needed).
 """
 
 from __future__ import annotations
@@ -9,7 +9,7 @@ from __future__ import annotations
 import pandas as pd
 import pytest
 
-from src.steps.step5_engine import steps
+from src.infra.backtest_engine import steps
 
 
 def _msf_df() -> pd.DataFrame:

@@ -15,8 +15,18 @@ class ValidationReport(BaseModel):
     schema_ok: bool = False
     no_future_leak: bool = False
     reproducible: bool = False
+    # hooks_ok: every hook function the MethodSpec required (recorded in
+    # PluginRecord.hooks) is defined in the code with a matching arity (static
+    # AST check). executes_ok: compute_signal ran on a small real-data slice
+    # without raising (a lenient smoke test — an empty/degenerate result on a
+    # thin slice is inconclusive, not a failure; only a raised exception fails
+    # it). executes_ok stays True when no slice was supplied (the check is
+    # skipped), so static-only validation paths still pass.
+    hooks_ok: bool = True
+    executes_ok: bool = True
     errors: list[str] = Field(default_factory=list)
     warnings: list[str] = Field(default_factory=list)
+
 
 
 class PluginRecord(BaseModel):

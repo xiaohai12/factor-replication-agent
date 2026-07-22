@@ -2,6 +2,316 @@
 
 ## [Unreleased]
 
+### Added — `Pipeline.run_full_pipeline()` re-wires steps 1/2/6/7 into the orchestrator
+- Restored constructor wiring removed earlier the same day:
+  `self.extractor` (`SemanticExtractor`), `self.review_gate` (`ReviewGate`),
+  `self.controller` (`DualTrackController`), `self.attribution`
+  (`AttributionLayer`), and their imports (`ExperimentPlan` too).
+- New `Pipeline.run_full_pipeline(factor_id, snapshot_id, paper_text, plan=None,
+  config_overrides=None) -> tuple[list[RunRecord], PipelineStatus]`: chains all
+  7 steps (extract → review → generate → validate → execute → dual-track/
+  ablations → attribute). Reuses `_validate_with_repair()` for steps 3-4 (same
+  Sandbox→Meta-Coder repair loop `run_from_method_spec()` uses) and
+  `self.controller.run_experiment()` for steps 5-6 (each track builds+executes
+  its own config variant with its own per-track repair loop, unchanged).
+- Restored `PipelineStatus` dataclass (`factor_id`, `stage`, `error`,
+  `needs_manual` — no `backtrack_count` this time, see below).
+- **Deliberately fail-fast, no fake backtrack:** unlike the removed
+  `run_factor()`, `run_full_pipeline()` makes no claim of automatically
+  retrying Review→Extractor / Sandbox→Review(empirical) / Attribution→Review.
+  A rejection at any stage sets `PipelineStatus.stage="failed"` with `.error`
+  describing why and returns immediately; the caller re-invokes manually
+  (e.g., `pipeline.extractor.extract()` with edited `paper_text`) to retry.
+  Real cross-stage backtrack remains Phase 2 scope (`docs/roadmap.md`).
+- **Every step independently callable for testing**, by design: with the
+  constructor wiring restored, `pipeline.extractor.extract(...)`,
+  `pipeline.review_gate.review(...)`, `pipeline.meta_coder.generate_plugin(...)`,
+  `pipeline.sandbox.validate(...)`, `pipeline.runner.build_script()/.execute()`,
+  `pipeline.controller.run_experiment(...)`, and
+  `pipeline.attribution.attribute_ablation(...)` can each be driven standalone
+  without going through `run_full_pipeline()`.
+- Updated `docs/architecture.md` §3.1 (feedback-loop table now describes
+  `run_full_pipeline()`'s real fail-fast behavior instead of the old removed
+  `run_factor()`) and §4, `docs/roadmap.md` Phase 1 status note, and added a
+  `docs/decision-log.md` entry explaining why this was re-added as fail-fast
+  rather than re-implementing the old stub backtrack loops.
+- Verified: full `pytest tests/` (163 passed, 26 skipped) and
+  `ruff check src/pipeline.py` clean; smoke-tested `Pipeline()` instantiation
+  wires all four sub-components correctly.
+
+### Removed — dead code cleanup across `src/pipeline.py` and `src/steps/`/`src/infra/`
+- **`Pipeline.run_factor()`** and its dedicated helpers (`_has_empirical_issues`,
+  `_is_anomalous`, `PipelineStatus` dataclass, `MAX_BACKTRACK_DEPTH` constant),
+  plus the constructor wiring that only existed to support it
+  (`self.extractor`/`SemanticExtractor`, `self.review_gate`/`ReviewGate`,
+  `self.controller`/`DualTrackController`+`ExperimentPlan`,
+  `self.attribution`/`AttributionLayer`, and their imports). Confirmed via
+  repo-wide grep (`app.py`, `scripts/`, `tests/`) that `run_factor()` had zero
+  callers anywhere; three of its four "feedback loop" branches were TODO stubs
+  that failed immediately instead of retrying (see the two entries below —
+  this is the conclusion of that same investigation). `Pipeline`'s sole
+  remaining entry point is `run_from_method_spec()`. See
+  `docs/decision-log.md` 2026-07-22 for full rationale. Also updated
+  `docs/architecture.md` §3.1/§4 and `docs/roadmap.md` to reflect the removal.
+- **`_newey_west_var`** deprecated alias in `src/infra/backtest_engine/__init__.py`
+  — zero callers anywhere in the repo.
+- **`STANDARD`/`FILTER_UNIVERSE_ALWAYS_HOOK_REASON`** backward-compat re-exports
+  in `src/infra/backtest_engine/__init__.py` — nothing imports these from
+  `backtest_engine` (only from their real home, `step3_codegen.registry`).
+- **`cz_metadata`/`osap_code`** parameters on `run_factor()` — accepted but
+  never used in the method body, and `SemanticExtractor.extract()` doesn't
+  even have parameters for them (removed earlier for information-leakage
+  reasons), so passing them silently did nothing.
+- Unused imports flagged by `ruff --select F401`: `get_factor_to_pdf` in
+  `src/evaluation/helpers.py`, `dataclasses.field` + `typing.Any` in
+  `src/infra/trace.py`, `typing.Any` in `src/steps/step5_backtest_runner/__init__.py`.
+- Verified: full `pytest tests/` (163 passed, 26 skipped — unrelated
+  slow/LLM-gated tests) and `ruff check src/` both clean after these removals.
+
+### Changed — re-attributed "build the standalone backtest script" from Step 5 to Step 3 (docs/comments only)
+- `AGENTS.md` Module Map previously credited Step 5 (`BacktestRunner`) with
+  both "build the script" and "execute it". Script assembly
+  (`generate_backtest_script`) is conceptually part of Step 3's output (it
+  turns the plugin's `compute_signal` + hooks into the one complete
+  standalone script) — `BacktestRunner.build_script()` only lives in the
+  step5 module because it also needs `DataLayer` snapshot-path resolution,
+  which `step3_codegen` doesn't have. Step 5 now means execute-only
+  (`BacktestRunner.execute()`). Updated: `AGENTS.md`'s step3/step5 Module Map
+  rows, `step5_backtest_runner/__init__.py`'s module docstring, and
+  `Pipeline`'s class docstring (the workflow list, and the
+  `run_from_method_spec()` vs `run_factor()` comparison — with this
+  relabeling `run_from_method_spec()` is now a clean linear 3→4→5, no more
+  "interleaves 4 and 5"; `run_factor()` instead defers step 3's "build" half
+  until `DualTrackController.run_experiment()`). No code or behavior changed.
+
+### Fixed — docs/comments overstated `Pipeline.run_factor()` feedback-loop completeness
+- `src/pipeline.py` module/class docstrings and `docs/architecture.md` §3.1 previously
+  described Review Gate → Extractor, Sandbox → Review Gate (empirical), and
+  Attribution → Review Gate as implemented backtrack loops. In the actual code
+  all three sites increment `backtrack_count` and then immediately set
+  `status.stage = "failed"` and return — they never re-invoke the upstream
+  stage, so today they behave as "fail on first trigger" rather than a retry
+  loop. Only the Sandbox → Meta-Coder technical-repair loop (inside the
+  `validate` stage's `for attempt in range(...)`) actually retries. Updated the
+  docstrings, inline `# TODO` comments at all three stub sites, and the
+  architecture.md §3.1 table / §4 status row to say "not yet implemented"
+  instead of "implemented", so the comments match current behavior. No
+  behavior changed.
+- Also re-numbered the `Pipeline` class docstring's workflow list from 8 steps
+  to 7, matching `AGENTS.md`'s Module Map (EvidenceStore is infra, not a
+  numbered pipeline step).
+
+### Added — `src/steps/step5_backtest_runner/` (real Step 5 module) + fixed `DualTrackController._run_track()` stub
+- "Step 5" as a pipeline action (build the standalone script, execute it via
+  subprocess) had no dedicated module — its logic lived as private methods on
+  `Pipeline` (`_build_script`/`_execute_script`/`_make_failed_run_record`),
+  unlike every other numbered step (1–4, 6, 7), which each expose a class
+  `Pipeline` orchestrates. New `src/steps/step5_backtest_runner/` /
+  `BacktestRunner` class restores that consistency:
+  `build_script()` / `execute()` (moved verbatim from `Pipeline`) plus
+  `make_run_record()` / `make_failed_run_record()` (also moved, so the exact
+  same RunRecord-building logic is shared rather than duplicated between
+  `Pipeline` and `DualTrackController`, added below). Deliberately has zero
+  dependency on `src.infra.backtest_engine` (`BacktestExecutor`) — it only
+  calls `step3_codegen.registry.build_config` + `generate_backtest_script`;
+  the actual engine is only ever imported by the generated script itself, in
+  its own subprocess.
+- `Pipeline` now holds `self.runner = BacktestRunner(...)` instead of
+  `self.engine = BacktestExecutor(...)` (which was only ever used for
+  `_build_config`, now called directly via `step3_codegen.registry.build_config`
+  from inside `BacktestRunner`) and delegates to it throughout
+  `run_from_method_spec`/`_validate_with_repair`.
+- **Fixed `DualTrackController._run_track()`**, previously
+  `raise NotImplementedError` — i.e. `Pipeline.run_factor()`'s "run" stage
+  (the numbered 8-stage pipeline) could never actually execute a backtest;
+  only the separate `run_from_method_spec()` bypass path worked. `_run_track()`
+  now calls `BacktestRunner.build_script()`/`.execute()` per track, with its
+  own bounded repair loop on an execution failure (`MetaCoder.repair_plugin()`
+  + a quick `AdversarialSandbox.validate()` re-check, then rebuild+retry,
+  ≤`MAX_REPAIR_RETRIES`) — the same Step-5-fails→Step-3-repairs pattern
+  `Pipeline.run_from_method_spec` already used for the single-track path,
+  now available per-track for ablations/dual-track too. On exhaustion, a
+  `status="failed"` RunRecord comes back instead of an unhandled exception.
+- `DualTrackController.__init__` signature changed:
+  `engine: BacktestExecutor` → `runner: BacktestRunner, meta_coder: MetaCoder,
+  sandbox: AdversarialSandbox` (needs the repair-loop collaborators, not the
+  engine). `run_experiment()`/`_run_track()` gained a required `snapshot_id`
+  parameter (needed to build the script) — `Pipeline.run_factor()` gained the
+  same required `snapshot_id` parameter to pass through (previously
+  `run_factor()` had no way to reference registered data at all, a pre-existing
+  gap this closes as a side effect of wiring step5→step6).
+- Tests: new `tests/test_dual_track_controller.py` (fakes for
+  runner/meta_coder/sandbox — no real subprocess/data/LLM): single-track happy
+  path, multi-track (original+standardized+ablation) produces one RunRecord
+  per track with distinct configs, execute-fails-then-repairs-then-succeeds,
+  execute-always-fails-returns-failed-RunRecord.
+- Updated `AGENTS.md` Module Map (re-added the `step5_backtest_runner/` row,
+  `step6_dual_track_controller`'s role note updated).
+- `python3 -m pytest tests/`: 128 passed / 28 skipped / 14 pre-existing
+  pyarrow-related failures (same 14 as before this change; 4 new tests added).
+- Rationale (why a real Step5 module, why fix the stub now, why the
+  repair-loop boundary sits in step6 not step5) recorded in
+  `docs/decision-log.md` (2026-07-22).
+
+### Changed — `BacktestExecutor` engine library moved from `src/steps/step5_executor/` to `src/infra/backtest_engine/`
+- `src/steps/step5_executor/` (the `BacktestExecutor` class, `steps.py`'s 12-step
+  computation functions, `registry.py`'s `load_hooks`) was never itself "Step 5"
+  as a pipeline action — the actual action ("generate script → validate →
+  execute via subprocess") lives entirely in `src/pipeline.py`
+  (`_build_script`/`_execute_script`, literally `subprocess.run([sys.executable,
+  script_path])`). The directory name implied it *was* the step-5 action; it's
+  really a shared computation library with no single "owning" step — grep-
+  verified real callers are `pipeline.py` (orchestration),
+  `step6_dual_track_controller` (ablation experiments), `app.py` (dashboard),
+  `scripts/test_codegen.py`, the generated script's own runtime import, and 13
+  unit-test files that exercise `steps.py` directly as a standalone computation
+  library (same shape as `src/infra/data_layer`'s `DataLayer`/`CCMLinker`/
+  `TimeAvailComputer`, which nobody would call "one step's private code").
+- Moved (via `git mv`) `src/steps/step5_executor/` → `src/infra/backtest_engine/`
+  unchanged (class/function names, file layout, and the step3_codegen ⇄
+  backtest_engine relationship from the previous entry are all preserved —
+  only the containing package moved). Updated every
+  `from src.steps.step5_executor import ...` across `src/pipeline.py`,
+  `src/steps/step6_dual_track_controller/`, `src/steps/step3_codegen/script_generator.py`
+  (both its own import and the generated script's `_TEMPLATE` runtime import),
+  `app.py`, `scripts/test_codegen.py`, and 14 test files to
+  `from src.infra.backtest_engine import ...`.
+- `src/steps/` now contains only genuine pipeline actions (extract, review,
+  codegen, validate, dual-track, attribution) — "Step 5" has no corresponding
+  numbered folder; it's the build+execute action in `pipeline.py`, consistent
+  with how it actually works.
+- Updated `AGENTS.md` Module Map (added `src/infra/backtest_engine/` row,
+  re-pointed the "Step 5" row at `pipeline.py`'s build/execute methods) and
+  `docs/architecture.md` §4.6 accordingly.
+- No behavior change: `python3 -m pytest tests/` unchanged (124 passed / 28
+  skipped / 14 pre-existing pyarrow-related failures, identical before/after).
+- Rationale recorded in `docs/decision-log.md` (2026-07-22).
+
+### Changed — codegen decision layer (`detect_hooks`/`build_config`/`STANDARD`) moved from `step5_executor` to `step3_codegen`
+- `src/steps/step5_executor/registry.py` used to hold two unrelated kinds of
+  logic bundled in one file: generation-time decisions (`STANDARD`,
+  `detect_hooks`, `build_config`, `resolve_long_leg`/`resolve_short_leg`/
+  `normalize_leg`, `resolve_sort_dims`) that are only ever called by
+  `MetaCoder`/`script_generator` at plugin-generation time, and run-time hook
+  loading (`load_hooks`) that only `BacktestExecutor.run_with_config()` itself
+  calls. Because step3 could only reach the generation-time functions through
+  `BacktestExecutor`'s classmethod/staticmethod wrappers
+  (`BacktestExecutor._detect_hooks(spec)`, `engine._build_config(...)`),
+  `step3_codegen` ended up importing the execution engine class just to reach
+  two pure functions of a `MethodSpec` — backwards, since step5 is meant to
+  *only execute the already-generated code*, never decide anything.
+- New `src/steps/step3_codegen/registry.py`: the generation-time decision
+  layer, verbatim (`STANDARD`, `FILTER_UNIVERSE_ALWAYS_HOOK_REASON`, `ev`,
+  `detect_hooks`, `build_config`, `resolve_sort_dims`,
+  `resolve_long_leg`/`resolve_short_leg`/`normalize_leg`). `step3_codegen`
+  (`MetaCoder.generate_plugin` and `script_generator.generate_backtest_script`)
+  now calls these directly — no more importing `BacktestExecutor` for this.
+- `src/steps/step5_executor/registry.py` now holds only `load_hooks` — the one
+  piece of "registry" logic the engine's own `run_with_config()` calls.
+- `BacktestExecutor._detect_hooks()`/`_build_config()`/`_resolve_long_leg()`/
+  `_resolve_short_leg()`/`_normalize_leg()` remain on the class as thin
+  backward-compatible delegates to `step3_codegen.registry` (existing callers,
+  including `tests/test_engine_hooks.py`'s extensive direct use of
+  `BacktestExecutor._detect_hooks(spec)`, keep working unchanged) —
+  `_load_hooks()` still delegates to the local (now-tiny) `registry.py`.
+  This makes the dependency strictly one-directional: `step5_executor` imports
+  `step3_codegen.registry` for these five delegate methods only;
+  `step3_codegen` has zero imports of `step5_executor` (verified — no cycle).
+- Updated `tests/test_multi_sort.py`'s `resolve_sort_dims` import and
+  `docs/architecture.md` §4.6 accordingly.
+- No behavior change: `python3 -m pytest tests/` unchanged (124 passed / 28
+  skipped / 14 pre-existing pyarrow-related failures, same as before this move).
+- Rationale recorded in `docs/decision-log.md` (2026-07-22).
+
+### Added — validator hook contract check + execution smoke test on the ONE real script + Step-5 repair net
+- `AdversarialSandbox` (step4) was purely static and only checked that
+  `compute_signal` existed — it never executed the generated code and never
+  checked hook functions, so a missing/misnamed hook (silently ignored at run
+  time, making a non-standard factor run as standard) and any runtime error in
+  `compute_signal` reached run time with no safety net.
+- New `_check_hooks`: for every hook the MethodSpec required (`PluginRecord.hooks`),
+  statically verifies the named function is defined with an argument count
+  matching the canonical `HOOK_SIGNATURES` contract (imported from step3; no
+  import cycle). New `ValidationReport.hooks_ok`.
+- New `_check_executes`: **imports the exact standalone backtest script Step5
+  will later execute** (built once via `Pipeline._build_script`, which wraps
+  `script_generator.generate_backtest_script()`) in a subprocess with a
+  timeout, and calls its `compute_signal` on a small real-data slice. Importing
+  (not running) the script never triggers its `main()` (guarded by
+  `if __name__ == "__main__":` in the template), so no full snapshot load or
+  full `BacktestExecutor` run happens during validation — only the
+  module-level `exec(compile(PLUGIN_CODE, ...))` line runs, defining
+  `compute_signal` (and any hooks, left uncalled). This validates the SAME
+  artifact byte-for-byte, instead of a separately hand-rolled "how do I exec
+  the plugin" runner. **Lenient**: only a raised exception or a hang fails it
+  (`executes_ok=False`); an empty/degenerate result on a thin slice is
+  inconclusive (a warning, not a failure); no script/slice ⇒ skipped
+  (`executes_ok` stays True, so `app.py`'s inline static-validate button and
+  other 2-arg `validate()` callers are unaffected). Hooks are not executed
+  here. New `ValidationReport.executes_ok`. The subprocess driver pickles the
+  slice (no parquet/pyarrow dependency).
+- `Pipeline._build_script`: the single place the standalone script is
+  assembled from a plugin (replaces the old generate-and-run-in-one-call
+  `_run_backtest_via_script`, split into `_build_script` (assemble, no
+  execution) + `_execute_script` (write + subprocess-run an already-built
+  script)). `_validate_with_repair` calls `_build_script` fresh on every
+  attempt (including after a repair produces new plugin code) and validates
+  THAT text; `run_from_method_spec` then calls `_execute_script` on the exact
+  same built dict — so "what was validated" and "what gets executed" are
+  always the same bytes, never independently regenerated.
+- `Pipeline._build_validation_slice`: best-effort real-data slice for the smoke
+  test, sliced **by permno keeping full month history** (preserves momentum /
+  year-over-year lookbacks — never sliced by row/month), preferring permnos with
+  non-null coverage in the signal's required columns; returns None (skips the
+  smoke test) for multi-source signals or any build problem.
+- `Pipeline.run_from_method_spec` now wraps `_execute_script` in a bounded
+  run-with-repair loop: on a `RuntimeError`, feeds the run's stderr back into
+  the same MetaCoder repair loop used for validation errors — which rebuilds
+  AND re-validates the script from the new plugin code via
+  `_validate_with_repair` before the next execution attempt, preserving the
+  same-bytes invariant on every retry — and, when repair is
+  exhausted/unavailable, persists a `status="failed"` RunRecord
+  (`_make_failed_run_record`) instead of leaving an unhandled exception with a
+  registered plugin and no run record. This is the guaranteed net that covers
+  hook runtime bugs and full-data-only failures the (lenient, signal-only,
+  slice-based) early smoke test can't.
+- Rationale, alternatives, the security trade-off (subprocess+timeout, not a
+  full sandbox), and the decision to keep C&Z ground truth out of the
+  validation/repair loop (post-hoc evaluation only) are recorded in
+  `docs/decision-log.md` (2026-07-21), with literature references
+  (HumanEval arXiv:2107.03374, CodeT arXiv:2207.10397, Self-Debugging
+  arXiv:2304.05128).
+- Tests: `tests/test_sandbox_validation.py` builds the real script via
+  `generate_backtest_script()` for each case (hook missing/wrong-arity →
+  `hooks_ok=False`; good plugin passes; `compute_signal` raising →
+  `executes_ok=False`; empty output → inconclusive warning, still passes; no
+  script_text → check skipped; in-memory slices, no parquet).
+
+### Changed — `BacktestEngine` renamed to `BacktestExecutor` (class + folder)
+- Renamed the `src/steps/step5_engine/` class `BacktestEngine` → `BacktestExecutor`
+  (naming clarity: "Engine" read as ambiguous next to `MetaCoder`'s actual code
+  generation — `BacktestExecutor` makes explicit that this component only
+  *executes* the fixed, pre-resolved lifecycle and never generates/decides
+  anything itself). Also renamed the containing folder
+  `src/steps/step5_engine/` → `src/steps/step5_executor/` (via `git mv`) so the
+  module path matches the class name; updated every `from
+  src.steps.step5_engine import ...` across `src/`, `tests/`, `scripts/`,
+  `app.py` to `src.steps.step5_executor`. Updated all real references
+  (imports, instantiations, docstrings, comments) plus current docs
+  (`AGENTS.md` Module Map, `docs/architecture.md` §4.6, `plan.md`
+  file-path pointers). Historical `CHANGELOG.md` entries and most of
+  `plan.md`'s phase narrative (which predates this rename) were left
+  referring to the old `BacktestEngine`/`step5_engine` names, consistent with
+  this repo's existing convention of not rewriting historical records.
+- Critically, this includes the `_TEMPLATE` string in
+  `src/steps/step3_codegen/script_generator.py` that becomes the actual
+  generated standalone backtest script's source code — a plain rename tool
+  wouldn't catch this since it's a string literal, not a live symbol
+  reference; verified separately.
+- Left `src/steps/engine/` and `src/steps/reviewer/` (unreferenced duplicate
+  leftovers from the step-numbering rename below) untouched — not imported
+  anywhere; candidates for deletion in a follow-up cleanup.
+
 ### Changed — numbered `src/steps/` subfolders for pipeline order
 - Renamed all `src/steps/` subpackages to include their pipeline-order prefix
   (matching the AGENTS.md Module Map step numbers), since Python module names

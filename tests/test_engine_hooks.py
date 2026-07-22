@@ -1,4 +1,4 @@
-"""Unit tests for BacktestEngine._detect_hooks() and its ReviewGate safety net.
+"""Unit tests for BacktestExecutor._detect_hooks() and its ReviewGate safety net.
 
 _detect_hooks() used to guess double-sorts / multi-leg combinations / non-
 standard universes by keyword-matching free-text MethodSpec fields
@@ -25,7 +25,7 @@ deeply nested and easy for extraction to leave unpopulated, ReviewGate.
 _check_portfolio_structure_consistency() acts as a safety net for those
 fields: it blocks approval when free-text fields clearly describe a complex
 construction but the structured fields are empty, so a human fills them in
-instead of BacktestEngine silently treating the factor as standard.
+instead of BacktestExecutor silently treating the factor as standard.
 """
 
 from __future__ import annotations
@@ -41,7 +41,7 @@ from src.infra.models.method_spec import (
     UniverseFilterSpec,
     WeightingRule,
 )
-from src.steps.step5_engine import BacktestEngine
+from src.infra.backtest_engine import BacktestExecutor
 from src.steps.step2_reviewer import ReviewGate
 
 
@@ -65,7 +65,7 @@ def _minimal_spec() -> MethodSpec:
 class TestDetectHooksStandardCase:
     def test_all_standard_fields_trigger_no_hooks(self):
         spec = _minimal_spec()
-        assert set(BacktestEngine._detect_hooks(spec)) == set()
+        assert set(BacktestExecutor._detect_hooks(spec)) == set()
 
 
 class TestDetectHooksSorts:
@@ -78,7 +78,7 @@ class TestDetectHooksSorts:
             SortLegSpec(variable="size"),
             SortLegSpec(variable="book_to_market"),
         ]
-        hooks = BacktestEngine._detect_hooks(spec)
+        hooks = BacktestExecutor._detect_hooks(spec)
         assert "compute_breakpoints" not in hooks
         assert "assign_portfolios" not in hooks
 
@@ -90,7 +90,7 @@ class TestDetectHooksSorts:
             SortLegSpec(variable="book_to_market"),
             SortLegSpec(variable="momentum"),
         ]
-        hooks = BacktestEngine._detect_hooks(spec)
+        hooks = BacktestExecutor._detect_hooks(spec)
         assert "compute_breakpoints" in hooks
         assert "assign_portfolios" in hooks
 
@@ -102,7 +102,7 @@ class TestDetectHooksSorts:
             SortLegSpec(variable="book_to_market"),
             SortLegSpec(variable="momentum"),
         ]
-        hooks = BacktestEngine._detect_hooks(spec)
+        hooks = BacktestExecutor._detect_hooks(spec)
         assert "compute_breakpoints" in hooks
         assert "assign_portfolios" in hooks
 
@@ -111,7 +111,7 @@ class TestDetectHooksSorts:
         spec.reported_results.return_calculation.portfolio_return.sorts = [
             SortLegSpec(variable="asset_growth_decile"),
         ]
-        hooks = BacktestEngine._detect_hooks(spec)
+        hooks = BacktestExecutor._detect_hooks(spec)
         assert "compute_breakpoints" not in hooks
         assert "assign_portfolios" not in hooks
 
@@ -125,7 +125,7 @@ class TestDetectHooksConstructionType:
         spec.reported_results.return_calculation.portfolio_return.construction_type = (
             PortfolioConstructionType.REGRESSION_WEIGHTED
         )
-        hooks = BacktestEngine._detect_hooks(spec)
+        hooks = BacktestExecutor._detect_hooks(spec)
         assert "compute_returns" not in hooks
 
     def test_non_standard_construction_type_flags_compute_returns(self):
@@ -133,7 +133,7 @@ class TestDetectHooksConstructionType:
         spec.reported_results.return_calculation.portfolio_return.construction_type = (
             PortfolioConstructionType.FACTOR_MODEL_ALPHA
         )
-        hooks = BacktestEngine._detect_hooks(spec)
+        hooks = BacktestExecutor._detect_hooks(spec)
         assert "compute_returns" in hooks
 
     def test_characteristic_sort_does_not_trigger_hook(self):
@@ -141,7 +141,7 @@ class TestDetectHooksConstructionType:
         spec.reported_results.return_calculation.portfolio_return.construction_type = (
             PortfolioConstructionType.CHARACTERISTIC_SORT
         )
-        hooks = BacktestEngine._detect_hooks(spec)
+        hooks = BacktestExecutor._detect_hooks(spec)
         assert "compute_returns" not in hooks
 
 
@@ -155,7 +155,7 @@ class TestDetectHooksReturnCombination:
         spec.reported_results.return_calculation.portfolio_return.return_combination.type = (
             ReturnCombinationType.AVERAGE_LEG_SPREAD
         )
-        hooks = BacktestEngine._detect_hooks(spec)
+        hooks = BacktestExecutor._detect_hooks(spec)
         assert "compute_long_short" not in hooks
 
     def test_full_portfolio_return_does_not_trigger_hook(self):
@@ -163,7 +163,7 @@ class TestDetectHooksReturnCombination:
         spec.reported_results.return_calculation.portfolio_return.return_combination.type = (
             ReturnCombinationType.FULL_PORTFOLIO_RETURN
         )
-        hooks = BacktestEngine._detect_hooks(spec)
+        hooks = BacktestExecutor._detect_hooks(spec)
         assert "compute_long_short" not in hooks
 
     def test_extreme_group_spread_does_not_trigger_hook(self):
@@ -171,7 +171,7 @@ class TestDetectHooksReturnCombination:
         spec.reported_results.return_calculation.portfolio_return.return_combination.type = (
             ReturnCombinationType.EXTREME_GROUP_SPREAD
         )
-        hooks = BacktestEngine._detect_hooks(spec)
+        hooks = BacktestExecutor._detect_hooks(spec)
         assert "compute_long_short" not in hooks
 
 
@@ -183,7 +183,7 @@ class TestDetectHooksFilterUniverseIsDeterministic:
     def test_filter_universe_is_not_hooked_regardless_of_free_text_universe(self):
         spec = _minimal_spec()
         spec.portfolio.universe = "NYSE, Amex, and NASDAQ common stocks"
-        hooks = BacktestEngine._detect_hooks(spec)
+        hooks = BacktestExecutor._detect_hooks(spec)
         assert "filter_universe" not in hooks
 
     def test_filter_universe_is_not_hooked_with_structured_universe_filters(self):
@@ -191,13 +191,13 @@ class TestDetectHooksFilterUniverseIsDeterministic:
         spec.portfolio.universe_filters = [
             UniverseFilterSpec(field="shrcd", op=FilterOp.IN, value=[10, 11]),
         ]
-        hooks = BacktestEngine._detect_hooks(spec)
+        hooks = BacktestExecutor._detect_hooks(spec)
         assert "filter_universe" not in hooks
 
     def test_filter_universe_is_not_hooked_with_no_universe_filters(self):
         spec = _minimal_spec()
         assert spec.portfolio.universe_filters == []
-        hooks = BacktestEngine._detect_hooks(spec)
+        hooks = BacktestExecutor._detect_hooks(spec)
         assert "filter_universe" not in hooks
 
 
@@ -207,12 +207,12 @@ class TestDetectHooksOverlappingPortfolios:
         (steps.merge_signal_overlap + friends)."""
         spec = _minimal_spec()
         spec.signal.timing.overlapping_portfolios = True
-        hooks = BacktestEngine._detect_hooks(spec)
+        hooks = BacktestExecutor._detect_hooks(spec)
         assert "merge_signal" not in hooks
 
     def test_overlapping_combined_with_multi_dim_sort_still_flags_hook(self):
         """The overlapping-cohort path and the multi-dim sort path aren't
-        combined in this v1 (BacktestEngine._dispatch() only routes to one
+        combined in this v1 (BacktestExecutor._dispatch() only routes to one
         alternate path at a time) -- still hooked together."""
         spec = _minimal_spec()
         spec.signal.timing.overlapping_portfolios = True
@@ -220,19 +220,19 @@ class TestDetectHooksOverlappingPortfolios:
             SortLegSpec(variable="size"),
             SortLegSpec(variable="book_to_market"),
         ]
-        hooks = BacktestEngine._detect_hooks(spec)
+        hooks = BacktestExecutor._detect_hooks(spec)
         assert "merge_signal" in hooks
 
     def test_non_overlapping_portfolios_does_not_trigger_hook(self):
         spec = _minimal_spec()
         spec.signal.timing.overlapping_portfolios = False
-        hooks = BacktestEngine._detect_hooks(spec)
+        hooks = BacktestExecutor._detect_hooks(spec)
         assert "merge_signal" not in hooks
 
     def test_unspecified_overlapping_portfolios_does_not_trigger_hook(self):
         spec = _minimal_spec()
         assert spec.signal.timing.overlapping_portfolios is None
-        hooks = BacktestEngine._detect_hooks(spec)
+        hooks = BacktestExecutor._detect_hooks(spec)
         assert "merge_signal" not in hooks
 
 
@@ -247,7 +247,7 @@ class TestBreakpointSourceConditionalBugFix:
         spec = _minimal_spec()
         spec.portfolio.breakpoints.source = BreakpointSource.CONDITIONAL
         spec.portfolio.sort.breakpoint_source = BreakpointSource.CONDITIONAL
-        hooks = BacktestEngine._detect_hooks(spec)
+        hooks = BacktestExecutor._detect_hooks(spec)
         assert "compute_breakpoints" in hooks
 
 

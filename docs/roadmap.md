@@ -19,10 +19,19 @@ chain (MetaCoder/repair loop → Sandbox → `DataLayer.get_signal_master_table(
 `compute_signal()` → `BacktestEngine.run()` → `EvidenceStore`) against the synthetic data in
 `data/synthetic_data/`, and `tests/test_mvp_e2e.py` verifies the `cooper_gulen_schill_2008_asset_growth`
 result against independently-derived golden numbers
-(`tests/synthetic_data/asset_growth_synthetic_data.py`). `ReviewGate` and full extraction-driven
-`Pipeline.run_factor()` still require a live LLM client and are exercised manually /
-via `scripts/`, not in the deterministic synthetic-data test. `DualTrackController` remains a
-stub — it is explicitly scoped to Phase 5, not the Phase 1 MVP chain.
+(`tests/synthetic_data/asset_growth_synthetic_data.py`). `ReviewGate` still requires a live LLM
+client and is exercised manually / via `scripts/`, not in the deterministic synthetic-data test.
+`DualTrackController` remains a stub — it is explicitly scoped to Phase 5, not the Phase 1 MVP
+chain. The extraction-driven `Pipeline.run_factor()` (SemanticExtractor → ReviewGate → MetaCoder
+→ Sandbox → DualTrackController → AttributionLayer) was removed 2026-07-22 — it had no callers
+anywhere in the repo and its backtrack loops (beyond Sandbox→Meta-Coder repair) were never more
+than TODO stubs; see `docs/decision-log.md`. The same day it was reinstated as
+`Pipeline.run_full_pipeline()`, this time fail-fast with no fake backtrack claims (only the real
+Sandbox→Meta-Coder repair loop, shared with `run_from_method_spec()`), plus every step reachable
+standalone via `pipeline.extractor`/`.review_gate`/`.meta_coder`/`.sandbox`/`.runner`/
+`.controller`/`.attribution` for step-by-step testing. Real cross-stage backtrack
+(Review↔Extractor, Attribution↔ReviewGate) is still Phase 2 scope, not implemented by either
+entry point today.
 
 **Goal:** run one complete factor replication workflow with every component genuinely implemented — no stubs, no mock returns, no `raise NotImplementedError` shortcuts.
 

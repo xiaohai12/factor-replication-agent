@@ -13,7 +13,7 @@ import pytest
 
 linearmodels = pytest.importorskip("linearmodels")
 
-from src.steps.step5_engine import steps  # noqa: E402
+from src.infra.backtest_engine import steps  # noqa: E402
 
 
 def _panel(n_periods=12, n_firms=20, intercept=0.01, slope=0.5) -> pd.DataFrame:

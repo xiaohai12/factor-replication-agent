@@ -1,75 +1,89 @@
 """Main pipeline orchestrator - connects all modules in the controlled workflow.
 
-Implements feedback loops (docs/architecture.md Section 3.1):
-- Sandbox → Meta-Coder: bounded repair (max 3 retries)
-- Sandbox → Review Gate: empirical issues need re-review
-- Review Gate → Extractor: re-extraction on conflicts
-- Attribution → Review Gate: anomalous results trigger re-review
-- Max backtrack depth: 3 per factor
+Two entry points:
+- `run_from_method_spec()` -- starts from an already-approved MethodSpec and
+  runs steps 3-5 only (generate -> validate -> execute).
+- `run_full_pipeline()` -- all 7 steps end-to-end (extract -> review ->
+  generate -> validate -> execute -> dual-track/ablations -> attribute).
+  Fails fast at whichever stage rejects the factor (see `PipelineStatus`);
+  it does not backtrack across stages. Real cross-stage backtrack
+  (Review<->Extractor, Attribution<->ReviewGate per docs/architecture.md
+  Section 3.1) is unimplemented -- Phase 2 scope (docs/roadmap.md).
+
+Both share one real feedback loop: Sandbox/Step-5 technical error ->
+Meta-Coder bounded repair (max `MAX_REPAIR_RETRIES` retries), implemented in
+`_validate_with_repair()`. Every step is also reachable standalone via the
+sub-component attributes set in `__init__` (`self.extractor`,
+`self.review_gate`, `self.meta_coder`, `self.sandbox`, `self.runner`,
+`self.controller`, `self.attribution`) for step-by-step testing/debugging.
 """
 
 from __future__ import annotations
 
-import hashlib
-import json
-import os
-import subprocess
-import sys
 from dataclasses import dataclass
 from pathlib import Path
 
-import pandas as pd
-
-from src.steps.step7_attribution import AttributionLayer
-from src.steps.step6_dual_track_controller import DualTrackController, ExperimentPlan
 from src.infra.data_layer import DataLayer
-from src.steps.step5_engine import BacktestEngine
-from src.infra.evidence import EvidenceStore, RunRegistry
 from src.steps.step1_extractor import SemanticExtractor
+from src.steps.step2_reviewer import ReviewGate
+from src.steps.step5_backtest_runner import BacktestRunner
+from src.steps.step6_dual_track_controller import DualTrackController, ExperimentPlan
+from src.steps.step7_attribution import AttributionLayer
+from src.infra.evidence import EvidenceStore, RunRegistry
 from src.steps.step3_codegen import MetaCoder
-from src.steps.step3_codegen.script_generator import generate_backtest_script, pick_signal_input_mode
+from src.steps.step3_codegen.script_generator import pick_signal_input_mode
 from src.infra.models.method_spec import MethodSpec
 from src.infra.models.plugin import PluginRecord
-from src.infra.models.run_record import RunMetrics, RunRecord
+from src.infra.models.run_record import RunRecord
 from src.infra.registry import PluginRegistry
-from src.steps.step2_reviewer import ReviewGate
 from src.steps.step4_validator import AdversarialSandbox
 
 
 MAX_REPAIR_RETRIES = 3
-MAX_BACKTRACK_DEPTH = 3
 
 
 @dataclass
 class PipelineStatus:
-    """Status of a factor's pipeline execution."""
+    """Status of a `run_full_pipeline()` call for a single factor."""
 
     factor_id: str
     stage: str = "pending"  # extract|review|generate|validate|run|attribute|done|failed
-    backtrack_count: int = 0
     error: str = ""
     needs_manual: bool = False
 
 
 class Pipeline:
-    """End-to-end factor replication pipeline with feedback loops.
+    """End-to-end factor replication pipeline.
 
-    Workflow:
+    Workflow (module numbers match AGENTS.md's Module Map by responsibility):
     1. Extract MethodSpec from paper/reference (SemanticExtractor)
     2. Review and approve MethodSpec (ReviewGate)
-    3. Generate signal plugin (MetaCoder)
-    4. Validate plugin (AdversarialSandbox)
-    5. Register plugin (PluginRegistry)
-    6. Run controlled backtest (BacktestEngine via DualTrackController)
-    7. Store evidence (EvidenceStore)
-    8. Attribute replication gap (AttributionLayer)
+    3. Generate signal + hook plugin code, then assemble the one standalone
+       backtest script from it (MetaCoder; script assembly is exposed as
+       `BacktestRunner.build_script()` but is conceptually step3's output --
+       see AGENTS.md's Module Map)
+    4. Validate that built script -- static checks + a compute_signal
+       execution smoke test on the real script from step 3 (AdversarialSandbox)
+    5. Execute the backtest script via subprocess (`BacktestRunner.execute()`)
+    6. Run controlled backtest across tracks/ablations (DualTrackController, using BacktestRunner)
+    7. Attribute replication gap (AttributionLayer)
 
-    Feedback loops:
-    - Sandbox technical error → Meta-Coder repair (≤3 retries)
-    - Sandbox empirical issue → Review Gate re-review
-    - Review Gate blocked → Extractor re-extraction
-    - Attribution anomaly → Review Gate re-review
-    - Max backtrack depth: 3 per factor → needs_manual_intervention
+    `run_from_method_spec()` runs steps 3-5 only, in this order exactly:
+    MetaCoder generates the plugin and BacktestRunner builds the script from
+    it (3) -> AdversarialSandbox validates that exact built script, including
+    the execution smoke test (4) -> only once validation passes does
+    BacktestRunner execute the script (5).
+
+    `run_full_pipeline()` runs all 7 steps in order, reusing
+    `_validate_with_repair()` for steps 3-4 and `self.controller` for steps
+    5-6 (each track builds+executes its own config variant, with its own
+    bounded repair loop -- see `DualTrackController._run_track`).
+
+    Feedback loop:
+    - Sandbox/Step-5 technical error → Meta-Coder repair (≤`MAX_REPAIR_RETRIES`
+      retries) -- implemented in `_validate_with_repair()`, reused by both
+      entry points; `DualTrackController._run_track()` has its own analogous
+      per-track repair loop for step 5/6 execution failures.
     """
 
     def __init__(
@@ -91,48 +105,65 @@ class Pipeline:
         self.meta_coder = MetaCoder(llm_client=llm_client)
         self.sandbox = AdversarialSandbox()
         self.registry = PluginRegistry()
-        self.engine = BacktestEngine(data_path=data_path)
-        self.controller = DualTrackController(engine=self.engine)
+        self.scripts_path = Path(scripts_path)
+        self.runner = BacktestRunner(self.data_layer, self.scripts_path)
+        self.controller = DualTrackController(
+            runner=self.runner, meta_coder=self.meta_coder, sandbox=self.sandbox
+        )
         self.evidence_store = EvidenceStore(base_path=evidence_path)
         self.run_registry = RunRegistry()
         self.attribution = AttributionLayer()
-        self.scripts_path = Path(scripts_path)
 
-    def run_factor(
+    def run_full_pipeline(
         self,
         factor_id: str,
-        paper_text: str | None = None,
-        cz_metadata: dict | None = None,
-        osap_code: str | None = None,
+        snapshot_id: str,
+        paper_text: str,
         plan: ExperimentPlan | None = None,
+        config_overrides: dict | None = None,
     ) -> tuple[list[RunRecord], PipelineStatus]:
-        """Run the full pipeline for a single factor with backtrack support.
+        """Run all 7 steps end-to-end for a single factor: extract -> review
+        -> generate -> validate -> execute -> dual-track/ablations -> attribute.
+
+        Fails fast: the first stage that rejects the factor stops the run and
+        is reported on the returned `PipelineStatus` (`.stage` says which
+        step failed, `.error` says why). To retry, fix the underlying issue
+        and call this again, or drive the failing stage directly for a
+        tighter debug loop (e.g. `pipeline.extractor.extract(...)` with
+        edited `paper_text`, or `pipeline.review_gate.review(spec)` on a
+        hand-patched spec).
 
         Args:
             factor_id: Unique factor identifier
-            paper_text: Raw paper text
-            cz_metadata: C&Z metadata dict
-            osap_code: OSAP reference code
-            plan: Experiment plan (defaults to original + standardized)
+            snapshot_id: Data snapshot registered on self.data_layer.snapshots
+                (needed once the script is built -- see step 3 -- so
+                `BacktestRunner.build_script` can locate
+                crsp_msf.parquet/compustat_funda.parquet/ccm_link.parquet
+                for every track `DualTrackController` runs).
+            paper_text: Raw paper text handed to the extractor.
+            plan: Experiment plan for steps 5-6 (defaults to original +
+                standardized, matching `ExperimentPlan`'s own defaults).
+            config_overrides: Optional BacktestExecutor config overrides
+                applied to the *original_method* track's build during
+                step 3-4 validation (steps 5-6 apply each track's own
+                overrides on top when `self.controller` builds per track).
 
         Returns:
-            Tuple of (RunRecords, PipelineStatus)
+            Tuple of (RunRecords produced by steps 5-6, PipelineStatus).
+            RunRecords is empty for any failure before step 5.
         """
         status = PipelineStatus(factor_id=factor_id)
 
         # --- 1. Extract ---
         status.stage = "extract"
-        extraction = self.extractor.extract(
-            factor_id=factor_id,
-            paper_text=paper_text,
-        )
+        extraction = self.extractor.extract(factor_id=factor_id, paper_text=paper_text)
         spec = extraction.spec
         if spec is None:
             status.stage = "failed"
-            status.error = "Extraction produced no MethodSpec"
+            status.error = extraction.error or "Extraction produced no MethodSpec"
             return [], status
 
-        # --- 2. Review (with backtrack loop) ---
+        # --- 2. Review ---
         status.stage = "review"
         review_result = self.review_gate.review(spec)
 
@@ -143,89 +174,49 @@ class Pipeline:
             return [], status
 
         if not review_result.approved:
-            # Backtrack: Review → Extractor
-            if status.backtrack_count < MAX_BACKTRACK_DEPTH:
-                status.backtrack_count += 1
-                # TODO: Re-extract with feedback from review issues
-                status.stage = "failed"
-                status.error = f"Review failed: {review_result.issues}"
-                return [], status
-            else:
-                status.needs_manual = True
-                status.stage = "failed"
-                status.error = "Max backtrack depth reached at review"
-                return [], status
+            status.stage = "failed"
+            status.error = f"Review not approved: {review_result.issues}"
+            return [], status
 
         spec.review_status = "approved"
         spec.codegen_ready = review_result.codegen_ready
         spec.paper_faithful = review_result.paper_faithful
         spec.remediation_mode = review_result.remediation_mode
 
-        # --- 3. Generate plugin ---
+        # --- 3-4. Generate plugin, then build+validate the script (bounded
+        # Sandbox->Meta-Coder technical repair reused from
+        # `_validate_with_repair`, the same helper `run_from_method_spec` uses,
+        # so the "validated == executed" invariant holds here too) ---
         status.stage = "generate"
         plugin = self.meta_coder.generate_plugin(spec)
 
-        # --- 4. Validate (with repair loop) ---
         status.stage = "validate"
-        for attempt in range(MAX_REPAIR_RETRIES + 1):
-            report = self.sandbox.validate(plugin, spec)
-            plugin.validation_report = report
+        try:
+            plugin, _built = self._validate_with_repair(
+                plugin, spec, snapshot_id, config_overrides
+            )
+        except RuntimeError as validation_error:
+            status.stage = "failed"
+            status.error = str(validation_error)
+            return [], status
 
-            if report.passed:
-                break
-
-            # Check if errors are technical (repairable) or empirical (backtrack)
-            if self._has_empirical_issues(report):
-                # Backtrack: Sandbox → Review Gate
-                if status.backtrack_count < MAX_BACKTRACK_DEPTH:
-                    status.backtrack_count += 1
-                    status.stage = "failed"
-                    status.error = f"Empirical issues in sandbox: {report.errors}"
-                    return [], status
-                else:
-                    status.needs_manual = True
-                    status.stage = "failed"
-                    status.error = "Max backtrack depth at sandbox empirical"
-                    return [], status
-
-            # Technical error → bounded repair
-            if attempt < MAX_REPAIR_RETRIES:
-                plugin = self.meta_coder.repair_plugin(plugin, report.errors)
-            else:
-                status.stage = "failed"
-                status.error = f"Plugin repair failed after {MAX_REPAIR_RETRIES} attempts"
-                return [], status
-
-        plugin.validation_status = "passed"
-
-        # --- 5. Register ---
         self.registry.register(plugin)
 
-        # --- 6. Run experiments ---
+        # --- 5-6. Run experiments across tracks/ablations ---
         status.stage = "run"
         if plan is None:
             plan = ExperimentPlan(factor_id=factor_id)
 
-        runs = self.controller.run_experiment(plugin, spec, plan)
+        runs = self.controller.run_experiment(plugin, spec, plan, snapshot_id)
 
-        # --- 7. Store evidence ---
         for run in runs:
             self.evidence_store.save_run(run)
             self.run_registry.register(run)
 
-        # --- 8. Attribution ---
+        # --- 7. Attribution ---
         status.stage = "attribute"
         if plan.run_original and plan.run_standardized and len(runs) >= 2:
-            attr_result = self.attribution.attribute_ablation(runs)
-
-            # Check for anomalies → backtrack to Review Gate
-            if self._is_anomalous(attr_result, spec):
-                if status.backtrack_count < MAX_BACKTRACK_DEPTH:
-                    status.backtrack_count += 1
-                    # TODO: Trigger re-review with anomaly info
-                    status.stage = "failed"
-                    status.error = "Attribution anomaly detected"
-                    return runs, status
+            self.attribution.attribute_ablation(runs)
 
         status.stage = "done"
         return runs, status
@@ -238,208 +229,190 @@ class Pipeline:
         config_overrides: dict | None = None,
         track: str = "original_method",
     ) -> RunRecord:
-        """Run the MVP chain starting from an already-approved MethodSpec.
+        """Run the pipeline starting from an already-approved MethodSpec,
+        skipping extraction and dual-track orchestration entirely:
 
-        This is the curated-MethodSpec path from docs/roadmap.md Phase 1: it
-        skips extraction and dual-track orchestration entirely.
+            approved MethodSpec -> MetaCoder generates plugin.code -> Step3
+            assembles the ONE complete standalone script (BacktestRunner.build_script) ->
+            Step4 validates THAT SAME script (static checks + a compute_signal
+            import-and-call smoke test on a small data slice) -> Step5 executes
+            THAT SAME script (unchanged bytes) via subprocess -> EvidenceStore
 
-            approved MethodSpec -> MetaCoder (if plugin not supplied) -> Sandbox
-            -> generate_backtest_script() -> execute via subprocess -> EvidenceStore
+        There's a single script artifact from generation onward — Step4 never
+        re-derives or hand-rolls a separate "how do I run this plugin" runner,
+        and Step5 never regenerates the script it validated. Whenever repair
+        produces new plugin code (either from a validation failure or a Step-5
+        run failure), the script is rebuilt from that new code and
+        re-validated before anything executes it again — see
+        `_validate_with_repair`.
 
-        The backtest is NOT run in-process: a standalone Python script is
-        generated (see src/steps/step3_codegen/script_generator.py) and saved to
-        runs/backtest_scripts/{factor_id}_backtest.py, then executed as a
-        subprocess. That script is the actual source of the reported metrics,
-        so every run leaves behind an independently re-runnable audit artifact.
-        The registered snapshot's data files must already exist on disk
-        (crsp_msf.parquet, and for Compustat-based signals also
-        compustat_funda.parquet + ccm_link.parquet) — this method does not
-        generate data.
+        The script is written to runs/backtest_scripts/{factor_id}_backtest.py
+        (a durable, independently-runnable audit artifact — see
+        src/steps/step3_codegen/script_generator.py). The registered
+        snapshot's data files must already exist on disk (crsp_msf.parquet,
+        and for Compustat-based signals also compustat_funda.parquet +
+        ccm_link.parquet) — this method does not generate data.
 
         Args:
             spec: Approved MethodSpec (review_status=approved, codegen_ready=True)
             snapshot_id: Data snapshot registered on self.data_layer.snapshots
             plugin: Optional pre-generated + already-validated PluginRecord.
                 When omitted, MetaCoder generates one (with bounded repair).
-            config_overrides: Optional BacktestEngine config overrides
+            config_overrides: Optional BacktestExecutor config overrides
             track: Track label recorded on the returned RunRecord
 
         Returns:
             RunRecord with metrics, persisted to the evidence store.
         """
+        # A small real-data slice for the sandbox's compute_signal execution
+        # smoke test (step4). Best-effort: None when it can't be built, which
+        # just skips the smoke test (the Step-5 run below is the guaranteed net).
+        validation_slice = self._build_validation_slice(spec, snapshot_id)
+
         if plugin is None:
             plugin = self.meta_coder.generate_plugin(spec)
-            plugin = self._validate_with_repair(plugin, spec)
+            plugin, built = self._validate_with_repair(
+                plugin, spec, snapshot_id, config_overrides, data=validation_slice
+            )
         elif plugin.validation_status != "passed":
-            plugin = self._validate_with_repair(plugin, spec)
+            plugin, built = self._validate_with_repair(
+                plugin, spec, snapshot_id, config_overrides, data=validation_slice
+            )
+        else:
+            # Caller already validated this exact plugin — still need the one
+            # script artifact to execute (built fresh from this plugin's code,
+            # not re-validated since validation_status is already "passed").
+            built = self.runner.build_script(plugin, spec, snapshot_id, config_overrides)
 
         self.registry.register(plugin)
 
-        result = self._run_backtest_via_script(plugin, spec, snapshot_id, config_overrides)
-        metrics = result["metrics"]
+        # Run with bounded repair on a Step-5 execution failure. The step4
+        # execution smoke test runs compute_signal only, on a small slice, so
+        # it catches most formula bugs before this point; this net additionally
+        # covers hook runtime bugs and anything that only surfaces on full data,
+        # by feeding the run's stderr back to MetaCoder (the same repair loop
+        # used for validation errors) and persisting a status="failed"
+        # RunRecord on exhaustion so the failure has an audit trail. A repair
+        # here rebuilds AND re-validates the script via `_validate_with_repair`
+        # before the next execution attempt, so what's validated is always
+        # what gets executed.
+        result = None
+        for attempt in range(MAX_REPAIR_RETRIES + 1):
+            try:
+                result = self.runner.execute(built)
+                break
+            except RuntimeError as run_error:
+                can_repair = attempt < MAX_REPAIR_RETRIES and self.meta_coder.llm_client is not None
+                if not can_repair:
+                    failed = self.runner.make_failed_run_record(
+                        spec, plugin, track, config_overrides, str(run_error)
+                    )
+                    self.evidence_store.save_run(failed)
+                    self.run_registry.register(failed)
+                    raise
+                plugin = self.meta_coder.repair_plugin(plugin, [str(run_error)])
+                plugin, built = self._validate_with_repair(
+                    plugin, spec, snapshot_id, config_overrides, data=validation_slice
+                )
+                self.registry.register(plugin)
 
-        config_hash = hashlib.sha256(
-            json.dumps(result["config"], sort_keys=True, default=str).encode()
-        ).hexdigest()[:16]
-
-        run = RunRecord(
-            run_id=f"{spec.factor_id}_{track}_{plugin.code_hash[:8]}",
-            factor_id=spec.factor_id,
-            plugin_id=plugin.plugin_id,
-            track=track,
-            method_spec_hash=spec.stable_hash(),
-            code_hash=plugin.code_hash,
-            config_hash=config_hash,
-            metrics=RunMetrics(
-                mean_return=metrics.get("mean_monthly_return"),
-                t_stat=metrics.get("t_stat"),
-                n_months=metrics.get("n_months"),
-                # Phase 2 (plan.md): populated when factor data was available
-                # for this run (see _run_backtest_via_script); None otherwise.
-                sharpe_ratio=metrics.get("sharpe_ratio"),
-                alpha_capm=metrics.get("alpha_capm"),
-                alpha_ff3=metrics.get("alpha_ff3"),
-                alpha_ff5=metrics.get("alpha_ff5"),
-            ),
-            status="success",
-        )
+        run = self.runner.make_run_record(spec, plugin, track, result)
         self.evidence_store.save_run(run)
         self.run_registry.register(run)
         return run
 
-    def _validate_with_repair(self, plugin: PluginRecord, spec: MethodSpec) -> PluginRecord:
-        """Run Sandbox validation with bounded MetaCoder repair (technical errors only)."""
+    def _validate_with_repair(
+        self,
+        plugin: PluginRecord,
+        spec: MethodSpec,
+        snapshot_id: str,
+        config_overrides: dict | None,
+        data=None,
+    ) -> tuple[PluginRecord, dict]:
+        """Run Sandbox validation with bounded MetaCoder repair (technical errors only).
+
+        Builds the ONE complete standalone script (`BacktestRunner.build_script`)
+        fresh on every attempt — including after a repair produces new plugin
+        code — and validates THAT script (not a separate hand-rolled runner),
+        so whatever script comes back validated is byte-for-byte what
+        `run_from_method_spec` goes on to execute.
+
+        `data`, when supplied, is a small real-data slice passed through to the
+        sandbox's compute_signal execution smoke test (see
+        AdversarialSandbox.validate / _check_executes).
+
+        Returns:
+            (validated plugin, build dict from `BacktestRunner.build_script` for that plugin)
+        """
         for attempt in range(MAX_REPAIR_RETRIES + 1):
-            report = self.sandbox.validate(plugin, spec)
+            built = self.runner.build_script(plugin, spec, snapshot_id, config_overrides)
+            report = self.sandbox.validate(plugin, spec, script_text=built["script_text"], data=data)
             plugin.validation_report = report
             if report.passed:
                 plugin.validation_status = "passed"
-                return plugin
+                return plugin, built
             if attempt < MAX_REPAIR_RETRIES:
                 plugin = self.meta_coder.repair_plugin(plugin, report.errors)
             else:
                 raise RuntimeError(
                     f"Plugin repair failed after {MAX_REPAIR_RETRIES} attempts: {report.errors}"
                 )
-        return plugin
+        return plugin, built
 
-    def _run_backtest_via_script(
-        self,
-        plugin: PluginRecord,
-        spec: MethodSpec,
-        snapshot_id: str,
-        config_overrides: dict | None,
-    ) -> dict:
-        """Generate the standalone backtest script and execute it via subprocess.
+    #: How many distinct permnos the compute_signal execution smoke-test slice
+    #: keeps (full month history each). Enough cross-section to be meaningful,
+    #: small enough to stay cheap; the check is lenient regardless (see
+    #: AdversarialSandbox._check_executes).
+    _VALIDATION_SLICE_PERMNOS = 40
 
-        The script is written to runs/backtest_scripts/{factor_id}_backtest.py
-        (a durable, independently-runnable audit artifact — see
-        src/steps/step3_codegen/script_generator.py) and run with the current
-        Python interpreter. Results are read back from the CSV/metrics.json
-        the script itself writes, rather than computed in-process, so the
-        persisted script is always the actual source of the reported numbers.
+    def _build_validation_slice(self, spec: MethodSpec, snapshot_id: str):
+        """Best-effort small real-data slice for step4's compute_signal
+        execution smoke test.
 
-        Data is NOT auto-generated here: the registered snapshot's
-        storage_path must already contain crsp_msf.parquet (and, in
-        'compustat' mode, compustat_funda.parquet + ccm_link.parquet).
+        Sliced BY PERMNO keeping each permno's FULL month history, so
+        time-series lookbacks (momentum, year-over-year accounting change)
+        stay intact -- never sliced by row/month. Prefers permnos with
+        non-null coverage in the signal's required physical columns so the
+        slice is likely to produce a non-empty result.
+
+        Returns None on any problem (unknown/multi-source signal input, missing
+        snapshot tables, empty data): the smoke test is best-effort and the
+        Step-5 run is the guaranteed net, so a slice-build issue must never
+        block validation.
         """
-        snapshot = self.data_layer.snapshots.get_snapshot(snapshot_id)
-        if snapshot is None:
-            raise RuntimeError(f"Snapshot '{snapshot_id}' not registered on this Pipeline's DataLayer")
-        storage_path = Path(snapshot.storage_path)
+        try:
+            mode = pick_signal_input_mode(spec)
+            if mode == "compustat":
+                si = self.data_layer.get_signal_master_table(
+                    snapshot_id, lag_months=spec.accounting_lag_months or 6
+                )
+            elif mode == "crsp_only":
+                crsp = self.data_layer.get_snapshot_data(snapshot_id, "crsp_msf")
+                si = crsp.rename(columns={"yyyymm": "time_avail_m"})
+            else:
+                # multi_source (IBES/OptionMetrics/...) — assembling it in-process
+                # here would duplicate the generated script's loader; defer to
+                # the Step-5 net instead.
+                return None
 
-        signal_input_mode = pick_signal_input_mode(spec)
+            if si is None or si.empty or "permno" not in si.columns:
+                return None
 
-        scripts_dir = self.scripts_path
-        scripts_dir.mkdir(parents=True, exist_ok=True)
-        results_dir = scripts_dir / "results"
-        output_csv = results_dir / f"{spec.factor_id}.csv"
+            def _col_name(v):
+                if isinstance(v, dict):
+                    return v.get("column")
+                return v if isinstance(v, str) else None
 
-        # Phase 2 (plan.md): FF factor + rf data for alpha metrics, if
-        # available. Checked per-snapshot first (most reproducible — matches
-        # the snapshot's own pull date), falling back to the shared
-        # data/local/ff_factors.parquet fetched once via
-        # scripts/fetch_ff_factors.py. Neither is required; alphas are simply
-        # omitted from metrics when no factor data is found.
-        ff_factors_path = None
-        for candidate in (storage_path / "ff_factors.parquet", self.data_layer.data_path / "local" / "ff_factors.parquet"):
-            if candidate.exists():
-                ff_factors_path = str(candidate)
-                break
-
-        script = generate_backtest_script(
-            spec,
-            plugin.code,
-            data_path=str(storage_path / "crsp_msf.parquet"),
-            signal_input_mode=signal_input_mode,
-            compustat_data_path=str(storage_path / "compustat_funda.parquet"),
-            ccm_link_path=str(storage_path / "ccm_link.parquet"),
-            output_path=str(output_csv),
-            config_overrides=config_overrides,
-            ff_factors_path=ff_factors_path,
-            signal_data_dir=str(storage_path),
-        )
-        script_path = scripts_dir / f"{spec.factor_id}_backtest.py"
-        script_path.write_text(script)
-
-        # The generated script does `from src...` imports (see
-        # script_generator.py's module docstring — Phase 0 unification made
-        # it a thin wrapper around BacktestEngine instead of a fully
-        # self-contained script). This repo's editable install only puts
-        # `src/` itself on sys.path (its .pth file points at .../src, not the
-        # repo root — see `pip show factor-replication-agent`), and Python
-        # puts a *script's own directory* (not the cwd) on sys.path[0], so
-        # `from src...` only resolves when the script happens to run with the
-        # repo root on sys.path already. Since this script is written to an
-        # arbitrary scripts_dir (e.g. a pytest tmp_path), explicitly prepend
-        # the repo root to PYTHONPATH for the subprocess.
-        repo_root = Path(__file__).resolve().parent.parent
-        env = {**os.environ, "PYTHONPATH": f"{repo_root}{os.pathsep}{os.environ.get('PYTHONPATH', '')}"}
-
-        proc = subprocess.run(
-            [sys.executable, str(script_path)],
-            capture_output=True,
-            text=True,
-            env=env,
-        )
-        if proc.returncode != 0:
-            raise RuntimeError(
-                f"Backtest script {script_path} failed (exit {proc.returncode}):\n"
-                f"--- stdout ---\n{proc.stdout}\n--- stderr ---\n{proc.stderr}"
-            )
-
-        metrics_path = output_csv.with_suffix(".metrics.json")
-        metrics = json.loads(metrics_path.read_text())
-        return_series = pd.read_csv(output_csv)
-
-        config = self.engine._build_config(spec, config_overrides)
-
-        return {
-            "metrics": metrics,
-            "return_series": return_series,
-            "config": config,
-            "script_path": str(script_path),
-            "stdout": proc.stdout,
-        }
-
-    def _has_empirical_issues(self, report) -> bool:
-        """Check if validation errors involve empirical assumptions."""
-        empirical_keywords = ["temporal leakage", "lag violation", "future", "missing policy"]
-        for error in report.errors:
-            if any(kw in error.lower() for kw in empirical_keywords):
-                return True
-        return False
-
-    def _is_anomalous(self, attr_result, spec: MethodSpec) -> bool:
-        """Check if attribution results are anomalous (>50% gap or sign flip)."""
-        if attr_result.original_tstat is None or attr_result.standardized_tstat is None:
-            return False
-        # Sign flip
-        if (attr_result.original_tstat > 0) != (attr_result.standardized_tstat > 0):
-            return True
-        # >50% relative gap
-        if attr_result.original_tstat != 0:
-            gap_pct = abs(attr_result.total_gap or 0) / abs(attr_result.original_tstat)
-            if gap_pct > 0.5:
-                return True
-        return False
+            required_cols = [
+                c for c in (_col_name(v) for v in (spec.data.normalized_mapping or {}).values())
+                if c and c in si.columns
+            ]
+            covered = si
+            for col in required_cols:
+                if not covered.empty:
+                    covered = covered[covered[col].notna()]
+            pool = covered if not covered.empty else si
+            permnos = pool["permno"].drop_duplicates().head(self._VALIDATION_SLICE_PERMNOS)
+            return si[si["permno"].isin(permnos)].copy()
+        except Exception:
+            return None

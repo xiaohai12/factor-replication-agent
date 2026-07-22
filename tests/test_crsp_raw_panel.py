@@ -1,5 +1,5 @@
 """Tests for reading the realistic multi-source CRSP layout into the engine
-panel (data_layer.build_crsp_monthly_panel + BacktestEngine._load_data with
+panel (data_layer.build_crsp_monthly_panel + BacktestExecutor._load_data with
 config["returns_layout"]=="crsp_raw").
 
 Uses the synthetic WRDS-shaped data produced by
@@ -15,7 +15,7 @@ from pathlib import Path
 import pytest
 
 from src.infra.data_layer import build_crsp_monthly_panel
-from src.steps.step5_engine import BacktestEngine
+from src.infra.backtest_engine import BacktestExecutor
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 DATA_DIR = REPO_ROOT / "data" / "synthetic_data" / "test_papers_v1"
@@ -55,7 +55,7 @@ def test_delisting_return_folded_into_last_month():
 
 
 def test_engine_load_data_crsp_raw_layout():
-    engine = BacktestEngine(data_path=str(DATA_DIR))
+    engine = BacktestExecutor(data_path=str(DATA_DIR))
     panel = engine._load_data({"returns_layout": "crsp_raw"})
     assert REQUIRED_COLS.issubset(panel.columns)
     assert len(panel) > 0
@@ -63,7 +63,7 @@ def test_engine_load_data_crsp_raw_layout():
 
 def test_returns_dir_override():
     # data_path elsewhere, but returns_dir points at the real tables
-    engine = BacktestEngine(data_path=str(REPO_ROOT / "data"))
+    engine = BacktestExecutor(data_path=str(REPO_ROOT / "data"))
     panel = engine._load_data(
         {"returns_layout": "crsp_raw", "returns_dir": str(DATA_DIR)}
     )

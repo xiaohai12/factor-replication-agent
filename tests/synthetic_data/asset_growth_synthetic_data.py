@@ -13,7 +13,7 @@ Design (see docs/roadmap.md Phase 1 "Synthetic data requirements"):
   are exactly 10 permnos and 10 deciles, each decile holds exactly one stock,
   so the long-short (decile 1 minus decile 10) series is a deterministic,
   closed-form function of ``t`` that can be verified independently of the
-  BacktestEngine implementation (see ``expected_long_short_series`` below).
+  BacktestExecutor implementation (see ``expected_long_short_series`` below).
 - One open-ended, primary CCM link per permno/gvkey pair.
 
 All stocks share shrcd=10, exchcd=1, siccd=2000 (non-financial, NYSE) so the
@@ -44,7 +44,7 @@ def _permno(i: int) -> int:
 
 def _gvkey(i: int) -> str:
     return f"{100000 + i:06d}"
-
+ 
 
 def _add_months(yyyymm: int, months: int) -> int:
     year, month = divmod(yyyymm, 100)

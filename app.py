@@ -140,7 +140,7 @@ def _run_backtest_via_script(
     import subprocess
     import sys
     from src.steps.step3_codegen.script_generator import generate_backtest_script
-    from src.steps.step5_engine import BacktestEngine
+    from src.infra.backtest_engine import BacktestExecutor
 
     scripts_dir = BACKTEST_SCRIPTS_DIR
     scripts_dir.mkdir(parents=True, exist_ok=True)
@@ -180,7 +180,7 @@ def _run_backtest_via_script(
     metrics_path = output_csv.with_suffix(".metrics.json")
     metrics = json.loads(metrics_path.read_text())
     return_series = pd.read_csv(output_csv)
-    config = BacktestEngine()._build_config(spec, config_overrides)
+    config = BacktestExecutor()._build_config(spec, config_overrides)
 
     return {
         "metrics": metrics,
@@ -1344,8 +1344,8 @@ elif page == "MetaCoder":
         # Hook detection
         st.subheader("3. Hook Detection")
         try:
-            from src.steps.step5_engine import BacktestEngine
-            hooks_needed = BacktestEngine._detect_hooks(mc_spec)
+            from src.infra.backtest_engine import BacktestExecutor
+            hooks_needed = BacktestExecutor._detect_hooks(mc_spec)
             if hooks_needed:
                 st.warning(f"**{len(hooks_needed)} non-standard step(s):**")
                 for step, reason in hooks_needed.items():
