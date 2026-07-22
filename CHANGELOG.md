@@ -2,6 +2,47 @@
 
 ## [Unreleased]
 
+### Changed — feedback-loop redesign: two bounded automatic loops + shared RepairLoop + step 7 rename
+- **New shared `RepairLoop`** (`src/infra/repair.py`) consolidates the three
+  near-duplicate technical repair loops (previously in
+  `Pipeline._validate_with_repair`, `Pipeline.run_from_method_spec`'s inline
+  execute loop, and `DualTrackController._run_track`) into one class with
+  `build_validate_repair()` + `execute_with_repair()`. `Pipeline` and
+  `DualTrackController` both delegate to it; `MAX_REPAIR_RETRIES` now lives in
+  one place. Behavior preserved (golden-number e2e tests unchanged).
+- **Repair audit trail:** new `RepairAttempt` model (`src/infra/models/run_record.py`)
+  records every technical-repair iteration (attempt index, trigger stage
+  validate|execute, error text, code hash before/after, passed). Accumulated by
+  `RepairLoop` and persisted on `RunRecord.repair_history` via the evidence store.
+- **New Review→Extractor targeted re-extraction loop** in
+  `Pipeline.run_full_pipeline` (`MAX_REEXTRACT=2`): when the LLM reviewer returns
+  `remediation_mode == TARGETED_REEXTRACTION` and backs a flagged high-impact
+  field with a paper quote, the pipeline re-extracts just those fields (feeding
+  the extractor the reviewer's citation) and re-reviews, bounded. Paper-silent
+  fields (no citation), `FULL_REGENERATION`, or an exhausted budget escalate to a
+  human (`needs_manual`). New helpers `Pipeline._review` (prefers `review_with_llm`
+  so `remediation_mode` is actually decided) and `Pipeline._build_reextract_feedback`.
+  `SemanticExtractor.extract()` gained a `reextract_feedback` param + a prompt hook
+  (`REEXTRACT_FEEDBACK_TEMPLATE`); `MethodSpec` gained a `reextraction_attempts`
+  counter.
+- **Renamed step 7 `attribution` → `replication_diff`:** directory
+  `src/steps/step7_attribution/` → `src/steps/step7_replication_diff/`;
+  `AttributionLayer` → `ReplicationDiff`, `AttributionResult` → `ReplicationDiffResult`,
+  `attribute_ablation` → `diff_ablation`, `attribute_shapley` → `diff_shapley`.
+  Updated `pipeline.py` (`self.replication_diff`, stage label `replication_diff`),
+  `app.py`, `AGENTS.md` Module Map, `docs/architecture.md`. It is a terminal
+  reporting step (compare vs C&Z/paper, decompose the gap), not a loop trigger.
+- **Design principle recorded** (`docs/decision-log.md`): each loop feeds back
+  "the problem / what to re-check", never the answer; technical fixes are
+  automated, empirical judgments stay human-gated (Review Gate). No automatic
+  empirical backtrack from later stages.
+- Docs updated: `docs/architecture.md` §3.1 (rewritten to describe the two real
+  loops) + §4/§5, `docs/roadmap.md` (loop-redesign note + deferred future
+  improvements: degenerate-result auto-flag, per-field evidence differentiation).
+- New tests: `tests/test_repair_loop.py` (RepairLoop audit trail + outcome
+  contract), `tests/test_reextraction_loop.py` (Review→Extractor loop control flow).
+  Full suite: 174 passed, 26 skipped; `ruff check src/` clean.
+
 ### Added — `Pipeline.run_full_pipeline()` re-wires steps 1/2/6/7 into the orchestrator
 - Restored constructor wiring removed earlier the same day:
   `self.extractor` (`SemanticExtractor`), `self.review_gate` (`ReviewGate`),

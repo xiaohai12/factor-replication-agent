@@ -11,9 +11,8 @@ from src.steps.step4_validator import AdversarialSandbox
 from src.infra.models.method_spec import MethodSpec
 from src.infra.models.plugin import PluginRecord
 from src.infra.models.run_record import RunRecord
+from src.infra.repair import RepairLoop
 
-
-MAX_REPAIR_RETRIES = 3
 
 # Standard HXZ-style settings for the standardized track
 HXZ_STANDARD_CONFIG = {
@@ -64,6 +63,10 @@ class DualTrackController:
         self.runner = runner
         self.meta_coder = meta_coder
         self.sandbox = sandbox
+        # The one shared technical repair loop — same object type Pipeline uses,
+        # so per-track execute failures get the identical bounded
+        # repair -> rebuild -> re-validate behavior (see src/infra/repair.py).
+        self.repair_loop = RepairLoop(runner, sandbox, meta_coder)
 
     def run_experiment(
         self,
@@ -106,33 +109,28 @@ class DualTrackController:
         track_name: str,
         config_overrides: dict[str, Any],
     ) -> RunRecord:
-        """Build the standalone script for this track's config and execute it
-        (Step 5), with a bounded repair loop on execution failure:
-        `MetaCoder.repair_plugin()` (Step 3) on the run's stderr, a quick
-        re-validate (Step 4, static only — the compute_signal execution smoke
-        test already ran once before `run_experiment` was called; re-running
-        it per repair attempt per track would be redundant), then rebuild and
-        retry. Mirrors `Pipeline.run_from_method_spec`'s run-with-repair loop,
-        applied per track instead of once.
+        """Build this track's script (from an already-validated plugin) and
+        execute it via the shared `RepairLoop` (Step 5), which on an execution
+        failure loops back to Step 3 (`MetaCoder.repair_plugin`) with a Step 4
+        re-validate, bounded by `MAX_REPAIR_RETRIES` -- the same loop
+        `Pipeline.run_from_method_spec` uses, applied per track. On exhaustion a
+        status="failed" RunRecord is returned instead of raising. The repair
+        history is attached to the RunRecord for audit.
         """
-        result = None
-        for attempt in range(MAX_REPAIR_RETRIES + 1):
-            built = self.runner.build_script(plugin, spec, snapshot_id, config_overrides)
-            try:
-                result = self.runner.execute(built)
-                break
-            except RuntimeError as run_error:
-                can_repair = attempt < MAX_REPAIR_RETRIES and self.meta_coder.llm_client is not None
-                if not can_repair:
-                    return self.runner.make_failed_run_record(
-                        spec, plugin, track_name, config_overrides, str(run_error)
-                    )
-                plugin = self.meta_coder.repair_plugin(plugin, [str(run_error)])
-                report = self.sandbox.validate(plugin, spec)
-                plugin.validation_report = report
-                plugin.validation_status = "passed" if report.passed else "needs_repair"
-
-        return self.runner.make_run_record(spec, plugin, track_name, result)
+        built = self.runner.build_script(plugin, spec, snapshot_id, config_overrides)
+        outcome = self.repair_loop.execute_with_repair(
+            plugin, built, spec, snapshot_id, config_overrides
+        )
+        if outcome.error is not None:
+            record = self.runner.make_failed_run_record(
+                spec, outcome.plugin, track_name, config_overrides, outcome.error
+            )
+        else:
+            record = self.runner.make_run_record(
+                spec, outcome.plugin, track_name, outcome.result
+            )
+        record.repair_history = outcome.history
+        return record
 
     def _get_ablation_override(self, switch: str, spec: MethodSpec) -> dict[str, Any]:
         """Get config override for a single ablation switch."""

@@ -40,7 +40,7 @@ and controlled pipeline components.
 | `src/steps/step4_validator/` | 4 | Plugin syntax/schema/safety validation (future-leak scan) + a compute_signal execution smoke test on the script step3 built. |
 | `src/steps/step5_backtest_runner/` | 5 | Execute the standalone backtest script (already built by step3) via subprocess (`BacktestRunner.execute()`) — literally "run the generated file". Used by both `Pipeline.run_from_method_spec` (single track) and `DualTrackController` (multi-track), so there's one implementation of "execute" either way. |
 | `src/steps/step6_dual_track_controller/` | 6 | Dual-track and ablation orchestration: runs each track via `BacktestRunner` (step5), with its own bounded repair loop back to `MetaCoder` (step3) on an execution failure. |
-| `src/steps/step7_attribution/` | 7 | Replication-gap attribution and anomaly flags. |
+| `src/steps/step7_replication_diff/` | 7 | Replication-gap analysis vs reference (C&Z/paper): decompose where the gap comes from (`ReplicationDiff`). Terminal reporting step, not a feedback-loop trigger. |
 | `src/infra/backtest_engine/` | — | The controlled backtest lifecycle engine (`BacktestExecutor`, standard step computations, hook loading). Shared infrastructure used by pipeline.py/step6/app.py and the generated script's runtime import — not itself "step 5" (see step5 row above), which is just the build+execute action around it. |
 | `src/infra/models/` | — | Pydantic models (MethodSpec, PluginRecord, RunRecord). |
 | `src/infra/data_layer/` | — | Data loaders, dictionary, snapshots, CCM link, time_avail. |

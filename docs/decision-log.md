@@ -32,6 +32,71 @@ when writing the paper.
 
 <!-- Add new entries below this line, newest first. -->
 
+## 2026-07-22 — Loop redesign: two bounded automatic loops, one shared RepairLoop, "feed back the problem not the answer"
+
+- **Context / problem:** The pipeline's feedback loops had accreted three
+  near-duplicate copies of the same technical repair logic (in
+  `Pipeline._validate_with_repair`, `Pipeline.run_from_method_spec`'s inline
+  execute loop, and `DualTrackController._run_track`), while the "empirical"
+  cross-stage loops from the original design were unimplemented. We wanted to
+  (a) decide, from first principles, which loops this agent *should* have, and
+  (b) consolidate the technical loop and add an audit trail.
+- **Options considered:** Grounded the design in agent-architecture references
+  (Anthropic "Building Effective Agents" — workflow vs agent, evaluator-optimizer;
+  Chip Huyen "Agents" — plan/execute decoupling, reflection, human-in-the-loop
+  for risky ops; Reflexion — episodic feedback memory; Self-Refine — bounded
+  iterate-with-stopping-criterion). Key realization: this system is a *workflow*
+  (fixed 7-step controlled path), not an autonomous agent, because its whole
+  thesis is "the LLM does not decide empirical conclusions." So loops must be
+  bounded, evaluator-optimizer-shaped, and must keep a hard line between
+  technical fixes (safe to automate) and empirical judgments (human-gated).
+- **Decision:** Exactly TWO automatic feedback loops, both bounded, plus a
+  governing principle:
+  1. **Technical repair loop** (steps 3↔4↔5): consolidated into one shared
+     `RepairLoop` (`src/infra/repair.py`) used by all three call sites;
+     `MAX_REPAIR_RETRIES=3`; every attempt recorded as a `RepairAttempt` on the
+     RunRecord (audit trail persisted to the evidence store).
+  2. **Review→Extractor targeted re-extraction loop** (step 2, `MAX_REEXTRACT=2`):
+     when the LLM reviewer judges a high-impact field was mis-extracted
+     (`remediation_mode == TARGETED_REEXTRACTION`) AND backs it with a paper
+     quote, the extractor re-reads just those passages. FULL_REGENERATION,
+     paper-silent fields (no citation), or an exhausted budget escalate to a
+     human (`needs_manual`).
+  - **Governing principle** ("feed back the problem, not the answer"): each loop
+    only tells the upstream step *where* the problem is / *what* to re-check —
+    the technical loop feeds MetaCoder the raw errors (its prompt forbids
+    touching empirical params); the empirical loop feeds the extractor the
+    reviewer's paper citation, never a value. Final values always come from the
+    paper (extractor) + human-gated Review.
+  - **No automatic empirical backtrack from later stages.** Step 7 (renamed
+    `attribution` → `replication_diff`) reports the replication gap for a human
+    to interpret; it is terminal, not a loop trigger.
+- **Rationale:** The technical/empirical split is the technical embodiment of
+  the project's core positioning. Auto-repairing code is safe and cheap;
+  auto-adjusting empirical parameters would let the LLM decide conclusions,
+  which we forbid. Using "does the reviewer have a paper citation?" as the
+  re-extract-vs-human router is more reliable than evidence-tier heuristics and
+  reuses the existing `EvidenceCitation` data. Consolidating three loop copies
+  removes the drift that had already caused several rounds of doc/comment
+  corrections.
+- **Empirical impact:** None on replication numbers — the technical loop's
+  behavior is preserved (golden-number e2e tests unchanged); the re-extraction
+  loop only affects extraction-driven runs, which are not in the deterministic
+  test set yet.
+- **Trade-offs / risks:** The Review→Extractor loop depends on the LLM reviewer
+  path (`review_with_llm`) actually emitting `TARGETED_REEXTRACTION`; the
+  deterministic `review()` never does, so the loop is a no-op without an LLM
+  client (falls back to fail-fast — acceptable). The `DualTrackController`
+  per-track re-validate is now a full (not static-only) re-validate for
+  consistency — a negligible per-track cost.
+- **References:** `src/infra/repair.py` (`RepairLoop`, `ValidateOutcome`,
+  `ExecuteOutcome`), `src/infra/models/run_record.py` (`RepairAttempt`,
+  `RunRecord.repair_history`), `src/pipeline.py` (`run_full_pipeline` review
+  loop, `_review`, `_build_reextract_feedback`, `MAX_REEXTRACT`),
+  `src/steps/step1_extractor` (re-extraction feedback params + prompt hook),
+  `src/steps/step7_replication_diff` (renamed), `docs/architecture.md` §3.1,
+  `tests/test_repair_loop.py`, `tests/test_reextraction_loop.py`.
+
 ## 2026-07-22 — Reinstated the full 7-step orchestrator as `Pipeline.run_full_pipeline()` (fail-fast, no fake backtrack)
 
 - **Context / problem:** Steps 1/2/6/7 (SemanticExtractor, ReviewGate,

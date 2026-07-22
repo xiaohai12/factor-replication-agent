@@ -22,6 +22,24 @@ class RunMetrics(BaseModel):
     n_months: Optional[int] = None
 
 
+class RepairAttempt(BaseModel):
+    """One bounded technical-repair iteration in the RepairLoop (audit trail).
+
+    Records every time MetaCoder was asked to fix the plugin because a
+    validation check or a backtest execution failed. Persisted on the
+    RunRecord so the self-debugging history is auditable (never an empirical
+    repair -- only syntax/schema/hook/runtime fixes; see src/infra/repair.py).
+    """
+
+    attempt_index: int = Field(..., description="0-based repair attempt within one loop")
+    trigger_stage: str = Field(..., description="validate|execute -- what failed and triggered the repair")
+    trigger_error: str = Field(default="", description="the error text fed back to MetaCoder")
+    error_kind: str = Field(default="technical", description="always technical -- empirical issues never repaired here")
+    code_hash_before: str = Field(default="")
+    code_hash_after: str = Field(default="")
+    passed: bool = Field(default=False, description="whether the repaired plugin passed re-validation")
+
+
 class RunRecord(BaseModel):
     """Registry record for a single backtest experiment run."""
 
@@ -46,3 +64,7 @@ class RunRecord(BaseModel):
     status: str = Field(default="pending", description="pending|running|success|failed|needs_review")
     created_at: datetime = Field(default_factory=datetime.now)
     logs: list[str] = Field(default_factory=list)
+
+    # Self-debugging audit trail: every bounded technical-repair iteration the
+    # RepairLoop ran to reach this run (empty when the plugin passed first try).
+    repair_history: list[RepairAttempt] = Field(default_factory=list)

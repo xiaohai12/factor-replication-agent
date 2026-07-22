@@ -1715,9 +1715,9 @@ elif page == "Attribution":
         )
     else:
         factor_sel = st.selectbox("Factor", evidence_factors, key="attr_factor")
-        if factor_sel and st.button("Run Attribution", key="attr_run"):
+        if factor_sel and st.button("Run Replication-Diff", key="attr_run"):
             try:
-                from src.steps.step7_attribution import AttributionLayer
+                from src.steps.step7_replication_diff import ReplicationDiff
                 from src.infra.evidence import EvidenceStore
                 store = EvidenceStore(base_path=str(EVIDENCE_DIR))
                 # Load runs for this factor
@@ -1729,10 +1729,10 @@ elif page == "Attribution":
                         runs.append(json.loads(meta_path.read_text()))
 
                 if len(runs) < 2:
-                    st.warning("Need at least 2 runs for attribution. Run ablations first.")
+                    st.warning("Need at least 2 runs for replication-diff. Run ablations first.")
                 else:
-                    attr = AttributionLayer()
-                    result = attr.attribute_ablation(runs)
+                    differ = ReplicationDiff()
+                    result = differ.diff_ablation(runs)
                     st.session_state["attr_result"] = result
             except Exception as e:
                 st.error(str(e))

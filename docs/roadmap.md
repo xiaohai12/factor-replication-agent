@@ -29,9 +29,22 @@ than TODO stubs; see `docs/decision-log.md`. The same day it was reinstated as
 `Pipeline.run_full_pipeline()`, this time fail-fast with no fake backtrack claims (only the real
 Sandbox→Meta-Coder repair loop, shared with `run_from_method_spec()`), plus every step reachable
 standalone via `pipeline.extractor`/`.review_gate`/`.meta_coder`/`.sandbox`/`.runner`/
-`.controller`/`.attribution` for step-by-step testing. Real cross-stage backtrack
-(Review↔Extractor, Attribution↔ReviewGate) is still Phase 2 scope, not implemented by either
-entry point today.
+`.controller`/`.replication_diff` for step-by-step testing.
+
+**2026-07-22 loop redesign.** `run_full_pipeline()` now has two implemented, bounded automatic
+feedback loops (see `docs/architecture.md` §3.1): (1) the shared technical `RepairLoop`
+(`src/infra/repair.py`) used by all three call sites, with a persisted `RepairAttempt` audit
+trail; and (2) a Review→Extractor targeted re-extraction loop (`MAX_REEXTRACT=2`) — when the LLM
+reviewer flags a high-impact field as mis-extracted with a paper citation, the extractor re-reads
+just those passages. There is deliberately no automatic *empirical* backtrack from later stages;
+step 7 (`ReplicationDiff`, renamed from `attribution`) reports the replication gap for a human to
+interpret rather than auto-correcting it.
+
+**Future improvements (deferred, not yet built):**
+- Degenerate/empty backtest result (e.g. universe filter drops all rows) → auto-flag
+  `needs_review` and stop for a human, never auto-fix the empirical params.
+- Per-field `EvidenceSource` differentiation in the extractor (currently hardcoded `INFERRED`),
+  which would let the Review→Extractor trigger be partly deterministic instead of LLM-only.
 
 **Goal:** run one complete factor replication workflow with every component genuinely implemented — no stubs, no mock returns, no `raise NotImplementedError` shortcuts.
 

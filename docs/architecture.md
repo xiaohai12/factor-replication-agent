@@ -98,31 +98,28 @@ tags: [architecture, factor-replication, agent, quant]
 
 ### 3.1 反馈回路 / Feedback Loops
 
-> **2026-07-22 更新**：本节最初描述的 `Pipeline.run_factor()` 曾因为在仓库里没有
-> 任何调用方、且下表里除 Sandbox→Meta-Coder 之外的三条回路始终只是 TODO 占位
-> （递增 `backtrack_count` 后立刻失败，从未真正回调上游阶段）而被删除（详见
-> `docs/decision-log.md` 对应条目）。同一天，1/2/6/7 步（SemanticExtractor /
-> ReviewGate / DualTrackController / AttributionLayer）被重新接入编排层，新方法
-> `Pipeline.run_full_pipeline()` 跑完全部 7 步，但**刻意不实现**下表里除
-> Sandbox→Meta-Coder 之外的三条跨阶段回路——遇到 Review 未通过 / Sandbox 经验性
-> 问题 / Attribution 异常时直接 fail-fast 并在返回的 `PipelineStatus` 上报告
-> 是哪一步失败，而不是假装会自动重试。每一步也都可以单独调用来测试/调试
-> （`pipeline.extractor`/`pipeline.review_gate`/`pipeline.meta_coder`/
-> `pipeline.sandbox`/`pipeline.runner`/`pipeline.controller`/
-> `pipeline.attribution`）。真正的跨阶段回路仍然是 roadmap Phase 2 的范围。
+> **2026-07-22 重设**：`Pipeline.run_full_pipeline()` 现在有**两条真正实现的、
+> 有界的自动回路**（见下表）。设计信条：每条回路只回传"问题在哪 / 该重新看哪里"，
+> **绝不回传答案**——技术回路不替 LLM 写正确代码，经验回路不替 extractor 填正确
+> 数值。经验结论始终由人在环的 Review Gate 前置把关；后续阶段（ReplicationDiff）
+> 只如实报告复现差异，**不做任何自动经验回退**。三处历史上重复的技术回路已统一为
+> 一个共享的 `RepairLoop`（`src/infra/repair.py`）。详见 `docs/decision-log.md`。
 
-`src/pipeline.py` 的 `Pipeline.run_full_pipeline()` 目前串联下面 7 步（全局
-`MAX_BACKTRACK_DEPTH` 已随旧 `run_factor()` 一起移除，不再使用）：
+`src/pipeline.py` 的 `Pipeline.run_full_pipeline()` 目前实现的回路：
 
 | 触发条件 | 回路方向 | 上限 | 实现状态 |
 |---|---|---|---|
-| Future-Leak Scan / 技术性校验失败 | Sandbox → Meta-Coder 重新生成 | `MAX_REPAIR_RETRIES = 3` | ✅ 已实现（`_validate_with_repair()`，`run_from_method_spec()`/`run_full_pipeline()` 共用） |
-| Review Gate 未通过（非 `requires_human`） | Review Gate → Extractor 重新提取 | — | ❌ 未实现：`run_full_pipeline()` 直接 fail-fast 返回，不自动重新提取 |
-| Sandbox 检测到经验性问题（temporal leakage 等） | Sandbox → Review Gate 重新送审 | — | ❌ 未实现：同上，直接 fail-fast |
-| Attribution 检测到**异常**（sign flip 或 >50% gap） | Attribution → Review Gate 触发重审 | — | ❌ 未实现：`attribute_ablation()` 的结果目前不会触发任何回路 |
+| 技术性失败（syntax/schema/hook/未来泄漏/执行崩溃） | Sandbox/执行 → Meta-Coder 重新生成代码 | `MAX_REPAIR_RETRIES = 3` | ✅ 已实现：统一在共享 `RepairLoop`，被 `run_from_method_spec` / `run_full_pipeline` / `DualTrackController._run_track` 共用；每次尝试记 `RepairAttempt` 审计 |
+| LLM Reviewer 判定高影响字段被**误抽**（`remediation_mode == TARGETED_REEXTRACTION`，且该字段有论文原文引用） | Review Gate → Extractor 定向重抽 | `MAX_REEXTRACT = 2` | ✅ 已实现：带 reviewer 的论文原文引用重抽被标字段 → 重审；超预算/无可用引用/论文确实没写 → 转人工 |
+| Review 判 `FULL_REGENERATION` 或论文确实沉默（无原文引用） | → 人工 | — | ✅ 直接 `needs_manual`（不消耗重抽预算），不自动重来 |
+| 复现结果与参考（C&Z/论文）有差距 | ReplicationDiff 报告（终点，**不回流**） | — | ✅ 设计上不做自动经验回退，只报告 gap 供人解读 |
 
+**技术回路 vs 经验回路的红线**：技术回路里 `MetaCoder.repair_plugin` 的 prompt 写死
+"只修代码、不碰经验假设"；经验回路里 extractor 只被要求"重读这段论文原文、重新核对
+这个字段"，最终值仍由 extractor 从论文抽、由 Review 再判。这保证了 LLM 永远不自行
+决定经验性结论。
 
-流水线阶段状态机：`pending → extract → review → generate → validate → run → attribute → done / failed`。
+流水线阶段状态机：`pending → extract → review → reextract → generate → validate → run → replication_diff → done / failed`。
 
 ---
 
@@ -343,7 +340,7 @@ src/
   data_layer/                   # DataLayer + DataDictionary + TimeAvailComputer
   engine/                       # BacktestEngine（骨架，WIP）
   controller/                   # DualTrackController + ExperimentPlan
-  attribution/                  # AttributionLayer + AttributionResult
+  replication_diff/             # ReplicationDiff + ReplicationDiffResult
   evidence/                     # EvidenceStore + RunRegistry
   evaluation/                   # Extraction accuracy evaluation（vs C&Z SignalDoc）
   models/                       # Pydantic models（MethodSpec、PluginRecord、RunRecord …）
@@ -485,11 +482,11 @@ Run Registry 记录每个 factor × variant 的状态：`pending / running / suc
 | Plugin Registry | ⏳ 暂不需要 | pilot 阶段用文件路径追溯即可；多因子跨实验时扩展 |
 | Evidence Store + Run Registry | ✅ 已实现 | 磁盘持久化，per-run artifact 目录 |
 | Dual-Track Controller | ✅ 已实现 | `ExperimentPlan` + `HXZ_STANDARD_CONFIG` |
-| Pipeline 反馈回路 | ⚠️ 部分实现 | `src/pipeline.py`，见 §3.1——`run_full_pipeline()` 已把 1/2/6/7 步接回编排层，但只有 Sandbox→Meta-Coder 技术性修复是真正实现的回路，其余三条仍是 fail-fast（Phase 2 范围） |
+| Pipeline 反馈回路 | ✅ 两条回路已实现 | `src/pipeline.py`，见 §3.1——技术性修复（共享 `RepairLoop`，`src/infra/repair.py`）+ Review→Extractor 定向重抽（`MAX_REEXTRACT=2`）；ReplicationDiff 为终点报告不回流 |
 | Streamlit Dashboard | ✅ 已实现 | `app.py`，覆盖 extract → review → resolve → codegen |
 | BacktestExecutor standard steps | ✅ 已实现 | 全部 7 个 standard 步骤实现；`_detect_hooks(spec)` + `_build_config()` 完成 |
 | BacktestExecutor hook dispatch | ✅ 已实现 | 每步 `_dispatch()` — hook 优先，无 hook 走 standard；见 §4.6 |
-| Attribution Layer | 🚧 基础结构已有 | `AttributionResult` 结构定义完毕，分解算法待实现 |
+| Replication-Diff Layer | 🚧 基础结构已有 | `ReplicationDiffResult` 结构定义完毕（`src/steps/step7_replication_diff/`，2026-07-22 从 attribution 改名），分解算法待实现 |
 | data/local/*.parquet | ⏳ 未建立 | 需人工从 WRDS 导出 funda + msf 后放置 |
 | WRDS 实时连接 / CCM merge | ⏳ 未实现 | 需要数据版本管理或定期更新时扩展 |
 | Plugin hash 持久化 | ⏳ 未实现 | Plugin Registry 当前为 in-memory；需要跨进程追溯时扩展到磁盘 |

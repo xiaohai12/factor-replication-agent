@@ -46,7 +46,7 @@ class FakeRunner:
 
     def build_script(self, plugin, spec, snapshot_id, config_overrides) -> dict:
         self.build_calls.append({"snapshot_id": snapshot_id, "config_overrides": dict(config_overrides or {})})
-        return {"config": dict(config_overrides or {}), "config_overrides": config_overrides}
+        return {"config": dict(config_overrides or {}), "config_overrides": config_overrides, "script_text": plugin.code}
 
     def execute(self, built: dict) -> dict:
         self.execute_calls += 1
@@ -97,7 +97,7 @@ class FakeSandbox:
         self.passes = passes
         self.validate_calls = 0
 
-    def validate(self, plugin, spec):
+    def validate(self, plugin, spec, script_text=None, data=None):
         self.validate_calls += 1
         return ValidationReport(passed=self.passes)
 

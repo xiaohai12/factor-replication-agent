@@ -507,6 +507,10 @@ class MethodSpec(BaseModel):
     review_notes: list[ReviewNote | dict[str, Any]] = Field(default_factory=list)
     resolution_log: list[ResolutionLogEntry] = Field(default_factory=list)
 
+    #: How many times this spec has been targeted-re-extracted by the
+    #: Review -> Extractor loop (bounded; see src/pipeline.py run_full_pipeline).
+    reextraction_attempts: int = 0
+
     @model_validator(mode="before")
     @classmethod
     def normalize_curated_schema(cls, data: Any) -> Any:

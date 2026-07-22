@@ -140,6 +140,46 @@ Paper text for factor "{factor_id}":
 Extract the MethodSpec as JSON.
 """
 
+#: Prepended to the extraction user message when the Review Gate sent this
+#: factor back for TARGETED re-extraction (see src/pipeline.py's Review ->
+#: Extractor loop). It tells the model WHICH fields the reviewer suspects were
+#: mis-extracted and, crucially, quotes the paper passage the reviewer pointed
+#: at so the model re-reads that exact text -- it never hands the model the
+#: answer, only "re-check THIS field against THIS passage".
+REEXTRACT_FEEDBACK_TEMPLATE = """\
+IMPORTANT — TARGETED RE-EXTRACTION. A reviewer flagged the following field(s) from a
+previous extraction of this same paper as likely MIS-READ. Re-read the quoted paper
+passages carefully and correct these fields. Do NOT change fields that were not flagged
+unless the paper clearly requires it. If, after re-reading, the paper genuinely does not
+state a field, mark it "unspecified" — do not guess.
+
+Flagged fields:
+{feedback_block}
+
+"""
+
+
+def _format_reextract_feedback(reextract_feedback: list[dict]) -> str:
+    """Render the reviewer feedback (field + reason + paper quote + prior value)
+    into the block injected by REEXTRACT_FEEDBACK_TEMPLATE."""
+    lines = []
+    for item in reextract_feedback:
+        field = item.get("field", "?")
+        reason = item.get("reason", "")
+        prior = item.get("prior_value")
+        evidence = item.get("paper_evidence") or []
+        if isinstance(evidence, str):
+            evidence = [evidence]
+        lines.append(f"- Field `{field}` (previously extracted as: {prior!r})")
+        if reason:
+            lines.append(f"    Reviewer concern: {reason}")
+        for quote in evidence:
+            quote_text = quote.get("quote") if isinstance(quote, dict) else quote
+            if quote_text:
+                lines.append(f"    Paper says: \"{quote_text}\"")
+    return "\n".join(lines)
+
+
 BATCH_EXTRACTION_USER_TEMPLATE = """\
 Paper text:
 
@@ -235,6 +275,7 @@ class SemanticExtractor:
         factor_id: str,
         paper_text: str,
         pdf_bytes: bytes | None = None,
+        reextract_feedback: list[dict] | None = None,
     ) -> ExtractionResult:
         """Extract MethodSpec from paper text only.
 
@@ -244,6 +285,13 @@ class SemanticExtractor:
         Args:
             factor_id: Unique factor identifier (e.g. "BM", "Mom12m")
             paper_text: Raw paper text (or relevant sections)
+            pdf_bytes: Optional native PDF bytes (used when the client supports it)
+            reextract_feedback: Optional reviewer feedback for a TARGETED
+                re-extraction (see src/pipeline.py's Review -> Extractor loop).
+                Each item = {field, reason, paper_evidence, prior_value}; it
+                steers the model to re-read the quoted passages for the flagged
+                fields. Never contains the answer -- only which fields to
+                re-check against which paper text.
 
         Returns:
             ExtractionResult with MethodSpec and quality metrics
@@ -256,7 +304,9 @@ class SemanticExtractor:
         # Call LLM for extraction
         self._last_error = None
         self._last_usage = None
-        raw = self._call_llm_extract(factor_id, paper_text, pdf_bytes=pdf_bytes)
+        raw = self._call_llm_extract(
+            factor_id, paper_text, pdf_bytes=pdf_bytes, reextract_feedback=reextract_feedback
+        )
         result.raw_llm_output = raw
         result.token_usage = getattr(self, "_last_usage", None)
 
@@ -318,17 +368,28 @@ class SemanticExtractor:
 
     # Max paper text chars sent to LLM (~10k tokens, leaves room for system prompt + output)
     def _call_llm_extract(
-        self, factor_id: str, paper_text: str, pdf_bytes: bytes | None = None
+        self, factor_id: str, paper_text: str, pdf_bytes: bytes | None = None,
+        reextract_feedback: list[dict] | None = None,
     ) -> dict | None:
         """Call LLM to extract structured fields from paper text (with retry).
 
         If pdf_bytes is provided and the client supports it, sends the PDF directly
         as a base64 document block (preserves formulas and tables).
         Otherwise sends full paper text.
+
+        When `reextract_feedback` is supplied, a TARGETED re-extraction
+        instruction block (which fields to re-check + the paper quotes the
+        reviewer pointed at) is prepended to the user message.
         """
+        feedback_prefix = ""
+        if reextract_feedback:
+            feedback_prefix = REEXTRACT_FEEDBACK_TEMPLATE.format(
+                feedback_block=_format_reextract_feedback(reextract_feedback)
+            )
+
         client_supports_pdf = hasattr(self.llm_client, "_create_with_pdf") or hasattr(self.llm_client, "_pdf_to_text")
         if pdf_bytes and client_supports_pdf:
-            user_msg = EXTRACTION_USER_TEMPLATE.format(
+            user_msg = feedback_prefix + EXTRACTION_USER_TEMPLATE.format(
                 factor_id=factor_id,
                 paper_text="[See attached PDF document above]",
             )
@@ -338,7 +399,7 @@ class SemanticExtractor:
             ]
             return self._call_llm_with_retry(messages, pdf_bytes=pdf_bytes)
 
-        user_msg = EXTRACTION_USER_TEMPLATE.format(
+        user_msg = feedback_prefix + EXTRACTION_USER_TEMPLATE.format(
             factor_id=factor_id,
             paper_text=paper_text,
         )
