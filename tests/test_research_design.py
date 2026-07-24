@@ -1,7 +1,7 @@
 """Unit tests for the deterministic ResearchDesign steps added in plan.md
-Phase 2.5: universe filter DSL, delisting-return handling, and the
-neutralization scaffold. These are pure functions in
-`src/infra/backtest_engine/steps.py`, tested directly (no MethodSpec/plugin needed).
+Phase 2.5: universe filter DSL and delisting-return handling. These are
+pure functions in `src/infra/backtest_engine/steps.py`, tested directly (no
+MethodSpec/plugin needed).
 """
 
 from __future__ import annotations
@@ -24,12 +24,19 @@ def _msf_df() -> pd.DataFrame:
     })
 
 
-class TestFilterUniverseBaseline:
-    def test_baseline_screen_unchanged_when_no_extra_filters(self):
+class TestFilterUniverseNoBaseline:
+    def test_noop_when_no_universe_filters_configured(self):
+        """filter_universe no longer applies any hardcoded CRSP-shaped
+        (shrcd/exchcd/siccd) screen -- that assumption doesn't hold for a
+        non-CRSP returns_universe. With no `universe_filters` configured, it
+        is a pure no-op; the paper's actual universe restriction (including
+        the common "ordinary common shares, NYSE/AMEX/NASDAQ, ex-financials"
+        boilerplate) is expected to come from the MethodSpec's
+        `universe_filters`, extracted from the paper like any other
+        restriction."""
         df = _msf_df()
         out = steps.filter_universe(df, config={})
-        # baseline: shrcd in (10,11) & exchcd in (1,2,3) & not financial siccd
-        assert set(out["permno"]) == {1, 2, 4}
+        assert set(out["permno"]) == {1, 2, 3, 4}
 
 
 class TestApplyUniverseFiltersDSL:
@@ -63,11 +70,11 @@ class TestApplyUniverseFiltersDSL:
         out = steps.apply_universe_filters(df, [])
         assert len(out) == len(df)
 
-    def test_filter_universe_layers_dsl_on_top_of_baseline(self):
+    def test_filter_universe_applies_configured_universe_filters(self):
         df = _msf_df()
         config = {"universe_filters": [{"field": "me", "op": "gte", "value": 50}]}
         out = steps.filter_universe(df, config)
-        # baseline keeps {1, 2, 4}; DSL me>=50 further restricts to {1, 2}
+        # no baseline anymore -- me>=50 alone restricts {1,2,3,4} to {1,2}
         assert set(out["permno"]) == {1, 2}
 
 
@@ -93,23 +100,11 @@ class TestApplyDelistingReturns:
         assert out.loc[out["permno"] == 1, "ret"].iloc[0] == pytest.approx(0.01)
 
 
-class TestNeutralizeSignalScaffold:
-    def test_default_none_is_identity(self):
-        df = _msf_df()
-        out = steps.neutralize_signal(df, config={})
-        pd.testing.assert_frame_equal(out, df)
-
-    def test_non_none_without_hook_raises(self):
-        df = _msf_df()
-        with pytest.raises(NotImplementedError):
-            steps.neutralize_signal(df, config={"neutralization": "industry_adjust"})
-
-
 class TestMicrocapExclude:
     def test_disabled_by_default(self):
         df = _msf_df()
         out = steps.filter_universe(df, config={})
-        assert set(out["permno"]) == {1, 2, 4}
+        assert set(out["permno"]) == {1, 2, 3, 4}
 
     def test_excludes_below_nyse_p20_when_enabled(self):
         df = _msf_df()

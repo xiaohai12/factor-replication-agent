@@ -1,10 +1,7 @@
-"""Unit tests for AdversarialSandbox (step4) — the hook contract check and the
-compute_signal execution smoke test added alongside the existing static checks.
+"""Unit tests for AdversarialSandbox (step4) — the compute_signal execution
+smoke test alongside the existing static checks.
 
 Design under test (see docs/decision-log.md):
-  - Static hook check: every hook the MethodSpec required (PluginRecord.hooks)
-    must be defined with a matching arity, else hooks_ok=False. This closes the
-    gap where a missing/misnamed hook is silently ignored at run time.
   - Execution smoke: `validate()` is given the ONE complete standalone backtest
     script (built via `generate_backtest_script()`, the same function
     `Pipeline._build_script` calls) -- not a separate hand-rolled runner. The
@@ -12,7 +9,7 @@ Design under test (see docs/decision-log.md):
     its `compute_signal` on a small in-memory data slice. It is LENIENT — only
     a raised exception fails it (executes_ok=False); an empty/degenerate
     result is inconclusive (warning, not failure); no `script_text` skips the
-    check entirely (executes_ok stays True). Hooks are NOT executed here.
+    check entirely (executes_ok stays True).
 
 Uses in-memory DataFrames and generated scripts pointed at a fake data path
 (never touched, since the execution check never calls `main()`) so this runs
@@ -35,13 +32,12 @@ def _spec() -> MethodSpec:
 
 
 
-def _plugin(code: str, hooks: dict | None = None) -> PluginRecord:
+def _plugin(code: str) -> PluginRecord:
     return PluginRecord(
         plugin_id="t_v1",
         factor_id="t",
         code=code,
         code_hash="deadbeef",
-        hooks=hooks or {},
     )
 
 
@@ -97,33 +93,10 @@ def _script_for(plugin: PluginRecord) -> str:
 
 
 class TestStaticChecks:
-    def test_good_plugin_no_hooks_passes_without_data(self):
+    def test_good_plugin_passes_without_data(self):
         report = AdversarialSandbox().validate(_plugin(_GOOD_SIGNAL), _spec())
         assert report.passed
-        assert report.hooks_ok
         assert report.executes_ok  # skipped (no data) -> stays True
-
-    def test_missing_hook_function_fails_hooks_ok(self):
-        # plugin.hooks declares a hook the code never defines
-        plugin = _plugin(_GOOD_SIGNAL, hooks={"compute_breakpoints": "compute_breakpoints_hook"})
-        report = AdversarialSandbox().validate(plugin, _spec())
-        assert not report.hooks_ok
-        assert not report.passed
-        assert any("compute_breakpoints_hook" in e for e in report.errors)
-
-    def test_wrong_arity_hook_fails_hooks_ok(self):
-        # compute_breakpoints_hook contract is (df, config) -> 2 args; define 1
-        code = _GOOD_SIGNAL + "\n\ndef compute_breakpoints_hook(df):\n    return df\n"
-        plugin = _plugin(code, hooks={"compute_breakpoints": "compute_breakpoints_hook"})
-        report = AdversarialSandbox().validate(plugin, _spec())
-        assert not report.hooks_ok
-        assert any("positional args" in e for e in report.errors)
-
-    def test_correct_hook_passes_hooks_ok(self):
-        code = _GOOD_SIGNAL + "\n\ndef compute_breakpoints_hook(df, config):\n    return df\n"
-        plugin = _plugin(code, hooks={"compute_breakpoints": "compute_breakpoints_hook"})
-        report = AdversarialSandbox().validate(plugin, _spec())
-        assert report.hooks_ok
 
 
 class TestExecutionSmoke:

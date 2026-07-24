@@ -1,29 +1,24 @@
 """Controlled Backtesting Lifecycle Engine - Fixed empirical pipeline.
 
-Steps are executed in a fixed order. Each step either runs a standard
-implementation (parameterised by config) or calls a hook function from the
-signal plugin when the MethodSpec requires non-standard logic.
+Steps are executed in a fixed order. Each step runs a standard implementation
+parameterised by config. The engine is fully standardized: there is no
+LLM-generated hook code — every portfolio-construction choice is *selected*
+from a fixed menu of built-in implementations by `build_config`, and an
+out-of-menu value is deterministically clamped to the menu default.
 
-Hook dispatch pattern (each step):
-    fn = self._hooks.get("step_name", <standard step function>)
-    result = fn(data, config)
-
-Module layout (see plan.md "Progressive file split"):
+Module layout:
   - `__init__.py` (this file) — orchestration: `BacktestExecutor`, `Step`
     Protocol, `BacktestContext`, `run()`/`run_with_config()`/`_dispatch()`.
   - `steps.py` — the standard step pure functions (computation).
-  - `registry.py` — `load_hooks` only (run-time hook loading; the one piece
-    of "registry" logic `run_with_config()` itself calls).
 
-The generation-time decision layer (which steps are "standard", how a
-MethodSpec resolves into a run config: `STANDARD`, `detect_hooks`,
-`build_config`, `resolve_long_leg`/`resolve_short_leg`/`normalize_leg`) lives
-in `src/steps/step3_codegen/registry.py` instead — it's only ever called at
-generation time (by MetaCoder/script_generator), never by this module's own
-dispatch, so step3_codegen owns it and doesn't need to depend on this package
-for it. `BacktestExecutor._detect_hooks()`/`_build_config()`/etc. below remain
-as thin backward-compatible delegates to that module for existing callers
-(including tests) that use those names.
+The generation-time decision layer (how a MethodSpec resolves into a run
+config: `build_config`, `resolve_long_leg`/`resolve_short_leg`/`normalize_leg`)
+lives in `src/steps/step3_codegen/registry.py` instead — it's only ever called
+at generation time (by script_generator), never by this module's own dispatch,
+so step3_codegen owns it and doesn't need to depend on this package for it.
+`BacktestExecutor._build_config()`/etc. below remain as thin
+backward-compatible delegates to that module for existing callers (including
+tests) that use those names.
 
 Lives in `src/infra/` (not `src/steps/`) because this is shared computation
 infrastructure used by many callers with no single "owning" step —
@@ -47,16 +42,15 @@ import pandas as pd
 
 from src.infra.models.method_spec import MethodSpec
 from src.steps.step3_codegen import registry as codegen_registry
-from src.infra.backtest_engine import registry, steps
+from src.infra.backtest_engine import estimators, steps
 
 
 class Step(Protocol):
-    """Uniform contract every standard step function and every LLM-generated
-    hook function satisfies: `(*args, config) -> DataFrame`. `*args` carries
-    whatever positional data the step needs (just `df` for most steps, `df,
-    breakpoints` for assign_portfolios). Because both a standard step and its
-    hook replacement share this exact shape, `_dispatch()` can swap one for
-    the other with no special-casing anywhere else in the engine."""
+    """Uniform contract every standard step function satisfies: `(*args,
+    config) -> DataFrame`. `*args` carries whatever positional data the step
+    needs (just `df` for most steps, `df, breakpoints` for assign_portfolios),
+    so `_dispatch()` can call every step identically with no special-casing
+    anywhere else in the engine."""
 
     def __call__(self, *args: Any, config: dict[str, Any]) -> Any: ...
 
@@ -72,7 +66,6 @@ class BacktestContext:
     """
 
     config: dict[str, Any]
-    hooks: dict[str, Any] = field(default_factory=dict)
     data: pd.DataFrame | None = None
     merged: pd.DataFrame | None = None
     breakpoints: pd.DataFrame | None = None
@@ -87,39 +80,39 @@ class BacktestContext:
 class BacktestExecutor:
     """Controlled backtesting lifecycle engine.
 
-    Executes the fixed empirical pipeline. Standard steps are built-in;
-    non-standard steps call hook functions loaded from the signal plugin.
+    Executes a fixed *prep* chain, then hands off to a swappable *estimator*
+    (see `estimators.py`). All steps/estimators are built-in and selected from
+    config — the engine is fully standardized (no hook code).
 
-    Steps (order is frozen):
+    Prep chain (order is frozen):
       1. load_data          — load returns table by name
       2. apply_delisting_returns — fold CRSP dlret into ret (deterministic;
                               no-op when no dlret column, plan.md Phase 2.5)
-      3. apply_missing_policy — drop / winsorize
+      3. apply_missing_policy — drop
       4. filter_universe    — baseline screen + deterministic universe_filters
-                              DSL (plan.md Phase 2.5); a filter_universe_hook
-                              still overrides this when supplied
+                              DSL (plan.md Phase 2.5)
       5. apply_excess_returns — subtract rf when factor data is supplied
                               (no-op otherwise, plan.md Phase 6)
       6. merge_signal       — expand annual signal to monthly holding period
-                              (hooked when signal.timing.overlapping_portfolios is true)
-      7. neutralize_signal  — deterministic neutralization scaffold, no-op by
-                              default (plan.md Phase 2.5)
-      8. compute_breakpoints — quantile breakpoints (full_sample or NYSE)
-      9. assign_portfolios  — cut stocks into decile/quintile groups
-     10. compute_returns    — VW or EW portfolio returns
-     11. compute_long_short — extreme-leg spread
-     12. compute_metrics    — mean, Newey-West t-stat, Sharpe (+ factor
-                              alphas when factor data is supplied)
+                              (overlapping-cohort variant when
+                              signal.timing.overlapping_portfolios is true)
 
-    This class is orchestration only — see `steps.py` for what each standard
-    step actually computes and `src/steps/step3_codegen/registry.py` for how
-    hook-need/config are decided. `run()` below is the entry point and reads
-    like a table of contents for the whole pipeline.
+    Estimator (selected by `config["estimator"]`; see `estimators.py`):
+      - `portfolio_sort` (default): form_portfolios (breakpoints + assignment
+        in one unit) -> compute_returns -> compute_long_short ->
+        compute_metrics (+ factor alphas when factor data is supplied)
+      - `fama_macbeth`: single-characteristic cross-sectional regression,
+        no portfolio sort at all
+
+    This class is orchestration only — see `steps.py`/`estimators.py` for
+    what each standard step/estimator actually computes and
+    `src/steps/step3_codegen/registry.py` for how config is decided. `run()`
+    below is the entry point and reads like a table of contents for the whole
+    pipeline.
     """
 
     def __init__(self, data_path: str | None = None):
         self.data_path = Path(data_path) if data_path else Path("./data")
-        self._hooks: dict[str, Any] = {}
 
     # ------------------------------------------------------------------
     # Main entry point
@@ -140,7 +133,6 @@ class BacktestExecutor:
             signal:          DataFrame [permno, yyyymm, signal] from compute_signal()
             spec:            Approved MethodSpec (all decisions resolved in spec fields)
             config_overrides: Optional per-run overrides (for ablation experiments)
-            plugin:          PluginRecord — source of hook functions
             data:            Optional pre-loaded MSF DataFrame. When given, skips
                              `_load_data()` (which locates the returns table by
                              name at `<data_path>/raw/<returns_table>.parquet`,
@@ -180,15 +172,13 @@ class BacktestExecutor:
         Args:
             signal:  DataFrame [permno, yyyymm, signal] from compute_signal()
             config:  Already-resolved run config, e.g. from `_build_config()`
-            plugin:  PluginRecord — source of hook functions
             data:    Optional pre-loaded MSF DataFrame; see `run()`.
             factors: Optional FF factor + rf DataFrame; see `run()`.
 
         Returns:
             Dict with keys: metrics, return_series, config
         """
-        self._hooks = self._load_hooks(plugin)
-        ctx = BacktestContext(config=config, hooks=self._hooks, factors=factors)
+        ctx = BacktestContext(config=config, factors=factors)
 
         ctx.data = data if data is not None else self._load_data(config)
         ctx.trace.append("load_data")
@@ -206,68 +196,45 @@ class BacktestExecutor:
         ctx.merged    = self._dispatch("merge_signal", ctx.data, signal, config=config)
         ctx.trace.append("merge_signal")
 
-        # Fama-MacBeth (plan.md Phase 7) is a genuinely different ESTIMATOR,
-        # not a variant of the portfolio-sort pipeline -- branch here instead
-        # of continuing into breakpoints/assign/returns/combine at all.
-        if config.get("estimator") == "fama_macbeth":
-            ctx.metrics = steps.compute_fama_macbeth(ctx.merged, config)
-            ctx.trace.append("compute_fama_macbeth")
-            return {"metrics": ctx.metrics, "return_series": pd.DataFrame(), "config": config}
-
-        ctx.merged    = self._dispatch("neutralize_signal", ctx.merged, config=config)
-        ctx.trace.append("neutralize_signal")
-        ctx.breakpoints = self._dispatch("compute_breakpoints", ctx.merged, config=config)
-        ctx.trace.append("compute_breakpoints")
-        ctx.portfolios  = self._dispatch("assign_portfolios", ctx.merged, ctx.breakpoints, config=config)
-        ctx.trace.append("assign_portfolios")
-        ctx.returns     = self._dispatch("compute_returns", ctx.portfolios, config=config)
-        ctx.trace.append("compute_returns")
-        ctx.long_short  = self._dispatch("compute_long_short", ctx.returns, config=config)
-        ctx.trace.append("compute_long_short")
-        ctx.metrics     = steps.compute_metrics(ctx.long_short, config)
-        ctx.trace.append("compute_metrics")
-        if ctx.factors is not None:
-            ctx.metrics.update(steps.compute_factor_alphas(ctx.long_short, ctx.factors, config))
-            ctx.trace.append("compute_factor_alphas")
+        estimator = estimators.get_estimator(config.get("estimator"))
+        result = estimator(ctx.merged, config, self._dispatch, ctx.factors, ctx.trace)
+        ctx.metrics = result["metrics"]
+        ctx.long_short = result["return_series"]
 
         return {"metrics": ctx.metrics, "return_series": ctx.long_short, "config": config}
 
     #: Steps that get routed to a `_multi` counterpart in `steps.py` when
-    #: `config["sort_dims"]` has 2+ dimensions (plan.md Phase 3). A plugin
-    #: hook for the plain step name still takes priority over either variant.
+    #: `config["sort_dims"]` has 2+ dimensions (plan.md Phase 3).
+    #: `form_portfolios` is NOT listed here -- it resolves multi-dim sorts
+    #: internally (see `steps.form_portfolios`) rather than via `_dispatch()`
+    #: name-mangling, since it's the single unit for "how portfolios
+    #: get formed" regardless of dimensionality.
     _MULTI_DIM_STEPS = {
-        "compute_breakpoints",
-        "assign_portfolios",
         "compute_returns",
         "compute_long_short",
     }
 
     #: Steps that get routed to an `_overlap` counterpart in `steps.py` when
     #: `config["overlapping"]` is true (plan.md Phase 5). Takes priority over
-    #: `_MULTI_DIM_STEPS` routing (the two aren't combined in this v1 — see
-    #: `step3_codegen.registry.detect_hooks()`, which still requests a hook
-    #: for that specific combination).
+    #: `_MULTI_DIM_STEPS` routing (the two aren't combined in this v1; an
+    #: overlapping multi-dim sort falls back to the single-dim overlapping
+    #: path).
     _OVERLAP_STEPS = {
         "merge_signal",
-        "compute_breakpoints",
-        "assign_portfolios",
+        "form_portfolios",
         "compute_returns",
         "compute_long_short",
     }
 
     def _dispatch(self, step: str, *args: Any, config: dict) -> pd.DataFrame:
-        """Call the plugin's hook for `step` if one was loaded, else fall back
-        to the standard step function of the same name in `steps.py` (or its
-        `_overlap`/`_multi` counterpart for overlapping-cohort holding /
+        """Call the standard step function of the given name in `steps.py` (or
+        its `_overlap`/`_multi` counterpart for overlapping-cohort holding /
         a resolved multi-dimensional sort, respectively).
 
         `*args` carries whatever positional data this step needs — just `df`
         for most steps, `df, breakpoints` for assign_portfolios — so a single
-        dispatcher covers every step regardless of its argument count. This is
-        the `Step` contract in practice: every branch is called identically.
+        dispatcher covers every step regardless of its argument count.
         """
-        if step in self._hooks:
-            return self._hooks[step](*args, config)
         if config.get("overlapping") and step in self._OVERLAP_STEPS:
             return getattr(steps, f"{step}_overlap")(*args, config)
         is_multi_dim = len(config.get("sort_dims") or []) > 1
@@ -282,16 +249,27 @@ class BacktestExecutor:
     # ------------------------------------------------------------------
 
     def _load_data(self, config: dict) -> pd.DataFrame:
-        """Step 1: load the historical monthly stock return data (CRSP).
+        """Step 1: load the historical monthly stock return data.
 
-        Two layouts (config["returns_layout"], default "panel"):
+        The returns universe (which stock-return panel to load) is NOT defaulted
+        here — it must come from the reviewed spec via
+        `config["returns_table"]`/`config["returns_layout"]`, which
+        `build_config` fills in from `MethodSpec.returns_universe` (a
+        `catalog.RETURNS_UNIVERSES` entry). If neither is present we fail loud
+        rather than silently assuming CRSP.
 
-        - "panel" (default): a single pre-flattened parquet located BY NAME
-          (Option B directory convention) at
-          `<data_path>/raw/<returns_table>.parquet`, `returns_table` default
-          "crsp_msf". Falls back to the legacy `<data_path>/local/msf.parquet`
-          when the raw/ file isn't present, so existing data/snapshots and the
-          golden-number tests keep working unchanged.
+        Two layouts (`config["returns_layout"]`):
+
+        - "panel": a single pre-flattened parquet located BY NAME at
+          `<data_path>/raw/<returns_table>.parquet`. Only when `returns_table`
+          is literally `"crsp_msf"` (the legacy default table name) does a
+          missing raw/ file fall back to `<data_path>/local/msf.parquet` (a
+          FILE-location compatibility shim for pre-catalog snapshots/tests,
+          not a data-source default) -- for every OTHER registered returns
+          universe, a missing raw/ file fails loud instead of silently
+          substituting the CRSP legacy file (that substitution would be
+          exactly the silent-default-to-CRSP bug this design is meant to
+          prevent).
 
         - "crsp_raw": assemble the panel from the raw, SEPARATE WRDS-shaped
           tables (crsp_msf + crsp_msenames + crsp_msedelist) in the directory
@@ -300,37 +278,48 @@ class BacktestExecutor:
           realistic multi-source layout produced by
           scripts/build_test_papers_synthetic_data.py.
         """
-        if config.get("returns_layout", "panel") == "crsp_raw":
+        if config.get("returns_layout") == "crsp_raw":
             from src.infra.data_layer import build_crsp_monthly_panel
             returns_dir = config.get("returns_dir") or self.data_path
             return build_crsp_monthly_panel(returns_dir)
 
-        name = config.get("returns_table", "crsp_msf")
+        name = config.get("returns_table")
+        if not name:
+            raise ValueError(
+                "No returns universe specified: config has neither returns_table nor "
+                "returns_layout='crsp_raw'. The stock-return panel must come from the "
+                "reviewed MethodSpec.returns_universe (a registered "
+                "catalog.RETURNS_UNIVERSES entry, e.g. 'us_equity_crsp') — the "
+                "pipeline never defaults to a CRSP returns panel."
+            )
         raw_path = self.data_path / "raw" / f"{name}.parquet"
-        legacy_path = self.data_path / "local" / "msf.parquet"
-        path = raw_path if raw_path.exists() else legacy_path
-        return steps.load_msf(path)
+        if raw_path.exists():
+            return steps.load_msf(raw_path)
+        if name == "crsp_msf":
+            # Legacy pre-catalog file-location shim: existing snapshots/tests
+            # store CRSP at <data_path>/local/msf.parquet instead of
+            # raw/crsp_msf.parquet. Scoped to this exact table name so a
+            # missing file for any OTHER returns universe fails loud instead
+            # of silently loading CRSP data for the wrong universe.
+            legacy_path = self.data_path / "local" / "msf.parquet"
+            if legacy_path.exists():
+                return steps.load_msf(legacy_path)
+        raise FileNotFoundError(
+            f"Returns table {name!r} not found at {raw_path} (no legacy fallback "
+            f"applies to this table name). Export/place the returns panel there — "
+            "the pipeline never substitutes a different returns universe's data."
+        )
 
     # ------------------------------------------------------------------
-    # Hook detection & config resolution — thin delegation to
-    # step3_codegen.registry (the generation-time decision layer), kept as
-    # methods/classmethods here for backward compatibility (existing callers
-    # use `BacktestExecutor._detect_hooks(spec)` and
-    # `engine._build_config(spec, overrides)`).
+    # Config resolution — thin delegation to step3_codegen.registry (the
+    # generation-time decision layer), kept as a method here for backward
+    # compatibility (existing callers use `engine._build_config(spec,
+    # overrides)`).
     # ------------------------------------------------------------------
-
-    @classmethod
-    def _detect_hooks(cls, spec: MethodSpec) -> dict[str, str]:
-        """Return {step_name: reason} for steps that need LLM-generated hooks."""
-        return codegen_registry.detect_hooks(spec)
 
     def _build_config(self, spec: MethodSpec, overrides: dict | None) -> dict:
         """Build run config entirely from resolved MethodSpec fields."""
         return codegen_registry.build_config(spec, overrides)
-
-    def _load_hooks(self, plugin) -> dict[str, Any]:
-        """Exec plugin code and extract hook callables."""
-        return registry.load_hooks(plugin)
 
     @staticmethod
     def _resolve_long_leg(spec: MethodSpec) -> str:

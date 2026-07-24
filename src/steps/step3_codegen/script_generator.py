@@ -1,7 +1,7 @@
 """Backtest Script Generator - Produce standalone runnable backtest scripts.
 
 After MetaCoder generates a plugin, this module combines:
-  1. The signal plugin code (compute_signal function + any *_hook functions)
+  1. The signal plugin code (the compute_signal formula function)
   2. BacktestExecutor configuration derived from the resolved MethodSpec
   3. Data loading (CRSP-only or Compustat+CCM) and signal computation
 
@@ -31,19 +31,6 @@ from src.steps.step3_codegen import registry as codegen_registry
 from src.infra.models.method_spec import MethodSpec
 
 
-# Physical columns that CRSP-monthly-only signals need (no Compustat merge
-# required). Mirrors the same heuristic used by app.py's dashboard pages.
-_CRSP_ONLY_COLUMNS = {"ret", "me", "shrcd", "exchcd", "siccd", "prc", "shrout", "date"}
-
-
-def _signal_needs_compustat(spec: MethodSpec) -> bool:
-    """Best-effort guess: does this spec's signal need Compustat fields (vs CRSP-only)?"""
-    mapping = spec.data.normalized_mapping or {}
-    if not mapping:
-        return True
-    return any(col not in _CRSP_ONLY_COLUMNS for col in mapping.values())
-
-
 # Sources the legacy binary crsp_only/compustat generated-script path handles.
 # Anything beyond these (IBES/OptionMetrics/13F/...) routes to the source-driven
 # "multi_source" mode (data_layer.assemble_signal_master_table_from_sources).
@@ -52,24 +39,44 @@ _BINARY_SIGNAL_SOURCES = {"crsp_msf", "comp_funda"}
 
 def pick_signal_input_mode(spec: MethodSpec) -> str:
     """Choose the generated script's signal-input mode from the spec's SOURCE
-    SET (plan.md data-loader Phase 3), replacing the binary
-    `_signal_needs_compustat` heuristic:
+    SET (plan.md data-loader Phase 3), fully driven by the reviewed MethodSpec's
+    `data.normalized_mapping` — never a hardcoded data-source default:
 
-      - "multi_source": the spec's formula fields span a source beyond CRSP +
-        Compustat (e.g. IBES/OptionMetrics) -> build the master table via the
-        declarative multi-source loader.
-      - "compustat" / "crsp_only": the legacy binary cases, kept byte-identical
-        (only crsp_msf/comp_funda fields) so golden numbers don't move.
-
-    A plain-string normalized_mapping still resolves to crsp_msf/comp_funda, so
-    existing specs keep taking the legacy path.
+      - raises when the source is UNKNOWN: an empty mapping (no source at all)
+        or a column no registered catalog source declares (source==""). The
+        signal source must come from the reviewed spec; the pipeline never
+        silently defaults to Compustat/CRSP. (The reviewer hard-blocks these
+        before codegen — this is the belt-and-suspenders net.)
+      - "multi_source": the formula fields span a source beyond CRSP +
+        Compustat (e.g. IBES/OptionMetrics) -> declarative multi-source loader.
+      - "crsp_only": every field comes from CRSP monthly.
+      - "compustat": Compustat is involved (optionally alongside CRSP) — the
+        legacy binary case, kept so golden numbers don't move.
     """
     from src.infra.data_layer import signal_input_sources
 
     sources = set(signal_input_sources(spec))
+    if not sources:
+        raise ValueError(
+            f"Cannot determine the signal input source for factor {spec.factor_id!r}: "
+            "data.normalized_mapping is empty / resolves to no registered source. "
+            "The signal source must come from the reviewed MethodSpec — map each "
+            "formula field to an explicit {source, column} (or a catalog-registered "
+            "column). The pipeline never defaults to a data source."
+        )
+    if "" in sources:
+        unresolved = sorted({col for _c, col in spec.unresolved_source_fields()})
+        raise ValueError(
+            f"Signal input for factor {spec.factor_id!r} has columns with no "
+            f"registered data source: {unresolved}. Register them in the data "
+            "catalog (src/infra/data_layer/catalog.py) or map them to an explicit "
+            "{source, column}; the pipeline never guesses a source."
+        )
     if sources - _BINARY_SIGNAL_SOURCES:
         return "multi_source"
-    return "compustat" if _signal_needs_compustat(spec) else "crsp_only"
+    if sources == {"crsp_msf"}:
+        return "crsp_only"
+    return "compustat"
 
 
 
@@ -89,7 +96,7 @@ def generate_backtest_script(
 
     Args:
         spec: Resolved MethodSpec with all empirical decisions finalized.
-        plugin_code: The signal plugin source code (compute_signal + any hooks).
+        plugin_code: The signal plugin source code (the compute_signal function).
         data_path: Relative path to the CRSP monthly parquet file.
         signal_input_mode: "compustat" (build a SignalMasterTable via CCM
             linking + accounting lag before calling compute_signal),
@@ -247,11 +254,10 @@ FF_FACTORS_PATH = "{ff_factors_path}"  # optional; empty string if not supplied
 
 
 # ===========================================================================
-# SIGNAL PLUGIN (generated by MetaCoder) — compute_signal() + any *_hook
-# functions. Kept as a source string (not spliced as raw code) so the exact
-# same text can be exec'd here AND passed to BacktestExecutor as a PluginRecord
-# (which loads *_hook functions the same way for both the in-process engine
-# and this script — see BacktestExecutor._load_hooks()).
+# SIGNAL PLUGIN (generated by MetaCoder) — compute_signal(). Kept as a source
+# string (not spliced as raw code) so the exact same text can be exec'd here
+# AND passed to BacktestExecutor as a PluginRecord, keeping the in-process
+# engine and this script running identical signal code.
 # ===========================================================================
 
 PLUGIN_CODE = {plugin_code_literal}

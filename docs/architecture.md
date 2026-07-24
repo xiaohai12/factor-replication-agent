@@ -3,8 +3,8 @@ type: architecture
 status: active
 project: factor-replication-agent
 created: 2026-05-12
-updated: 2026-06-21
-version: 9
+updated: 2026-07-24
+version: 10
 tags: [architecture, factor-replication, agent, quant]
 ---
 
@@ -31,9 +31,9 @@ tags: [architecture, factor-replication, agent, quant]
 
 | 原则 | 说明 |
 |---|---|
-| LLM 只生成 signal + hooks | `compute_signal()` 由 LLM 生成；非标准回测步骤由 LLM 生成 hook 函数；标准步骤由 BacktestExecutor 固定代码处理 |
-| 回测骨架固定，步骤顺序不变 | 固定顺序的执行链路（见 §3、§4.6 完整列表）；每步走 standard／multi-dim／overlap／hook 路径由 MethodSpec 判断，但顺序本身不允许 LLM 改变 |
-| standard vs hook 由 MethodSpec 驱动 | BacktestExecutor 对每个步骤维护 standard set；MethodSpec 字段值在 standard set 内走 config，超出则触发 LLM 生成对应 hook 函数 |
+| LLM 只生成 signal | `compute_signal()`（纯因子公式）由 LLM 生成；回测的所有步骤都由 BacktestExecutor 的固定标准实现处理，**不生成任何 hook 代码** |
+| 回测骨架固定，步骤顺序不变 | 固定顺序的执行链路（见 §3、§4.6）；每步走 standard／multi-dim／overlap 路径由 MethodSpec 的 config 判断，顺序本身不允许 LLM 改变 |
+| 组合构建从固定菜单里选，不生成代码 | BacktestExecutor 对每个步骤维护一份固定菜单（weighting vw/ew、breakpoints nyse/full_sample、missing drop、return_combination、estimator 等）；MethodSpec 字段值若超出菜单，`registry.build_config` 确定性地钳制到菜单默认值（`_clamp`），绝不生成代码 |
 | paper-first MethodSpec | 从论文原文提取方法事实；C&Z / OSAP 只作 evaluation，不覆盖 paper-stated 内容 |
 | 所有决定都在 MethodSpec 里 | Resolution Applier 将 unspecified 字段决定写入 MethodSpec 的具体字段（`resolution_log` 追踪来源）；列名映射写入 `data.normalized_mapping`；不维护单独的 impl_config 文件 |
 | 反馈回路有界 | 每个 factor 最多回溯 3 次（`MAX_BACKTRACK_DEPTH=3`）；超过即转人工干预 |
@@ -65,12 +65,10 @@ tags: [architecture, factor-replication, agent, quant]
         ▼
 [3. Meta-Coder]
 输入: resolved MethodSpec（列名映射和所有决定已在 spec 字段中）
-① BacktestExecutor._detect_hooks(spec) 判断哪些步骤需要 hook（2026-07-20 起大幅收窄，见 §4.6——filter_universe/多维排序/return_combination/overlapping/Fama-MacBeth 均已默认走确定性标准实现，只有真正 paper-specific 的情况才 hook）
-② LLM 生成 compute_signal() — 所有因子必有
-③ LLM 生成 hook 函数（仅当步骤超出 standard set 时，参见 §4.6 表格）：
-     compute_breakpoints_hook / assign_portfolios_hook /
-     compute_returns_hook / apply_missing_policy_hook 等
-输出: per-factor plugin（compute_signal + 按需 hook 函数）
+① LLM 生成 compute_signal() — 纯因子公式，所有因子必有，且仅此一项
+② registry.build_config(spec) 从固定菜单选出每个回测步骤的方法（weighting/breakpoints/
+     missing/return_combination/estimator 等）；菜单外的取值被确定性钳制到默认值，不生成代码
+输出: per-factor plugin（仅 compute_signal）
         │
         ▼
 [4. Future-Leak Scan]
@@ -96,6 +94,37 @@ tags: [architecture, factor-replication, agent, quant]
 输出: attribution matrix、per-factor evidence report
 ```
 
+### 3.0 Pipeline 流程图 / Pipeline Flowchart
+
+```mermaid
+flowchart TD
+    PDF["Original paper PDF"] --> EX["1. Semantic Extractor<br/>extract factor def / formula / fields / timing"]
+    EX --> DMS["draft MethodSpec JSON"]
+    DMS --> RG["2. Review Gate<br/>schema + evidence + codegen-readiness"]
+
+    RG -->|"local field issues"| RA["2.1 Resolution Applier<br/>fills unspecified fields + normalized_mapping"]
+    RA --> RMS["resolved MethodSpec<br/>codegen_ready: true"]
+
+    RG -->|"targeted_reextraction, bounded MAX_REEXTRACT=2"| EX
+    RG -->|"full_regeneration / paper-silent"| MANUAL1[/"needs_manual"/]
+
+    RMS --> MC["3. Meta-Coder<br/>LLM generates compute_signal() only<br/>build_config selects standardized steps"]
+    MC --> SCRIPT["assembled standalone backtest script<br/>BacktestRunner.build_script()"]
+
+    SCRIPT --> FLS["4. Future-Leak Scan<br/>reject banned patterns: shift-minus / dot-future / lead"]
+    FLS -->|"banned pattern hit, RepairLoop bounded MAX_REPAIR_RETRIES=3"| MC
+    FLS -->|"passed"| VAL["4. AdversarialSandbox validate<br/>syntax/schema + compute_signal smoke test"]
+    VAL -->|"technical failure, RepairLoop"| MC
+
+    VAL -->|"passed"| DT["5. Dual-Track + Factorial Controller<br/>original_method / standardized_hxz / ablation_*<br/>via BacktestRunner.execute()"]
+    DT -->|"execution failure, RepairLoop per track"| MC
+
+    DT --> ES["6. Evidence Store + Run Registry<br/>config hash / code hash / MethodSpec hash / metrics"]
+    ES --> FA["7. Factorial Attribution Layer<br/>decompose replication gap"]
+    FA -->|"anomaly: t-stat sign flip or greater than 50% gap"| RG
+    FA --> REPORT[/"attribution matrix + per-factor evidence report"/]
+```
+
 ### 3.1 反馈回路 / Feedback Loops
 
 > **2026-07-22 重设**：`Pipeline.run_full_pipeline()` 现在有**两条真正实现的、
@@ -109,7 +138,7 @@ tags: [architecture, factor-replication, agent, quant]
 
 | 触发条件 | 回路方向 | 上限 | 实现状态 |
 |---|---|---|---|
-| 技术性失败（syntax/schema/hook/未来泄漏/执行崩溃） | Sandbox/执行 → Meta-Coder 重新生成代码 | `MAX_REPAIR_RETRIES = 3` | ✅ 已实现：统一在共享 `RepairLoop`，被 `run_from_method_spec` / `run_full_pipeline` / `DualTrackController._run_track` 共用；每次尝试记 `RepairAttempt` 审计 |
+| 技术性失败（syntax/schema/未来泄漏/执行崩溃） | Sandbox/执行 → Meta-Coder 重新生成代码 | `MAX_REPAIR_RETRIES = 3` | ✅ 已实现：统一在共享 `RepairLoop`，被 `run_from_method_spec` / `run_full_pipeline` / `DualTrackController._run_track` 共用；每次尝试记 `RepairAttempt` 审计 |
 | LLM Reviewer 判定高影响字段被**误抽**（`remediation_mode == TARGETED_REEXTRACTION`，且该字段有论文原文引用） | Review Gate → Extractor 定向重抽 | `MAX_REEXTRACT = 2` | ✅ 已实现：带 reviewer 的论文原文引用重抽被标字段 → 重审；超预算/无可用引用/论文确实没写 → 转人工 |
 | Review 判 `FULL_REGENERATION` 或论文确实沉默（无原文引用） | → 人工 | — | ✅ 直接 `needs_manual`（不消耗重抽预算），不自动重来 |
 | 复现结果与参考（C&Z/论文）有差距 | ReplicationDiff 报告（终点，**不回流**） | — | ✅ 设计上不做自动经验回退，只报告 gap 供人解读 |
@@ -160,32 +189,23 @@ tags: [architecture, factor-replication, agent, quant]
 
 ### 4.3 Meta-Coder
 
-输入 resolved MethodSpec（`spec.data.normalized_mapping` 已填充，所有字段已 resolved），分两阶段生成 per-factor plugin：
+> **2026-07 更新：hook 机制已彻底移除。** Meta-Coder 现在只生成
+> `compute_signal()`（纯因子公式）。回测引擎完全标准化：所有组合构建方法都由
+> `registry.build_config` 从固定菜单里*选择*，菜单外的取值被确定性钳制到默认值
+> （`_clamp`），不再生成任何 hook 代码。下文保留的 hook 相关描述仅作历史参考。
 
-**阶段 1：Hook 检测**
+输入 resolved MethodSpec（`spec.data.normalized_mapping` 已填充，所有字段已 resolved），生成 per-factor plugin：
 
-调用 `BacktestExecutor._detect_hooks(spec)`，对比 MethodSpec 字段值与各步骤的 standard set，返回需要 LLM 生成的 hook 列表。
-
-**阶段 2：LLM 代码生成**
+**LLM 代码生成**
 
 ```
 signal_plugin_{factor_id}.py
-  ├── compute_signal(df)                   ← 所有因子必有，LLM 生成
-  │     接收 keyed [permno, time_avail_m] 的 annual df
-  │     使用 spec.data.normalized_mapping 提供的物理列名
-  │     只做公式计算，禁止处理 lag
-  │     输出 [permno, yyyymm, signal]
-  │
-  └── {step}_hook(df, config)              ← 仅当该步骤超出 standard set 时生成（2026-07-20 起
-        例：compute_breakpoints_hook          实际触发条件已收窄很多，见 §4.6 完整表格）
-            assign_portfolios_hook        — 3+ 维排序，或无法识别 size 维度的多维排序
-            compute_returns_hook          — 非标准权重（capped_vw）/ factor_model_alpha 等
-            apply_missing_policy_hook     — winsorize 等列选择是 paper-specific 的 missing_action
+  └── compute_signal(df)                   ← 所有因子必有，LLM 生成，且仅此一项
+        接收 keyed [permno, time_avail_m] 的 annual df
+        使用 spec.data.normalized_mapping 提供的物理列名
+        只做公式计算，禁止处理 lag
+        输出 [permno, yyyymm, signal]
 ```
-
-Hook 函数边界：
-- ✅ 可以：实现该步骤的自定义逻辑，接收 df + config，返回同一步骤的标准输出格式
-- ❌ 不能：跨步骤（hook 不能同时做 breakpoints + portfolio assignment）、修改执行顺序、调用外部 API
 
 Meta-Coder 还实现 `repair_plugin(plugin, errors)`，在 Future-Leak Scan 命中后重新生成（≤ `MAX_REPAIR_RETRIES = 3` 次）。
 
@@ -208,65 +228,48 @@ Meta-Coder 还实现 `repair_plugin(plugin, errors)`，在 Future-Leak Scan 命�
 
 `build_signal_master_table`：`time_avail_m = datadate + lag_months → YYYYMM`，输出年度表 keyed `[permno, time_avail_m]`，`at` 已按时点对齐——signal plugin 只读列，不处理 lag。
 
-### 4.6 BacktestExecutor：Standard Set + Hook 机制
+### 4.6 BacktestExecutor：标准化步骤菜单
 
-**（2026-07-20 更新，见 `plan.md` Phase 0-7 / `CHANGELOG.md` 对应条目；2026-07-21 步骤目录改为带序号命名；2026-07-21 `BacktestEngine` 类名与目录改名为 `BacktestExecutor`/`step5_executor`；2026-07-22 生成时决策层 `registry.py` 移到 `step3_codegen/`；2026-07-22 整个引擎库从 `src/steps/step5_executor/` 搬到 `src/infra/backtest_engine/`——它是被 `pipeline.py`/`step6`/`app.py`/十几个单测共用的计算基础设施，不是任何一个编号 step 的私有实现；"Step 5" 现在特指 `pipeline.py` 里"生成脚本 → 校验 → subprocess 执行"这个动作本身，见 §3 表格）** `src/infra/backtest_engine/` 现在是两个文件 + 一个瘦身后的 `registry.py`：
+> **2026-07 更新：hook 机制已彻底移除。** 引擎不再有 "standard set vs hook"
+> 的二分：`_dispatch()` 只在标准步骤与其确定性的 `_overlap`/`_multi` 变体之间路由，
+> 运行时的 `registry.py`（`load_hooks`）与生成时的 `detect_hooks` 均已删除。
+> 每个组合构建参数由 `registry.build_config` 从固定菜单选择，菜单外取值被 `_clamp`
+> 钳制到默认值。下文关于 hook 触发条件/优先级的历史描述已不再适用，仅作沿革参考。
+
+`src/infra/backtest_engine/` 现在是两个文件：
 
 | 文件 | 职责 |
 |---|---|
 | `__init__.py` | 编排：`BacktestExecutor`、`Step` Protocol、`BacktestContext` dataclass、`run()`/`run_with_config()`/`_dispatch()` |
 | `steps.py` | 计算：所有 standard 步骤的纯函数实现（无 class state） |
-| `registry.py` | 运行时：只剩 `load_hooks()`（`run_with_config()` 唯一会调的"registry"逻辑） |
 
-`STANDARD`、`detect_hooks()`、`build_config()` 这三个**只在生成时**被调用（从不被 `run_with_config()`/`_dispatch()` 自己调用）的选择逻辑，住在 `src/steps/step3_codegen/registry.py`——这样 `step3_codegen`（生成 `compute_signal()` + hook 代码、组装完整回测脚本）不再需要依赖引擎库；`BacktestExecutor._detect_hooks()`/`_build_config()`/`_resolve_long_leg()`/`_resolve_short_leg()`/`_normalize_leg()` 仍然保留在 `src/infra/backtest_engine/__init__.py` 里，作为对旧调用方（含测试）的薄委托，转发到 `step3_codegen.registry`。
+`build_config()` 这个**只在生成时**被调用（从不被 `run_with_config()`/`_dispatch()` 自己调用）的选择逻辑，住在 `src/steps/step3_codegen/registry.py`——这样 `step3_codegen`（只生成 `compute_signal()`、再组装完整回测脚本）不再需要依赖引擎库；`BacktestExecutor._build_config()`/`_resolve_long_leg()`/`_resolve_short_leg()`/`_normalize_leg()` 仍然保留在 `src/infra/backtest_engine/__init__.py` 里，作为对旧调用方（含测试）的薄委托，转发到 `step3_codegen.registry`。
 
-单一执行路径：`src/steps/step3_codegen/script_generator.py` 生成的独立脚本现在是薄封装，直接 `import BacktestExecutor` 调 `run_with_config()`，不再内联重复实现 9 步逻辑——engine 与生成脚本不可能再互相漂移。
+单一执行路径：`src/steps/step3_codegen/script_generator.py` 生成的独立脚本是薄封装，直接 `import BacktestExecutor` 调 `run_with_config()`，不再内联重复实现执行链路——engine 与生成脚本不可能再互相漂移。
 
-BacktestExecutor 对每个步骤维护一个 **standard set**——值在集合内走固定实现（读 config），超出集合则期望 plugin 提供对应 hook 函数。集合取值直接引用 `src/infra/models/method_spec.py` 里定义的枚举：
+**固定菜单 + 钳制（`registry.build_config` / `_clamp`）**：每个组合构建参数只有一组固定的内置实现，`build_config` 从菜单里*选择*，MethodSpec 里超出菜单的取值被**确定性钳制到菜单默认值**（`_clamp`），绝不生成代码。菜单取值直接引用 `src/infra/models/method_spec.py` 里的枚举：
 
 ```python
 STANDARD = {
-    "breakpoint_source":       {"full_sample", "nyse"},
-    "weighting":               {"vw", "ew"},
-    "missing_action":          {"drop", "unspecified"},
+    "breakpoint_source":       {"full_sample", "nyse"},              # 默认 full_sample
+    "weighting":               {"vw", "ew"},                          # 默认 vw
+    "missing_action":          {"drop", "unspecified"},               # 恒定 drop
     "portfolio_construction":  {"characteristic_sort", "regression_weighted", "unspecified"},
     "return_combination":      {"extreme_group_spread", "average_leg_spread",
                                  "single_signal_portfolio_return", "full_portfolio_return",
-                                 "unspecified"},
+                                 "unspecified"},                       # 默认 extreme_group_spread
+    "cat_form":                {"continuous", "discrete"},
 }
 ```
 
-`filter_universe` 曾经**无条件**不在 `STANDARD` 里（每次都生成 hook）。Phase 2.5 把 `UniverseFilterSpec`/`FilterOp` DSL 接入 `steps.filter_universe()`（`apply_universe_filters`，覆盖全部 14 个 FilterOp 取值），现在 filter_universe **默认走确定性实现**；plugin 若定义了 `filter_universe_hook` 仍然优先生效（这是插件作者的选择，不是 `detect_hooks()` 会预测的东西）。
+`filter_universe` 只应用 `portfolio.universe_filters` 的 `FilterOp` DSL（`apply_universe_filters`，覆盖全部 14 个 FilterOp 取值），完全确定性。多维排序方面，`resolve_sort_dims()` 把「特征 x size」两维排序映射到 `form_portfolios` 内部的 `_multi` 变体，其余任何多维排序（3+ 维、或两维都不是 size）都退化为单排序。`regression_weighted` 路由到标准 Fama-MacBeth estimator（`steps.compute_fama_macbeth`）。
 
-**`detect_hooks(spec) → dict[step, reason]`**
+因为 `portfolio.sorts`/`construction_type`/`return_combination` 字段容易在提取阶段漏填，ReviewGate 的 `_check_portfolio_structure_consistency` 会在自由文本明显暗示复杂结构但结构化字段为空时发出**警告**（不再 block）——引擎此时跑菜单默认（单排序），残差由 step7 的复现差距分析解读。
 
-全部走确定性字段比较，不做自由文本关键词匹配：
-
-| MethodSpec 字段 / 值 | 触发 hook |
-|---|---|
-| `breakpoint_source` 不在 `{full_sample, nyse}`（含 `conditional`/`paper_specific`） | `compute_breakpoints_hook` |
-| `weighting` 不在 `{vw, ew}`（如 `capped_vw`） | `compute_returns_hook` |
-| `missing_policy.action` 不在 `{drop, unspecified}`（`winsorize` 等——刻意保留 hook：具体要 winsorize 哪些列是 paper-specific 的，引擎无法安全猜测） | `apply_missing_policy_hook` |
-| `overlapping_portfolios=true` **且** `len(sorts) > 1` 同时出现 | `merge_signal_hook`（重叠 cohort 与多维排序两条标准路径 v1 不支持同时启用） |
-| `len(portfolio_return.sorts) > 1` 且 `resolve_sort_dims()` 无法映射（非「特征 x size」两维排序，或 3+ 维） | `compute_breakpoints_hook` + `assign_portfolios_hook` |
-| `portfolio_return.construction_type` 不在 `{characteristic_sort, regression_weighted, unspecified}`（如 `factor_model_alpha`、`event_window_return`、`other`） | `compute_returns_hook` |
-| `portfolio_return.return_combination.type` 不在 STANDARD 集合（如 `alpha_estimate`、`other`） | `compute_long_short_hook` |
-
-**已从「无条件 hook」变为「默认标准，仅特定组合仍需 hook」的四类**（Phase 2.5/3/4/5/7）：
-- `filter_universe`：Phase 2.5 起默认确定性（DSL），不再无条件 hook。
-- 多维排序：Phase 3 起「特征 x size」两维排序走 `compute_breakpoints_multi`/`assign_portfolios_multi`，只有 resolve_sort_dims() 无法识别的组合才 hook。
-- `return_combination`：Phase 4 起 `average_leg_spread`/`full_portfolio_return` 也走标准 `compute_long_short`（四种组合类型统一实现），只有 `alpha_estimate`/`other` 仍 hook。
-- `overlapping_portfolios`：Phase 5 起默认走 `merge_signal_overlap` 等标准重叠 cohort 实现，只有与多维排序同时出现才 hook。
-- `portfolio_construction`：Phase 7 起 `regression_weighted` 路由到标准 Fama-MacBeth estimator（`steps.compute_fama_macbeth`，走 `linearmodels`），完全跳过 sort/breakpoints/assign/returns/combine 链路，不再需要 hook。
-
-因为 `reported_results.return_calculation.portfolio_return` 字段较深、容易在提取阶段漏填，ReviewGate 的 `_check_portfolio_structure_consistency` 安全网检查仍然保留：自由文本明显暗示复杂结构但结构化字段为空时 block，要求人工补齐。
-
-**执行时，每步优先调 hook；否则走标准/多维/重叠三选一的分发：**
+**执行时，`_dispatch` 只在标准实现与其确定性的 `_overlap`/`_multi` 变体之间路由（无 hook）：**
 
 ```python
 def _dispatch(self, step, *args, config):
-    if step in self._hooks:
-        return self._hooks[step](*args, config)
     if config.get("overlapping") and step in self._OVERLAP_STEPS:
         return getattr(steps, f"{step}_overlap")(*args, config)
     if len(config.get("sort_dims") or []) > 1 and step in self._MULTI_DIM_STEPS:
@@ -280,21 +283,45 @@ def _dispatch(self, step, *args, config):
 |---|---|
 | `load_data` | 读 `msf.parquet`（或 `load_daily_msf` 把日频源数据压缩成月度面板，Phase 6） |
 | `apply_delisting_returns` | 有 `dlret` 列时按 CRSP 惯例并入 `ret`；无该列则 no-op（Phase 2.5） |
-| `apply_missing_policy` | 默认 drop；`winsorize` 等仍需 hook（见上） |
-| `filter_universe` | 基线 `shrcd in (10,11)`/`exchcd in (1,2,3)`/排除金融股，叠加 `portfolio.universe_filters` 的 FilterOp DSL（Phase 2.5），可选 microcap 排除 |
+| `apply_missing_policy` | 恒定 drop（引擎标准化为 drop NaN；菜单外取值被钳制到 drop） |
+| `filter_universe` | 只应用 `portfolio.universe_filters` 的 FilterOp DSL（2026-07-23 起移除了硬编码的 `shrcd`/`exchcd`/`siccd` 基线筛选——那是对 CRSP 列结构的隐性假设，与"不默认数据源"原则冲突；论文的样本限制，包括常见的"普通股/主要交易所/排除金融股"这条 boilerplate，现在统一由 extractor 提取进 `universe_filters`），可选 microcap 排除 |
 | `apply_excess_returns` | 有 `factors`（含 `rf`）且 `return_basis=excess`（默认）时减去无风险利率；否则 no-op（Phase 6，非 `_dispatch` 分发，直接调用） |
 | `merge_signal` | 年度 signal 展开持有；`overlapping=true` 时走 `merge_signal_overlap`（多个错开 cohort 各自形成子组合，按月平均，Phase 5） |
-| **[Fama-MacBeth 分支]** | `estimator="fama_macbeth"` 时到这里整体跳过以下 sort 相关步骤，改走 `steps.compute_fama_macbeth`（Phase 7） |
-| `neutralize_signal` | 确定性 no-op scaffold（`neutralization="none"` 默认），非 none 时需 hook（Phase 2.5） |
-| `compute_breakpoints` | full_sample/NYSE 分位断点；`sort_dims` 2+ 维时走 `compute_breakpoints_multi`（Phase 3） |
-| `assign_portfolios` | 按断点单排序分组；多维时走 `assign_portfolios_multi`（独立/条件排序） |
+| **[Fama-MacBeth 分支]** | `estimator="fama_macbeth"` 时到这里改走 `estimators.run_fama_macbeth`（`steps.compute_fama_macbeth`），完全跳过以下 sort 相关步骤（2026-07-23 起提升为独立 estimator 策略层，见 `estimators.py`） |
+| `form_portfolios` | 断点计算 + 分组一次完成（2026-07-23 起合并原 `compute_breakpoints`+`assign_portfolios` 为单一步骤）；full_sample/NYSE 分位断点，`sort_dims` 2+ 维时内部路由到 `compute_breakpoints_multi`/`assign_portfolios_multi`（Phase 3） |
 | `compute_returns` | VW（`me` 权重）或 EW；多维/重叠各有对应变体 |
 | `compute_long_short` | 支持 `extreme_group_spread`/`average_leg_spread`/`single_signal_portfolio_return`/`full_portfolio_return` 四种组合（Phase 4） |
 | `compute_metrics` | 月度均值、Newey-West t-stat、Sharpe（Phase 2）；有 `factors` 时额外算 `compute_factor_alphas`（CAPM/FF3/FF5，`statsmodels` OLS+HAC） |
 
-Attribution 保证：两个 track 使用同一个 plugin（含相同 hook），只改 config → 结果差异 100% 来自 config 选择。
+Attribution 保证：两个 track 使用同一个 plugin（相同 `compute_signal`），只改 config → 结果差异 100% 来自 config 选择。
 
+### 4.6.1 BacktestExecutor 流程图 / Backtest Engine Flowchart
 
+```mermaid
+flowchart TD
+    START(["BacktestExecutor.run_with_config()"]) --> S1["1. load_data<br/>load returns table by name"]
+    S1 --> S2["2. apply_delisting_returns<br/>fold CRSP dlret into ret, no-op if absent"]
+    S2 --> S3["3. apply_missing_policy<br/>standard: drop NaN"]
+    S3 --> S4["4. filter_universe<br/>universe_filters DSL (deterministic)"]
+    S4 --> S5["5. apply_excess_returns<br/>subtract rf when factors supplied, no-op otherwise"]
+    S5 --> S6["6. merge_signal<br/>expand annual signal to monthly holding<br/>overlap variant if overlapping_portfolios=true"]
+
+    S6 --> EST{"config.estimator ?"}
+    EST -->|"fama_macbeth"| FM["run_fama_macbeth<br/>cross-sectional regression, no portfolio sort"]
+    FM --> METRICS
+
+    EST -->|"portfolio_sort (default)"| FP["form_portfolios<br/>breakpoints + assignment, one unit<br/>multi-dim variant if 2+ sort_dims"]
+    FP --> CR["compute_returns<br/>VW / EW -- multi-dim / overlap variants"]
+    CR --> CLS["compute_long_short<br/>extreme_group_spread / average_leg_spread /<br/>single_signal_portfolio_return / full_portfolio_return"]
+    CLS --> METRICS["compute_metrics<br/>mean, Newey-West t-stat, Sharpe<br/>+ factor alphas (CAPM/FF3/FF5) if factors supplied"]
+
+    METRICS --> RESULT[/"metrics + return series"/]
+
+    subgraph DISPATCH["_dispatch() priority, applied at every step above"]
+        direction LR
+        H2["1. overlap variant if config.overlapping"] --> H3["2. multi-dim variant if 2+ sort_dims"] --> H4["3. standard steps.py implementation"]
+    end
+```
 
 ---
 
@@ -330,20 +357,26 @@ tests/
 
 src/
   pipeline.py                   # Pipeline 主编排器（含反馈回路，见 §3.1）
-  pdf_mapper.py                 # PDF 文本提取工具
-  llm.py                        # LLM client（支持 OpenRouter / Claude CLI / Codex）
-  extractor/                    # Semantic Extractor
-  review_gate/                  # Review Gate + Resolution Applier
-  meta_coder/                   # MetaCoder（generate_plugin + repair_plugin）
-  sandbox/                      # Future-Leak Scan（future-function 禁用模式检测）
-  registry/                     # Plugin Registry（暂不使用，pilot 阶段 deferred）
-  data_layer/                   # DataLayer + DataDictionary + TimeAvailComputer
-  engine/                       # BacktestEngine（骨架，WIP）
-  controller/                   # DualTrackController + ExperimentPlan
-  replication_diff/             # ReplicationDiff + ReplicationDiffResult
-  evidence/                     # EvidenceStore + RunRegistry
+  steps/                        # 7 个流水线阶段，按数字前缀排序（Python 标识符不能以纯数字开头）
+    step1_extractor/             # Semantic Extractor
+    step2_reviewer/               # Review Gate + Resolution Applier
+    step3_codegen/                 # MetaCoder（generate_plugin + repair_plugin）+ registry.build_config +
+                                  # script_generator.generate_backtest_script（组装独立回测脚本）
+    step4_validator/               # Future-Leak Scan + 插件语法/schema/沙箱冒烟测试
+    step5_backtest_runner/          # BacktestRunner.build_script() / .execute()（跑 step3 组装好的脚本）
+    step6_dual_track_controller/     # DualTrackController + ExperimentPlan + HXZ_STANDARD_CONFIG
+    step7_replication_diff/          # ReplicationDiff + ReplicationDiffResult
+  infra/                        # 跨 step 共享基础设施（无 LLM hook 加载，纯标准化实现）
+    pdf_mapper.py                 # PDF 文本提取工具
+    llm.py                        # LLM client（支持 OpenRouter / Claude CLI / Codex）
+    trace.py                      # Pipeline 执行事件日志
+    repair.py                     # 共享 RepairLoop（技术性修复回路）
+    backtest_engine/               # BacktestExecutor（__init__.py 编排 + steps.py 纯函数）
+    data_layer/                    # DataLayer + DataDictionary + TimeAvailComputer + CCMLinker
+    evidence/                      # EvidenceStore + RunRegistry
+    models/                        # Pydantic models（MethodSpec、PluginRecord、RunRecord …）
+    registry/                     # 占位，暂未使用
   evaluation/                   # Extraction accuracy evaluation（vs C&Z SignalDoc）
-  models/                       # Pydantic models（MethodSpec、PluginRecord、RunRecord …）
 
 scripts/
   extract_methodspecs.py        # CLI：从 PDF 批量提取 MethodSpec
@@ -421,7 +454,7 @@ EOF
 
 `original_method` 应该遵守原文的回测周期：formation month、rebalance frequency、holding period、return horizon、skip month、accounting lag、overlapping portfolios 等。这些由 MethodSpec 提取、经 Review Gate 审查后，由回测骨架执行。
 
-`standardized_hxz` 使用统一标准化周期和规则（lag=6m、NYSE 断点、VW、annual rebalance 等），HXZ 默认配置见 `src/controller/__init__.py` 中的 `HXZ_STANDARD_CONFIG`。
+`standardized_hxz` 使用统一标准化周期和规则（lag=6m、NYSE 断点、VW、annual rebalance 等），HXZ 默认配置见 `src/steps/step6_dual_track_controller/__init__.py` 中的 `HXZ_STANDARD_CONFIG`。
 
 ---
 
@@ -477,15 +510,15 @@ Run Registry 记录每个 factor × variant 的状态：`pending / running / suc
 | Semantic Extractor | ✅ 已实现 | LLM 提取 + data dictionary 校验 |
 | Review Gate | ✅ 已实现 | rule-based + LLM review，`review_with_llm()` |
 | Resolution Applier | ✅ 已实现 | 字段级 patch，`codegen_ready=true` 写入 |
-| Meta-Coder | ✅ 已实现 | `compute_signal()` + hook 函数两阶段生成；读 `spec.data.normalized_mapping` |
+| Meta-Coder | ✅ 已实现 | 只生成 `compute_signal()`（纯公式）；读 `spec.data.normalized_mapping` |
 | Future-Leak Scan | ✅ 已实现 | 扫描 `shift(-`/`.future`/`lead(`，命中即拒绝重生成 |
 | Plugin Registry | ⏳ 暂不需要 | pilot 阶段用文件路径追溯即可；多因子跨实验时扩展 |
 | Evidence Store + Run Registry | ✅ 已实现 | 磁盘持久化，per-run artifact 目录 |
-| Dual-Track Controller | ✅ 已实现 | `ExperimentPlan` + `HXZ_STANDARD_CONFIG` |
+| Dual-Track Controller | ✅ 已实现 | `ExperimentPlan` + `HXZ_STANDARD_CONFIG`（`src/steps/step6_dual_track_controller/`） |
 | Pipeline 反馈回路 | ✅ 两条回路已实现 | `src/pipeline.py`，见 §3.1——技术性修复（共享 `RepairLoop`，`src/infra/repair.py`）+ Review→Extractor 定向重抽（`MAX_REEXTRACT=2`）；ReplicationDiff 为终点报告不回流 |
 | Streamlit Dashboard | ✅ 已实现 | `app.py`，覆盖 extract → review → resolve → codegen |
-| BacktestExecutor standard steps | ✅ 已实现 | 全部 7 个 standard 步骤实现；`_detect_hooks(spec)` + `_build_config()` 完成 |
-| BacktestExecutor hook dispatch | ✅ 已实现 | 每步 `_dispatch()` — hook 优先，无 hook 走 standard；见 §4.6 |
+| BacktestExecutor standard steps | ✅ 已实现 | 全部 7 个 standard 步骤实现；`_build_config()` 从菜单选择并钳制 |
+| BacktestExecutor 步骤路由 | ✅ 已实现 | 每步 `_dispatch()` — 标准实现或其 `_overlap`/`_multi` 确定性变体；无 hook；见 §4.6 |
 | Replication-Diff Layer | 🚧 基础结构已有 | `ReplicationDiffResult` 结构定义完毕（`src/steps/step7_replication_diff/`，2026-07-22 从 attribution 改名），分解算法待实现 |
 | data/local/*.parquet | ⏳ 未建立 | 需人工从 WRDS 导出 funda + msf 后放置 |
 | WRDS 实时连接 / CCM merge | ⏳ 未实现 | 需要数据版本管理或定期更新时扩展 |

@@ -65,8 +65,8 @@ def _check_high_impact_fields(spec: MethodSpec) -> list[str]:
         "signal.timing.holding_period": spec.holding_period_months,
         "signal.missing_policy.action": spec.missing_action,
         "portfolio.universe": spec.universe_description,
-        "portfolio.breakpoints.source": spec.breakpoint_source,
-        "portfolio.breakpoints.ls_quantile": spec.portfolio.breakpoints.ls_quantile,
+        "portfolio.sort.breakpoint_source": spec.breakpoint_source,
+        "portfolio.sort.ls_quantile": spec.portfolio.sort.ls_quantile,
         "portfolio.weighting": spec.weighting_rule,
         "portfolio.long_leg": spec.portfolio.long_leg,
         "portfolio.short_leg": spec.portfolio.short_leg,
@@ -81,7 +81,7 @@ def _check_high_impact_fields(spec: MethodSpec) -> list[str]:
     if spec.missing_action == MissingAction.UNSPECIFIED:
         missing.append("signal.missing_policy.action")
     if spec.breakpoint_source == BreakpointSource.UNSPECIFIED:
-        missing.append("portfolio.breakpoints.source")
+        missing.append("portfolio.sort.breakpoint_source")
     if spec.weighting_rule == WeightingRule.UNSPECIFIED:
         missing.append("portfolio.weighting")
 

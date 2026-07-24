@@ -1,5 +1,6 @@
 {
   "schema_version": "methodspec.v1",
+  "returns_universe": "us_equity_crsp",
   "factor_id": "jegadeesh_titman_1993_momentum",
   "factor_name": "Price Momentum",
   "paper_ref": "Jegadeesh, Narasimhan, and Sheridan Titman, 1993, Returns to Buying Winners and Selling Losers: Implications for Stock Market Efficiency, The Journal of Finance 48(1), 65-91.",

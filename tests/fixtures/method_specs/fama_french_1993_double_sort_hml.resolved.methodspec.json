@@ -1,5 +1,6 @@
 {
   "schema_version": "methodspec.v1",
+  "returns_universe": "us_equity_crsp",
   "factor_id": "fama_french_1993_double_sort_hml",
   "factor_name": "HML — High Minus Low (Double Sort)",
   "paper_ref": "Fama, Eugene F., and Kenneth R. French, 1993, Common Risk Factors in the Returns on Stocks and Bonds, Journal of Financial Economics 33(1), 3-56.",

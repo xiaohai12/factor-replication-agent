@@ -35,20 +35,16 @@ class WeightingRule(str, Enum):
 class BreakpointSource(str, Enum):
     NYSE = "nyse"
     FULL_SAMPLE = "full_sample"
-    CONDITIONAL = "conditional"
-    PAPER_SPECIFIC = "paper_specific"
     UNSPECIFIED = "unspecified"
 
 
 class PortfolioConstructionType(str, Enum):
     """Mirrors prompts/extractor/methodspec_extractor.md Allowed Values for
-    portfolio_return.construction_type. Keep this vocabulary in sync with that
+    portfolio.construction_type. Keep this vocabulary in sync with that
     prompt file."""
 
     CHARACTERISTIC_SORT = "characteristic_sort"
     REGRESSION_WEIGHTED = "regression_weighted"
-    FACTOR_MODEL_ALPHA = "factor_model_alpha"
-    EVENT_WINDOW_RETURN = "event_window_return"
     OTHER = "other"
     UNSPECIFIED = "unspecified"
 
@@ -61,7 +57,6 @@ class ReturnCombinationType(str, Enum):
     AVERAGE_LEG_SPREAD = "average_leg_spread"
     SINGLE_SIGNAL_PORTFOLIO_RETURN = "single_signal_portfolio_return"
     FULL_PORTFOLIO_RETURN = "full_portfolio_return"
-    ALPHA_ESTIMATE = "alpha_estimate"
     OTHER = "other"
     UNSPECIFIED = "unspecified"
 
@@ -88,10 +83,6 @@ class FilterOp(str, Enum):
 
 class MissingAction(str, Enum):
     DROP = "drop"
-    FILL_ZERO = "fill_zero"
-    FILL_MEDIAN = "fill_median"
-    FILL_FORWARD = "fill_forward"
-    WINSORIZE = "winsorize"
     UNSPECIFIED = "unspecified"
 
 
@@ -187,14 +178,6 @@ class RequiredFieldSpec(BaseModel):
     evidence: list[EvidenceCitation] = Field(default_factory=list)
 
 
-class FieldSource(BaseModel):
-    """Legacy physical field source used by early codegen experiments."""
-
-    dataset: str = Field(..., description="e.g. compustat, crsp")
-    table: str = Field(..., description="e.g. funda, msf")
-    description: str = Field(default="")
-
-
 class DataSpec(BaseModel):
     """Data references extracted from the paper.
 
@@ -212,33 +195,32 @@ class DataSpec(BaseModel):
             "accepted: the richer {concept: {'source': 'comp_funda', 'column': "
             "'act'}} (records WHICH source each field comes from, so the loader "
             "knows what to read and how to join), or the legacy {concept: "
-            "'act'} plain-column form (source inferred: CRSP monthly cols -> "
-            "'crsp_msf', else 'comp_funda'). See MethodSpec.resolved_sources()."
+            "'act'} plain-column form (source looked up in the data catalog by "
+            "physical column; an UNKNOWN column resolves to no source and is "
+            "hard-blocked at review — never silently guessed). See "
+            "MethodSpec.resolved_sources()."
         ),
     )
-
-
-# Physical CRSP monthly columns — used to infer the source of a LEGACY
-# plain-string normalized_mapping value (pre-dating the richer {source, column}
-# form). Mirrors script_generator._CRSP_ONLY_COLUMNS so the inferred grouping
-# matches the historical crsp_only/compustat binary behavior.
-_CRSP_MONTHLY_COLUMNS = {
-    "ret", "me", "shrcd", "exchcd", "siccd", "prc", "shrout", "date",
-    "permno", "yyyymm",
-}
 
 
 def _normalize_mapping_entry(value: Any) -> tuple[str, str]:
     """Return (source, column) for a single normalized_mapping value.
 
     Accepts the richer form {"source": ..., "column": ...} or a legacy plain
-    column string (whose source is inferred: CRSP monthly columns ->
-    "crsp_msf", everything else -> "comp_funda")."""
+    column string. For the plain form the source is looked up in the data
+    catalog by physical column (`catalog.source_of_column`): only a REGISTERED
+    source that actually declares the column resolves it; an unknown column
+    returns source="" (unresolved). We deliberately do NOT fall back to
+    "comp_funda" — that old binary guess silently misattributed
+    IBES/OptionMetrics/etc. columns to Compustat. Unresolved-source formula
+    fields are hard-blocked by the reviewer (see
+    ReviewGate._check_source_mapping_resolved)."""
     if isinstance(value, dict):
         return str(value.get("source", "") or ""), str(value.get("column", "") or "")
     col = str(value)
-    source = "crsp_msf" if col in _CRSP_MONTHLY_COLUMNS else "comp_funda"
-    return source, col
+    from src.infra.data_layer import catalog
+
+    return catalog.source_of_column(col), col
 
 
 # --- Signal, timing, portfolio, and reported-result models ---
@@ -268,13 +250,20 @@ class MissingPolicy(BaseModel):
     winsorize_bounds: Optional[tuple[float, float]] = None
     evidence: list[EvidenceCitation] = Field(default_factory=list)
 
+    @model_validator(mode="before")
+    @classmethod
+    def _tolerate_legacy_action(cls, data: Any) -> Any:
+        # The engine is standardized to drop NaNs; legacy fill_*/winsorize
+        # actions are no longer distinct enum members. Map any unknown action
+        # to "unspecified" (build_config then clamps it to "drop").
+        return _coerce_enum_field(data, "action", MissingAction)
+
 
 class SignalSpec(BaseModel):
     """The factor signal definition that the Meta-Coder translates to code."""
 
     formula: str | FormulaSpec = Field(default_factory=FormulaSpec)
     required_fields: list[str] = Field(default_factory=list)
-    field_sources: dict[str, FieldSource] = Field(default_factory=dict)
     timing: SignalTiming = Field(default_factory=SignalTiming)
     missing_policy: MissingPolicy = Field(default_factory=MissingPolicy)
     sign: Optional[int] = Field(
@@ -295,27 +284,27 @@ class SignalSpec(BaseModel):
         return self.formula
 
 
-class BreakpointSpec(BaseModel):
-    source: BreakpointSource = Field(default=BreakpointSource.UNSPECIFIED)
-    quantiles: list[int] = Field(default_factory=list)
-    ls_quantile: Optional[float] = Field(default=None)
-    evidence: list[EvidenceCitation] = Field(default_factory=list)
-
-
 class PortfolioSortSpec(BaseModel):
     breakpoint_source: BreakpointSource = Field(default=BreakpointSource.UNSPECIFIED)
     ls_quantile: Optional[float] = None
     quantiles: list[int] = Field(default_factory=list)
     evidence: list[EvidenceCitation] = Field(default_factory=list)
 
+    @model_validator(mode="before")
+    @classmethod
+    def _tolerate_legacy_breakpoint_source(cls, data: Any) -> Any:
+        # Legacy conditional/paper_specific breakpoint sources are no longer
+        # menu members; map any unknown value to "unspecified" (build_config
+        # clamps it to the default).
+        return _coerce_enum_field(data, "breakpoint_source", BreakpointSource)
+
 
 class UniverseFilterSpec(BaseModel):
     """Row-level sample restriction, mirrors universe.filters[] from the
     extraction prompt schema (prompts/extractor/methodspec_extractor.md).
 
-    Used by BacktestExecutor._detect_hooks() to decide, deterministically,
-    whether a paper's universe restriction goes beyond the standard
-    shrcd/exchcd/siccd filter that _filter_universe() implements.
+    Applied deterministically by the standardized engine's universe filter step
+    (`steps.apply_universe_filters`) via the FilterOp DSL.
     """
 
     field: str
@@ -324,45 +313,13 @@ class UniverseFilterSpec(BaseModel):
     evidence: list[EvidenceCitation] = Field(default_factory=list)
 
 
-class PortfolioSpec(BaseModel):
-    universe: str = Field(default="unspecified")
-    universe_filters: list[UniverseFilterSpec] = Field(default_factory=list)
-    sort: PortfolioSortSpec = Field(default_factory=PortfolioSortSpec)
-    breakpoints: BreakpointSpec = Field(default_factory=BreakpointSpec)
-    weighting: WeightingRule = Field(default=WeightingRule.UNSPECIFIED)
-    weighting_scheme: WeightingRule = Field(default=WeightingRule.UNSPECIFIED)
-    long_leg: str = Field(default="high")
-    short_leg: str = Field(default="low")
-    implied_factor_direction: str | dict[str, Any] = Field(default="")
-    filter: str = Field(default="")
-    evidence: list[EvidenceCitation] = Field(default_factory=list)
-
-    def model_post_init(self, __context: Any) -> None:
-        if self.sort.breakpoint_source == BreakpointSource.UNSPECIFIED:
-            self.sort.breakpoint_source = self.breakpoints.source
-        if self.breakpoints.source == BreakpointSource.UNSPECIFIED:
-            self.breakpoints.source = self.sort.breakpoint_source
-        if not self.sort.quantiles:
-            self.sort.quantiles = list(self.breakpoints.quantiles)
-        if not self.breakpoints.quantiles:
-            self.breakpoints.quantiles = list(self.sort.quantiles)
-        if self.sort.ls_quantile is None:
-            self.sort.ls_quantile = self.breakpoints.ls_quantile
-        if self.breakpoints.ls_quantile is None:
-            self.breakpoints.ls_quantile = self.sort.ls_quantile
-        if self.weighting_scheme == WeightingRule.UNSPECIFIED:
-            self.weighting_scheme = self.weighting
-        if self.weighting == WeightingRule.UNSPECIFIED:
-            self.weighting = self.weighting_scheme
-
-
 class SortLegSpec(BaseModel):
     """One dimension of a (possibly multi-dimensional) portfolio sort.
 
-    Mirrors reported_results.return_calculation.portfolio_return.sorts[] from
-    the extraction prompt schema. `len(portfolio_return.sorts) > 1` is the
-    deterministic signal BacktestExecutor._detect_hooks() uses to flag a
-    double/conditional sort, instead of keyword-matching portfolio.filter.
+    Lives under `portfolio.sorts[]`. `len(portfolio.sorts) > 1` marks a
+    double/conditional sort; `registry.resolve_sort_dims` maps a
+    characteristic×size double sort onto the engine's `_multi` step variants,
+    and any other multi-dimensional sort is clamped to a single sort.
     """
 
     variable: str = Field(default="")
@@ -382,8 +339,11 @@ class SortLegSpec(BaseModel):
 
 
 class ReturnCombinationSpec(BaseModel):
-    """Mirrors reported_results.return_calculation.portfolio_return
-    .return_combination from the extraction prompt schema."""
+    """How per-portfolio returns combine into the reported factor return.
+
+    Lives under `portfolio.return_combination`. `type` is clamped to the
+    standard menu by `registry.build_config`.
+    """
 
     type: ReturnCombinationType = Field(default=ReturnCombinationType.UNSPECIFIED)
     expression: str = Field(default="")
@@ -394,30 +354,35 @@ class ReturnCombinationSpec(BaseModel):
     @model_validator(mode="before")
     @classmethod
     def _tolerate_unknown_type(cls, data: Any) -> Any:
-        return _coerce_enum_field(data, "type", ReturnCombinationType)
+        data = _coerce_enum_field(data, "type", ReturnCombinationType)
+        # Some curated specs store long_leg/short_leg/expression/note as null;
+        # these are plain strings here, so coerce None -> "".
+        if isinstance(data, dict):
+            data = dict(data)
+            for k in ("expression", "long_leg", "short_leg", "note"):
+                if data.get(k) is None and k in data:
+                    data[k] = ""
+        return data
 
 
-class PortfolioReturnSpec(BaseModel):
-    """Mirrors reported_results.return_calculation.portfolio_return from the
-    extraction prompt schema. Replaces the previous loose `dict[str, Any]` so
-    BacktestExecutor._detect_hooks() can compare against typed STANDARD sets
-    instead of guessing from free-text fields.
-    """
+class PortfolioSpec(BaseModel):
+    universe: str = Field(default="unspecified")
+    universe_filters: list[UniverseFilterSpec] = Field(default_factory=list)
+    sort: PortfolioSortSpec = Field(default_factory=PortfolioSortSpec)
+    weighting: WeightingRule = Field(default=WeightingRule.UNSPECIFIED)
+    long_leg: str = Field(default="high")
+    short_leg: str = Field(default="low")
+    implied_factor_direction: str | dict[str, Any] = Field(default="")
 
+    #: Portfolio-return construction (flattened from the former
+    #: reported_results.return_calculation.portfolio_return). Drives the
+    #: engine's estimator/sort/combine selection via registry.build_config.
     construction_type: PortfolioConstructionType = Field(
         default=PortfolioConstructionType.UNSPECIFIED
     )
     sorts: list[SortLegSpec] = Field(default_factory=list)
-    # Loosely typed: extraction/curation sometimes stores this as a dict
-    # ({"type": ..., "variants": [...]}), sometimes as a raw string. Not
-    # consumed by BacktestExecutor._detect_hooks(), so it isn't worth a strict
-    # schema -- only reviewer._check_reported_results_contract() reads it,
-    # as an informational cross-check.
-    weighting: Any = Field(default_factory=dict)
     return_combination: ReturnCombinationSpec = Field(default_factory=ReturnCombinationSpec)
-    regression: Optional[dict[str, Any]] = None
-    reported_frequency: str = Field(default="")
-    holding_period: str = Field(default="")
+
     evidence: list[EvidenceCitation] = Field(default_factory=list)
 
     @model_validator(mode="before")
@@ -426,17 +391,15 @@ class PortfolioReturnSpec(BaseModel):
         return _coerce_enum_field(data, "construction_type", PortfolioConstructionType)
 
 
-class ReturnCalculationSpec(BaseModel):
-    input_return: str | dict[str, Any] = Field(default="unspecified")
-    portfolio_return: PortfolioReturnSpec = Field(default_factory=PortfolioReturnSpec)
-    evidence: list[EvidenceCitation] = Field(default_factory=list)
-
-
 class ReportedResultsSpec(BaseModel):
+    """Paper-reported results, kept for validation against the backtest.
+
+    Portfolio-construction fields (sorts, return_combination, construction_type)
+    now live on `PortfolioSpec`; this model records only what the paper *reported*.
+    """
+
     return_horizon: str = Field(default="monthly")
     return_type: str = Field(default="long_short_spread")
-    comparison_policy: str | dict[str, Any] = Field(default="")
-    return_calculation: ReturnCalculationSpec = Field(default_factory=ReturnCalculationSpec)
     spreads: list[float] | dict[str, Any] = Field(default_factory=list)
     t_stats: list[float] | dict[str, Any] = Field(default_factory=list)
     main_spread: Optional[float] = None
@@ -492,6 +455,14 @@ class MethodSpec(BaseModel):
     publication_year: Optional[int] = None
     cz_acronym: Optional[str] = Field(default=None)
 
+    #: Which stock-return universe the portfolio-construction/return side runs
+    #: on. Must name an entry registered in
+    #: `src.infra.data_layer.catalog.RETURNS_UNIVERSES` (e.g. "us_equity_crsp").
+    #: There is deliberately NO default: the returns universe comes from the
+    #: reviewed spec, never a hardcoded CRSP fallback — the reviewer hard-blocks
+    #: a spec that leaves this unset or names an unregistered universe.
+    returns_universe: Optional[str] = None
+
     data: DataSpec = Field(default_factory=DataSpec)
     signal: SignalSpec
     portfolio: PortfolioSpec = Field(default_factory=PortfolioSpec)
@@ -524,6 +495,24 @@ class MethodSpec(BaseModel):
         raw_timing = data.get("timing") if isinstance(data.get("timing"), dict) else {}
         raw_universe = data.get("universe") if isinstance(data.get("universe"), dict) else {}
         raw_portfolio = data.get("portfolio") if isinstance(data.get("portfolio"), dict) else {}
+
+        # Back-compat: portfolio-return construction (construction_type / sorts /
+        # return_combination) used to live nested under
+        # reported_results.return_calculation.portfolio_return; it now lives flat
+        # on `portfolio`. Lift the legacy nested fields onto raw_portfolio (never
+        # overwriting a value already set flat) so old JSON keeps loading.
+        rr = data.get("reported_results")
+        rc = rr.get("return_calculation") if isinstance(rr, dict) else None
+        pr = rc.get("portfolio_return") if isinstance(rc, dict) else None
+        if isinstance(pr, dict):
+            raw_portfolio = dict(raw_portfolio)
+            if raw_portfolio.get("construction_type") is None and pr.get("construction_type") is not None:
+                raw_portfolio["construction_type"] = pr.get("construction_type")
+            if not raw_portfolio.get("sorts") and pr.get("sorts"):
+                raw_portfolio["sorts"] = pr.get("sorts")
+            if not raw_portfolio.get("return_combination") and pr.get("return_combination"):
+                raw_portfolio["return_combination"] = pr.get("return_combination")
+            data["portfolio"] = raw_portfolio
 
         data.setdefault("factor_name", raw_signal.get("factor_name") or data.get("factor_id", ""))
         data.setdefault("paper_ref", paper.get("citation", ""))
@@ -642,16 +631,7 @@ class MethodSpec(BaseModel):
                     "quantiles": sort.get("quantiles", []),
                     "evidence": [sort["source"]] if isinstance(sort.get("source"), dict) else [],
                 },
-                "breakpoints": {
-                    "source": cls._normalize_breakpoint_source(
-                        sort.get("breakpoint_source", "unspecified")
-                    ),
-                    "ls_quantile": cls._normalize_ls_quantile(sort.get("ls_quantile")),
-                    "quantiles": sort.get("quantiles", []),
-                    "evidence": [sort["source"]] if isinstance(sort.get("source"), dict) else [],
-                },
                 "weighting": cls._normalize_weighting(weighting or "unspecified"),
-                "weighting_scheme": cls._normalize_weighting(weighting or "unspecified"),
                 "long_leg": long_leg or "high",
                 "short_leg": short_leg or "low",
                 "implied_factor_direction": implied_direction or "",
@@ -707,12 +687,8 @@ class MethodSpec(BaseModel):
             return "nyse"
         if value in {"full_sample", "all_stocks", "all_eligible"}:
             return "full_sample"
-        if value == "conditional":
-            return "conditional"
-        if value == "paper_specific":
-            return "paper_specific"
-        if value in {"other", None, ""}:
-            return "unspecified"
+        # conditional/paper_specific are no longer menu members -> unspecified
+        # (build_config clamps to the default).
         return "unspecified"
 
     @staticmethod
@@ -723,31 +699,16 @@ class MethodSpec(BaseModel):
             return "ew"
         if value in {"vw", "value_weight", "value_weighted", "value-weighted"}:
             return "vw"
-        if value in {"capped_vw", "capped_value_weighted", "capped-value-weighted"}:
-            return "capped_vw"
-        if value in {
-            "other",
-            "reported_variants",
-            "regression_derived_zero_investment",
-            "beta_neutral_rank_weight",
-            None,
-            "",
-        }:
-            return "unspecified"
+        # capped_vw / other custom schemes are not menu members -> unspecified
+        # (build_config clamps to the default).
         return "unspecified"
 
     @staticmethod
     def _normalize_missing_action(value: Any) -> Any:
         if value in {"drop", "exclude", "omit"}:
             return "drop"
-        if value in {"fill_zero", "zero"}:
-            return "fill_zero"
-        if value in {"fill_median", "median"}:
-            return "fill_median"
-        if value in {"fill_forward", "ffill"}:
-            return "fill_forward"
-        if value == "winsorize":
-            return "winsorize"
+        # fill_*/winsorize are no longer menu members: the engine is
+        # standardized to drop NaNs -> unspecified (build_config clamps to drop).
         return "unspecified"
 
     @staticmethod
@@ -802,21 +763,7 @@ class MethodSpec(BaseModel):
         self.signal.sign = self.sign
         if not self.data.required_fields and self.signal.required_fields:
             self.data.required_fields = [
-                RequiredFieldSpec(
-                    field=field,
-                    source_detail=(
-                        f"{src.dataset}.{src.table}"
-                        if (src := self.signal.field_sources.get(field))
-                        and src.dataset
-                        and src.table
-                        else ""
-                    ),
-                    concept=(
-                        self.signal.field_sources[field].description
-                        if field in self.signal.field_sources
-                        else ""
-                    ),
-                )
+                RequiredFieldSpec(field=field)
                 for field in self.signal.required_fields
             ]
 
@@ -864,6 +811,17 @@ class MethodSpec(BaseModel):
             groups.setdefault(source, []).append((concept, column))
         return groups
 
+    def unresolved_source_fields(self) -> list[tuple[str, str]]:
+        """Formula-mapping entries whose SOURCE could not be resolved from the
+        data catalog (source==""), i.e. a physical column no registered source
+        declares. Returns [(concept, column), ...].
+
+        These are exactly the fields the reviewer must HARD-BLOCK: the source
+        of every signal input must come from the reviewed spec / registered
+        catalog, never a silent default. An empty list means every mapped
+        field resolved to a known source (or the mapping is empty)."""
+        return self.resolved_sources().get("", [])
+
     @property
     def formation_month(self) -> Optional[int]:
         return self.signal.timing.formation_month
@@ -890,7 +848,7 @@ class MethodSpec(BaseModel):
 
     @property
     def breakpoint_source(self) -> BreakpointSource:
-        return self.portfolio.breakpoints.source
+        return self.portfolio.sort.breakpoint_source
 
     @property
     def weighting_rule(self) -> WeightingRule:

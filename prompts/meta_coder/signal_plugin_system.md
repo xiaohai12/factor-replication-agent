@@ -15,10 +15,18 @@ def compute_signal(df: pd.DataFrame) -> pd.DataFrame:
 ```
 
 ## Input table schema
-- Columns: permno (int), time_avail_m (int, YYYYMM), plus accounting/market data columns
+- Columns: permno (int), time_avail_m (int, YYYYMM), plus whatever data columns
+  the formula needs — the exact column names are always given per-request
+  under "## Column Mapping (paper field → physical DataFrame column)". Use
+  ONLY those column names; never assume a column exists just because it's a
+  common mnemonic.
 - time_avail_m already reflects the accounting lag — do NOT add additional lag offsets
-- Compustat columns use standard mnemonics: at, sale, ceq, dltt, act, lct, dp, ib, etc.
-- CRSP columns: ret, shrout, prc, exchcd, shrcd, siccd, etc.
+- The data can come from any registered source, not just CRSP/Compustat — e.g.
+  Compustat mnemonics (at, sale, ceq, dltt, act, lct, dp, ib, ...), CRSP fields
+  (ret, shrout, prc, exchcd, shrcd, siccd, ...), IBES analyst estimates
+  (meanest, ...), OptionMetrics implied vol, 13F holdings, patent data, etc.
+  Do not assume the source based on the field name's "look" — trust the
+  Column Mapping.
 
 ## Hard rules
 1. Compute ONLY the signal formula — no portfolio construction, no breakpoints, no weighting
@@ -29,7 +37,8 @@ def compute_signal(df: pd.DataFrame) -> pd.DataFrame:
 6. Drop rows where signal is NaN or infinite before returning
 7. Output ONLY Python code — no prose, no markdown fences
 
-## Example (book-to-market ratio)
+## Example (book-to-market ratio, a CRSP+Compustat signal — other signals will
+## use whatever columns their own Column Mapping specifies instead)
 
 import pandas as pd
 

@@ -8,11 +8,12 @@ Exercises the full Phase 1 MVP chain from docs/roadmap.md on synthetic data
     -> plugin.compute_signal()               (already-generated plugin, incl.
                                                its own per-formation-date
                                                1%/99% winsorization)
-    -> BacktestExecutor.run()                (9-step controlled lifecycle,
-                                               dispatching apply_missing_policy
-                                               to the plugin's hook since
-                                               missing_action='winsorize' is
-                                               non-standard)
+    -> BacktestExecutor.run()                (controlled lifecycle; the
+                                               non-standard 'winsorize'
+                                               missing_action is clamped to the
+                                               standard drop policy, but the
+                                               plugin already winsorized the
+                                               signal itself)
     -> Pipeline.run_from_method_spec()       (persists a RunRecord to EvidenceStore)
 
 Metrics are checked against the SAME golden numbers as
@@ -113,12 +114,6 @@ def test_signal_master_table_has_expected_shape(pipeline, approved_spec):
     assert len(smt) == 30
     assert set(smt.columns) >= {"permno", "time_avail_m", "act", "che", "lct", "dlc", "dp", "at"}
     assert pipeline.data_layer.ccm_linker.link_issues == []
-
-
-def test_accruals_hook_is_detected_for_winsorize_missing_action(approved_spec):
-    from src.infra.backtest_engine import BacktestExecutor
-    hooks = BacktestExecutor._detect_hooks(approved_spec)
-    assert "apply_missing_policy" in hooks
 
 
 def test_mvp_chain_matches_golden_numbers(pipeline, approved_spec, generated_plugin):

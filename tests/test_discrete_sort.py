@@ -6,9 +6,8 @@ steps.compute_breakpoints/assign_portfolios now branch on config["cat_form"]
   - discrete:   one portfolio per distinct signal value, ranked by the global
                 sorted support (categorical scores like governance index).
 
-registry.detect_hooks() treats these two as standard and requests a hook for
-any other cat_form (e.g. CZ's "custom") or discrete combined with
-overlapping/multi-dim sorts.
+registry.build_config() clamps cat_form to these two forms and defaults any
+other value (e.g. CZ's "custom") to "continuous".
 """
 
 from __future__ import annotations
@@ -65,17 +64,16 @@ def test_discrete_global_support_consistent_across_months():
     assert port_of[5.0] == 3
 
 
-def test_custom_form_is_not_standard_falls_to_hook_path():
-    # cat_form other than continuous/discrete is not handled here; assign_portfolios
-    # only special-cases discrete. (detect_hooks routes unknown cat_form to a hook.)
+def test_custom_form_falls_back_to_continuous_quantile_path():
+    # cat_form other than continuous/discrete is clamped to "continuous" by
+    # build_config; assign_portfolios only special-cases discrete, so a raw
+    # "custom" value here falls through to the quantile (continuous) path.
     df = _panel(
         [
             (10, 200001, 1.0, 100.0),
             (11, 200001, 2.0, 100.0),
         ]
     )
-    # continuous fallback still needs breakpoints; with an unknown cat_form the
-    # engine would request a hook rather than reach this standard step.
     bp = steps.compute_breakpoints(df, {"cat_form": "custom"})
     # not discrete -> computes quantile breakpoints (the continuous default path)
     assert not bp.empty

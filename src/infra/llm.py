@@ -34,7 +34,13 @@ import json
 import os
 import subprocess
 from dataclasses import dataclass, field
-from typing import Optional
+from typing import TYPE_CHECKING, Optional
+
+if TYPE_CHECKING:
+    # `LLMClient` is a documentary alias for "any concrete LLM client in this
+    # module" (CodexCLIClient / CopilotCLIClient / OpenRouterClient); they share
+    # no common base, so annotate the back-references as Any.
+    from typing import Any as LLMClient
 
 
 @dataclass

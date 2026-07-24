@@ -1,5 +1,6 @@
 {
   "schema_version": "methodspec.v1",
+  "returns_universe": "us_equity_crsp",
   "factor_id": "sloan_1996_accruals",
   "factor_name": "Accruals",
   "paper_ref": "Sloan, Richard G., 1996, Do Stock Prices Fully Reflect Information in Accruals and Cash Flows about Future Earnings?, The Accounting Review 71(3), 289-315.",

@@ -32,6 +32,184 @@ when writing the paper.
 
 <!-- Add new entries below this line, newest first. -->
 
+## 2026-07-23 — Full-repo audit: remove remaining silent CRSP defaults (universe screen + legacy path fallback)
+
+- **Context / problem:** After the `catalog.py`/`RETURNS_UNIVERSES` refactor
+  established "no silent default data source" for the returns panel, a
+  design review surfaced two places where a CRSP-specific assumption still
+  applied unconditionally, contradicting that principle: (1)
+  `steps.filter_universe()` hardcoded a `shrcd`/`exchcd`/`siccd` baseline
+  screen applied to every returns panel regardless of `returns_universe`,
+  and (2) `BacktestExecutor._load_data()`'s legacy-path fallback
+  (`<data_path>/local/msf.parquet`) applied whenever ANY named returns
+  table's raw/ file was missing, not just CRSP's -- so a future non-CRSP
+  returns universe with a misplaced/missing file would silently load CRSP
+  data instead of failing loud. A full-repo audit (grep across `src/` and
+  `scripts/` for hardcoded source/table-name defaults) was run to check for
+  further instances of this same class of bug.
+- **Options considered:** (a) leave the baseline screen hardcoded but make it
+  configurable via new MethodSpec fields (`include_financials`/`share_codes`/
+  `exchange_codes`) with CRSP-matching defaults; (b) move the baseline
+  screen's definition into `catalog.py` as a per-returns-universe
+  `baseline_filters` property; (c) remove the hardcoded baseline entirely and
+  rely on the extractor to capture it (like any other paper-specific universe
+  restriction) via the existing `universe_filters` DSL.
+- **Decision:** (c) for the universe screen — simplest, and consistent with
+  the principle that ALL universe restrictions (paper-specific or
+  "boilerplate") should be explicit, reviewable MethodSpec fields, not
+  code-level defaults tied to one specific data source's column vocabulary.
+  For the legacy-path fallback, scoped it to `returns_table == "crsp_msf"`
+  only (kept, since it's a genuine file-location compatibility shim for
+  pre-catalog snapshots/tests -- not a data-source choice -- but must not
+  silently substitute CRSP data for a different requested universe).
+- **Rationale:** `shrcd`/`exchcd`/`siccd` are CRSP-specific column names;
+  hardcoding them into a step that runs for every returns panel assumes every
+  registered returns universe is CRSP-shaped, which the catalog design
+  explicitly rejects (a returns universe is meant to be one-catalog-entry
+  extensible, e.g. to a non-US or non-CRSP panel). The extractor already has
+  a working DSL (`UniverseFilterSpec`/`FilterOp`) for exactly this kind of
+  row-level restriction; asking it to also capture the common boilerplate
+  screen (which nearly every US-equity paper states, even if just by
+  citation) is more consistent than maintaining a parallel, hardcoded
+  version of the same rule in Python.
+- **Empirical impact:** None for existing papers. Full suite green at
+  192 passed / 26 skipped (was 191/26 before the new regression test for the
+  legacy-path fix); all 9 golden e2e tests byte-identical -- the synthetic
+  test panels don't contain rows the old hardcoded screen would have
+  excluded, so removing it was a numeric no-op for every existing fixture.
+- **Trade-offs / risks:** A paper whose universe restriction extraction
+  misses the common boilerplate (and where the reviewer's evidence check
+  doesn't catch it) would now run against a broader universe than intended,
+  silently -- this risk is accepted because the alternative (a hardcoded,
+  unconditional CRSP-shaped screen) was strictly worse: it silently imposed
+  a restriction that's WRONG for any paper that doesn't want it, with no way
+  to turn it off short of a full `filter_universe_hook` rewrite.
+  `portfolio.universe`/`portfolio.universe_filters` are already
+  `HIGH_IMPACT_FIELDS` in the reviewer, so this is covered by the existing
+  evidence-check machinery, not a new gap.
+- **References:** `src/infra/backtest_engine/steps.py` (`filter_universe`),
+  `src/infra/backtest_engine/__init__.py` (`_load_data`),
+  `prompts/extractor/methodspec_extractor.md` §4.5.2,
+  `tests/test_research_design.py`, `tests/test_no_default_source.py`,
+  `docs/architecture.md` §4.6, CHANGELOG `[Unreleased]`.
+
+## 2026-07-23 — Estimator-strategy layer + single `form_portfolios` hook; delete dead `neutralize_signal` scaffold
+
+- **Context / problem:** An architecture review (assessing over-design vs.
+  generality for replicating arbitrary papers) found the engine had accreted
+  narrow deterministic branches that added complexity without expanding real
+  coverage: (1) Fama-MacBeth was an inline `if` branch inside
+  `run_with_config()` rather than a swappable strategy, making it awkward to
+  ever add a third estimator (factor-model alpha, event-window return,
+  custom); (2) `compute_breakpoints`/`assign_portfolios` were dispatched as
+  two separate Step-contract functions, but `compute_breakpoints_multi` (the
+  multi-dim counterpart) did no real work — it just returned
+  `config["sort_dims"]` unchanged so `assign_portfolios_multi` could do
+  everything, a "fake step" that only existed to satisfy the two-call
+  contract; (3) `neutralize_signal` was a full step (dispatch call, trace
+  entry, hook contract) that was *always* a no-op in practice — no
+  `MethodSpec` field has ever driven `config["neutralization"]` away from
+  `"none"` — pure speculative scaffolding (YAGNI) for a feature nothing uses.
+- **Options considered:** (a) leave as-is; (b) fix only the two most
+  clearly broken cases (neutralize_signal deletion, breakpoints/assign
+  merge) without a real estimator abstraction; (c) formalize an
+  `Estimator` strategy layer now (`estimators.py`) *and* merge
+  breakpoints+assign into one hookable `form_portfolios` unit, while leaving
+  the overlapping-cohort step family and `compute_long_short`'s
+  `average_leg_spread` special case for a later pass.
+- **Decision:** (c). The estimator abstraction is small (two functions +
+  a registry dict) and immediately removes the inline Fama-MacBeth branch
+  from `run_with_config()`, which now only knows about "prep chain, then
+  ask the estimator." `form_portfolios`/`form_portfolios_hook` replace
+  the `compute_breakpoints`/`assign_portfolios` pair (and their
+  `_hook` counterparts) as the single unit for "how portfolios get formed" —
+  the underlying `compute_breakpoints`/`assign_portfolios`/`_multi` pure
+  functions are unchanged and still directly unit-tested, only the
+  dispatch/hook *contract* collapsed from two names to one.
+- **Rationale:** Per the reviewed direction (fewer deterministic engine
+  branches, more delegation to reviewed hooks, empirics still gated by
+  MethodSpec review), a new engine branch is only justified if it (a)
+  covers a broad class of papers and (b) composes with existing branches.
+  A two-function contract where one function never does real work fails
+  (b); an always-no-op step fails both. Collapsing them to one hook name
+  each reduces the number of things a future `detect_hooks()`/hook author
+  has to reason about without losing any expressiveness (nothing was
+  standard-implemented that isn't standard-implemented after this change).
+- **Empirical impact:** None. Golden e2e (`test_*_e2e.py`, incl.
+  `test_ball2016_e2e.py`'s hand-written hooks) byte-identical; full suite
+  191 passed / 26 skipped after this change (was 193/26 — the 2 fewer
+  passing tests are the deleted `TestNeutralizeSignalScaffold` cases, not a
+  regression).
+- **Trade-offs / risks:** `form_portfolios_hook` is a breaking rename of the
+  hook contract (`compute_breakpoints_hook`/`assign_portfolios_hook` no
+  longer load) — any *external* plugin authored against the old contract
+  would need updating; migrated the two fixtures that used it in this repo.
+  Overlapping-cohort's parallel `_overlap` step family and
+  `compute_long_short`'s `average_leg_spread` (numerically identical to
+  `extreme_group_spread` unless `long_portfolios`/`short_portfolios` are
+  hand-fed via config) were flagged in the same review as further
+  candidates for consolidation but are deliberately deferred to a later,
+  separately-verified pass rather than bundled into this change.
+- **References:** `src/infra/backtest_engine/estimators.py`,
+  `src/infra/backtest_engine/__init__.py` (`run_with_config`,
+  `_MULTI_DIM_STEPS`/`_OVERLAP_STEPS`), `src/infra/backtest_engine/steps.py`
+  (`form_portfolios`/`form_portfolios_overlap`, deleted `neutralize_signal`),
+  `src/infra/backtest_engine/registry.py` (`load_hooks`),
+  `src/steps/step3_codegen/__init__.py` (`HOOK_SIGNATURES`/`HOOK_RETURN_DOCS`),
+  `src/steps/step3_codegen/registry.py` (`detect_hooks`/`build_config`),
+  `tests/fixtures/plugins/ball2016_cash_based_operating_profitability_factor.py`,
+  `tests/fixtures/plugins/fama_french_1993_double_sort_hml.py`,
+  `tests/test_engine_hooks.py`, `tests/test_ball2016_e2e.py`,
+  `tests/test_sandbox_validation.py`, `tests/test_research_design.py`,
+  `docs/architecture.md` §4.6, CHANGELOG `[Unreleased]`.
+
+## 2026-07-23 — No silent default data source; a declarative catalog is the single source of truth
+
+- **Context / problem:** Many code paths silently assumed CRSP/Compustat.
+  `_normalize_mapping_entry` inferred `comp_funda` for any non-CRSP column (so an
+  IBES/OptionMetrics column was silently misattributed to Compustat);
+  `pick_signal_input_mode` defaulted an empty mapping to Compustat; and
+  `_load_data` hardcoded the returns panel to `crsp_msf`. For a project meant to
+  replicate *general* papers, a silently-wrong data source produces a
+  plausible-looking but wrong backtest — the worst failure mode for an auditable
+  pipeline.
+- **Options considered:** (a) keep CRSP/Compustat as an example but add a
+  hand-maintained "known Compustat columns" set; (b) unify the four scattered
+  source fragments (`_CONCEPT_MAP`, `SIGNAL_SOURCES`, `LINK_TABLES`,
+  `DataDictionary`) into one declarative catalog and drive all resolution from
+  it; (c) docs-only. Also debated whether the returns universe (always CRSP for
+  US-equity cross-section) is in scope.
+- **Decision:** (b) — a declarative `catalog.py` is the single source of truth.
+  Signal source/columns resolve via `catalog.source_of_column`/`resolve_concept`;
+  the returns universe comes from a new `MethodSpec.returns_universe` →
+  `catalog.RETURNS_UNIVERSES`. Nothing defaults: an unknown/unset source is
+  hard-blocked at review so a human registers it in the catalog once, after
+  which every future paper using it works.
+- **Rationale:** The controlled-pipeline principle (empirical choices come from
+  the reviewed MethodSpec, never guessed) applies to *which data source* just as
+  much as to breakpoints/weighting. A registry makes "register once, reuse
+  forever" explicit and keeps the human in the loop exactly at the point of
+  genuine novelty (a new data source), not per paper.
+- **Empirical impact:** None. Golden e2e (accruals/ball2016/mvp) are
+  byte-identical; the 9 golden fixtures gained explicit `returns_universe`
+  (+ ball2016 an explicit `normalized_mapping`) — explicit values only, no metric
+  moved.
+- **Trade-offs / risks:** The returns universe is modeled even though it is
+  effectively always CRSP in the current US-equity scope — accepted, because the
+  goal is generality and the field makes the (previously implicit) scope
+  assumption explicit and reviewable. Registering a genuinely new source still
+  requires a one-time human catalog edit (the agent cannot invent a loader for
+  an unseen database) — this is intended, not a limitation.
+- **References:** `src/infra/data_layer/catalog.py`,
+  `src/infra/models/method_spec.py` (`_normalize_mapping_entry`,
+  `unresolved_source_fields`, `returns_universe`),
+  `src/steps/step2_reviewer/__init__.py` (`_check_source_mapping_resolved`,
+  `_check_returns_universe`), `src/steps/step3_codegen/script_generator.py`
+  (`pick_signal_input_mode`) + `registry.py` (`build_config`),
+  `src/infra/backtest_engine/__init__.py` (`_load_data`),
+  `tests/test_data_catalog.py`, `tests/test_no_default_source.py`, CHANGELOG
+  `[Unreleased]`.
+
 ## 2026-07-22 — Loop redesign: two bounded automatic loops, one shared RepairLoop, "feed back the problem not the answer"
 
 - **Context / problem:** The pipeline's feedback loops had accreted three
@@ -642,3 +820,79 @@ when writing the paper.
   (`TimeAvailComputer`, `DataLayer`, `assemble_panel`/`SOURCE_SCHEMA`,
   `DataDictionary.normalize_fields`, `_CONCEPT_MAP`),
   `AGENTS.md` Hard Constraints, [docs/cz-reference.md](cz-reference.md).
+
+## Simplify pipeline: remove LLM hook codegen; standardize the backtest engine
+
+- **Context:** Advisor meeting (2026-07) — simplify the pipeline. Extraction and
+  review workflows stay; the MethodSpec schema simplifies; the Meta-Coder LLM
+  only writes the signal formula; the backtest engine is standardized.
+- **Options considered:**
+  1. Keep LLM-generated *hook* code for empirical steps outside the standard
+     menu (weighting, breakpoints, missing policy, multi-leg combinations).
+  2. Remove hooks entirely; the engine selects a built-in implementation from a
+     fixed menu, and clamps any out-of-menu MethodSpec value to the menu
+     default.
+- **Decision:** Option 2. `MetaCoder.generate_plugin()` now emits only
+  `compute_signal()`. `build_config()` deterministically resolves/clamps every
+  empirical choice (`_clamp`), and `BacktestExecutor._dispatch()` routes only to
+  the standard step functions plus their deterministic `_overlap`/`_multi`
+  variants. `detect_hooks`, `load_hooks`, `PluginRecord.hooks`,
+  `ValidationReport.hooks_ok`, the step4 hook-contract check, and
+  `prompts/meta_coder/hook_system.md` are deleted.
+- **Rationale:** The controlled-replication guarantee is stronger when *no* LLM
+  output can influence portfolio construction: the LLM is confined to the
+  formula, and every empirical parameter is an auditable config value drawn from
+  the reviewed MethodSpec. It also removes the run-time sandbox surface for
+  arbitrary hook code and shrinks the schema.
+- **Empirical impact:** Factors whose paper construction fell outside the
+  standard menu (e.g. a revenue-weighted scheme, a bespoke multi-leg
+  combination, a >2-dimensional or non-size double sort) now run with the menu
+  default rather than a bespoke hook. The ball2016 cash-based operating
+  profitability e2e (a 2×3 size×profitability double sort combined as
+  0.5·(robust legs) − 0.5·(weak legs)) was a hook demonstration; its golden
+  numbers are tied to the removed multi-leg hook, so the test and its exclusive
+  fixtures were deleted rather than re-baselined against a construction the
+  paper didn't use.
+- **Returns table default:** `returns_universe` now defaults to `us_equity_crsp`
+  (CRSP monthly) when unset (`catalog.DEFAULT_RETURNS_UNIVERSE`); the reviewer
+  warns + defaults instead of hard-blocking. This is a deliberate, scoped
+  reversal of the earlier "never default a data source" rule *for the returns
+  panel only* — signal-input sources still never default (multi-source catalog
+  resolution + reviewer hard-block are unchanged).
+- **Trade-offs / risks:** Papers needing a genuinely non-standard construction
+  can no longer be replicated exactly; the replication-gap analysis (step7) is
+  where that shortfall should surface, and extending the standard menu (not
+  re-adding hooks) is the path to supporting a new construction.
+- **References:** `src/steps/step3_codegen/` (`__init__.py`, `registry.py`),
+  `src/infra/backtest_engine/__init__.py`, `src/steps/step4_validator/__init__.py`,
+  `src/steps/step2_reviewer/__init__.py`, `src/infra/data_layer/catalog.py`,
+  `CHANGELOG.md`.
+
+## Schema flatten + enum pruning with load-time back-compat coercion
+
+- **Context:** Follow-up to the hook-removal simplification — the advisor asked
+  to also simplify the MethodSpec schema itself ("not too complex").
+- **Decision:** Flatten portfolio-return construction (`construction_type`,
+  `sorts`, `return_combination`) from the deep
+  `reported_results.return_calculation.portfolio_return` nesting onto
+  `PortfolioSpec`; merge `portfolio.sort`+`portfolio.breakpoints`; delete the
+  dead `field_sources`/`weighting_scheme`/`filter` fields; and prune enum
+  values that only fed the removed hook path.
+- **Key mechanism — no data migration:** Rather than rewrite the ~26 committed
+  human-labeled specs + fixtures, `MethodSpec.normalize_curated_schema` lifts
+  the legacy nested construction fields onto `portfolio` at load time, and
+  before-validators on `PortfolioSortSpec`/`MissingPolicy`/`ReturnCombinationSpec`/
+  `PortfolioSpec` coerce pruned/removed enum values (and stray `null` legs) to
+  `unspecified`/`""`. `build_config` then clamps to the menu default. So the
+  canonical *schema* is simpler while every existing JSON still loads.
+- **Rationale:** The loader carries the (hidden) legacy-translation complexity
+  once, so the human-facing schema and the extractor's forward output are the
+  simple flat shape. Migrating the labeled ground-truth set was rejected as
+  high-risk churn for a reference dataset.
+- **Trade-offs / risks:** `normalize_curated_schema` grows a back-compat branch;
+  if the legacy nested shape is ever fully retired, that branch (and the enum
+  coercions) can be deleted and the labeled specs migrated in one pass.
+- **References:** `src/infra/models/method_spec.py`
+  (`normalize_curated_schema` lift, `PortfolioSpec`, before-validator coercions),
+  `src/steps/step3_codegen/registry.py`, `src/steps/step2_reviewer/__init__.py`,
+  `CHANGELOG.md`.

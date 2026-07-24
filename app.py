@@ -68,23 +68,21 @@ MSF_PATH = PROJECT_ROOT / "data" / "local" / "msf.parquet"
 SYNTHETIC_MSF_PATH = PROJECT_ROOT / "data" / "synthetic_data" / "local" / "msf.parquet"
 SYNTHETIC_SNAPSHOT_DIR = PROJECT_ROOT / "data" / "synthetic_data" / "mvp_v1"
 
-# Physical columns that CRSP-monthly-only signals need (no Compustat merge required).
-# Used to guess a sensible default "Signal Input Mode" for a given resolved MethodSpec.
-_CRSP_ONLY_COLUMNS = {"ret", "me", "shrcd", "exchcd", "siccd", "prc", "shrout", "date"}
+def _default_signal_mode(spec) -> str:
+    """UI-only: preselect the "Signal Input" radio from the spec's resolved
+    sources, via the shared catalog-driven `pick_signal_input_mode`.
 
-
-def _signal_needs_compustat(spec) -> bool:
-    """Best-effort guess: does this spec's signal need Compustat fields (vs CRSP-only)?
-
-    True if any paper-field -> physical-column mapping falls outside the known
-    CRSP-monthly column set (e.g. 'at', 'ceq', 'revt' -> Compustat annual fields).
-    Defaults to True (Compustat mode) when there's no mapping to inspect, since
-    most factors in this repo are accounting-based.
+    Non-raising (unlike `pick_signal_input_mode`, which fails loud on an
+    unknown/empty source): the dashboard human explicitly confirms the mode
+    before running, and the pipeline itself still fails loud on an unregistered
+    source at codegen time. Falls back to "compustat" as a mere UI preselection
+    when the source can't be determined — NOT a silent pipeline default.
     """
-    mapping = getattr(getattr(spec, "data", None), "normalized_mapping", None) or {}
-    if not mapping:
-        return True
-    return any(col not in _CRSP_ONLY_COLUMNS for col in mapping.values())
+    from src.steps.step3_codegen.script_generator import pick_signal_input_mode
+    try:
+        return pick_signal_input_mode(spec)
+    except ValueError:
+        return "compustat"
 
 
 def _ensure_synthetic_data() -> bool:
@@ -616,7 +614,7 @@ def _e2e_run_stage_3_to_7(
         elif e2e_signal_mode == "CRSP monthly only (price-based signals)":
             needs_compustat = False
         else:
-            needs_compustat = _signal_needs_compustat(spec)
+            needs_compustat = _default_signal_mode(spec) != "crsp_only"
 
         backtest_skipped = False
         compustat_data_path = None
@@ -1493,7 +1491,7 @@ elif page == "Backtest & Experiments":
             bt_uploaded_msf = st.file_uploader("Upload msf.parquet", type=["parquet"], key="bt_msf_upload")
 
         signal_mode_default = 0
-        if bt_spec_obj is not None and not _signal_needs_compustat(bt_spec_obj):
+        if bt_spec_obj is not None and _default_signal_mode(bt_spec_obj) == "crsp_only":
             signal_mode_default = 1
         signal_mode = st.radio(
             "Signal Input",

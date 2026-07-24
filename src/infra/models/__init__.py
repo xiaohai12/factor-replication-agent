@@ -1,6 +1,5 @@
 from src.infra.models.method_spec import (
     AmbiguousField,
-    BreakpointSpec,
     DataSourceHint,
     DataSpec,
     EvidenceCitation,
@@ -32,7 +31,6 @@ __all__ = [
     "SignalTiming",
     "MissingPolicy",
     "PortfolioSpec",
-    "BreakpointSpec",
     "AmbiguousField",
     "ExtractionSource",
     "ReviewNote",

@@ -1,5 +1,6 @@
 {
   "schema_version": "methodspec.v1",
+  "returns_universe": "us_equity_crsp",
   "factor_id": "moskowitz_grinblatt_1999_industry_momentum",
   "factor_name": "Industry Momentum",
   "paper_ref": "Moskowitz, Tobias J., and Mark Grinblatt, 1999, Do Industries Explain Momentum?, The Journal of Finance 54(4), 1249-1290.",

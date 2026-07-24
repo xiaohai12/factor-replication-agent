@@ -39,7 +39,6 @@ def _load_mapping() -> dict:
         return {"factors": {}, "paper_to_factors": {}, "filename_to_factors": {}}
     raw = json.loads(_MAPPING_PATH.read_text(encoding="utf-8"))
     papers = raw.get("papers", {})
-    spec_to_paper = raw.get("spec_to_paper", {})
 
     # Build factors dict: factor_id → {spec_file, paper_pdf, paper_title, citation}
     factors = {}

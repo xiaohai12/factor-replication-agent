@@ -1,20 +1,22 @@
-"""Codegen decision layer: which steps are "standard" (built-in on
-BacktestExecutor) vs. need an LLM-generated hook, and how a MethodSpec
-resolves into a run config.
+"""Codegen decision layer: how an approved MethodSpec resolves into a run
+config for the standardized backtest engine.
 
-This module answers "what does the LLM need to generate for this MethodSpec"
-(the controlled-codegen side of the system) — not "what does a backtest
-compute" (that's `src/infra/backtest_engine/steps.py`) and not "how does a
-plugin's hook get loaded at run time" (that's
-`src/infra/backtest_engine/registry.py::load_hooks`).
+The engine is fully standardized: there is no LLM-generated hook code. Every
+portfolio-construction choice is *selected* from a fixed menu of built-in
+implementations (see ``STANDARD`` below). A MethodSpec value outside the menu
+is deterministically clamped to the menu default (``build_config`` /
+``_clamp``) rather than triggering code generation.
+
+This module answers "how does a MethodSpec resolve into a run config" — not
+"what does a backtest compute" (that's
+`src/infra/backtest_engine/steps.py`).
 
 Lives in `step3_codegen/` (not `src/infra/backtest_engine/`) because every
 function here is only ever called at generation time — by
-`MetaCoder.generate_plugin()` (`detect_hooks`) and
 `script_generator.generate_backtest_script()` (`build_config`) — never by
 `BacktestExecutor`'s own run-time dispatch (`run_with_config`/`_dispatch`),
 which only consumes the already-resolved config dict `build_config` produced.
-`BacktestExecutor._detect_hooks()`/`_build_config()`/`_resolve_long_leg()`/
+`BacktestExecutor._build_config()`/`_resolve_long_leg()`/
 `_resolve_short_leg()`/`_normalize_leg()` remain as thin backward-compatible
 delegates to this module (existing callers, including tests, use those
 names) — the engine library depends on this decision layer for those
@@ -36,8 +38,9 @@ from src.infra.models.method_spec import (
 
 
 # ---------------------------------------------------------------------------
-# Standard set — values for which BacktestExecutor has a built-in implementation.
-# Anything outside triggers a hook request to MetaCoder. Values are drawn
+# Standard menu — the values for which the engine has a built-in
+# implementation. A MethodSpec value outside its menu is clamped to the menu
+# default by `build_config`/`_clamp` (never code-generated). Values are drawn
 # directly from the MethodSpec enums (src/infra/models/method_spec.py) so the
 # two stay in sync instead of duplicating strings.
 # ---------------------------------------------------------------------------
@@ -79,26 +82,13 @@ STANDARD: dict[str, set[str]] = {
     },
     # Sort form (plan.md CZ-import Phase B; mirrors CZ Cat.Form). Only the two
     # forms with a canonical deterministic implementation are standard in
-    # steps.compute_breakpoints/assign_portfolios:
+    # steps.form_portfolios:
     #   continuous -> quantile sort; discrete -> one portfolio per distinct
     #   signal value (categorical scores like governance index / MS / PS).
-    # Anything else (e.g. CZ's "custom" pre-assigned portfolios, which don't
-    # fit this pipeline's signal-plugin-computes-a-formula data model) falls
-    # through to a hook via detect_hooks() rather than being special-cased.
+    # Anything else (e.g. CZ's "custom" pre-assigned portfolios) is clamped to
+    # "continuous" by build_config rather than being special-cased.
     "cat_form": {"continuous", "discrete"},
 }
-
-# filter_universe used to have no STANDARD set and was unconditionally routed
-# to an LLM hook (every paper's sample-membership rules were treated as
-# non-standard by definition). Phase 2.5 (plan.md) replaced that with a
-# deterministic FilterOp DSL applied against `portfolio.universe_filters` (see
-# steps.apply_universe_filters) alongside the baseline shrcd/exchcd/siccd
-# screen, so filter_universe is standard by default now. A plugin-supplied
-# filter_universe_hook still overrides it when a paper's universe rule is
-# genuinely inexpressible in the DSL.
-FILTER_UNIVERSE_ALWAYS_HOOK_REASON = (
-    "filter_universe is always LLM-generated from portfolio.universe_filters/universe"
-)  # kept for any external references; no longer used by detect_hooks()
 
 
 def ev(v: Any) -> str:
@@ -108,115 +98,45 @@ def ev(v: Any) -> str:
     return str(v) if v is not None else "unspecified"
 
 
-def detect_hooks(spec: MethodSpec) -> dict[str, str]:
-    """Return {step_name: reason} for steps that need LLM-generated hooks.
+def _clamp(val: Any, allowed: set[str], default: str) -> str:
+    """Resolve a MethodSpec field to a value the engine actually implements.
 
-    Compares resolved MethodSpec field values against STANDARD sets.
-    Steps whose value falls outside STANDARD require a hook function.
+    ``unspecified`` (or None) and any value outside ``allowed`` both resolve to
+    ``default`` — the engine is standardized, so an out-of-menu empirical
+    choice is deterministically clamped to the built-in default rather than
+    triggering code generation.
     """
-    hooks: dict[str, str] = {}
-
-    bp = ev(spec.breakpoint_source)
-    if bp not in STANDARD["breakpoint_source"]:
-        hooks["compute_breakpoints"] = f"non-standard breakpoint_source={bp!r}"
-
-    wt = ev(spec.weighting_rule)
-    if wt not in STANDARD["weighting"]:
-        hooks["compute_returns"] = f"non-standard weighting={wt!r}"
-
-    ma = ev(spec.missing_action)
-    if ma not in STANDARD["missing_action"]:
-        hooks["apply_missing_policy"] = f"non-standard missing_action={ma!r}"
-
-    portfolio_return = spec.reported_results.return_calculation.portfolio_return
-
-    if spec.signal.timing.overlapping_portfolios:
-        # Phase 5 (plan.md): overlapping-cohort holding is now standard
-        # (steps.merge_signal_overlap + friends) -- no longer unconditionally
-        # hooked. Not yet combined with a multi-dimensional sort in this v1
-        # (BacktestExecutor._dispatch() only routes to one alternate path or
-        # the other); that specific combination still needs a hook.
-        if len(portfolio_return.sorts) > 1:
-            hooks["merge_signal"] = (
-                "overlapping_portfolios=true combined with a multi-dimensional "
-                "sort isn't supported by the standard overlapping-cohort path yet"
-            )
-
-    # filter_universe is deterministic by default since Phase 2.5 (see
-    # FILTER_UNIVERSE_ALWAYS_HOOK_REASON above) — no longer unconditionally
-    # hooked. A plugin may still define filter_universe_hook to override it;
-    # that's a plugin-authoring choice, not something detect_hooks() predicts.
-
-    if len(portfolio_return.sorts) > 1:
-        dims = [s.variable for s in portfolio_return.sorts if s.variable]
-        # Phase 3 (plan.md): a characteristic x size double sort is now a
-        # standard multi-dim sort (steps.compute_breakpoints_multi /
-        # assign_portfolios_multi), not hooked. Anything resolve_sort_dims()
-        # can't map (3+ dims, or 2 dims with neither/both being "size") still
-        # falls back to a hook.
-        if resolve_sort_dims(spec) is None:
-            hooks["compute_breakpoints"] = f"multi-dimensional sort: {dims!r}"
-            hooks["assign_portfolios"] = f"multi-dimensional sort: {dims!r}"
-
-    ct = ev(portfolio_return.construction_type)
-    if ct not in STANDARD["portfolio_construction"]:
-        hooks["compute_returns"] = f"non-standard construction_type={ct!r}"
-
-    rc = ev(portfolio_return.return_combination.type)
-    if rc not in STANDARD["return_combination"]:
-        hooks["compute_long_short"] = f"non-standard return_combination={rc!r}"
-
-    # Sort form (plan.md CZ-import Phase B). continuous/discrete are standard;
-    # any other cat_form (incl. CZ's "custom") needs a hook. discrete is only
-    # implemented on the single-dim, non-overlapping sort path, so combining
-    # it with an overlapping-cohort or multi-dimensional sort also needs a
-    # hook (those alternate paths ignore cat_form).
-    cf = (spec.cat_form or "continuous").lower()
-    if cf not in STANDARD["cat_form"]:
-        hooks["compute_breakpoints"] = f"non-standard cat_form={cf!r}"
-        hooks["assign_portfolios"] = f"non-standard cat_form={cf!r}"
-    elif cf == "discrete" and (
-        spec.signal.timing.overlapping_portfolios or len(portfolio_return.sorts) > 1
-    ):
-        reason = (
-            "cat_form='discrete' isn't supported by the overlapping-cohort / "
-            "multi-dimensional sort paths yet"
-        )
-        hooks["compute_breakpoints"] = reason
-        hooks["assign_portfolios"] = reason
-
-    return hooks
+    v = ev(val)
+    if v == "unspecified" or v not in allowed:
+        return default
+    return v
 
 
 def build_config(spec: MethodSpec, overrides: dict | None) -> dict:
     """Build run config entirely from resolved MethodSpec fields."""
 
-    def effective(val: Any, default: str) -> str:
-        v = ev(val)
-        return v if v != "unspecified" else default
-
     # ls_quantile > 1 means "N groups"; < 1 means it's a fraction (1/N groups)
-    ls_q = spec.portfolio.breakpoints.ls_quantile or 10.0
+    ls_q = spec.portfolio.sort.ls_quantile or 10.0
     n_quantiles = int(ls_q) if ls_q >= 1 else int(round(1.0 / ls_q))
 
     config = {
-        "breakpoint_source":    effective(spec.breakpoint_source, "full_sample"),
+        "breakpoint_source":    _clamp(spec.breakpoint_source, STANDARD["breakpoint_source"], "full_sample"),
         "breakpoint_quantiles": n_quantiles,
-        "weighting_rule":       effective(spec.weighting_rule, "vw"),
+        "weighting_rule":       _clamp(spec.weighting_rule, STANDARD["weighting"], "vw"),
         "rebalance_frequency":  ev(spec.rebalance_frequency),
         "holding_period_months": spec.holding_period_months or 12,
         "accounting_lag_months": spec.accounting_lag_months or 6,
-        "missing_action":       effective(spec.missing_action, "drop"),
+        "missing_action":       _clamp(spec.missing_action, STANDARD["missing_action"], "drop"),
         "universe":             spec.universe_description,
         "formation_month":      spec.formation_month or 6,
         "skip_month":           spec.skip_month or 0,
         "long_leg":             resolve_long_leg(spec),
         "short_leg":            resolve_short_leg(spec),
         # Sort form (plan.md CZ-import Phase B; mirrors CZ Cat.Form): drives
-        # steps.compute_breakpoints/assign_portfolios branching between
-        # quantile (continuous), one-portfolio-per-value (discrete), and
-        # signal-is-portfolio (custom).
-        "cat_form":             (spec.cat_form or "continuous").lower(),
+        # steps.form_portfolios branching between quantile (continuous) and
+        # one-portfolio-per-value (discrete). Clamped to the two implemented
+        # forms.
+        "cat_form":             _clamp(spec.cat_form, STANDARD["cat_form"], "continuous"),
         # Sample-period segmentation (plan.md CZ-import Phase A). Drives the
         # optional in-sample / post-sample / post-publication metric split in
         # steps.compute_metrics (mirrors CZ's sumportmonth insamp/between/
@@ -232,17 +152,18 @@ def build_config(spec: MethodSpec, overrides: dict | None) -> dict:
         ],
         "apply_delisting_returns": True,
         "microcap_exclude": False,
-        "neutralization": "none",
         # Multi-dimensional sort (plan.md Phase 3): [] unless the spec's
         # portfolio_return.sorts[] resolves to a standard characteristic x
-        # size double sort (see resolve_sort_dims). >1 entries routes
-        # compute_breakpoints/assign_portfolios/compute_returns/
-        # compute_long_short to their _multi counterparts in _dispatch().
+        # size double sort (see resolve_sort_dims). >1 entries makes
+        # steps.form_portfolios route internally to its multi-dim logic, and
+        # routes compute_returns/compute_long_short to their _multi
+        # counterparts in _dispatch().
         "sort_dims": resolve_sort_dims(spec, default_quantiles=n_quantiles) or [],
         # Return combination (plan.md Phase 4): how per-portfolio returns
         # combine into the reported series; see steps.compute_long_short.
-        "return_combination_type": effective(
-            spec.reported_results.return_calculation.portfolio_return.return_combination.type,
+        "return_combination_type": _clamp(
+            spec.portfolio.return_combination.type,
+            STANDARD["return_combination"],
             "extreme_group_spread",
         ),
         # Overlapping-cohort holding (plan.md Phase 5): standard when true
@@ -258,7 +179,7 @@ def build_config(spec: MethodSpec, overrides: dict | None) -> dict:
         # intent and is available for callers that load daily source data
         # via steps.load_daily_msf() ahead of time.
         "return_basis": "excess",
-        "return_frequency": effective(spec.reported_results.return_horizon, "monthly"),
+        "return_frequency": (spec.reported_results.return_horizon or "monthly"),
         # Estimator (plan.md Phase 7): "portfolio_sort" (default) runs the
         # standard sort/breakpoints/assign/returns/combine chain;
         # "fama_macbeth" (construction_type=regression_weighted) routes to
@@ -266,11 +187,22 @@ def build_config(spec: MethodSpec, overrides: dict | None) -> dict:
         # merge_signal -- see BacktestExecutor.run_with_config().
         "estimator": (
             "fama_macbeth"
-            if ev(spec.reported_results.return_calculation.portfolio_return.construction_type)
-            == "regression_weighted"
+            if ev(spec.portfolio.construction_type) == "regression_weighted"
             else "portfolio_sort"
         ),
     }
+    # Returns universe (portfolio-construction stock-return panel) comes from
+    # the reviewed spec, never a hardcoded CRSP default. When the spec names a
+    # registered returns universe we bake its returns_table/returns_layout into
+    # the config; when unset, catalog.returns_universe_config defaults to the
+    # us_equity_crsp monthly panel (the standardized default returns table).
+    from src.infra.data_layer import catalog
+
+    returns_cfg = catalog.returns_universe_config(getattr(spec, "returns_universe", None))
+    if returns_cfg:
+        config["returns_table"] = returns_cfg["returns_table"]
+        config["returns_layout"] = returns_cfg["returns_layout"]
+
     if overrides:
         config.update(overrides)
     return config
@@ -288,19 +220,19 @@ def _sort_variable_column(variable: str) -> str | None:
 
 
 def resolve_sort_dims(spec: MethodSpec, default_quantiles: int = 10) -> list[dict] | None:
-    """Best-effort mapping of `portfolio_return.sorts[]` onto the standard
+    """Best-effort mapping of `portfolio.sorts[]` onto the standard
     engine's available columns (`signal`, `me`).
 
     Deliberately narrow v1 (plan.md Phase 3): returns a resolved dims list
     only for an exactly-2-dimensional sort where exactly one dimension is
     recognized as a size/market-equity control variable and the other is the
     paper's own characteristic. Anything else (3+ dims, 2 dims where neither
-    or both are size-like) returns None so `detect_hooks()` still requests a
-    hook — covers the single most common double-sort pattern in the
+    or both are size-like) returns None so build_config falls back to a single
+    sort — covers the single most common double-sort pattern in the
     literature (characteristic x size) without over-claiming generality for
     exotic multi-way sorts.
     """
-    sorts = spec.reported_results.return_calculation.portfolio_return.sorts
+    sorts = spec.portfolio.sorts
     if len(sorts) != 2:
         return None
 

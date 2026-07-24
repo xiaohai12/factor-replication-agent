@@ -230,19 +230,18 @@ Check:
 - custom weighting scheme;
 - long/short direction;
 - `paper_reports_explicit_simple_long_short_strategy` is true only for paper-stated simple sorted-leg strategies;
-- summary fields are consistent with `reported_results.return_calculation.portfolio_return`.
+- `portfolio.construction_type` / `portfolio.sorts` / `portfolio.return_combination` are consistent with the prose summary.
 
 Flag if a custom strategy is treated as simple EW/VW high-minus-low.
 
-## 4.8 Reported results and return calculation
+## 4.8 Reported results
 
 Check:
 
 - `reported_results.spreads` values match the main result table;
 - t-stats, alphas, Sharpe ratios, EW/VW variants, and horizons are correctly copied;
 - paper direction is preserved;
-- `input_return` describes the security-level return input;
-- `portfolio_return` describes executable portfolio-return construction;
+- `portfolio.construction_type` / `portfolio.sorts` / `portfolio.return_combination` describe the executable portfolio-return construction (flat on `portfolio`);
 - abnormal return / BHAR / alpha / factor return are not confused;
 - main table results are not mixed with robustness-only results.
 
@@ -301,19 +300,19 @@ eq, neq, in, not_in, between, not_between, gt, gte, lt, lte, nonmissing, nonzero
 `portfolio.sort.breakpoint_source` must be one of:
 
 ```text
-nyse_only, full_sample, conditional, paper_specific, unspecified
+nyse_only, full_sample, unspecified
 ```
 
-`portfolio_return.construction_type` must be one of:
+`portfolio.construction_type` must be one of:
 
 ```text
-characteristic_sort, regression_weighted, factor_model_alpha, event_window_return, other
+characteristic_sort, regression_weighted, other
 ```
 
-`return_combination.type` must be one of:
+`portfolio.return_combination.type` must be one of:
 
 ```text
-extreme_group_spread, average_leg_spread, single_signal_portfolio_return, full_portfolio_return, alpha_estimate, other
+extreme_group_spread, average_leg_spread, single_signal_portfolio_return, full_portfolio_return, other
 ```
 
 `ambiguous_fields[].status` must be one of:
@@ -355,15 +354,14 @@ Check:
 
 - base variables in `formula.expression` match `signal.formula.inputs[]`;
 - `signal.formula.inputs[]` appear in `data.required_fields[].field`;
-- `portfolio.weights` and `portfolio.weighting_scheme` are consistent;
+- `portfolio.weighting` is one of `vw` / `ew` / `unspecified`;
 
 Additional weighting/construction variant check:
 
-If a table reports multiple construction variants (for example individual-stock quantile alphas, equal-weighted portfolio returns, and value-weighted portfolio returns), verify that the JSON clearly identifies the main executable target. If `portfolio.weights` is `["other"]`, `portfolio.weighting_scheme` and `portfolio_return.weighting` must be executable enough for downstream codegen; otherwise recommend splitting variants into separate MethodSpecs or moving non-main variants to `robustness_or_secondary_specs`.
+If a table reports multiple construction variants (for example individual-stock quantile alphas, equal-weighted portfolio returns, and value-weighted portfolio returns), verify that the JSON clearly identifies the main executable target via `portfolio.weighting` (`vw`/`ew`) and `portfolio.construction_type`; otherwise recommend splitting variants into separate MethodSpecs or moving non-main variants to `robustness_or_secondary_specs`. The standardized engine implements only `vw`/`ew`; a custom weighting rule the paper states is clamped to the menu default, so record it in prose/evidence rather than expecting bespoke codegen.
 
-- custom `weights: ["other"]` does not duplicate evidence in both `weights_source` and `weighting_scheme.source`;
-- `portfolio` summary does not conflict with `portfolio_return` executable construction;
-- `comparison_policy` matches paper direction and reported result direction.
+- `portfolio.long_leg`/`short_leg` direction matches the paper's reported result direction;
+- `portfolio.construction_type` / `portfolio.sorts` / `portfolio.return_combination` are populated when the paper describes a non-standard (e.g. double-sort or multi-leg) construction.
 - `data.sources[].source_details` is array-valued and `data.required_fields[].source_detail` is string-valued.
 
 ---

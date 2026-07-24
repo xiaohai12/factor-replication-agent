@@ -28,7 +28,7 @@ class RepairAttempt(BaseModel):
     Records every time MetaCoder was asked to fix the plugin because a
     validation check or a backtest execution failed. Persisted on the
     RunRecord so the self-debugging history is auditable (never an empirical
-    repair -- only syntax/schema/hook/runtime fixes; see src/infra/repair.py).
+    repair -- only syntax/schema/runtime fixes; see src/infra/repair.py).
     """
 
     attempt_index: int = Field(..., description="0-based repair attempt within one loop")

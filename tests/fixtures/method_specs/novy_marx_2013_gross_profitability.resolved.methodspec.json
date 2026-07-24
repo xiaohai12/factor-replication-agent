@@ -1,5 +1,6 @@
 {
   "schema_version": "methodspec.v1",
+  "returns_universe": "us_equity_crsp",
   "factor_id": "novy_marx_2013_gross_profitability",
   "factor_name": "Gross Profitability",
   "paper_ref": "Novy-Marx, Robert, 2013, The Other Side of Value: The Gross Profitability Premium, Journal of Financial Economics 108(1), 1-28.",

@@ -11,6 +11,22 @@ tags:
   - agent-test
 ---
 
+> **2026-07 schema simplification — read this first.** The authoritative schema
+> is `src/infra/models/method_spec.py`. Portfolio-return construction is now
+> **flat on `portfolio`**: `portfolio.construction_type`, `portfolio.sorts[]`,
+> `portfolio.return_combination` (there is no
+> `reported_results.return_calculation` / `portfolio_return` nesting, and no
+> `comparison_policy` / `input_return`). `portfolio.sort` and
+> `portfolio.breakpoints` are merged into one `portfolio.sort` block. The
+> engine is standardized to a fixed menu, so these fields/enum values were
+> **removed**: `weighting_scheme` (use `portfolio.weighting` = `vw`/`ew`),
+> `signal.field_sources`, `portfolio.filter`, `breakpoint_source`
+> `conditional`/`paper_specific`, `missing_action` `winsorize`/`fill_*`,
+> `construction_type` `factor_model_alpha`/`event_window_return`,
+> `return_combination` `alpha_estimate`. Older sections below that still show
+> the nested shape / removed vocabulary are retained only as historical
+> reference; any such value in existing JSON is coerced/clamped on load.
+
 # MethodSpec JSON Template
 
 > 用途：作为 **Extractor Output**：把 paper-first 信息转换成后续 extractor evaluation / Review Gate 可消费的机器可读 MethodSpec。  
@@ -324,14 +340,16 @@ nonmissing, nonzero, is_true, is_false
 `portfolio.sort.breakpoint_source` 只能使用：
 
 ```text
-nyse_only, full_sample, conditional, paper_specific, unspecified
+nyse_only, full_sample, unspecified
 ```
 
 - `nyse_only`: NYSE stocks define breakpoints.
 - `full_sample`: all eligible stocks define breakpoints.
-- `conditional`: breakpoints are computed within another grouping, e.g. size or industry.
-- `paper_specific`: custom rule stated by paper.
 - `unspecified`: paper does not say.
+
+> Note: the standardized engine implements only `nyse`/`full_sample`. A paper's
+> conditional/paper-specific breakpoint rule is recorded in prose/`ambiguous_fields`
+> but is clamped to the menu default at backtest time (no bespoke code is generated).
 
 ### 2.10 `portfolio.sort`: simple portfolio sort vs signal-rank transformation
 
@@ -362,7 +380,7 @@ Abarbanell & Bushee example:
   "n_groups": 10,
   "group_type": "scaled_decile_rank",
   "ls_quantile": null,
-  "breakpoint_source": "paper_specific",
+  "breakpoint_source": "unspecified",
   "source": {"location": "", "quote": "", "interpretation": ""}
 }
 ```
@@ -371,57 +389,21 @@ Why `ls_quantile = null` here: the paper uses annual scaled decile ranks as regr
 
 Parser rule:
 
-- If `reported_results.return_calculation.portfolio_return.construction_type = "characteristic_sort"`, codegen may use `portfolio.sort` / `portfolio_return.sorts` to build sorted portfolio legs.
-- If `construction_type = "regression_weighted"`, codegen must not infer a simple high-minus-low portfolio from `portfolio.sort`; use the regression and weighting scheme instead.
+- If `portfolio.construction_type = "characteristic_sort"`, codegen may use `portfolio.sort` / `portfolio.sorts` to build sorted portfolio legs.
+- If `construction_type = "regression_weighted"`, codegen must not infer a simple high-minus-low portfolio from `portfolio.sort`; the engine runs a Fama-MacBeth estimator instead.
 
-`BacktestEngine._detect_hooks()` (see docs/architecture.md §4.6) reads `portfolio_return.sorts` / `construction_type` / `return_combination.type` and `portfolio.universe_filters` directly to decide which steps need a plugin hook — these are no longer just paper-facing documentation fields, they drive codegen. Leaving them unpopulated when the paper prose (`portfolio.filter`/`long_leg`/`short_leg`/`universe`) clearly describes a non-standard construction will be caught by ReviewGate's consistency check and blocked for human confirmation rather than silently falling back to a standard single-variable sort.
+`registry.build_config` reads the flat `portfolio.sorts` / `portfolio.construction_type` / `portfolio.return_combination.type` and `portfolio.universe_filters` to *select* which standardized step implementation runs (no plugin hooks are generated). When the paper prose (`long_leg`/`short_leg`/`universe`) describes a non-standard construction but these structured fields are unpopulated, ReviewGate emits a warning; the engine then runs the menu default (a single-variable sort), and any residual gap is decomposed by step7's replication-gap analysis.
 
-### 2.11 Portfolio weighting scheme
+### 2.11 Portfolio weighting
 
-Use a **two-layer design**:
-
-| Field | Purpose |
-|---|---|
-| `portfolio.weights` | Coarse compatibility tag for simple consumers: `ew`, `vw`, `capped_vw`, `other` |
-| `portfolio.weighting_scheme` | Precise paper-stated weighting rule for Review Gate and Normalizer |
-
-Do **not** hard-code only `ols`. Many papers use custom weighting. If the paper is not standard EW/VW, keep `weights: ["other"]` and fill `weighting_scheme.type` plus `paper_formula` / `description`.
-
-Source rule:
-
-- Simple `ew` / `vw` / `capped_vw`: use `weights_source`; leave `weighting_scheme` as `null` or omit it.
-- Custom / nonstandard: set `weights: ["other"]`, fill `weighting_scheme.source`, and omit `weights_source` to avoid duplicated evidence.
-- `is_equal_weighted` / `is_value_weighted` are intentionally omitted because they duplicate `weights` and `weighting_scheme.type`.
-
-Recommended `weighting_scheme.type` vocabulary:
-
-| Type | Meaning | Common in |
-|---|---|---|
-| `equal_weight` | Each stock/leg has equal weight | simple anomaly portfolio tests |
-| `value_weight` | Weights proportional to market equity | Fama-French style sorts |
-| `capped_value_weight` | Value-weighted with max position cap | investability / liquidity variants |
-| `dollar_neutral_equal_weight` | Equal-weight long leg and equal-weight short leg with zero net dollars | simple long-short tests |
-| `signal_weighted` | Weight magnitude proportional to signal value | characteristic-managed portfolios |
-| `rank_weighted` | Weight magnitude proportional to rank or demeaned rank | rank-weighted anomaly factors |
-| `regression_derived_zero_investment` | Weights from a cross-sectional regression/mimicking-portfolio formula | Abarbanell & Bushee / Fama-MacBeth style strategies |
-| `inverse_volatility_weighted` | Weight inversely proportional to volatility | risk-managed factors |
-| `beta_neutral_weighted` | Weights adjusted to target zero market beta | beta-neutral robustness |
-| `paper_specific_custom` | Paper gives a bespoke formula not covered above | use only with exact source quote |
-| `unspecified` | Paper does not state weighting | must also add `ambiguous_fields` |
-
-Example for Abarbanell & Bushee:
-
-```json
-{
-  "weights": ["other"],
-  "weighting_scheme": {
-    "type": "regression_derived_zero_investment",
-    "paper_formula": "Rows of (X'X)^-1X', where X = [1, RSIGNAL_k, RBETA, RCEPS]",
-    "long_short_rule": "positive weights are long; negative weights are short",
-    "source": {"location": "", "quote": "", "interpretation": ""}
-  }
-}
-```
+The standardized engine implements exactly two weighting schemes: **value-weight
+(`vw`)** and **equal-weight (`ew`)**. Record the paper's choice in
+`portfolio.weighting` (`vw` / `ew` / `unspecified`). Any custom scheme a paper
+states (capped-VW, signal/rank-weighted, regression-derived, inverse-vol, …) is
+**not** code-generated; it is clamped to the menu default at backtest time.
+Capture the paper's exact custom rule in prose / evidence / `ambiguous_fields`
+so the replication-gap analysis (step7) can flag the divergence — there is no
+separate `weighting_scheme` block anymore.
 
 ### 2.12 Simple long-short direction
 

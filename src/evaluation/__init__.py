@@ -109,7 +109,7 @@ class Evaluator:
         # Field mapping: MethodSpec field -> SignalDoc column
         comparisons = {
             "weighting": ("portfolio.weighting", row.get("Stock Weight", "")),
-            "breakpoint_source": ("portfolio.breakpoints.source", row.get("Quantile Filter", "")),
+            "breakpoint_source": ("portfolio.sort.breakpoint_source", row.get("Quantile Filter", "")),
             "formation_month": ("signal.timing.formation_month", row.get("Start Month", "")),
             "holding_period": ("signal.timing.holding_period", row.get("Portfolio Period", "")),
         }

@@ -27,17 +27,6 @@ FORBIDDEN_PATTERNS = [
 _EXECUTE_TIMEOUT_SECONDS = 60
 
 
-def _hook_arity(signature: str) -> int:
-    """Positional-argument count declared in a HOOK_SIGNATURES entry, e.g.
-    ``compute_breakpoints_hook(df: pd.DataFrame, config: dict) -> pd.DataFrame``
-    -> 2. The signatures use no nested parens / defaults, so the first ``)``
-    closes the argument list and a comma split counts the args."""
-    inner = signature[signature.index("(") + 1 : signature.index(")")].strip()
-    if not inner:
-        return 0
-    return len([a for a in inner.split(",") if a.strip()])
-
-
 class AdversarialSandbox:
     """Validates generated signal plugins for correctness and safety.
 
@@ -47,10 +36,9 @@ class AdversarialSandbox:
     post-hoc, never-fed-back evaluation (see docs/decision-log.md).
 
     Checks:
-    - Syntax validity (whole plugin: compute_signal + any hooks)
+    - Syntax validity (the compute_signal plugin)
     - Forbidden pattern scan (future functions)
-    - Schema/contract: compute_signal exists; every hook the MethodSpec
-      required (PluginRecord.hooks) is defined with a matching arity
+    - Schema/contract: compute_signal exists
     - Execution smoke test: the ONE complete standalone script Pipeline built
       (`_build_script`) is imported (not run as `__main__` -- its `main()` is
       guarded, so no full-data load or engine run is triggered) in a
@@ -58,11 +46,9 @@ class AdversarialSandbox:
       slice, confirming it doesn't raise (lenient -- an empty/degenerate
       result on a thin slice is inconclusive, not a failure; only a raised
       exception fails it). This validates the EXACT artifact Step5 will later
-      execute -- no separate hand-rolled "exec the plugin code" runner.
-      Hooks are NOT executed here (they're executed downstream at run time,
-      where correct inputs and full-width cross-sections avoid the false
-      failures a thin validation slice would produce); a Step-5 run failure is
-      the guaranteed safety net that feeds hook/full-data bugs back to repair.
+      execute -- no separate hand-rolled "exec the plugin code" runner. A
+      Step-5 run failure is the guaranteed safety net that feeds any remaining
+      full-data bugs back to repair.
     """
 
     def validate(
@@ -75,7 +61,7 @@ class AdversarialSandbox:
         """Run full validation suite on a plugin.
 
         Args:
-            plugin:      the generated plugin (compute_signal + any *_hook fns).
+            plugin:      the generated plugin (the compute_signal function).
             spec:        the resolved MethodSpec the plugin was generated from.
             script_text: the ONE complete standalone backtest script built from
                          this exact plugin (see `Pipeline._build_script`) --
@@ -94,7 +80,6 @@ class AdversarialSandbox:
         report.syntax_ok = self._check_syntax(plugin, report)
         if report.syntax_ok:
             report.schema_ok = self._check_schema(plugin, report)
-            report.hooks_ok = self._check_hooks(plugin, report)
             report.no_future_leak = self._check_no_future_leak(plugin, report)
             report.reproducible = self._check_reproducibility(plugin, report)
             report.executes_ok = self._check_executes(script_text, data, report)
@@ -102,7 +87,6 @@ class AdversarialSandbox:
         report.passed = all([
             report.syntax_ok,
             report.schema_ok,
-            report.hooks_ok,
             report.no_future_leak,
             report.reproducible,
             report.executes_ok,
@@ -134,65 +118,6 @@ class AdversarialSandbox:
         except Exception as e:
             report.errors.append(f"Schema check failed: {e}")
             return False
-
-    def _check_hooks(self, plugin: PluginRecord, report: ValidationReport) -> bool:
-        """Static contract check for hook functions.
-
-        For every step the MethodSpec required a hook for (recorded in
-        `plugin.hooks` as {step: fn_name} by MetaCoder.generate_plugin), verify
-        the named function is actually defined in the code and its positional-
-        argument count matches the canonical HOOK_SIGNATURES contract. This
-        closes the gap where a hook the pipeline will look for is missing or
-        misnamed -- otherwise `registry.load_hooks()` silently finds nothing at
-        run time and `_dispatch()` falls back to the standard step, quietly
-        treating a non-standard factor as standard.
-
-        Hooks are only checked statically here (existence + arity), not
-        executed -- see the class docstring.
-        """
-        if not plugin.hooks:
-            return True
-
-        # Imported lazily: HOOK_SIGNATURES lives with the generator (step3),
-        # which imports nothing from step4, so there's no import cycle. It is
-        # the single declared source of each hook's expected shape.
-        from src.steps.step3_codegen import HOOK_SIGNATURES
-
-        try:
-            tree = ast.parse(plugin.code)
-        except SyntaxError:
-            return False  # already reported by _check_syntax
-        defs = {
-            node.name: node
-            for node in ast.walk(tree)
-            if isinstance(node, ast.FunctionDef)
-        }
-
-        ok = True
-        for step, fn_name in plugin.hooks.items():
-            node = defs.get(fn_name)
-            if node is None:
-                report.errors.append(
-                    f"Hook function '{fn_name}' (for step '{step}') not found in code"
-                )
-                ok = False
-                continue
-            signature = HOOK_SIGNATURES.get(step)
-            if signature is None:
-                # Unknown step name in plugin.hooks -- not a known hook point.
-                report.warnings.append(
-                    f"Hook '{fn_name}' targets unknown step '{step}'; not a recognized hook point"
-                )
-                continue
-            expected = _hook_arity(signature)
-            actual = len(node.args.args)
-            if actual != expected:
-                report.errors.append(
-                    f"Hook '{fn_name}' (step '{step}') has {actual} positional args, "
-                    f"expected {expected} per contract: {signature}"
-                )
-                ok = False
-        return ok
 
     def _check_no_future_leak(self, plugin: PluginRecord, report: ValidationReport) -> bool:
         """Scan for patterns that might indicate future information usage."""

@@ -22,20 +22,24 @@ Paper / C&Z metadata / OSAP code / Data dictionaries
         │
         ▼
 ┌─────────────────────────────────────────────────┐
-│  1. Semantic Extractor                          │
-│  2. Review Gate (Picky LLM Reviewer)            │
-│  3. Controlled Meta-Coder (few-shot from OSAP)  │
-│  4. Adversarial Sandbox                         │
-│  5. Plugin Registry                             │
-│  6. Controlled Backtesting Engine               │
-│  7. Dual-Track + Factorial Controller           │
-│  8. Evidence Store + Run Registry               │
-│  9. Factorial Attribution Layer                  │
+│  1. Semantic Extractor          (step1_extractor)│
+│  2. Review Gate + Resolution     (step2_reviewer)│
+│  3. Controlled Meta-Coder         (step3_codegen)│
+│  4. Future-Leak Scan + Sandbox  (step4_validator)│
+│  5. Backtest Runner       (step5_backtest_runner)│
+│     └─ Controlled Backtest Engine (infra, shared)│
+│  6. Dual-Track + Ablation Controller             │
+│                (step6_dual_track_controller)     │
+│  7. Replication-Gap Diff   (step7_replication_diff)│
 └─────────────────────────────────────────────────┘
         │
         ▼
   Evaluation (vs C&Z ground truth)
 ```
+
+Evidence Store/Run Registry and Plugin Registry are shared infra used across
+steps 3–7, not separate pipeline stages (Plugin Registry is currently deferred
+— pilot-stage file-path tracing is sufficient).
 
 Key design principle: **LLM generates signal code; everything else is controlled by the framework.** Universe filtering, breakpoints, weighting, portfolio construction, return computation, and metrics are all fixed by the engine configuration — never by LLM output.
 
@@ -43,19 +47,27 @@ Key design principle: **LLM generates signal code; everything else is controlled
 
 ```
 src/
-├── models/          # Data models: MethodSpec, FactorSpec, PluginRecord, RunRecord
-├── extractor/       # Semantic Extractor (paper → MethodSpec)
-├── review_gate/     # Picky LLM reviewer with decision matrix
-├── meta_coder/      # Signal plugin code generation (few-shot from OSAP)
-├── sandbox/         # Adversarial validation of generated plugins
-├── registry/        # Plugin storage with code hashing
-├── engine/          # Controlled backtesting lifecycle
-├── controller/      # Dual-track + factorial ablation controller
-├── evidence/        # Evidence store + run registry
-├── attribution/     # Factorial attribution of replication gap
-├── evaluation/      # Post-hoc evaluation vs C&Z ground truth
-├── data_layer/      # Unified data access (dictionary, CCM, time_avail_m)
-└── pipeline.py      # Main orchestrator with feedback loops
+├── pipeline.py            # Main orchestrator with feedback loops
+├── steps/
+│   ├── step1_extractor/          # Semantic Extractor (paper → MethodSpec)
+│   ├── step2_reviewer/           # Picky LLM reviewer + Resolution Applier
+│   ├── step3_codegen/            # MetaCoder (compute_signal only) + registry.build_config
+│   │                              #   + script_generator (assembles standalone backtest script)
+│   ├── step4_validator/          # Future-Leak Scan + plugin syntax/schema/sandbox smoke test
+│   ├── step5_backtest_runner/    # BacktestRunner.build_script() / .execute()
+│   ├── step6_dual_track_controller/  # Dual-track + factorial ablation controller
+│   └── step7_replication_diff/   # Replication-gap decomposition vs C&Z/paper
+├── infra/
+│   ├── models/            # Pydantic models: MethodSpec, FactorSpec, PluginRecord, RunRecord
+│   ├── backtest_engine/   # Controlled backtesting lifecycle (BacktestExecutor + steps.py)
+│   ├── data_layer/        # Unified data access (dictionary, CCM, time_avail_m)
+│   ├── evidence/          # Evidence store + run registry
+│   ├── registry/          # Plugin storage with code hashing (deferred, not yet used)
+│   ├── pdf_mapper.py      # PDF → factor filename mapping
+│   ├── llm.py             # LLM client (OpenRouter / Claude CLI / Codex)
+│   ├── repair.py          # Shared bounded repair loop (technical failures only)
+│   └── trace.py           # Pipeline execution event logger
+└── evaluation/             # Post-hoc evaluation vs C&Z ground truth
 ```
 
 ## Data Sources
@@ -230,7 +242,16 @@ python scripts/download_osap.py
 
 ## Status
 
-**Framework stage** — high-level module interfaces are defined; implementation details are in progress.
+**Implemented, single-factor pilot stage.** All seven pipeline steps (Extractor,
+Review Gate, Meta-Coder, Validator, Backtest Runner, Dual-Track Controller,
+Replication-Diff) and the shared BacktestExecutor standard-step library run
+end-to-end (Streamlit dashboard in `app.py`, CLI scripts in `scripts/`).
+Honest remaining gaps: the replication-diff decomposition algorithm is
+structural only (no automated gap attribution yet), `data/local/*.parquet`
+(Compustat/CRSP) must be supplied manually, there is no live WRDS connection,
+and the Plugin Registry is in-memory/deferred. See
+[docs/architecture.md](docs/architecture.md) §10 for the full per-module
+implementation-status table.
 
 ## Citation
 

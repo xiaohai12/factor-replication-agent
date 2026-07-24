@@ -23,16 +23,15 @@ from pydantic import ValidationError
 from src.infra.models.method_spec import (
     AmbiguousField,
     BreakpointSource,
-    BreakpointSpec,
     DataSourceHint,
     DataSpec,
     EvidenceSource,
     EvidenceCitation,
     ExtractionSource,
-    FieldSource,
     MethodSpec,
     MissingAction,
     MissingPolicy,
+    PortfolioSortSpec,
     PortfolioSpec,
     RebalanceFrequency,
     ReportedResultsSpec,
@@ -526,7 +525,6 @@ class SemanticExtractor:
         # table mapping belongs to the Data Catalog / Normalizer.
         raw_fields = raw.get("required_fields", [])
         field_names: list[str] = []
-        field_sources: dict[str, FieldSource] = {}
         required_field_specs: list[RequiredFieldSpec] = []
         data_source_hints: dict[str, DataSourceHint] = {}
         for item in raw_fields:
@@ -537,11 +535,6 @@ class SemanticExtractor:
                 field_names.append(name)
                 source_str = item.get("source", "")
                 parts = source_str.split(".", 1)
-                field_sources[name] = FieldSource(
-                    dataset=parts[0] if parts else "",
-                    table=parts[1] if len(parts) > 1 else "",
-                    description=item.get("description", ""),
-                )
                 required_field_specs.append(RequiredFieldSpec(
                     field=name,
                     concept=item.get("description", ""),
@@ -562,7 +555,6 @@ class SemanticExtractor:
         signal = SignalSpec(
             formula=raw.get("formula", "unspecified"),
             required_fields=field_names,
-            field_sources=field_sources,
             timing=timing,
             missing_policy=missing_policy,
         )
@@ -598,22 +590,18 @@ class SemanticExtractor:
             WeightingRule.UNSPECIFIED,
         )
 
-        # Parse filter
-        raw_filter = raw.get("filter", "")
-        if raw_filter == "unspecified":
-            raw_filter = ""
-
         raw_universe = raw.get("universe", "NYSE + AMEX + NASDAQ, common shares only")
         if isinstance(raw_universe, dict):
             raw_universe = raw_universe.get("description") or raw_universe.get("value") or str(raw_universe)
 
         portfolio = PortfolioSpec(
             universe=raw_universe,
-            breakpoints=BreakpointSpec(source=bp_source, quantiles=quantiles, ls_quantile=ls_quantile),
+            sort=PortfolioSortSpec(
+                breakpoint_source=bp_source, quantiles=quantiles, ls_quantile=ls_quantile
+            ),
             weighting=weighting,
             long_leg=raw.get("long_leg", "high"),
             short_leg=raw.get("short_leg", "low"),
-            filter=raw_filter,
         )
 
         # Parse ambiguous fields
@@ -791,8 +779,8 @@ class SemanticExtractor:
             "formula_keywords": spec.signal.formula,  # Will be keyword-matched
             "detailed_definition": spec.detailed_definition,
             "accounting_lag": spec.signal.timing.accounting_lag,
-            "breakpoints": spec.portfolio.breakpoints.source.value,
-            "breakpoint_source": spec.portfolio.breakpoints.source.value,
+            "breakpoints": spec.portfolio.sort.breakpoint_source.value,
+            "breakpoint_source": spec.portfolio.sort.breakpoint_source.value,
             "weighting": spec.portfolio.weighting.value,
             "stock_weight": spec.portfolio.weighting.value,
             "formation_month": spec.signal.timing.formation_month,
@@ -805,8 +793,7 @@ class SemanticExtractor:
             "short_leg": spec.portfolio.short_leg,
             "universe": spec.portfolio.universe,
             "sign": spec.sign,
-            "ls_quantile": spec.portfolio.breakpoints.ls_quantile,
-            "filter": spec.portfolio.filter,
+            "ls_quantile": spec.portfolio.sort.ls_quantile,
             "cat_form": spec.cat_form,
             "sample_start_year": spec.sample_start_year,
             "sample_end_year": spec.sample_end_year,

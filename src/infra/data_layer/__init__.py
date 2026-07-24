@@ -8,6 +8,8 @@ from typing import Any, Optional
 
 import pandas as pd
 
+from src.infra.data_layer import catalog
+
 
 # --- Data Dictionary ---
 
@@ -26,32 +28,10 @@ class FieldEntry:
     notes: str = ""
 
 
-# Concept-to-column: paper field names / source descriptions → physical column names.
-# Keys are lower-cased for matching.
-_CONCEPT_MAP: dict[str, str] = {
-    "total_assets": "at", "at": "at", "compustat data item 6": "at",
-    "data6": "at", "data item 6": "at",
-    "monthly_return": "ret", "ret": "ret", "monthly stock return": "ret",
-    "monthly return": "ret", "stock return": "ret",
-    "market_equity": "me", "me": "me", "market_equity_june": "me",
-    "market value": "me", "market capitalization": "me",
-    "market value of equity": "me", "market cap": "me",
-    "listing_exchange": "exchcd", "exchcd": "exchcd",
-    "exchange": "exchcd", "exchange code": "exchcd",
-    "sic_code": "siccd", "siccd": "siccd", "sic": "siccd",
-    "four-digit sic": "siccd", "industry code": "siccd",
-    "shrcd": "shrcd", "share code": "shrcd", "share_code": "shrcd",
-    "shrout": "shrout", "shares outstanding": "shrout",
-    "prc": "prc", "price": "prc", "closing price": "prc",
-    "book_equity": "ceq", "ceq": "ceq", "common equity": "ceq",
-    "sales": "sale", "sale": "sale", "revenue": "sale",
-    "net_income": "ib", "ib": "ib", "income before extraordinary": "ib",
-    "long_term_debt": "dltt", "dltt": "dltt", "long term debt": "dltt",
-    "current_assets": "act", "act": "act",
-    "current_liabilities": "lct", "lct": "lct",
-    "depreciation": "dp", "dp": "dp",
-    "capital_expenditure": "capx", "capx": "capx",
-}
+# Concept-to-column resolution now lives in the declarative data catalog
+# (`src/infra/data_layer/catalog.py`), the single source of truth across all
+# sources (not just CRSP/Compustat). `DataDictionary.normalize_fields()` reads
+# `catalog.concept_map()` + `catalog.source_of_column()`.
 
 
 class DataDictionary:
@@ -88,18 +68,26 @@ class DataDictionary:
         for item in data:
             self.register(FieldEntry(**item))
 
-    def normalize_fields(self, required_fields: list) -> dict[str, str]:
-        """Map paper-concept field names to physical parquet column names.
+    def normalize_fields(self, required_fields: list) -> dict[str, dict[str, str]]:
+        """Map paper-concept field names to their physical {source, column} via
+        the declarative data catalog (`catalog.py`), the single source of truth
+        for which source owns which column.
 
-        Tries three passes in order:
+        Tries three passes in order (exact match on the catalog's concept
+        aliases), then a substring fallback:
           1. Exact match on field name (lower-cased)
-          2. Substring match on source_detail string
-          3. Substring match on concept string
+          2. Exact match on source_detail string
+          3. Exact match on concept string
+          4. Substring match on source_detail / concept (keys >= 4 chars, to
+             avoid false positives like "at" matching inside "compustat")
 
-        Returns {paper_field_name: physical_column_name} for resolved fields.
-        Unresolved fields are omitted.
+        Returns {paper_field_name: {"source": <catalog source>, "column":
+        <physical column>}} for resolved fields. Unresolved fields are OMITTED
+        — the reviewer hard-blocks a spec whose formula field has no resolved
+        source, so nothing silently defaults to a data source (e.g. Compustat).
         """
-        mapping: dict[str, str] = {}
+        concept_map = catalog.concept_map()
+        mapping: dict[str, dict[str, str]] = {}
         for entry in required_fields:
             field = entry.field if hasattr(entry, "field") else entry.get("field", "")
             source = (
@@ -114,13 +102,15 @@ class DataDictionary:
             # Only use substring matching for keys >= 4 chars to avoid false positives
             # (e.g. "at" matching inside "compustat")
             col = (
-                _CONCEPT_MAP.get(field.lower())
-                or _CONCEPT_MAP.get(source)
-                or next((v for k, v in _CONCEPT_MAP.items() if len(k) >= 4 and k in source), None)
-                or next((v for k, v in _CONCEPT_MAP.items() if len(k) >= 4 and k in concept), None)
+                concept_map.get(field.lower())
+                or concept_map.get(source)
+                or concept_map.get(concept)
+                or next((v for k, v in concept_map.items() if len(k) >= 4 and k in source), None)
+                or next((v for k, v in concept_map.items() if len(k) >= 4 and k in concept), None)
             )
             if col:
-                mapping[field] = col
+                src = catalog.source_of_column(col)
+                mapping[field] = {"source": src, "column": col}
         return mapping
 
 
@@ -513,10 +503,15 @@ def build_crsp_monthly_panel(data_dir: str | Path) -> pd.DataFrame:
 # data-loader Phase 2). Each signal-input source declares, ONCE, how it links
 # to permno and when its data becomes available — a PER-SOURCE property reused
 # by every paper, not re-decided per paper. Adding a new data source = adding
-# one entry here (a human-reviewed, one-time registration; ReviewGate blocks a
-# spec whose mapping references a source absent from this registry).
+# one entry to the declarative catalog (`src/infra/data_layer/catalog.py`), a
+# human-reviewed one-time registration; ReviewGate blocks a spec whose mapping
+# references a source absent from the catalog.
 #
-# Fields:
+# `SIGNAL_SOURCES` / `LINK_TABLES` below are now DERIVED from that catalog (the
+# single source of truth) and kept under their historical names so existing
+# callers (`from src.infra.data_layer import SIGNAL_SOURCES`) are unchanged.
+#
+# Per-source join fields:
 #   key   — the source's native identifier column.
 #   link  — how to reach permno: None (already permno-keyed), or a key into
 #           LINK_TABLES ("ccm"/"ibes_crsp_link"/"optionm_crsp_link").
@@ -526,22 +521,10 @@ def build_crsp_monthly_panel(data_dir: str | Path) -> pd.DataFrame:
 #           MethodSpec field to read it from (e.g. "accounting_lag_months").
 # ---------------------------------------------------------------------------
 
-SIGNAL_SOURCES: dict[str, dict[str, Any]] = {
-    "crsp_msf":      {"key": "permno", "link": None,                "date": None,       "lag": 0},
-    "comp_funda":    {"key": "gvkey",  "link": "ccm",               "date": "datadate", "lag": "accounting_lag_months"},
-    "comp_fundq":    {"key": "gvkey",  "link": "ccm",               "date": "datadate", "lag": "accounting_lag_months"},
-    "ibes_statsumu": {"key": "ticker", "link": "ibes_crsp_link",    "date": "statpers", "lag": 0},
-    "optionm_vsurf": {"key": "secid",  "link": "optionm_crsp_link", "date": "date",     "lag": 0},
-    "tr_13f":        {"key": "permno", "link": None,                "date": "rdate",    "lag": 0},
-    "patents_nber":  {"key": "gvkey",  "link": "ccm",               "date": None,       "lag": 0},
-}
+SIGNAL_SOURCES: dict[str, dict[str, Any]] = catalog.signal_sources()
 
 # Physical schema of each link table (how key -> permno with a validity window).
-LINK_TABLES: dict[str, dict[str, str]] = {
-    "ccm":               {"key": "gvkey",  "permno": "lpermno", "start": "linkdt", "end": "linkenddt"},
-    "ibes_crsp_link":    {"key": "ticker", "permno": "permno",  "start": "sdate",  "end": "edate"},
-    "optionm_crsp_link": {"key": "secid",  "permno": "permno",  "start": "sdate",  "end": "edate"},
-}
+LINK_TABLES: dict[str, dict[str, str]] = catalog.LINK_TABLES
 
 
 def link_to_permno(
@@ -592,11 +575,7 @@ def link_to_permno(
 
 
 # File name of each link table on disk (LINK_TABLES key -> parquet stem).
-_LINK_TABLE_FILES = {
-    "ccm": "ccm_lnkhist",
-    "ibes_crsp_link": "ibes_crsp_link",
-    "optionm_crsp_link": "optionm_crsp_link",
-}
+_LINK_TABLE_FILES = catalog.LINK_TABLE_FILES
 
 
 def _load_link_tables(d: Path) -> dict[str, pd.DataFrame]:

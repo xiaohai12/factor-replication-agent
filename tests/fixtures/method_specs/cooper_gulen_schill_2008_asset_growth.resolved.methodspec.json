@@ -1,5 +1,6 @@
 {
   "schema_version": "methodspec.v1",
+  "returns_universe": "us_equity_crsp",
   "factor_id": "cooper_gulen_schill_2008_asset_growth",
   "factor_name": "Asset Growth and the Cross Section of Stock Returns",
   "paper_ref": "Cooper, Michael J., Huseyin Gulen, and Michael J. Schill, 2008, Asset Growth and the Cross-Section of Stock Returns, The Journal of Finance 63(4), 1609-1651.",

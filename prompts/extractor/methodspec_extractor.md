@@ -208,7 +208,6 @@ Each MethodSpec JSON must follow this structure. Keep field names stable. If a f
     },
     "weights": [],
     "weights_source": {"location": "", "quote": "", "interpretation": ""},
-    "weighting_scheme": null,
     "paper_reports_explicit_simple_long_short_strategy": null,
     "paper_spread_direction": "unspecified",
     "implied_factor_direction": {
@@ -217,7 +216,10 @@ Each MethodSpec JSON must follow this structure. Keep field names stable. If a f
       "use_for_backtest_if_needed": null,
       "note": ""
     },
-    "overlapping_portfolios": null
+    "overlapping_portfolios": null,
+    "construction_type": "",
+    "sorts": [],
+    "return_combination": {"type": "", "expression": "", "long_leg": null, "short_leg": null, "note": ""}
   },
   "reported_results": {
     "return_horizon": "",
@@ -225,33 +227,9 @@ Each MethodSpec JSON must follow this structure. Keep field names stable. If a f
     "return_type_explanation": "raw = realized portfolio return before risk adjustment; alpha = risk-adjusted intercept; size_adjusted_bhar = compounded security return minus compounded benchmark return",
     "main_table": "",
     "spreads": {},
-    "comparison_policy": {
-      "preserve_paper_direction": true,
-      "align_backtest_to_paper_direction_before_comparison": true,
-      "note": ""
-    },
-    "return_calculation": {
-      "name": "factor_portfolio_return",
-      "input_return": {
-        "name": "",
-        "paper_variable": "",
-        "data_frequency": "",
-        "expression": "",
-        "benchmark": null,
-        "adjustments": [],
-        "source": {"location": "", "quote": "", "interpretation": ""}
-      },
-      "portfolio_return": {
-        "construction_type": "",
-        "sorts": [],
-        "weighting": {"type": "", "variants": []},
-        "return_combination": {"type": "", "expression": "", "long_leg": null, "short_leg": null, "note": ""},
-        "regression": null,
-        "reported_frequency": "",
-        "holding_period": "",
-        "source": {"location": "", "quote": "", "interpretation": ""}
-      }
-    }
+    "t_stats": {},
+    "main_spread": null,
+    "main_t_stat": null
   },
   "robustness_or_secondary_specs": [],
   "ambiguous_fields": [],
@@ -271,13 +249,13 @@ universe.filters[].op:
 eq, neq, in, not_in, between, not_between, gt, gte, lt, lte, nonmissing, nonzero, is_true, is_false
 
 portfolio.sort.breakpoint_source:
-nyse_only, full_sample, conditional, paper_specific, unspecified
+nyse_only, full_sample, unspecified
 
-portfolio_return.construction_type:
-characteristic_sort, regression_weighted, factor_model_alpha, event_window_return, other
+portfolio.construction_type:
+characteristic_sort, regression_weighted, other
 
-return_combination.type:
-extreme_group_spread, average_leg_spread, single_signal_portfolio_return, full_portfolio_return, alpha_estimate, other
+portfolio.return_combination.type:
+extreme_group_spread, average_leg_spread, single_signal_portfolio_return, full_portfolio_return, other
 
 ambiguous_fields[].status:
 explicit, inferred, unspecified, ambiguous, conflicting, weak_or_conflicting, not_main_spec, inferred_for_backtest_not_paper_stated
@@ -293,7 +271,7 @@ If a paper-specific construction is not covered, use `other`; do not invent enum
 
 `signal` describes the firm/security-level sorting or predictive variable.
 
-`portfolio` and `reported_results.return_calculation.portfolio_return` describe how the signal becomes a factor return.
+`portfolio` describes how the signal becomes a factor return.
 
 If a paper's named factor is BAB but the firm-level signal is estimated beta, use a descriptive signal name such as `ex_ante_beta` and explain it in `annotator_notes`.
 
@@ -390,6 +368,33 @@ If the paper uses groups such as "lowest quartile", "top tercile", "quintile 5",
 - If the paper does not provide the numeric breakpoint value, do not invent one. Use a rank/category field and record the breakpoint universe in `portfolio.sort.breakpoint_source` and/or `ambiguous_fields`.
 - Keep the rank-condition field name consistent between `universe.filters[].field` and `data.required_fields[].field`.
 
+### 4.5.2 The common "ordinary common shares / major exchange / ex-financials" screen
+
+Most US-equity cross-sectional papers state some version of "we require ordinary
+common shares listed on NYSE/AMEX/NASDAQ and exclude financial firms" — often as
+one boilerplate sentence, sometimes just citing a prior paper's convention. This
+restriction is NOT applied anywhere by default in the backtest engine — there is
+no hardcoded fallback screen. If it is not captured here as an explicit
+`universe.filters` entry, the backtest will run against the FULL panel
+(including financials, ADRs, foreign private issuers, non-primary exchanges,
+etc. — whatever the returns universe contains).
+
+So: whenever the paper states (even briefly, even by citation) a common-stock /
+exchange-listing / ex-financials restriction, extract it explicitly, e.g.:
+
+```json
+{"field": "security_type_or_listing_attributes", "op": "in", "value": ["ordinary_common_shares"], "source": {...}},
+{"field": "exchange_listing", "op": "in", "value": ["NYSE", "AMEX", "NASDAQ"], "source": {...}},
+{"field": "industry_classification", "op": "not_in", "value": ["financials"], "source": {...}}
+```
+
+Use paper-first concept names (not raw WRDS column names like `shrcd`/`exchcd`/
+`siccd` — see §4.2/consistency rule above), and keep each field name identical in
+`data.required_fields[].field` so it resolves through the data catalog at
+review time. If the paper is genuinely silent on this (no such restriction
+stated anywhere, even implicitly via a cited convention), leave `universe.filters`
+without an entry for it — do not invent a restriction the paper never states.
+
 ## 4.6 Winsorization
 
 `winsorize_bounds.status` is audit text, not a codegen enum.
@@ -398,29 +403,25 @@ Codegen applies winsorization only when numeric `lower_pct` / `upper_pct` are pr
 
 If bounds are null, explain why in `status` and `source.interpretation`.
 
-## 4.7 Portfolio summary vs executable return
+## 4.7 Portfolio construction (flat)
 
-`portfolio` is the human-review summary.
+`portfolio` is the single home for both the human-review summary and the
+executable construction. The portfolio-return construction fields —
+`portfolio.construction_type`, `portfolio.sorts[]`, `portfolio.return_combination`
+— live directly on `portfolio` (there is no nested
+`reported_results.return_calculation.portfolio_return`).
 
-`reported_results.return_calculation.portfolio_return` is the executable source of truth.
+For weighting, use `portfolio.weighting` with `vw` / `ew` (the standardized
+engine implements only these two; any other value is clamped to the menu
+default). Record a paper's custom weighting rule in prose / `ambiguous_fields`
+rather than a separate `weighting_scheme` block.
 
-Some redundancy is expected, but names must be consistent. If the two sections conflict, flag the inconsistency rather than silently choosing one.
+## 4.8 Reported results
 
-For custom weighting:
-
-- set `weights: ["other"]`;
-- fill `weighting_scheme`;
-- do not duplicate evidence in `weights_source`.
-
-## 4.8 Return calculation
-
-Keep `input_return` close to the standard shape. Do not add:
-
-- `input_return.paper_expression`
-- `input_return.components`
-- `input_return.cumulation_window`
-
-Put those details in `input_return.expression`, `input_return.source.interpretation`, `input_return.adjustments[]`, or `timing.return_window`.
+`reported_results` records only what the paper *reported*: `return_horizon`,
+`return_type`, `spreads`, `t_stats`, `main_spread`, `main_t_stat`. There is no
+`return_calculation` / `input_return` / `comparison_policy` nesting — return-input
+details belong in prose / evidence, and construction lives on `portfolio`.
 
 Do not add `reported_results.reported_stats_source`; evidence belongs in the relevant source fields.
 
@@ -433,7 +434,7 @@ When the main table reports a spread/return/alpha together with t-statistics, Sh
 - Do not record a return or alpha while omitting the t-statistic if the table reports it directly.
 - If `reported_results.spreads` records multiple metrics, its source evidence must support every recorded metric.
 - If one short quote cannot support all metrics, either use a source object whose interpretation explicitly maps metrics to nearby table rows/columns, or split metrics into clearer nested objects if the schema permits.
-- Keep paper direction intact; if the paper reports high-minus-low as negative, preserve that direction and use `comparison_policy` to explain alignment.
+- Keep paper direction intact; if the paper reports high-minus-low as negative, preserve that direction and record the alignment in the relevant evidence/interpretation.
 
 ---
 
@@ -488,19 +489,18 @@ Before final response, check all generated JSON files:
 - no `formula_convention.default_return_period`;
 - `formula_convention.default_accounting_period` exists;
 - `data.return_data_frequency` exists;
-- `portfolio_return.construction_type` is allowed;
-- `return_combination.type` is allowed;
-- `input_return` contains `benchmark` and `adjustments`;
+- `portfolio.construction_type` is allowed;
+- `portfolio.return_combination.type` is allowed;
 - `universe` contains `exchange_names`, `filters`, `missing_policy`, `winsorize_bounds`;
 - `missing_policy` contains `confidence`;
 - `ambiguous_fields[].status` is allowed;
 - no `reported_results.reported_stats_source`;
-- no `input_return.paper_expression`, `input_return.components`, or `input_return.cumulation_window`;
+- no `reported_results.return_calculation` / `input_return` / `comparison_policy` nesting (construction lives flat on `portfolio`);
 - no `data.return_measure`;
 - no `timing.return_window.description`;
 - `data.sources[].source_details` is an array;
 - `data.required_fields[].source_detail` is a string;
-- no custom `weights: ["other"]` with duplicated `weights_source` and `weighting_scheme.source`;
+- no separate `weighting_scheme` block (use `portfolio.weighting` = `vw`/`ew`);
 - every high-impact source has `location`, `quote`, `interpretation`;
 - quotes are short paper-original text;
 - no C&Z / OSAP / SignalDoc evidence in paper-first fields;

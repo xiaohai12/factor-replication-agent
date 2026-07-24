@@ -2,6 +2,283 @@
 
 ## [Unreleased]
 
+### Fixed — README.md was still describing the pre-restructure, unimplemented framework
+- Answering "is README.md up to date": no — it hadn't been touched since the
+  original framework proposal. Updated it to match the current repo:
+  - "Architecture" diagram now shows the real 7 numbered steps
+    (`step1_extractor` … `step7_replication_diff`) instead of a generic
+    9-module list that didn't match any actual folder names.
+  - "Project Structure" tree replaced with the real `src/steps/stepN_*/` +
+    `src/infra/*` layout (previously showed flat, long-gone paths like
+    `src/extractor/`, `src/controller/`, `src/engine/`, `src/attribution/`).
+  - "Status" changed from `**Framework stage** — high-level module
+    interfaces are defined; implementation details are in progress.` (wrong)
+    to `**Implemented, single-factor pilot stage.**`, pointing at
+    `docs/architecture.md` §10 for the authoritative per-module status table.
+
+### Fixed — docs/architecture.md stale file-layout section
+- Audited the repo for leftover pre-restructure content. No stale source
+  duplicates remain under `src/` (a `grep_search` hit for `src/steps/step5_engine/`
+  and `src/steps/engine|controller|attribution/` was a stale search-index
+  phantom — confirmed via `file_search`/`list_dir` that none of those paths
+  exist on disk; matches were only in `CHANGELOG.md`/`docs/decision-log.md`
+  historical entries, which is expected).
+- `docs/architecture.md` §5 File Layout and two §7/§10 references still
+  described the pre-`src/steps/stepN_*`/`src/infra/*` layout (flat
+  `src/extractor/`, `src/review_gate/`, `src/meta_coder/`, `src/sandbox/`,
+  `src/engine/`, `src/controller/`, `src/data_layer/`, `src/models/`,
+  `src/pdf_mapper.py`, `src/llm.py`) even though §4.3/§4.6 already referenced
+  the current names. Updated the file tree and the `HXZ_STANDARD_CONFIG`
+  location to match the real current layout (`src/steps/step1_extractor/` …
+  `step7_replication_diff/`, `src/infra/{pdf_mapper.py,llm.py,trace.py,
+  repair.py,backtest_engine/,data_layer/,evidence/,models/,registry/}`).
+  Bumped doc version 9 → 10, `updated: 2026-07-24`.
+
+### Changed — pipeline simplification: remove LLM hook codegen, standardize the engine- **The Meta-Coder LLM now generates only `compute_signal()` (the pure signal
+  formula).** All LLM-generated *hook* code is removed. Portfolio construction
+  is fully standardized: every empirical choice (weighting vw/ew, breakpoints
+  nyse/full_sample, missing policy, return combination, sort form, estimator)
+  is *selected* from a fixed menu by `step3_codegen.registry.build_config`. A
+  MethodSpec value outside its menu is deterministically clamped to the menu
+  default (`_clamp`) instead of triggering code generation.
+- **Removed hook machinery (deleted cleanly, no stubs):**
+  - `step3_codegen.registry.detect_hooks` and `MetaCoder._generate_hooks` /
+    `HOOK_SIGNATURES` / `HOOK_RETURN_DOCS` / hook system prompt.
+  - `src/infra/backtest_engine/registry.py` (run-time `load_hooks`) — file
+    deleted; `BacktestExecutor._load_hooks`/`_detect_hooks`/`self._hooks` and
+    the hook branch of `_dispatch()` removed. `_dispatch` now only routes to
+    the deterministic `_overlap`/`_multi` step variants and the standard steps.
+  - `PluginRecord.hooks` and `ValidationReport.hooks_ok`; the step4
+    `AdversarialSandbox._check_hooks`/`_hook_arity` static hook-contract check.
+  - `prompts/meta_coder/hook_system.md`.
+- **Returns table defaults to CRSP monthly.** `catalog.returns_universe_config`
+  now defaults to `us_equity_crsp` (`DEFAULT_RETURNS_UNIVERSE`) when
+  `returns_universe` is unset; the reviewer's `_check_returns_universe` warns +
+  defaults instead of hard-blocking (an explicitly-set unregistered universe is
+  still blocked). Signal-input sources stay multi-source via the catalog.
+- **Tests/fixtures:** deleted `tests/test_engine_hooks.py` and the ball2016
+  hook-demonstration e2e (its golden numbers were tied to a multi-leg hook
+  construction that is no longer supported — clamped to the standard
+  combination); removed the hook-detection/`hooks_ok` assertions from
+  `test_accruals_e2e.py` and `test_sandbox_validation.py`; updated
+  `test_no_default_source.py` for the CRSP-default returns behavior. Full suite
+  green (161 passed, 26 skipped).
+
+### Changed — MethodSpec schema simplification (moderate prune)
+- **Merged `portfolio.sort` + `portfolio.breakpoints`** into a single `sort`
+  block (`PortfolioSortSpec`: `breakpoint_source`, `ls_quantile`, `quantiles`).
+  Deleted the `BreakpointSpec` model and the `PortfolioSpec.model_post_init`
+  dual-sync. `MethodSpec.breakpoint_source` now reads `portfolio.sort`.
+- **Removed dead fields (extra keys ignored on load, no JSON migration needed):**
+  `signal.field_sources` (+ the `FieldSource` model), `portfolio.weighting_scheme`
+  (duplicate of `weighting`), `portfolio.filter` (legacy free-text). Readers in
+  `step3_codegen.registry`, `step1_extractor`, `step2_reviewer`
+  (`HIGH_IMPACT_FIELDS`/`SENSIBLE_DEFAULTS`), `src/evaluation`, and
+  `scripts/validate_methodspecs.py` repointed to `portfolio.sort`. All
+  human-labeled specs still parse; golden numbers unchanged.
+
+### Changed — MethodSpec schema flatten + enum pruning (B5)
+- **Flattened `reported_results`.** Portfolio-return construction
+  (`construction_type`, `sorts`, `return_combination`) moved from the deep
+  `reported_results.return_calculation.portfolio_return` nesting onto
+  `PortfolioSpec`. Deleted `ReturnCalculationSpec` and `PortfolioReturnSpec`;
+  `ReportedResultsSpec` now holds only reported numbers
+  (`return_horizon`/`return_type`/`spreads`/`t_stats`/`main_spread`/`main_t_stat`),
+  and `comparison_policy`/`input_return` are dropped. `MethodSpec.normalize_curated_schema`
+  lifts the legacy nested fields onto `portfolio` on load, so existing JSON
+  (fixtures + ~26 human-labeled specs) keeps working with no migration.
+- **Pruned hook-only enum values** (legacy values coerced to `unspecified` on
+  load, then clamped by `build_config` — no JSON migration): `BreakpointSource`
+  drops `conditional`/`paper_specific`; `MissingAction` drops
+  `fill_zero`/`fill_median`/`fill_forward`/`winsorize` (engine is drop-only);
+  `PortfolioConstructionType` drops `factor_model_alpha`/`event_window_return`;
+  `ReturnCombinationType` drops `alpha_estimate`. Coercion wired via
+  `PortfolioSortSpec`/`MissingPolicy`/`ReturnCombinationSpec`/`PortfolioSpec`
+  before-validators.
+- **Fixed a latent load bug:** `ReturnCombinationSpec.long_leg`/`short_leg`
+  (typed `str`) now coerce a JSON `null` to `""` — the 9 AB1998 human-labeled
+  specs that previously failed to load now parse. All 26 labeled specs load.
+- Readers repointed to the flat fields: `registry.build_config`/`resolve_sort_dims`,
+  `step2_reviewer` (`HIGH_IMPACT_FIELDS`, `_check_reported_results_contract`,
+  `_check_portfolio_structure_consistency`), `tests/test_multi_sort.py`. Full
+  suite green (161 passed, 26 skipped); golden numbers unchanged.
+
+### Fixed — leftover lint + stale-doc cleanup
+- `ruff check src/` is now fully clean: removed the unused `spec_to_paper` in
+  `src/evaluation/gt_matcher.py`, and resolved the pre-existing `F821` in
+  `src/infra/llm.py` (the documentary `"LLMClient"` back-reference is now a
+  `TYPE_CHECKING` alias).
+- Purged the removed hook/schema vocabulary from docs/prompts:
+  `docs/architecture.md` (principle table, Meta-Coder/§4.6 sections + banners,
+  flowchart, status rows), `prompts/extractor/methodspec_extractor.md`
+  (flat JSON skeleton + enum "Allowed Values" + §4.7/§4.8 prose + checklist),
+  `prompts/review_gate/methodspec_audit.md` (enum lists + flat portfolio refs),
+  `schemas/methodspec-json-template.md` (authoritative top banner + breakpoint
+  enum list + §2.11 weighting).
+
+### Changed — removed remaining silent CRSP defaults (universe screen + legacy file-path fallback)
+- **`filter_universe` no longer applies any hardcoded `shrcd`/`exchcd`/`siccd`
+  baseline screen.** That screen assumed every returns panel is CRSP-shaped,
+  which contradicts the "no silent default data source" principle the
+  `catalog.py`/`RETURNS_UNIVERSES` design already established for the returns
+  side. `filter_universe` now applies ONLY `config["universe_filters"]`
+  (already MethodSpec-driven, via `spec.portfolio.universe_filters`) plus the
+  optional `microcap_exclude` diagnostic exclusion. All 9 golden e2e tests are
+  byte-identical (the underlying synthetic test panels don't contain
+  disqualifying rows, so the hardcoded screen was a no-op for them anyway);
+  only the 2 unit tests that directly asserted the old hardcoded baseline
+  needed updating (`tests/test_research_design.py`).
+- **Extractor prompt updated** (`prompts/extractor/methodspec_extractor.md`
+  §4.5.2, new): the common "ordinary common shares / NYSE-AMEX-NASDAQ /
+  ex-financials" boilerplate that most US-equity papers state (often just by
+  citation) must now be captured as explicit `universe.filters` entries by
+  the extractor -- there is no code-level fallback that applies it anymore.
+  `portfolio.universe`/`portfolio.universe_filters` are already in
+  `step2_reviewer`'s `HIGH_IMPACT_FIELDS`, so missing/low-evidence universe
+  filters are already covered by the existing review-gate evidence check;
+  no new reviewer check was added.
+- **Fixed a latent silent-default-to-CRSP bug in `BacktestExecutor._load_data()`.**
+  The `<data_path>/local/msf.parquet` legacy file-location fallback
+  previously applied UNCONDITIONALLY whenever `<data_path>/raw/<returns_table>.parquet`
+  was missing, regardless of what `returns_table` actually named -- so a
+  registered non-CRSP returns universe with a missing raw file would have
+  silently loaded CRSP data instead of failing loud. Scoped the fallback to
+  `returns_table == "crsp_msf"` only; any other returns table with a missing
+  raw file now raises `FileNotFoundError` instead. New test:
+  `tests/test_no_default_source.py::test_load_data_does_not_fall_back_to_crsp_for_a_different_returns_table`.
+  This was found via a full-repo audit for this class of bug (prompted by a
+  design review); everything else audited (config defaults for
+  breakpoint_source/weighting_rule/cat_form/etc., the canonical internal
+  panel schema permno/yyyymm/ret/me/exchcd/shrcd/siccd, `pick_signal_input_mode()`,
+  the reviewer's hard-block checks) was confirmed to already be MethodSpec-
+  /catalog-driven with no silent defaults.
+
+### Changed — estimator-strategy layer + form_portfolios merge; deleted the dead neutralize_signal scaffold
+- **New `src/infra/backtest_engine/estimators.py`** — `BacktestExecutor.run_with_config()`
+  now runs a fixed *prep* chain (load/delisting/missing-policy/universe/excess-returns/
+  merge_signal) then hands the merged panel to a swappable **estimator** looked up by
+  `config["estimator"]`: `run_portfolio_sort` (the sort/weight/combine chain, default)
+  or `run_fama_macbeth` (single-characteristic cross-sectional regression). The old
+  inline `if config.get("estimator") == "fama_macbeth"` branch in `run_with_config()`
+  is gone; adding a genuinely different estimator (e.g. a future `custom` estimator
+  delegating entirely to an `estimator_hook`) means adding one function + a registry
+  entry, not touching `run_with_config()` again. No behavior change (golden e2e
+  byte-identical).
+- **Merged `compute_breakpoints` + `assign_portfolios` into one hookable
+  `form_portfolios` step** (`steps.py`). These two Step-contract functions were
+  never useful independently — `compute_breakpoints_multi` (the multi-dim
+  counterpart) didn't even do real work, it just returned `config["sort_dims"]`
+  unchanged so `assign_portfolios_multi` could do the actual per-dimension logic,
+  a "fake step" kept only to satisfy the two-step dispatch contract. `form_portfolios`
+  composes the existing `compute_breakpoints`/`assign_portfolios` (and their
+  `_multi` counterparts internally, when `config["sort_dims"]` has 2+ entries) into
+  a single unit; `form_portfolios_overlap` does the same for the overlapping-cohort
+  variants. The underlying `compute_breakpoints`/`assign_portfolios`/`_multi`/
+  `_overlap` functions are unchanged and still directly unit-tested.
+  - **Hook contract:** `form_portfolios_hook(df, config) -> df` REPLACES
+    `compute_breakpoints_hook` + `assign_portfolios_hook` (one hook point for "how
+    portfolios get formed", regardless of dimensionality). Updated
+    `HOOK_SIGNATURES`/`HOOK_RETURN_DOCS` (`step3_codegen/__init__.py`),
+    `detect_hooks()` (`step3_codegen/registry.py`, now emits a single
+    `hooks["form_portfolios"]` key), `load_hooks()`
+    (`backtest_engine/registry.py`), and `_MULTI_DIM_STEPS`/`_OVERLAP_STEPS`
+    (`backtest_engine/__init__.py`). Migrated the two fixture plugins that hand-write
+    these hooks (`ball2016_cash_based_operating_profitability_factor.py`,
+    `fama_french_1993_double_sort_hml.py`) to a single merged `form_portfolios_hook`.
+    Updated the corresponding unit/e2e test assertions
+    (`test_engine_hooks.py`, `test_ball2016_e2e.py`, `test_sandbox_validation.py`).
+    Golden e2e numbers unchanged.
+- **Deleted `neutralize_signal`** (`steps.py`) — a no-op scaffold with no
+  MethodSpec field ever driving it (`config["neutralization"]` was always
+  `"none"` in practice; any other value just raised `NotImplementedError`).
+  Pure YAGNI: a step slot, dispatch call, and hook contract entry
+  (`neutralize_signal_hook`) existed for a feature nothing used. Removed the
+  dispatch call from `estimators.run_portfolio_sort`, the `neutralize_signal`
+  hook-loading entry (`backtest_engine/registry.py`), the `HOOK_SIGNATURES`/
+  `HOOK_RETURN_DOCS` entries, the `"neutralization": "none"` config default
+  (`step3_codegen/registry.py`), and `tests/test_research_design.py`'s
+  `TestNeutralizeSignalScaffold`. Signal neutralization, if a paper ever needs it,
+  should be reintroduced later as a real `MethodSpec`-driven field + hook, not
+  a speculative always-no-op step.
+- **Docs updated:** `docs/architecture.md` §4.6 tables, `prompts/meta_coder/hook_system.md`'s
+  column-availability note, and this file. See `docs/decision-log.md` for the
+  rationale (why estimator-as-strategy + a single `form_portfolios` hook point
+  makes the engine more general, not less).
+
+### Changed — no silent default data source (signal + returns), unified via a declarative data catalog
+- **New `src/infra/data_layer/catalog.py`** — one declarative catalog is now the
+  single source of truth for data sources, unifying four previously-scattered
+  fragments (`_CONCEPT_MAP`, `SIGNAL_SOURCES`, `LINK_TABLES`, and the empty
+  `DataDictionary`). Each source declares its `join` ({key, link, date, lag}),
+  `physical_columns`, and concept→column `columns`; `_link_tables` describes how
+  each native key (gvkey/ticker/secid) resolves to `permno` point-in-time.
+  `SIGNAL_SOURCES`/`LINK_TABLES` in `data_layer/__init__.py` are now DERIVED from
+  the catalog (byte-identical to the old literals — see `tests/test_data_catalog.py`).
+  Registering a new data source (IBES/OptionMetrics/13F/…, or a new returns
+  universe) is now a single catalog entry.
+- **Signal source no longer defaults to Compustat.**
+  `method_spec._normalize_mapping_entry` used to infer `crsp_msf` for known CRSP
+  columns and silently `comp_funda` for *everything else* — misattributing
+  IBES/OptionMetrics/etc. columns to Compustat. It now resolves a plain-column
+  mapping via `catalog.source_of_column`; an unknown column returns source=""
+  (unresolved), never a guess. New `MethodSpec.unresolved_source_fields()`
+  surfaces these. `DataDictionary.normalize_fields` now emits the richer
+  `{source, column}` form via the catalog (was plain strings).
+- **Reviewer hard-blocks unresolved/unknown sources** (`ReviewGate._check_source_mapping_resolved`):
+  a formula field whose column resolves to no registered source, or a mapping
+  naming an unregistered source, blocks approval with a message to register it
+  in the catalog once.
+- **Codegen fails loud instead of defaulting.** `script_generator.pick_signal_input_mode`
+  is now fully source-driven and raises on an empty/unresolved mapping (removing
+  the old `_signal_needs_compustat` empty→Compustat default). app.py's duplicate
+  heuristic was removed in favor of a non-raising UI wrapper over the shared
+  function.
+- **Returns universe now comes from the spec, not a hardcoded CRSP panel.** New
+  `MethodSpec.returns_universe` field (default None) + `catalog.RETURNS_UNIVERSES`
+  registry (CRSP US equity is one entry, not a default). `build_config` fills
+  `returns_table`/`returns_layout` from it; `BacktestExecutor._load_data` no
+  longer defaults to `crsp_msf` and raises when neither is set; the reviewer
+  (`_check_returns_universe`) hard-blocks an unset/unregistered returns universe.
+- **Fixtures migrated (golden numbers unchanged):** the 9 resolved golden
+  fixtures gained `returns_universe: us_equity_crsp`; `ball2016` gained an
+  explicit `normalized_mapping` (was empty, previously relying on the
+  empty→Compustat default). These add explicit values only — no metric changed.
+- **New tests:** `tests/test_data_catalog.py` (derived structures == historical
+  literals + lookups) and `tests/test_no_default_source.py` (fail-loud signal +
+  returns behavior). Full suite green (187 passed / 26 skipped); golden e2e
+  (accruals/ball2016/mvp) byte-identical.
+- **Note:** `src/steps/step5_engine/` (a stale engine duplicate flagged in the
+  plan) no longer exists on disk — nothing to remove.
+
+### Changed — MetaCoder signal/hook prompts no longer hard-code CRSP/Compustat as the only data sources
+- `prompts/meta_coder/signal_plugin_system.md`'s "Input table schema" section
+  previously listed only Compustat mnemonics (at, sale, ceq, ...) and CRSP
+  fields (ret, shrout, prc, ...) as if those were the only possible input
+  columns. The signal-input source registry (`SIGNAL_SOURCES` in
+  `src/infra/data_layer/__init__.py`) actually supports several more sources
+  (`ibes_statsumu`, `optionm_vsurf`, `tr_13f`, `patents_nber`), whose columns
+  (e.g. IBES's `meanest`) don't look like CRSP/Compustat mnemonics at all.
+  Rewrote the section to say the authoritative column names always come from
+  the per-request "Column Mapping" block (already injected by
+  `MetaCoder._build_prompt`), with CRSP/Compustat/IBES/OptionMetrics/13F/
+  patents listed only as examples of what a source *can* look like.
+- **Bigger bug, same root cause:** `prompts/meta_coder/hook_system.md` claimed
+  the DataFrame passed to hooks has "Additional Compustat columns as
+  available: at, sale, ceq, dltt, ib, etc." — this is simply false, not just
+  misleading. Traced the actual data flow: hooks receive the CRSP monthly
+  panel from `load_msf()` (permno/yyyymm/ret/me/shrcd/exchcd/siccd/
+  prc/shrout/date) plus `dlret` when present; `merge_signal()`
+  (`src/infra/backtest_engine/steps.py`) only carries the plugin's own
+  computed `signal` column across from the signal-formula table — raw
+  Compustat/IBES/OptionMetrics source columns used inside `compute_signal()`
+  are never merged into the hook-facing df at any pipeline stage. A hook
+  written against the old prompt's claim would `KeyError` on any Compustat
+  column reference. Rewrote the section to state the CRSP-only column set
+  precisely, call out that `signal` is only present in hooks running after
+  `merge_signal` (not `filter_universe_hook`/`apply_missing_policy_hook`),
+  and note `dlret` is only relevant to `apply_delisting_returns_hook`. No
+  code changes — prompt-only fix in both files.
+
 ### Changed — feedback-loop redesign: two bounded automatic loops + shared RepairLoop + step 7 rename
 - **New shared `RepairLoop`** (`src/infra/repair.py`) consolidates the three
   near-duplicate technical repair loops (previously in

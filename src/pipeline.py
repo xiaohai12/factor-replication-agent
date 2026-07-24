@@ -63,10 +63,10 @@ class Pipeline:
        Empirical values are never auto-edited -- the extractor re-reads the
        paper and the reviewer re-judges. Paper-silent fields, an exhausted
        budget, or FULL_REGENERATION escalate to a human (needs_manual).
-    3. Generate signal + hook plugin code, then assemble the one standalone
-       backtest script from it (MetaCoder; script assembly is exposed as
-       `BacktestRunner.build_script()` but is conceptually step3's output --
-       see AGENTS.md's Module Map)
+    3. Generate the signal plugin code (the `compute_signal` formula only),
+       then assemble the one standalone backtest script from it (MetaCoder;
+       script assembly is exposed as `BacktestRunner.build_script()` but is
+       conceptually step3's output -- see AGENTS.md's Module Map)
     4. Validate that built script -- static checks + a compute_signal
        execution smoke test on the real script from step 3 (AdversarialSandbox).
        **Feedback loop (technical repair):** on a technical failure this loops

@@ -36,12 +36,12 @@ and controlled pipeline components.
 |---|---|---|
 | `src/steps/step1_extractor/` | 1 | Paper text to MethodSpec via LLM. Never receives SignalDoc.csv. |
 | `src/steps/step2_reviewer/` | 2 | MethodSpec completeness and empirical-impact review + resolution. |
-| `src/steps/step3_codegen/` | 3 | Approved MethodSpec to signal plugin code + hook functions, then assembles those into the one complete standalone backtest script (`script_generator.generate_backtest_script`) that step4/step5 operate on unchanged. The script-assembly call is exposed as `BacktestRunner.build_script()` (physically in the step5 module, since it also needs `DataLayer` snapshot-path resolution that step3_codegen doesn't have) but is conceptually step3's output. |
+| `src/steps/step3_codegen/` | 3 | Approved MethodSpec to signal plugin code (the `compute_signal` formula only — no hook code), then assembles it into the one complete standalone backtest script (`script_generator.generate_backtest_script`) that step4/step5 operate on unchanged. The script-assembly call is exposed as `BacktestRunner.build_script()` (physically in the step5 module, since it also needs `DataLayer` snapshot-path resolution that step3_codegen doesn't have) but is conceptually step3's output. Empirical parameters (weighting, breakpoints, missing policy, return combination, sort form, estimator) are *selected* from a fixed menu by `registry.build_config`, which clamps any out-of-menu value to the menu default. |
 | `src/steps/step4_validator/` | 4 | Plugin syntax/schema/safety validation (future-leak scan) + a compute_signal execution smoke test on the script step3 built. |
 | `src/steps/step5_backtest_runner/` | 5 | Execute the standalone backtest script (already built by step3) via subprocess (`BacktestRunner.execute()`) — literally "run the generated file". Used by both `Pipeline.run_from_method_spec` (single track) and `DualTrackController` (multi-track), so there's one implementation of "execute" either way. |
 | `src/steps/step6_dual_track_controller/` | 6 | Dual-track and ablation orchestration: runs each track via `BacktestRunner` (step5), with its own bounded repair loop back to `MetaCoder` (step3) on an execution failure. |
 | `src/steps/step7_replication_diff/` | 7 | Replication-gap analysis vs reference (C&Z/paper): decompose where the gap comes from (`ReplicationDiff`). Terminal reporting step, not a feedback-loop trigger. |
-| `src/infra/backtest_engine/` | — | The controlled backtest lifecycle engine (`BacktestExecutor`, standard step computations, hook loading). Shared infrastructure used by pipeline.py/step6/app.py and the generated script's runtime import — not itself "step 5" (see step5 row above), which is just the build+execute action around it. |
+| `src/infra/backtest_engine/` | — | The controlled backtest lifecycle engine (`BacktestExecutor`, standard step computations). Fully standardized — no LLM hook loading; steps are selected from config. Shared infrastructure used by pipeline.py/step6/app.py and the generated script's runtime import — not itself "step 5" (see step5 row above), which is just the build+execute action around it. |
 | `src/infra/models/` | — | Pydantic models (MethodSpec, PluginRecord, RunRecord). |
 | `src/infra/data_layer/` | — | Data loaders, dictionary, snapshots, CCM link, time_avail. |
 | `src/infra/evidence/` | — | Evidence store + RunRegistry for run artifacts. |
@@ -109,4 +109,17 @@ Claude, or Copilot. If the current model is excessive for the task, recommend sw
 - Never let LLM output decide empirical parameters without MethodSpec review.
 - Never call `MetaCoder.generate_plugin()` when `codegen_ready=False`.
 - Never repair empirical issues in the sandbox repair loop; only syntax/schema errors are repairable.
+- Never generate hook code. The engine is fully standardized: portfolio
+  construction is selected from a fixed menu by `registry.build_config`, and an
+  out-of-menu MethodSpec value is clamped to the menu default (never
+  code-generated). The LLM writes only `compute_signal`.
 - Never modify `BacktestExecutor` during active experiments; use config overrides for ablations.
+- Never default the *signal-input* source/columns. They come from the reviewed
+  MethodSpec via the declarative data catalog (`src/infra/data_layer/catalog.py`):
+  signal columns resolve through `catalog.source_of_column`/`resolve_concept`;
+  an unknown/unset signal source is hard-blocked at review (a human registers it
+  once in the catalog), never silently guessed (e.g. to Compustat). The
+  *returns* panel, by contrast, defaults to CRSP monthly
+  (`catalog.DEFAULT_RETURNS_UNIVERSE` = `us_equity_crsp`) when
+  `MethodSpec.returns_universe` is unset; an explicitly-set but unregistered
+  returns universe is still blocked at review.

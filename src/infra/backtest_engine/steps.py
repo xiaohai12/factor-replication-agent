@@ -1,20 +1,20 @@
 """Standard step implementations for the controlled backtest lifecycle.
 
 Pure, stateless functions: `(df, ..., config) -> df`. No class state — every
-step reads only its explicit arguments, so results are fully traceable and a
-step can be swapped for an LLM-generated hook of the identical shape (see
-`Step` Protocol in `src/infra/backtest_engine/__init__.py`) without any special-casing.
+step reads only its explicit arguments, so results are fully traceable and
+`_dispatch()` can call every step (and its deterministic `_overlap`/`_multi`
+variant) identically (see `Step` Protocol in
+`src/infra/backtest_engine/__init__.py`) without any special-casing.
 
 Order matches `BacktestExecutor.run_with_config()`:
   load_msf -> apply_delisting_returns -> apply_missing_policy ->
-  filter_universe -> merge_signal -> neutralize_signal ->
+  filter_universe -> merge_signal ->
   compute_breakpoints -> assign_portfolios -> compute_returns ->
   compute_long_short -> compute_metrics
 
-`apply_delisting_returns`, `filter_universe`'s universe_filters DSL, and
-`neutralize_signal` are the deterministic "ResearchDesign" layer (plan.md
-Phase 2.5): sample-construction choices expressed as pure config, never
-defaulting to an LLM hook.
+`apply_delisting_returns` and `filter_universe`'s universe_filters DSL
+are the deterministic "ResearchDesign" layer (plan.md Phase 2.5):
+sample-construction choices expressed as pure config, always standardized.
 """
 
 from __future__ import annotations
@@ -152,12 +152,13 @@ def apply_delisting_returns(df: pd.DataFrame, config: dict) -> pd.DataFrame:
 
 
 def apply_missing_policy(df: pd.DataFrame, config: dict) -> pd.DataFrame:
-    """Step 2: what to do when the return/signal is missing (default: drop)."""
+    """Step 2: what to do when the return/signal is missing (standardized: drop)."""
     action = config.get("missing_action", "drop")
     if action in ("drop", "unspecified"):
         return df.dropna(subset=["ret"]).copy()
-    # winsorize / fill_* handled by hook
-    return df
+    # Any other value is clamped to "drop" by build_config; treat unclamped
+    # callers the same (no bespoke winsorize/fill implementation).
+    return df.dropna(subset=["ret"]).copy()
 
 
 def _apply_filter_op(series: pd.Series, op: str, value: Any) -> pd.Series:
@@ -205,7 +206,7 @@ def apply_universe_filters(df: pd.DataFrame, filters: list[dict]) -> pd.DataFram
     already-point-in-time monthly panel (each row is one stock-month
     snapshot), so applying them here introduces no look-ahead. A filter
     field absent from the loaded data is skipped rather than raising, since
-    `detect_hooks()` can't validate column availability at spec-review time.
+    column availability can't be validated at spec-review time.
     """
     if not filters:
         return df
@@ -221,29 +222,28 @@ def apply_universe_filters(df: pd.DataFrame, filters: list[dict]) -> pd.DataFram
 
 def filter_universe(df: pd.DataFrame, config: dict) -> pd.DataFrame:
     """Step 3: which stocks count. Deterministic ResearchDesign step (plan.md
-    Phase 2.5): baseline common-stock / major-exchange / ex-financials screen
-    (the canonical v1 default), layered with any additional structured
+    Phase 2.5, revised 2026-07-23): applies ONLY the structured
     `universe_filters` resolved from the MethodSpec's
-    `portfolio.universe_filters` (applied via the FilterOp DSL in
-    `apply_universe_filters`). This replaced an earlier design where
-    filter_universe was unconditionally routed to an LLM-generated hook (see
-    CHANGELOG 2026-07-20 Phase 2.5) — a plugin-supplied `filter_universe_hook`
-    still overrides this entirely when present (e.g. for a genuinely
-    idiosyncratic universe rule the DSL can't express), via `_dispatch()`.
+    `portfolio.universe_filters` (via the FilterOp DSL in
+    `apply_universe_filters`) -- no hardcoded common-stock/major-exchange/
+    ex-financials screen is applied here. That screen used to be baked in
+    unconditionally (assuming every returns panel has CRSP-shaped
+    `shrcd`/`exchcd`/`siccd` columns, which contradicts the "no silent
+    default data source" principle -- see catalog.py/RETURNS_UNIVERSES,
+    which is explicitly designed to support non-CRSP returns universes too).
+    A paper's actual universe restriction -- including the common
+    "ordinary common shares, NYSE/AMEX/NASDAQ, ex-financials" boilerplate
+    most US-equity papers state explicitly -- is expected to be captured as
+    explicit `UniverseFilterSpec` entries by the extractor, the same as any
+    other paper-specific restriction; there is no separate, code-level
+    default to keep in sync.
 
     Optionally excludes microcaps (stocks below the NYSE 20th percentile of
     market equity that month) when `config["microcap_exclude"]` is True —
     off by default; the canonical default is to *report* microcap exposure
     as a diagnostic (see `compute_metrics`), not silently exclude it.
     """
-    mask = (
-        df["shrcd"].isin([10, 11])
-        & df["exchcd"].isin([1, 2, 3])
-    )
-    if "siccd" in df.columns:
-        mask &= ~df["siccd"].between(6000, 6999)
-    out = df[mask].copy()
-    out = apply_universe_filters(out, config.get("universe_filters") or [])
+    out = apply_universe_filters(df, config.get("universe_filters") or [])
 
     if config.get("microcap_exclude") and "me" in out.columns and "exchcd" in out.columns:
         nyse_p20 = (
@@ -254,24 +254,6 @@ def filter_universe(df: pd.DataFrame, config: dict) -> pd.DataFrame:
         threshold = out["yyyymm"].map(nyse_p20)
         out = out[out["me"] >= threshold.fillna(-float("inf"))].copy()
     return out
-
-
-def neutralize_signal(df: pd.DataFrame, config: dict) -> pd.DataFrame:
-    """Deterministic ResearchDesign scaffold (plan.md Phase 2.5): extension
-    point for cross-sectional signal neutralization (industry-adjust,
-    residualize against another characteristic, beta-neutralize). No-op
-    identity by default (`config["neutralization"] == "none"`, the canonical
-    v1 default — no MethodSpec field currently drives this; adding one is
-    deferred until a concrete neutralization scheme is implemented). A
-    plugin-supplied `neutralize_signal_hook` can implement an actual
-    transform via `_dispatch()` without this function needing to change.
-    """
-    if config.get("neutralization", "none") == "none":
-        return df
-    raise NotImplementedError(
-        f"neutralization={config['neutralization']!r} has no standard implementation; "
-        "provide a neutralize_signal_hook in the plugin."
-    )
 
 
 def merge_signal(df: pd.DataFrame, signal: pd.DataFrame, config: dict) -> pd.DataFrame:
@@ -418,6 +400,16 @@ def assign_portfolios_overlap(df: pd.DataFrame, breakpoints: pd.DataFrame, confi
     return out.dropna(subset=["portfolio"]).copy()
 
 
+def form_portfolios_overlap(df: pd.DataFrame, config: dict) -> pd.DataFrame:
+    """Overlapping-cohort counterpart of `form_portfolios`: per-cohort
+    breakpoints + assignment, composed from `compute_breakpoints_overlap`
+    and `assign_portfolios_overlap` above. Not combined with a
+    multi-dimensional sort in this v1 -- that combination still routes to a
+    plugin hook (see `step3_codegen.registry.detect_hooks`)."""
+    breakpoints = compute_breakpoints_overlap(df, config)
+    return assign_portfolios_overlap(df, breakpoints, config)
+
+
 def compute_returns_overlap(df: pd.DataFrame, config: dict) -> pd.DataFrame:
     """Overlapping counterpart of `compute_returns`: VW/EW return for each
     (current yyyymm, cohort, portfolio) cell -- i.e. each still-open
@@ -527,6 +519,27 @@ def assign_portfolios(df: pd.DataFrame, breakpoints: pd.DataFrame, config: dict)
     out = pd.concat(chunks)
     return out.dropna(subset=["portfolio"]).copy()
 
+
+
+def form_portfolios(df: pd.DataFrame, config: dict) -> pd.DataFrame:
+    """Step: form portfolios from the merged signal panel in one hookable
+    unit -- computes breakpoints and assigns each stock to a group. Merges
+    what used to be two separately-dispatched Step-contract functions
+    (`compute_breakpoints` + `assign_portfolios`) into a single step, since
+    they're never useful independently (see CHANGELOG / decision-log for the
+    estimator-strategy redesign this belongs to).
+
+    Routes to the multi-dimensional sort internally when `config["sort_dims"]`
+    resolved to 2+ dimensions (characteristic x size double sort, plan.md
+    Phase 3); otherwise the single-dimension continuous/discrete sort. A
+    plugin's `form_portfolios_hook` overrides this entirely -- one hook point
+    for "how portfolios get formed", regardless of dimensionality.
+    """
+    if len(config.get("sort_dims") or []) > 1:
+        dims = compute_breakpoints_multi(df, config)
+        return assign_portfolios_multi(df, dims, config)
+    breakpoints = compute_breakpoints(df, config)
+    return assign_portfolios(df, breakpoints, config)
 
 
 def compute_returns(df: pd.DataFrame, config: dict) -> pd.DataFrame:

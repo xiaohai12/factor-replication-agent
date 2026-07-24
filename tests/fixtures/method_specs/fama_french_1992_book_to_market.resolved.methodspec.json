@@ -1,5 +1,6 @@
 {
   "schema_version": "methodspec.v1",
+  "returns_universe": "us_equity_crsp",
   "factor_id": "fama_french_1992_book_to_market",
   "factor_name": "Book-to-Market Equity",
   "paper_ref": "Fama, Eugene F., and Kenneth R. French, 1992, The Cross-Section of Expected Stock Returns, The Journal of Finance 47(2), 427-465.",

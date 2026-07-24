@@ -48,7 +48,7 @@ def _prepare_hml_universe(df: pd.DataFrame) -> pd.DataFrame:
     return out.loc[mask].copy()
 
 
-def compute_breakpoints_hook(df: pd.DataFrame, config: dict) -> pd.DataFrame:
+def form_portfolios_hook(df: pd.DataFrame, config: dict) -> pd.DataFrame:
     n = int(config["breakpoint_quantiles"])
     qcols = [f"q{i}" for i in range(n + 1)]
 
@@ -84,15 +84,10 @@ def compute_breakpoints_hook(df: pd.DataFrame, config: dict) -> pd.DataFrame:
         row["yyyymm"] = yyyymm
         records.append(row)
 
-    if not records:
-        return pd.DataFrame(columns=qcols).rename_axis("yyyymm")
-
-    out = pd.DataFrame.from_records(records).set_index("yyyymm").sort_index()
-    return out[qcols]
-
-
-def assign_portfolios_hook(df: pd.DataFrame, breakpoints: pd.DataFrame, config: dict) -> pd.DataFrame:
-    work = _prepare_hml_universe(df)
+    if records:
+        breakpoints = pd.DataFrame.from_records(records).set_index("yyyymm").sort_index()[qcols]
+    else:
+        breakpoints = pd.DataFrame(columns=qcols).rename_axis("yyyymm")
 
     merged = work.merge(
         breakpoints.reset_index(),

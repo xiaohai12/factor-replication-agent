@@ -1,5 +1,6 @@
 {
   "schema_version": "methodspec.v1",
+  "returns_universe": "us_equity_crsp",
   "factor_id": "hou_xue_zhang_2015_investment",
   "factor_name": "Investment-to-Assets",
   "paper_ref": "Hou, Kewei, Chen Xue, and Lu Zhang, 2015, Digesting Anomalies: An Investment Approach, The Review of Financial Studies 28(3), 650-705.",

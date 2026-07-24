@@ -79,23 +79,17 @@ HIGH_IMPACT_FIELDS = {
     "signal.timing.holding_period",
     "signal.timing.skip_month",
     "signal.missing_policy",
-    "portfolio.breakpoints",
-    "portfolio.breakpoints.source",
     "portfolio.sort.breakpoint_source",
     "portfolio.sort.ls_quantile",
     "portfolio.weighting",
-    "portfolio.weighting_scheme",
     "portfolio.universe",
     "portfolio.universe_filters",
     "portfolio.long_leg",
     "portfolio.short_leg",
-    "portfolio.filter",
     "portfolio.implied_factor_direction",
-    "reported_results.comparison_policy",
-    "reported_results.return_calculation",
-    "reported_results.return_calculation.portfolio_return.construction_type",
-    "reported_results.return_calculation.portfolio_return.sorts",
-    "reported_results.return_calculation.portfolio_return.return_combination",
+    "portfolio.construction_type",
+    "portfolio.sorts",
+    "portfolio.return_combination",
     "reported_results.return_horizon",
     "reported_results.spreads",
 }
@@ -105,7 +99,7 @@ SENSIBLE_DEFAULTS = {
     "signal.timing.accounting_lag": 6,
     "signal.missing_policy.action": "drop",
     "signal.timing.formation_month": 6,
-    "portfolio.breakpoints.source": "nyse",
+    "portfolio.sort.breakpoint_source": "nyse",
     "portfolio.weighting": "vw",
     "signal.timing.rebalance_frequency": "annual",
 }
@@ -214,6 +208,7 @@ class ReviewGate:
         self._check_paper_evidence(spec, result)
         self._check_data_fields_exist(spec, result)
         self._check_source_mapping_resolved(spec, result)
+        self._check_returns_universe(spec, result)
         self._check_timing_consistency(spec, result)
         self._check_reported_results_contract(spec, result)
         self._check_portfolio_structure_consistency(spec, result)
@@ -277,13 +272,32 @@ class ReviewGate:
         (a per-source, reusable-forever step) before approval, rather than
         letting the loader improvise per paper.
 
-        Only blocks on an UNKNOWN source; an empty/partial mapping is left to
-        the existing evidence warnings (early drafts shouldn't be hard-blocked
-        for this).
+        Hard-blocks two cases, so no signal input ever silently defaults to a
+        source the paper didn't state:
+          1. UNRESOLVED source: a plain-column mapping whose physical column no
+             registered catalog source declares (source==""). The source must
+             come from the reviewed spec / catalog, never a silent guess.
+          2. UNKNOWN source: a mapping that names a source with no registered
+             join in `SIGNAL_SOURCES` (data catalog).
         """
         from src.infra.data_layer import SIGNAL_SOURCES
 
+        unresolved = spec.unresolved_source_fields()
+        if unresolved:
+            cols = ", ".join(sorted({col for _concept, col in unresolved}))
+            result.blocked_fields.append("data.normalized_mapping[source=unresolved]")
+            result.issues.append(
+                f"data.normalized_mapping has columns with no registered data source: "
+                f"{cols}. The signal source/columns must come from the paper and be "
+                "registered in the data catalog (src/infra/data_layer/catalog.py) — "
+                "the pipeline never silently defaults a source (e.g. to Compustat). "
+                "Map each column to an explicit {source, column} or register the "
+                "source/column in the catalog before approval."
+            )
+
         for source in spec.resolved_sources():
+            if source == "":  # handled above as the unresolved case
+                continue
             if source not in SIGNAL_SOURCES:
                 field_path = f"data.normalized_mapping[source={source}]"
                 result.blocked_fields.append(field_path)
@@ -294,6 +308,34 @@ class ReviewGate:
                     "needed) before approval — then every future paper using it is "
                     "handled automatically."
                 )
+
+    def _check_returns_universe(self, spec: MethodSpec, result: ReviewResult) -> None:
+        """Check the returns universe (the stock-return panel the
+        portfolio-construction side runs on).
+
+        `MethodSpec.returns_universe` may name an entry registered in
+        `catalog.RETURNS_UNIVERSES` (e.g. "us_equity_crsp"). When left unset it
+        defaults to the standardized CRSP monthly panel
+        (`catalog.DEFAULT_RETURNS_UNIVERSE`) — no longer a hard block. An
+        explicitly-set but unregistered name is still blocked (register it once
+        in the catalog before approval).
+        """
+        from src.infra.data_layer import catalog
+
+        universe = getattr(spec, "returns_universe", None)
+        if not universe:
+            result.warnings.append(
+                "returns_universe is not set: defaulting to the standardized CRSP "
+                f"monthly panel ('{catalog.DEFAULT_RETURNS_UNIVERSE}'). Set "
+                "returns_universe explicitly to use a different registered universe."
+            )
+        elif universe not in catalog.RETURNS_UNIVERSES:
+            result.blocked_fields.append("returns_universe")
+            result.issues.append(
+                f"returns_universe '{universe}' is not registered in "
+                "catalog.RETURNS_UNIVERSES. Register the returns universe once "
+                "(returns_table + returns_layout) before approval."
+            )
 
     def _check_timing_consistency(self, spec: MethodSpec, result: ReviewResult) -> None:
         """Check timing assumptions are internally consistent."""
@@ -308,43 +350,34 @@ class ReviewGate:
             )
 
     def _check_reported_results_contract(self, spec: MethodSpec, result: ReviewResult) -> None:
-        """Check the newer reported_results.return_calculation contract."""
-        calc = spec.reported_results.return_calculation
-        if spec.reported_results.main_spread is not None and calc.input_return == "unspecified":
+        """Sanity-check the reported_results block against the flat portfolio
+        construction fields."""
+        rr = spec.reported_results
+        if (
+            rr.main_spread is not None
+            and not rr.spreads
+            and rr.main_t_stat is None
+        ):
             result.warnings.append(
-                "reported_results.main_spread is set but return_calculation.input_return is unspecified"
-            )
-        weighting = calc.portfolio_return.weighting
-        if weighting and str(weighting) != spec.portfolio.weighting.value:
-            result.warnings.append(
-                "reported_results portfolio_return.weighting differs from portfolio.weighting"
+                "reported_results.main_spread is set but no spreads/t-stat context is recorded"
             )
 
     def _check_portfolio_structure_consistency(self, spec: MethodSpec, result: ReviewResult) -> None:
-        """Safety net for BacktestExecutor._detect_hooks()'s deterministic checks.
+        """Warn (don't block) when the prose fields suggest a double-sort or
+        multi-leg construction that the structured `portfolio`
+        (sorts/construction_type/return_combination) fields leave unpopulated.
 
-        _detect_hooks() decides whether compute_breakpoints/assign_portfolios/
-        compute_long_short need a hook purely from the structured
-        reported_results.return_calculation.portfolio_return
-        (sorts/construction_type/return_combination) fields -- it no longer
-        reads free-text prose. That structured field is deeply nested and
-        easy for extraction to leave unpopulated even when the paper-facing
-        prose fields (portfolio.filter/long_leg/short_leg) clearly describe a
-        double sort or a multi-leg combination. If that happens,
-        _detect_hooks() would silently treat the factor as a standard
-        single-variable sort and produce a plausible-looking but wrong
-        backtest. Block here instead, so a human fills in the structured
-        field before codegen.
-
-        Note: filter_universe is unconditionally LLM-generated (see
-        BacktestExecutor.FILTER_UNIVERSE_ALWAYS_HOOK_REASON), so there's no
-        equivalent "silently falls back to standard" risk for
-        portfolio.universe_filters to guard against here.
+        The engine is standardized: a construction outside the fixed menu (or an
+        unpopulated structured field) is clamped to the menu default (a standard
+        single-variable sort / extreme_group_spread) rather than code-generated.
+        That default may not match the paper, so surface it as a review warning
+        for a human to populate the structured field — but it is not a hard
+        block, and any residual gap is decomposed downstream by step7's
+        replication-gap analysis.
         """
-        portfolio_return = spec.reported_results.return_calculation.portfolio_return
+        portfolio_return = spec.portfolio
 
         sort_text = " ".join([
-            spec.portfolio.filter or "",
             str(spec.portfolio.long_leg or ""),
             str(spec.portfolio.short_leg or ""),
         ]).lower()
@@ -355,13 +388,13 @@ class ReviewGate:
             or portfolio_return.return_combination.type != ReturnCombinationType.UNSPECIFIED
         )
         if any(k in sort_text for k in sort_signal_words) and not sort_structure_populated:
-            result.blocked_fields.append("reported_results.return_calculation.portfolio_return")
-            result.issues.append(
-                "portfolio.filter/long_leg/short_leg suggest a double-sort or multi-leg "
-                "construction, but reported_results.return_calculation.portfolio_return "
-                "(sorts/construction_type/return_combination) is unpopulated -- "
-                "BacktestExecutor._detect_hooks() will silently treat this as a standard "
-                "single-variable sort. Populate portfolio_return before approval."
+            result.warnings.append(
+                "portfolio.long_leg/short_leg suggest a double-sort or multi-leg "
+                "construction, but portfolio (sorts/construction_type/"
+                "return_combination) is unpopulated -- the standardized engine will "
+                "run a single-variable sort with the menu default combination. "
+                "Populate portfolio.sorts/return_combination if the paper's "
+                "construction should be captured."
             )
 
     def _check_ambiguous_fields(self, spec: MethodSpec, result: ReviewResult) -> None:

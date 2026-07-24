@@ -97,7 +97,7 @@ class TestComputeLongShortMulti:
 class TestResolveSortDims:
     def _spec_with_sorts(self, sorts) -> MethodSpec:
         spec = MethodSpec(factor_id="t", factor_name="T", signal=SignalSpec())
-        spec.reported_results.return_calculation.portfolio_return.sorts = sorts
+        spec.portfolio.sorts = sorts
         return spec
 
     def test_characteristic_and_size_resolves(self):
