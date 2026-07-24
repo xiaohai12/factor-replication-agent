@@ -1,121 +1,122 @@
-"""Controlled Backtesting Lifecycle Engine - Fixed empirical pipeline.
+"""Controlled Backtesting Lifecycle Engine — single-file implementation.
 
-Steps are executed in a fixed order. Each step runs a standard implementation
-parameterised by config. The engine is fully standardized: there is no
-LLM-generated hook code — every portfolio-construction choice is *selected*
-from a fixed menu of built-in implementations by `build_config`, and an
-out-of-menu value is deterministically clamped to the menu default.
+Everything (orchestration + every step's computation) lives in one class,
+`BacktestExecutor`, in this one file. Each pipeline step is one method;
+`run_with_config()` calls them in a fixed order and reads top-to-bottom as
+the complete pipeline — there is no separate `steps.py`/`estimators.py`
+module or generic `_dispatch()`-by-name indirection to jump through to see
+what a run actually does.
 
-Module layout:
-  - `__init__.py` (this file) — orchestration: `BacktestExecutor`, `Step`
-    Protocol, `BacktestContext`, `run()`/`run_with_config()`/`_dispatch()`.
-  - `steps.py` — the standard step pure functions (computation).
+State (`self.data`/`self.merged`/`self.portfolios`/... — see `__init__`) is
+threaded through the pipeline on the instance: each step method reads the
+previous step's output straight off `self` and writes its own result back
+to `self`, so `run_with_config()` doesn't need to pass anything between
+calls. Every step method ALSO accepts its inputs as optional explicit
+arguments (falling back to the matching `self.*` attribute when omitted),
+so each step stays independently unit-testable exactly like a plain
+function (`engine.compute_long_short(rets, config)`) without needing to run
+the whole pipeline first.
+
+The engine is fully standardized: there is no LLM-generated hook code —
+every portfolio-construction choice is *selected* from a fixed menu of
+built-in implementations by `build_config` (`src/steps/step3_codegen/registry.py`),
+and an out-of-menu value is deterministically clamped to the menu default.
+This engine intentionally covers only the single vanilla path — one
+non-overlapping, single-dimension, continuous quantile sort with a
+portfolio-sort estimator (see docs/decision-log.md for what was removed and
+why: overlapping-cohort holding, multi-dimensional sorts, the
+discrete/categorical sort form, the Fama-MacBeth estimator, microcap
+exclusion).
 
 The generation-time decision layer (how a MethodSpec resolves into a run
 config: `build_config`, `resolve_long_leg`/`resolve_short_leg`/`normalize_leg`)
 lives in `src/steps/step3_codegen/registry.py` instead — it's only ever called
-at generation time (by script_generator), never by this module's own dispatch,
-so step3_codegen owns it and doesn't need to depend on this package for it.
-`BacktestExecutor._build_config()`/etc. below remain as thin
+at generation time (by script_generator), never by this module's own
+pipeline, so step3_codegen owns it and doesn't need to depend on this
+package for it. `BacktestExecutor._build_config()`/etc. below remain as thin
 backward-compatible delegates to that module for existing callers (including
 tests) that use those names.
 
 Lives in `src/infra/` (not `src/steps/`) because this is shared computation
 infrastructure used by many callers with no single "owning" step —
 `pipeline.py` (orchestration), `step6_dual_track_controller` (ablation
-experiments), `app.py` (dashboard), and a dozen unit tests that exercise
-`steps.py` directly as a standalone computation library, the same way
-`src/infra/data_layer` (`DataLayer`/`CCMLinker`/`TimeAvailComputer`) is used
-by many callers rather than being one step's private implementation. "Step 5"
-as a pipeline action is just build-script + validate + subprocess-execute
-(see `Pipeline._build_script`/`_execute_script`) — this package is the engine
-library that script imports and runs, not the action of running it.
+experiments), `app.py` (dashboard), and unit tests that exercise individual
+step methods directly, the same way `src/infra/data_layer`
+(`DataLayer`/`CCMLinker`/`TimeAvailComputer`) is used by many callers rather
+than being one step's private implementation.
 """
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Protocol
+from typing import Any
 
+import numpy as np
 import pandas as pd
 
 from src.infra.models.method_spec import MethodSpec
 from src.steps.step3_codegen import registry as codegen_registry
-from src.infra.backtest_engine import estimators, steps
-
-
-class Step(Protocol):
-    """Uniform contract every standard step function satisfies: `(*args,
-    config) -> DataFrame`. `*args` carries whatever positional data the step
-    needs (just `df` for most steps, `df, breakpoints` for assign_portfolios),
-    so `_dispatch()` can call every step identically with no special-casing
-    anywhere else in the engine."""
-
-    def __call__(self, *args: Any, config: dict[str, Any]) -> Any: ...
-
-
-@dataclass
-class BacktestContext:
-    """Carries all state through one `run_with_config()` call.
-
-    Steps themselves stay stateless pure functions (see `steps.py`); this
-    dataclass is populated by the orchestrator as each step runs so every
-    intermediate result is inspectable/traceable in one place rather than
-    scattered across local variables.
-    """
-
-    config: dict[str, Any]
-    data: pd.DataFrame | None = None
-    merged: pd.DataFrame | None = None
-    breakpoints: pd.DataFrame | None = None
-    portfolios: pd.DataFrame | None = None
-    returns: pd.DataFrame | None = None
-    long_short: pd.DataFrame | None = None
-    factors: pd.DataFrame | None = None
-    metrics: dict[str, Any] | None = None
-    trace: list[str] = field(default_factory=list)
 
 
 class BacktestExecutor:
-    """Controlled backtesting lifecycle engine.
+    """Controlled backtesting lifecycle engine — one class, one file.
 
-    Executes a fixed *prep* chain, then hands off to a swappable *estimator*
-    (see `estimators.py`). All steps/estimators are built-in and selected from
-    config — the engine is fully standardized (no hook code).
+    Pipeline (order is frozen; `run_with_config()` calls these ten methods
+    in exactly this order):
+      1.  load_data                  — load returns table by name
+      2.  apply_delisting_returns     — fold CRSP dlret into ret (no-op when
+                                        no dlret column)
+      3.  apply_missing_policy        — drop rows with missing ret
+      4.  filter_universe             — deterministic universe_filters DSL
+      5.  apply_excess_returns        — subtract rf when factor data supplied
+                                        (no-op otherwise)
+      6.  apply_signal_holding_period — expand signal to monthly holding
+                                        period, hold window capped at the
+                                        rebalance step (annual=12/quarterly=3/
+                                        monthly=1); tags each row with its
+                                        formation `cohort`
+      7.  form_portfolios             — formation-locked breakpoints +
+                                        portfolio assignment, locked at each
+                                        signal's own `cohort` and held fixed
+                                        for the whole holding period
+      8.  compute_returns             — each portfolio's monthly return
+                                        (`config["weighting_rule"]`: vw or ew)
+      9.  compute_long_short          — combine per-portfolio returns into
+                                        the reported series
+                                        (`config["return_combination_type"]`)
+      10. compute_metrics             — mean/t-stat/Sharpe (+ factor alphas
+                                        via `compute_factor_alphas` when
+                                        factor data is supplied)
 
-    Prep chain (order is frozen):
-      1. load_data          — load returns table by name
-      2. apply_delisting_returns — fold CRSP dlret into ret (deterministic;
-                              no-op when no dlret column, plan.md Phase 2.5)
-      3. apply_missing_policy — drop
-      4. filter_universe    — baseline screen + deterministic universe_filters
-                              DSL (plan.md Phase 2.5)
-      5. apply_excess_returns — subtract rf when factor data is supplied
-                              (no-op otherwise, plan.md Phase 6)
-      6. merge_signal       — expand annual signal to monthly holding period
-                              (overlapping-cohort variant when
-                              signal.timing.overlapping_portfolios is true)
-
-    Estimator (selected by `config["estimator"]`; see `estimators.py`):
-      - `portfolio_sort` (default): form_portfolios (breakpoints + assignment
-        in one unit) -> compute_returns -> compute_long_short ->
-        compute_metrics (+ factor alphas when factor data is supplied)
-      - `fama_macbeth`: single-characteristic cross-sectional regression,
-        no portfolio sort at all
-
-    This class is orchestration only — see `steps.py`/`estimators.py` for
-    what each standard step/estimator actually computes and
-    `src/steps/step3_codegen/registry.py` for how config is decided. `run()`
-    below is the entry point and reads like a table of contents for the whole
-    pipeline.
+    Every method mutates `self` (see `__init__` for the full attribute
+    list) AND returns its own result, and accepts its own inputs as optional
+    explicit arguments — so `run_with_config()` calls each with no arguments
+    (reading/writing `self.*`), while a unit test can call the same method
+    directly with explicit inputs (`engine.compute_long_short(rets, config)`)
+    without needing to run the rest of the pipeline first.
     """
 
     def __init__(self, data_path: str | None = None):
         self.data_path = Path(data_path) if data_path else Path("./data")
 
+        # Populated progressively by run_with_config() as each step runs;
+        # also directly settable by a test that wants to call one step in
+        # isolation (e.g. `engine.merged = ...; engine.form_portfolios()`).
+        self.config: dict[str, Any] = {}
+        self.signal: pd.DataFrame | None = None
+        self.factors: pd.DataFrame | None = None
+        self.plugin = None
+        self.data: pd.DataFrame | None = None
+        self.merged: pd.DataFrame | None = None
+        self.breakpoints: pd.DataFrame | None = None
+        self.portfolios: pd.DataFrame | None = None
+        self.returns: pd.DataFrame | None = None
+        self.long_short: pd.DataFrame | None = None
+        self.metrics: dict[str, Any] | None = None
+        self.trace: list[str] = []
+
     # ------------------------------------------------------------------
-    # Main entry point
+    # Main entry points
     # ------------------------------------------------------------------
 
     def run(
@@ -134,17 +135,14 @@ class BacktestExecutor:
             spec:            Approved MethodSpec (all decisions resolved in spec fields)
             config_overrides: Optional per-run overrides (for ablation experiments)
             data:            Optional pre-loaded MSF DataFrame. When given, skips
-                             `_load_data()` (which locates the returns table by
-                             name at `<data_path>/raw/<returns_table>.parquet`,
-                             falling back to the legacy `<data_path>/local/msf.parquet`)
-                             — lets callers with a different data layout (e.g. a
-                             per-snapshot path) load the file themselves and pass
-                             it in directly.
+                             loading the returns table from disk — lets callers
+                             with a different data layout (e.g. a per-snapshot
+                             path) load the file themselves and pass it in directly.
             factors:         Optional FF factor + rf DataFrame (`yyyymm` +
                              `mktrf`/`smb`/`hml`/`rmw`/`cma`; see
                              `scripts/fetch_ff_factors.py`). When given,
                              `alpha_capm`/`alpha_ff3`/`alpha_ff5` (+ betas) are
-                             added to the metrics dict (plan.md Phase 2).
+                             added to the metrics dict.
 
         Returns:
             Dict with keys: metrics, return_series, config
@@ -160,14 +158,16 @@ class BacktestExecutor:
         data: pd.DataFrame | None = None,
         factors: pd.DataFrame | None = None,
     ) -> dict[str, Any]:
-        """Execute the 9-step lifecycle from an already-resolved config dict.
+        """Execute the whole 10-step lifecycle from an already-resolved
+        config dict — read this method top to bottom for the complete
+        pipeline, in the exact order it runs.
 
         This is the single implementation shared by `run()` (which builds
-        `config` from a MethodSpec) and by the standalone scripts generated by
-        `src/steps/step3_codegen/script_generator.py` (which already has a resolved
-        config dict baked in at generation time and just needs to execute the
-        lifecycle) — so the in-process engine and the generated scripts can
-        never drift out of sync with each other.
+        `config` from a MethodSpec) and by the standalone scripts generated
+        by `src/steps/step3_codegen/script_generator.py` (which already has a
+        resolved config dict baked in at generation time and just needs to
+        execute the lifecycle) — so the in-process engine and the generated
+        scripts can never drift out of sync with each other.
 
         Args:
             signal:  DataFrame [permno, yyyymm, signal] from compute_signal()
@@ -178,77 +178,33 @@ class BacktestExecutor:
         Returns:
             Dict with keys: metrics, return_series, config
         """
-        ctx = BacktestContext(config=config, factors=factors)
+        self.config = config
+        self.signal = signal
+        self.plugin = plugin
+        self.factors = factors
+        self.trace = []
 
-        ctx.data = data if data is not None else self._load_data(config)
-        ctx.trace.append("load_data")
-        ctx.data      = self._dispatch("apply_delisting_returns", ctx.data, config=config)
-        ctx.trace.append("apply_delisting_returns")
-        ctx.data      = self._dispatch("apply_missing_policy", ctx.data, config=config)
-        ctx.trace.append("apply_missing_policy")
-        ctx.data      = self._dispatch("filter_universe", ctx.data, config=config)
-        ctx.trace.append("filter_universe")
-        # Not dispatched via _dispatch()/hooks: needs ctx.factors (rf), which
-        # isn't part of the standard (df, config) Step signature. No-op
-        # unless factors with an `rf` column were supplied (plan.md Phase 6).
-        ctx.data      = steps.apply_excess_returns(ctx.data, ctx.factors, config)
-        ctx.trace.append("apply_excess_returns")
-        ctx.merged    = self._dispatch("merge_signal", ctx.data, signal, config=config)
-        ctx.trace.append("merge_signal")
+        self.load_data(data)
+        self.apply_delisting_returns()
+        self.apply_missing_policy()
+        self.filter_universe()
+        self.apply_excess_returns()
+        self.apply_signal_holding_period()
+        self.form_portfolios()
+        self.compute_returns()
+        self.compute_long_short()
+        self.compute_metrics()
+        if self.factors is not None:
+            self.metrics.update(self.compute_factor_alphas())
+            self.trace.append("compute_factor_alphas")
 
-        estimator = estimators.get_estimator(config.get("estimator"))
-        result = estimator(ctx.merged, config, self._dispatch, ctx.factors, ctx.trace)
-        ctx.metrics = result["metrics"]
-        ctx.long_short = result["return_series"]
-
-        return {"metrics": ctx.metrics, "return_series": ctx.long_short, "config": config}
-
-    #: Steps that get routed to a `_multi` counterpart in `steps.py` when
-    #: `config["sort_dims"]` has 2+ dimensions (plan.md Phase 3).
-    #: `form_portfolios` is NOT listed here -- it resolves multi-dim sorts
-    #: internally (see `steps.form_portfolios`) rather than via `_dispatch()`
-    #: name-mangling, since it's the single unit for "how portfolios
-    #: get formed" regardless of dimensionality.
-    _MULTI_DIM_STEPS = {
-        "compute_returns",
-        "compute_long_short",
-    }
-
-    #: Steps that get routed to an `_overlap` counterpart in `steps.py` when
-    #: `config["overlapping"]` is true (plan.md Phase 5). Takes priority over
-    #: `_MULTI_DIM_STEPS` routing (the two aren't combined in this v1; an
-    #: overlapping multi-dim sort falls back to the single-dim overlapping
-    #: path).
-    _OVERLAP_STEPS = {
-        "merge_signal",
-        "form_portfolios",
-        "compute_returns",
-        "compute_long_short",
-    }
-
-    def _dispatch(self, step: str, *args: Any, config: dict) -> pd.DataFrame:
-        """Call the standard step function of the given name in `steps.py` (or
-        its `_overlap`/`_multi` counterpart for overlapping-cohort holding /
-        a resolved multi-dimensional sort, respectively).
-
-        `*args` carries whatever positional data this step needs — just `df`
-        for most steps, `df, breakpoints` for assign_portfolios — so a single
-        dispatcher covers every step regardless of its argument count.
-        """
-        if config.get("overlapping") and step in self._OVERLAP_STEPS:
-            return getattr(steps, f"{step}_overlap")(*args, config)
-        is_multi_dim = len(config.get("sort_dims") or []) > 1
-        fn_name = f"{step}_multi" if (is_multi_dim and step in self._MULTI_DIM_STEPS) else step
-        return getattr(steps, fn_name)(*args, config)
+        return {"metrics": self.metrics, "return_series": self.long_short, "config": self.config}
 
     # ------------------------------------------------------------------
-    # load_data is kept as an engine method (not a plain `steps.py`
-    # function) because it depends on `self.data_path`, which is instance
-    # state set at construction time — every other step is a pure function
-    # of its arguments only.
+    # Step 1: load_data
     # ------------------------------------------------------------------
 
-    def _load_data(self, config: dict) -> pd.DataFrame:
+    def load_data(self, data: pd.DataFrame | None = None, config: dict | None = None) -> pd.DataFrame:
         """Step 1: load the historical monthly stock return data.
 
         The returns universe (which stock-return panel to load) is NOT defaulted
@@ -257,6 +213,9 @@ class BacktestExecutor:
         `build_config` fills in from `MethodSpec.returns_universe` (a
         `catalog.RETURNS_UNIVERSES` entry). If neither is present we fail loud
         rather than silently assuming CRSP.
+
+        If `data` is given directly (a pre-loaded MSF DataFrame), disk
+        loading is skipped entirely.
 
         Two layouts (`config["returns_layout"]`):
 
@@ -278,10 +237,18 @@ class BacktestExecutor:
           realistic multi-source layout produced by
           scripts/build_test_papers_synthetic_data.py.
         """
+        config = self.config if config is None else config
+        if data is not None:
+            self.data = data
+            self.trace.append("load_data")
+            return self.data
+
         if config.get("returns_layout") == "crsp_raw":
             from src.infra.data_layer import build_crsp_monthly_panel
             returns_dir = config.get("returns_dir") or self.data_path
-            return build_crsp_monthly_panel(returns_dir)
+            self.data = build_crsp_monthly_panel(returns_dir)
+            self.trace.append("load_data")
+            return self.data
 
         name = config.get("returns_table")
         if not name:
@@ -294,7 +261,9 @@ class BacktestExecutor:
             )
         raw_path = self.data_path / "raw" / f"{name}.parquet"
         if raw_path.exists():
-            return steps.load_msf(raw_path)
+            self.data = self.load_msf(raw_path)
+            self.trace.append("load_data")
+            return self.data
         if name == "crsp_msf":
             # Legacy pre-catalog file-location shim: existing snapshots/tests
             # store CRSP at <data_path>/local/msf.parquet instead of
@@ -303,12 +272,707 @@ class BacktestExecutor:
             # of silently loading CRSP data for the wrong universe.
             legacy_path = self.data_path / "local" / "msf.parquet"
             if legacy_path.exists():
-                return steps.load_msf(legacy_path)
+                self.data = self.load_msf(legacy_path)
+                self.trace.append("load_data")
+                return self.data
         raise FileNotFoundError(
             f"Returns table {name!r} not found at {raw_path} (no legacy fallback "
             f"applies to this table name). Export/place the returns panel there — "
             "the pipeline never substitutes a different returns universe's data."
         )
+
+    @staticmethod
+    def load_msf(msf_path: Path) -> pd.DataFrame:
+        """Load the historical monthly stock return data (CRSP-shaped parquet)."""
+        if not msf_path.exists():
+            raise FileNotFoundError(
+                f"MSF data not found at {msf_path}. "
+                "Export CRSP monthly from WRDS and place it there."
+            )
+        df = pd.read_parquet(msf_path)
+        if "date" in df.columns and "yyyymm" not in df.columns:
+            df["yyyymm"] = (
+                pd.to_datetime(df["date"]).dt.year * 100
+                + pd.to_datetime(df["date"]).dt.month
+            )
+        for col in ("permno", "yyyymm"):
+            df[col] = df[col].astype(int)
+        return df
+
+    @staticmethod
+    def load_daily_msf(daily_path: Path) -> pd.DataFrame:
+        """Load daily CRSP-shaped data (permno, date, ret, prc, shrout, exchcd,
+        shrcd, siccd) and compound it into the same monthly-keyed panel the rest
+        of the standard pipeline expects: `ret` becomes the compounded monthly
+        return (`prod(1+daily_ret)-1`), `me` is computed from the LAST trading
+        day of the month (`|prc|*shrout`), and other identifying columns take
+        that last trading day's value. This lets a signal that needs daily
+        PRICES as input (e.g. short-term reversal, realized volatility,
+        illiquidity) flow through the existing monthly-rebalanced engine
+        unchanged, without every other step needing to know about daily data
+        at all.
+
+        Documented v1 scope limit: this does NOT implement genuine daily-
+        frequency REBALANCING (breakpoints/holding computed at daily
+        granularity) -- only "daily source data, monthly output".
+        """
+        if not daily_path.exists():
+            raise FileNotFoundError(
+                f"Daily CRSP data not found at {daily_path}. "
+                "Export CRSP daily from WRDS and place it there."
+            )
+        df = pd.read_parquet(daily_path)
+        df.columns = [c.lower() for c in df.columns]
+        df["date"] = pd.to_datetime(df["date"])
+        df["permno"] = df["permno"].astype(int)
+        df["yyyymm"] = df["date"].dt.year * 100 + df["date"].dt.month
+        df = df.sort_values(["permno", "date"])
+
+        monthly_ret = (
+            df.groupby(["permno", "yyyymm"])["ret"]
+            .apply(lambda g: float((1 + g.fillna(0)).prod() - 1))
+            .reset_index(name="ret")
+        )
+
+        last_day = df.groupby(["permno", "yyyymm"], as_index=False).tail(1).copy()
+        if "prc" in last_day.columns and "shrout" in last_day.columns:
+            last_day["me"] = last_day["prc"].abs() * last_day["shrout"]
+        keep_cols = [c for c in ("permno", "yyyymm", "me", "exchcd", "shrcd", "siccd") if c in last_day.columns]
+        last_day = last_day[keep_cols]
+
+        merged = last_day.merge(monthly_ret, on=["permno", "yyyymm"], how="left")
+        for col in ("permno", "yyyymm"):
+            merged[col] = merged[col].astype(int)
+        return merged
+
+    # ------------------------------------------------------------------
+    # Step 2: apply_delisting_returns
+    # ------------------------------------------------------------------
+
+    def apply_delisting_returns(self, df: pd.DataFrame | None = None, config: dict | None = None) -> pd.DataFrame:
+        """Step 2: fold CRSP delisting returns into `ret` when a `dlret`
+        column is present, via the standard convention
+        `ret_adj = (1+ret)*(1+dlret) - 1`.
+
+        Documented simplification: rows where `dlret` is missing/NaN are left as
+        plain `ret` (no fixed delisting-return imputation by exchange, unlike the
+        fuller Shumway/Johnson convention). No-op when no `dlret` column exists
+        or when `config["apply_delisting_returns"]` is explicitly set to False
+        (e.g. for an ablation run).
+        """
+        df = self.data if df is None else df
+        config = self.config if config is None else config
+
+        if config.get("apply_delisting_returns", True) and "dlret" in df.columns:
+            df = df.copy()
+            dlret = df["dlret"]
+            has_dlret = dlret.notna()
+            df.loc[has_dlret, "ret"] = (
+                (1 + df.loc[has_dlret, "ret"].fillna(0)) * (1 + dlret[has_dlret]) - 1
+            )
+
+        self.data = df
+        self.trace.append("apply_delisting_returns")
+        return df
+
+    # ------------------------------------------------------------------
+    # Step 3: apply_missing_policy
+    # ------------------------------------------------------------------
+
+    def apply_missing_policy(self, df: pd.DataFrame | None = None, config: dict | None = None) -> pd.DataFrame:
+        """Step 3: what to do when the return is missing (standardized: drop)."""
+        df = self.data if df is None else df
+        config = self.config if config is None else config
+        # `missing_action` is always clamped to "drop" by build_config; no
+        # other implementation exists (no bespoke winsorize/fill).
+        out = df.dropna(subset=["ret"]).copy()
+        self.data = out
+        self.trace.append("apply_missing_policy")
+        return out
+
+    # ------------------------------------------------------------------
+    # Step 4: filter_universe
+    # ------------------------------------------------------------------
+
+    def filter_universe(self, df: pd.DataFrame | None = None, config: dict | None = None) -> pd.DataFrame:
+        """Step 4: which stocks count. Deterministic ResearchDesign step:
+        applies ONLY the structured `universe_filters` resolved from the
+        MethodSpec's `portfolio.universe_filters` (via the FilterOp DSL in
+        `apply_universe_filters`) -- no hardcoded common-stock/major-exchange/
+        ex-financials screen is applied here (that would assume every returns
+        panel has CRSP-shaped `shrcd`/`exchcd`/`siccd` columns, contradicting
+        the "no silent default data source" principle). A paper's actual
+        universe restriction -- including the common "ordinary common
+        shares, NYSE/AMEX/NASDAQ, ex-financials" boilerplate -- is expected
+        to be captured as explicit `UniverseFilterSpec` entries by the
+        extractor, the same as any other paper-specific restriction.
+        """
+        df = self.data if df is None else df
+        config = self.config if config is None else config
+        out = self.apply_universe_filters(df, config.get("universe_filters") or [])
+        self.data = out
+        self.trace.append("filter_universe")
+        return out
+
+    @staticmethod
+    def apply_universe_filters(df: pd.DataFrame, filters: list[dict]) -> pd.DataFrame:
+        """Apply a list of {field, op, value} universe filters (the deterministic
+        DSL behind `UniverseFilterSpec`/`FilterOp` in method_spec.py) to `df`.
+
+        Point-in-time by construction: filters are evaluated row-wise on the
+        already-point-in-time monthly panel (each row is one stock-month
+        snapshot), so applying them here introduces no look-ahead. A filter
+        field absent from the loaded data is skipped rather than raising, since
+        column availability can't be validated at spec-review time.
+        """
+        if not filters:
+            return df
+        mask = pd.Series(True, index=df.index)
+        for f in filters:
+            field_name = f.get("field")
+            if field_name not in df.columns:
+                continue
+            op = f.get("op", "nonmissing")
+            mask &= BacktestExecutor._apply_filter_op(df[field_name], op, f.get("value"))
+        return df[mask].copy()
+
+    @staticmethod
+    def _apply_filter_op(series: pd.Series, op: str, value: Any) -> pd.Series:
+        """Evaluate one FilterOp (src/infra/models/method_spec.py FilterOp enum)
+        against a column. Mirrors the vocabulary 1:1 so the deterministic DSL
+        covers every value the extraction schema can produce."""
+        if op == "eq":
+            return series == value
+        if op == "neq":
+            return series != value
+        if op == "in":
+            return series.isin(value)
+        if op == "not_in":
+            return ~series.isin(value)
+        if op == "between":
+            lo, hi = value
+            return series.between(lo, hi)
+        if op == "not_between":
+            lo, hi = value
+            return ~series.between(lo, hi)
+        if op == "gt":
+            return series > value
+        if op == "gte":
+            return series >= value
+        if op == "lt":
+            return series < value
+        if op == "lte":
+            return series <= value
+        if op == "nonmissing":
+            return series.notna()
+        if op == "nonzero":
+            return series != 0
+        if op == "is_true":
+            return series.astype(bool)
+        if op == "is_false":
+            return ~series.astype(bool)
+        raise ValueError(f"Unknown FilterOp: {op!r}")
+
+    # ------------------------------------------------------------------
+    # Step 5: apply_excess_returns
+    # ------------------------------------------------------------------
+
+    def apply_excess_returns(
+        self,
+        df: pd.DataFrame | None = None,
+        factors: pd.DataFrame | None = None,
+        config: dict | None = None,
+    ) -> pd.DataFrame:
+        """Step 5: convert raw returns to excess-of-risk-free returns, when
+        `config["return_basis"] == "excess"` (the canonical default) and
+        risk-free-rate data is available via `factors` (see
+        `scripts/fetch_ff_factors.py`). No-op when `factors` is None/missing
+        an `rf` column, or when `config["return_basis"] == "raw"` is
+        explicitly requested (e.g. for an ablation). Note: for the standard
+        long-short spread this makes no numeric difference (`rf` cancels in
+        `long - short`) -- it matters for `single_signal_portfolio_return`/
+        `full_portfolio_return` single-leg modes, which do NOT have rf
+        canceled out.
+        """
+        df = self.data if df is None else df
+        factors = self.factors if factors is None else factors
+        config = self.config if config is None else config
+
+        if config.get("return_basis", "excess") == "excess" and factors is not None and "rf" in factors.columns:
+            rf = factors[["yyyymm", "rf"]]
+            merged = df.merge(rf, on="yyyymm", how="left")
+            merged["ret"] = merged["ret"] - merged["rf"].fillna(0)
+            df = merged.drop(columns=["rf"])
+
+        self.data = df
+        self.trace.append("apply_excess_returns")
+        return df
+
+    # ------------------------------------------------------------------
+    # Step 6: apply_signal_holding_period
+    # ------------------------------------------------------------------
+
+    def apply_signal_holding_period(
+        self,
+        df: pd.DataFrame | None = None,
+        signal: pd.DataFrame | None = None,
+        config: dict | None = None,
+    ) -> pd.DataFrame:
+        """Step 6: expand a low-frequency signal into one row per held month
+        and join it with the monthly returns panel.
+
+        Assumes non-overlapping ("clean calendar hold") portfolios: the most
+        recently formed signal value is held flat until the next formation, then
+        replaced. Each signal row already sits at its own formation month, so
+        holding it forward from that row supports any formation/start month for
+        free (the "rebalance calendar" is encoded in the signal rows themselves).
+
+        Hold window is capped at the rebalance step derived from
+        `config["rebalance_frequency"]` (annual=12, quarterly=3, monthly=1)
+        when specified -- so a quarterly-rebalanced factor holds 3 months,
+        not a stale 12. `rebalance_frequency="unspecified"` falls back to
+        `holding_period_months` verbatim.
+
+        Each expanded row also carries a `cohort` column (the original,
+        pre-shift formation yyyymm) so `compute_breakpoints`/`assign_portfolios`
+        can lock breakpoints/portfolio membership at the formation date and hold
+        them fixed for the whole holding period, instead of re-deriving
+        membership fresh every current month -- the standard
+        form-once-hold-fixed factor-replication convention (Fama-French/Ken
+        French Data Library style). See docs/decision-log.md for the fix this
+        implements.
+        """
+        df = self.data if df is None else df
+        signal = self.signal if signal is None else signal
+        config = self.config if config is None else config
+
+        hp = int(config.get("holding_period_months", 12))
+        step = self._rebalance_step_months(config)
+        hold = min(hp, step) if step is not None else hp
+        rows: list[dict] = []
+        for _, row in signal.iterrows():
+            yyyymm = int(row["yyyymm"])
+            year, month = divmod(yyyymm, 100)
+            for h in range(1, hold + 1):
+                m = month + h
+                y = year + (m - 1) // 12
+                m = (m - 1) % 12 + 1
+                rows.append({
+                    "permno": int(row["permno"]),
+                    "cohort": yyyymm,
+                    "yyyymm": y * 100 + m,
+                    "signal": float(row["signal"]),
+                })
+        expanded = pd.DataFrame(rows)
+        merged = df.merge(expanded, on=["permno", "yyyymm"], how="inner")
+
+        self.merged = merged
+        self.trace.append("apply_signal_holding_period")
+        return merged
+
+    @staticmethod
+    def _rebalance_step_months(config: dict) -> int | None:
+        """Number of months between rebalances implied by
+        `config["rebalance_frequency"]`, or None when unspecified/unknown (caller
+        falls back to `holding_period_months`)."""
+        freq = str(config.get("rebalance_frequency", "unspecified")).lower()
+        return {"annual": 12, "quarterly": 3, "monthly": 1}.get(freq)
+
+    # ------------------------------------------------------------------
+    # Step 7: form_portfolios (breakpoints + assignment)
+    # ------------------------------------------------------------------
+
+    def form_portfolios(self, df: pd.DataFrame | None = None, config: dict | None = None) -> pd.DataFrame:
+        """Step 7: form portfolios from the merged signal panel -- computes
+        breakpoints and assigns each stock to a group. Single-dimension
+        continuous quantile sort only (the vanilla Fama-French-style decile
+        sort) -- multi-dimensional sorts and the discrete/categorical sort
+        form were removed to keep the engine to one standard path (see
+        docs/decision-log.md).
+        """
+        df = self.merged if df is None else df
+        config = self.config if config is None else config
+        breakpoints = self.compute_breakpoints(df, config)
+        portfolios = self.assign_portfolios(df, breakpoints, config)
+        self.portfolios = portfolios
+        self.trace.append("form_portfolios")
+        return portfolios
+
+    def compute_breakpoints(self, df: pd.DataFrame | None = None, config: dict | None = None) -> pd.DataFrame:
+        """The numeric quantile cutoffs used to sort stocks into groups.
+
+        Formation-locked (standard form-once-hold-fixed convention, matches
+        Fama-French/Ken French Data Library/AQR-style factor replication):
+        computed ONCE per formation `cohort` (the formation yyyymm
+        `apply_signal_holding_period` tags every row with), not re-derived
+        every current month. De-duplicating to one row per (permno, cohort)
+        before quantiling is equivalent to computing breakpoints once at
+        formation time -- which specific held month's row `drop_duplicates`
+        keeps doesn't matter, since `signal` is constant across a cohort's
+        held months by construction.
+        """
+        df = self.merged if df is None else df
+        config = self.config if config is None else config
+
+        n = int(config.get("breakpoint_quantiles", 10))
+        src = config.get("breakpoint_source", "full_sample")
+
+        bp_df = df[df["exchcd"] == 1].copy() if src == "nyse" else df.copy()
+        bp_df = bp_df.drop_duplicates(subset=["permno", "cohort"]).dropna(subset=["signal"])
+
+        quantile_vals = np.linspace(0, 1, n + 1)
+        bp = (
+            bp_df.groupby("cohort")["signal"]
+            .quantile(quantile_vals)
+            .unstack()
+        )
+        bp.columns = [f"q{i}" for i in range(n + 1)]
+        self.breakpoints = bp
+        return bp
+
+    def assign_portfolios(
+        self,
+        df: pd.DataFrame | None = None,
+        breakpoints: pd.DataFrame | None = None,
+        config: dict | None = None,
+    ) -> pd.DataFrame:
+        """Which group each stock falls into, given the breakpoints.
+
+        Formation-locked: looks up breakpoints by `cohort` (formation yyyymm)
+        instead of the current `yyyymm`, so every row for a given cohort (across
+        however many current months it's held) uses that cohort's own
+        formation-date breakpoints and portfolio assignment stays fixed for the
+        whole holding period -- it is never re-derived from a later month's
+        cross-section.
+        """
+        df = self.merged if df is None else df
+        breakpoints = self.breakpoints if breakpoints is None else breakpoints
+        config = self.config if config is None else config
+
+        n = int(config.get("breakpoint_quantiles", 10))
+        chunks: list[pd.DataFrame] = []
+        for cohort, group in df.groupby("cohort"):
+            if cohort not in breakpoints.index:
+                continue
+            bp = breakpoints.loc[cohort]
+            bins = [bp[f"q{i}"] for i in range(n + 1)]
+            bins[0] = -np.inf
+            bins[-1] = np.inf
+            if len(set(bins)) != len(bins):
+                # Degenerate cohort: too few distinct signal values in this
+                # formation's cross-section to cut into `n` distinct groups
+                # (duplicate quantile breakpoints). Skip forming portfolios for
+                # this cohort rather than silently collapsing to fewer groups,
+                # which would make its portfolio numbers mean something
+                # different from every other (non-degenerate) cohort's.
+                continue
+            g = group.copy()
+            g["portfolio"] = pd.cut(
+                g["signal"], bins=bins, labels=range(1, n + 1), include_lowest=True
+            )
+            chunks.append(g)
+        out = pd.concat(chunks) if chunks else pd.DataFrame()
+        out = out.dropna(subset=["portfolio"]).copy() if chunks else out
+        self.portfolios = out
+        return out
+
+    # ------------------------------------------------------------------
+    # Step 8: compute_returns
+    # ------------------------------------------------------------------
+
+    def compute_returns(self, df: pd.DataFrame | None = None, config: dict | None = None) -> pd.DataFrame:
+        """Step 8: each portfolio's monthly return — value-weighted (by `me`)
+        or equal-weighted, selected by `config["weighting_rule"]` (vw/ew)."""
+        df = self.portfolios if df is None else df
+        config = self.config if config is None else config
+
+        wt = config.get("weighting_rule", "vw")
+        df = df.copy()
+        df["portfolio"] = df["portfolio"].astype(int)
+
+        if wt == "vw":
+            def _vw(g: pd.DataFrame) -> float:
+                w = g["me"].clip(lower=0)
+                s = w.sum()
+                return float((g["ret"] * w).sum() / s) if s > 0 else float("nan")
+
+            rets = (
+                df.groupby(["yyyymm", "portfolio"])
+                .apply(_vw)
+                .reset_index(name="ret")
+            )
+        else:
+            rets = (
+                df.groupby(["yyyymm", "portfolio"])["ret"]
+                .mean()
+                .reset_index()
+            )
+
+        self.returns = rets
+        self.trace.append("compute_returns")
+        return rets
+
+    # ------------------------------------------------------------------
+    # Step 9: compute_long_short
+    # ------------------------------------------------------------------
+
+    def compute_long_short(self, rets: pd.DataFrame | None = None, config: dict | None = None) -> pd.DataFrame:
+        """Step 9: combine per-portfolio returns into the reported series.
+
+        Selected via `config["return_combination_type"]`
+        (default `"extreme_group_spread"`):
+          - `extreme_group_spread` (default): single top portfolio minus single
+            bottom portfolio.
+          - `average_leg_spread`: average of `config["long_portfolios"]` minus
+            average of `config["short_portfolios"]` (explicit portfolio-number
+            lists) -- defaults to the same single top/bottom pair as
+            extreme_group_spread when those aren't given.
+          - `single_signal_portfolio_return`: report one portfolio's return
+            as-is (`config["single_portfolio"]`, default: the "long" extreme),
+            no spread.
+          - `full_portfolio_return`: report every portfolio's return untouched,
+            no combination -- consumed differently by `compute_metrics` (no
+            single `ls_return`/t-stat; see there).
+        """
+        rets = self.returns if rets is None else rets
+        config = self.config if config is None else config
+
+        combo = config.get("return_combination_type", "extreme_group_spread")
+        n = int(config.get("breakpoint_quantiles", 10))
+        long_leg = config.get("long_leg", "low")
+
+        default_long_port  = 1 if long_leg == "low" else n
+        default_short_port = n if long_leg == "low" else 1
+
+        if combo == "full_portfolio_return":
+            out = rets.copy()
+        elif combo == "single_signal_portfolio_return":
+            single = config.get("single_portfolio", default_long_port)
+            rows: list[dict] = []
+            for yyyymm, g in rets.groupby("yyyymm"):
+                port_map = dict(zip(g["portfolio"].astype(int), g["ret"]))
+                if single in port_map:
+                    rows.append({"yyyymm": yyyymm, "ls_return": port_map[single]})
+            out = pd.DataFrame(rows)
+        else:
+            # extreme_group_spread / average_leg_spread: both are
+            # "average(long legs) - average(short legs)"; extreme_group_spread
+            # is just the 1-leg case.
+            long_ports = config.get("long_portfolios") or [default_long_port]
+            short_ports = config.get("short_portfolios") or [default_short_port]
+
+            rows = []
+            for yyyymm, g in rets.groupby("yyyymm"):
+                port_map = dict(zip(g["portfolio"].astype(int), g["ret"]))
+                long_vals = [port_map[p] for p in long_ports if p in port_map]
+                short_vals = [port_map[p] for p in short_ports if p in port_map]
+                if long_vals and short_vals:
+                    rows.append({
+                        "yyyymm": yyyymm,
+                        "ls_return": float(np.mean(long_vals)) - float(np.mean(short_vals)),
+                    })
+            out = pd.DataFrame(rows)
+
+        self.long_short = out
+        self.trace.append("compute_long_short")
+        return out
+
+    # ------------------------------------------------------------------
+    # Step 10: compute_metrics
+    # ------------------------------------------------------------------
+
+    def compute_metrics(self, ls: pd.DataFrame | None = None, config: dict | None = None) -> dict[str, Any]:
+        """Step 10: summary statistics — mean monthly return, Newey-West
+        t-stat (is the return statistically distinguishable from zero, given
+        that monthly returns are autocorrelated), Sharpe, and how many
+        months of data went into it.
+
+        `full_portfolio_return` combination has no single `ls_return` spread
+        to summarize this way -- `ls` is the full per-portfolio grid instead,
+        so this reports basic coverage diagnostics for it rather than a
+        mean/t-stat (the full grid itself is always available in
+        `return_series`).
+
+        Sample-period segmentation: when `config` carries
+        `sample_start_year`/`sample_end_year`/`publication_year`, a nested
+        `by_sample_period` dict is added with the same mean/t-stat computed
+        separately over the paper's in-sample window, the
+        sample-end-to-publication gap, and the post-publication period.
+        """
+        ls = self.long_short if ls is None else ls
+        config = self.config if config is None else config
+
+        if "ls_return" not in ls.columns:
+            if ls.empty:
+                metrics = {"n_months": 0, "portfolios": [], "note": "full_portfolio_return: empty result"}
+            else:
+                metrics = {
+                    "n_months": int(ls["yyyymm"].nunique()),
+                    "portfolios": sorted(ls["portfolio"].dropna().astype(int).unique().tolist()),
+                    "note": (
+                        "full_portfolio_return: no single long-short spread computed; "
+                        "see return_series for per-portfolio returns"
+                    ),
+                }
+        else:
+            series = ls["ls_return"].dropna()
+            metrics = self._series_metrics(series)
+
+            by_period = self._sample_period_metrics(ls, config)
+            if by_period is not None:
+                metrics["by_sample_period"] = by_period
+
+        self.metrics = metrics
+        self.trace.append("compute_metrics")
+        return metrics
+
+    @staticmethod
+    def _series_metrics(series: pd.Series) -> dict[str, Any]:
+        """Mean / Newey-West t-stat / Sharpe / n_months for one return series.
+
+        Factored out of `compute_metrics` so the whole-sample series and each
+        sample-period segment share one implementation."""
+        n = len(series)
+        if n < 2:
+            return {"mean_monthly_return": float("nan"), "t_stat": float("nan"), "n_months": n}
+
+        mean_ret = float(series.mean())
+        std_ret = float(series.std())
+        lags = min(6, n - 1)
+        nw_var = BacktestExecutor._newey_west_var(series.values, lags)
+        t_stat = mean_ret / np.sqrt(nw_var / n) if nw_var > 0 else float("nan")
+        # Guard against floating-point noise on a (near-)constant series producing
+        # a tiny-but-nonzero std that blows up the ratio instead of dividing by
+        # the intended zero.
+        sharpe = (mean_ret / std_ret * np.sqrt(12)) if std_ret > 1e-12 else float("nan")
+
+        return {
+            "mean_monthly_return": mean_ret,
+            "annualized_return":   mean_ret * 12,
+            "t_stat":              float(t_stat),
+            "n_months":            n,
+            "sharpe_ratio":        float(sharpe),
+        }
+
+    @staticmethod
+    def _sample_period_metrics(ls: pd.DataFrame, config: dict) -> dict[str, Any] | None:
+        """Split the long-short series into in-sample / between / post-publication
+        segments and compute `_series_metrics` for each.
+
+        Segments (by calendar year of each month):
+          - insamp:  sample_start_year <= year <= sample_end_year
+          - between: sample_end_year   <  year <= publication_year
+          - postpub: year > publication_year
+
+        Returns None (so `compute_metrics` omits the nested dict entirely) when no
+        sample window is configured. `between`/`postpub` are omitted individually
+        when `publication_year` isn't known. Segments with no months are skipped.
+        """
+        start = config.get("sample_start_year")
+        end = config.get("sample_end_year")
+        pub = config.get("publication_year")
+        if start is None and end is None and pub is None:
+            return None
+
+        df = ls.dropna(subset=["ls_return"]).copy()
+        if df.empty:
+            return None
+        year = (df["yyyymm"] // 100).astype(int)
+
+        segments: dict[str, pd.Series] = {}
+        if start is not None or end is not None:
+            lo = start if start is not None else -np.inf
+            hi = end if end is not None else np.inf
+            segments["insamp"] = df.loc[(year >= lo) & (year <= hi), "ls_return"]
+        if end is not None and pub is not None:
+            segments["between"] = df.loc[(year > end) & (year <= pub), "ls_return"]
+        if pub is not None:
+            segments["postpub"] = df.loc[year > pub, "ls_return"]
+
+        out: dict[str, Any] = {}
+        for name, seg in segments.items():
+            if len(seg) > 0:
+                out[name] = BacktestExecutor._series_metrics(seg)
+        return out or None
+
+    @staticmethod
+    def _newey_west_var(x: np.ndarray, lags: int) -> float:
+        """Newey-West variance estimate for a demeaned series."""
+        n = len(x)
+        xd = x - x.mean()
+        nw = float(np.dot(xd, xd)) / n
+        for lag in range(1, lags + 1):
+            w = 1.0 - lag / (lags + 1)
+            gamma = float(np.dot(xd[lag:], xd[:-lag])) / n
+            nw += 2.0 * w * gamma
+        return max(nw, 0.0)
+
+    # ------------------------------------------------------------------
+    # Extra step (only when factor data supplied): compute_factor_alphas
+    # ------------------------------------------------------------------
+
+    def compute_factor_alphas(
+        self,
+        ls: pd.DataFrame | None = None,
+        factors: pd.DataFrame | None = None,
+        config: dict | None = None,
+    ) -> dict[str, Any]:
+        """Regress the combined return series on factor returns for CAPM/FF3/FF5
+        alpha estimates, using `statsmodels` OLS with Newey-West (HAC) standard
+        errors -- independent of the hand-rolled Newey-West t-stat
+        `compute_metrics` uses for the primary spread (kept unchanged there for
+        golden-number stability).
+
+        Args:
+            ls: the combined return series from `compute_long_short` (must have
+                an `ls_return` column -- returns {} for the `full_portfolio_return`
+                shape, which has no single series to regress).
+            factors: DataFrame with a `yyyymm` column plus whichever of
+                `mktrf`/`smb`/`hml`/`rmw`/`cma` are available (see
+                `scripts/fetch_ff_factors.py`). CAPM needs `mktrf`; FF3 needs
+                `mktrf`+`smb`+`hml`; FF5 adds `rmw`+`cma`. An alpha is silently
+                omitted if its required columns aren't present.
+
+        Returns {} (no error) if `statsmodels` isn't installed -- it's an
+        optional `research` dependency (see pyproject.toml), not a core one, so
+        the rest of the engine works without it.
+        """
+        ls = self.long_short if ls is None else ls
+        factors = self.factors if factors is None else factors
+        config = self.config if config is None else config
+
+        if "ls_return" not in ls.columns or factors is None or factors.empty:
+            return {}
+        try:
+            import statsmodels.api as sm
+        except ImportError:
+            return {}
+
+        merged = ls.merge(factors, on="yyyymm", how="inner")
+        n = len(merged)
+        if n < 3:
+            return {}
+
+        y = merged["ls_return"].to_numpy()
+        lags = min(6, n - 2)
+        results: dict[str, Any] = {}
+
+        factor_specs = {
+            "capm": ["mktrf"],
+            "ff3": ["mktrf", "smb", "hml"],
+            "ff5": ["mktrf", "smb", "hml", "rmw", "cma"],
+        }
+        for name, cols in factor_specs.items():
+            if not all(c in merged.columns for c in cols):
+                continue
+            x = sm.add_constant(merged[cols].to_numpy())
+            model = sm.OLS(y, x).fit(cov_type="HAC", cov_kwds={"maxlags": lags})
+            results[f"alpha_{name}"] = float(model.params[0])
+            results[f"alpha_{name}_tstat"] = float(model.tvalues[0])
+            for i, col in enumerate(cols, start=1):
+                results[f"beta_{name}_{col}"] = float(model.params[i])
+
+        return results
 
     # ------------------------------------------------------------------
     # Config resolution — thin delegation to step3_codegen.registry (the

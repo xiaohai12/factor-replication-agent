@@ -68,13 +68,11 @@ EXTRACTION_SCHEMA_FIELDS: list[tuple[str, str]] = [
     ("detailed_definition", "string - exact signal formula in words, referencing variable names"),
     ("formula", "string - signal formula using database variable names (e.g. 'ceq / (csho * prcc_f)')"),
     ("required_fields", '[{"field": "variable name", "source": "dataset.table as stated in paper (e.g. compustat.funda, crsp.msf, ibes.detail)", "description": "what it represents"}]'),
-    ("cat_form", '"continuous" | "discrete"'),
     ("sign", "1 or -1 (1 = high signal predicts high returns, -1 = low returns)"),
     ("formation_month", "null or int (month when portfolios are formed, e.g. 6 for June)"),
     ("rebalance_frequency", f'{_enum_choices(RebalanceFrequency)} | "unspecified"'),
     ("holding_period", "int (months the portfolio is held, typically 1 or 12)"),
     ("accounting_lag", "int (months between fiscal year-end and portfolio formation)"),
-    ("skip_month", "null or int (months skipped between signal and formation)"),
     ("stock_weight", f'{_enum_choices(WeightingRule)} | "unspecified"'),
     ("ls_quantile", "float (long-short cutoff: 0.1=deciles, 0.2=quintiles, 0.3=terciles)"),
     ("breakpoint_source", f'{_enum_choices(BreakpointSource)} | "unspecified"'),
@@ -84,7 +82,6 @@ EXTRACTION_SCHEMA_FIELDS: list[tuple[str, str]] = [
     ("universe", "string - sample universe description"),
     ("missing_policy", f'{_enum_choices(MissingAction)} | "unspecified"'),
     ("winsorize_bounds", 'null or string - winsorization bounds if applicable, e.g. "1,99" or "0.5,99.5"'),
-    ("overlapping_portfolios", "null or bool - true if paper uses overlapping holding periods (new portfolios formed monthly with multi-month holds), false for clean calendar holds, null if not stated"),
     ("return_horizon", '"monthly" | "quarterly" | "annual" - time horizon of reported_return_spread'),
     ("sample_start_year", "null or int"),
     ("sample_end_year", "null or int"),
@@ -485,15 +482,6 @@ class SemanticExtractor:
             except (ValueError, TypeError):
                 return default
 
-        # Parse timing
-        raw_overlapping = raw.get("overlapping_portfolios")
-        if raw_overlapping is None or raw_overlapping == "unspecified":
-            overlapping = None
-        elif isinstance(raw_overlapping, bool):
-            overlapping = raw_overlapping
-        else:
-            overlapping = str(raw_overlapping).lower() == "true"
-
         timing = SignalTiming(
             formation_month=_safe_int(raw.get("formation_month")),
             rebalance_frequency=self._parse_enum(
@@ -503,8 +491,6 @@ class SemanticExtractor:
             ),
             holding_period=_safe_int(raw.get("holding_period")),
             accounting_lag=_safe_int(raw.get("accounting_lag")),
-            skip_month=_safe_int(raw.get("skip_month")),
-            overlapping_portfolios=overlapping,
         )
 
         # Parse missing policy
@@ -678,7 +664,6 @@ class SemanticExtractor:
             paper_ref=raw.get("paper_ref", ""),
             economic_intuition=raw.get("economic_intuition", ""),
             detailed_definition=raw.get("detailed_definition", ""),
-            cat_form=raw.get("cat_form", "continuous"),
             sign=sign_val,
             sample_start_year=_safe_int(raw.get("sample_start_year")),
             sample_end_year=_safe_int(raw.get("sample_end_year")),
@@ -794,10 +779,8 @@ class SemanticExtractor:
             "universe": spec.portfolio.universe,
             "sign": spec.sign,
             "ls_quantile": spec.portfolio.sort.ls_quantile,
-            "cat_form": spec.cat_form,
             "sample_start_year": spec.sample_start_year,
             "sample_end_year": spec.sample_end_year,
-            "overlapping_portfolios": spec.signal.timing.overlapping_portfolios,
             "return_horizon": spec.return_horizon,
             "winsorize_bounds": (
                 ",".join(str(b) for b in spec.signal.missing_policy.winsorize_bounds)

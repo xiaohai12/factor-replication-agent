@@ -27,7 +27,6 @@ dev = [
 # decisions (see plan.md "Tooling / libraries").
 research = [
     "statsmodels==0.14.6",
-    "linearmodels==7.0",
 ]
 
 [build-system]

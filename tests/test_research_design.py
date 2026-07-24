@@ -1,7 +1,7 @@
 """Unit tests for the deterministic ResearchDesign steps added in plan.md
 Phase 2.5: universe filter DSL and delisting-return handling. These are
-pure functions in `src/infra/backtest_engine/steps.py`, tested directly (no
-MethodSpec/plugin needed).
+methods on `BacktestExecutor` in `src/infra/backtest_engine/__init__.py`,
+tested directly (no MethodSpec/plugin needed).
 """
 
 from __future__ import annotations
@@ -9,7 +9,7 @@ from __future__ import annotations
 import pandas as pd
 import pytest
 
-from src.infra.backtest_engine import steps
+from src.infra.backtest_engine import BacktestExecutor
 
 
 def _msf_df() -> pd.DataFrame:
@@ -35,45 +35,45 @@ class TestFilterUniverseNoBaseline:
         `universe_filters`, extracted from the paper like any other
         restriction."""
         df = _msf_df()
-        out = steps.filter_universe(df, config={})
+        out = BacktestExecutor().filter_universe(df, config={})
         assert set(out["permno"]) == {1, 2, 3, 4}
 
 
 class TestApplyUniverseFiltersDSL:
     def test_eq_filter(self):
         df = _msf_df()
-        out = steps.apply_universe_filters(df, [{"field": "exchcd", "op": "eq", "value": 1}])
+        out = BacktestExecutor.apply_universe_filters(df, [{"field": "exchcd", "op": "eq", "value": 1}])
         assert set(out["permno"]) == {1, 2}
 
     def test_in_filter(self):
         df = _msf_df()
-        out = steps.apply_universe_filters(df, [{"field": "exchcd", "op": "in", "value": [1, 2]}])
+        out = BacktestExecutor.apply_universe_filters(df, [{"field": "exchcd", "op": "in", "value": [1, 2]}])
         assert set(out["permno"]) == {1, 2, 3}
 
     def test_between_filter(self):
         df = _msf_df()
-        out = steps.apply_universe_filters(df, [{"field": "me", "op": "between", "value": [10, 60]}])
+        out = BacktestExecutor.apply_universe_filters(df, [{"field": "me", "op": "between", "value": [10, 60]}])
         assert set(out["permno"]) == {2, 3}
 
     def test_gte_filter(self):
         df = _msf_df()
-        out = steps.apply_universe_filters(df, [{"field": "me", "op": "gte", "value": 50}])
+        out = BacktestExecutor.apply_universe_filters(df, [{"field": "me", "op": "gte", "value": 50}])
         assert set(out["permno"]) == {1, 2}
 
     def test_unknown_field_is_skipped_not_raised(self):
         df = _msf_df()
-        out = steps.apply_universe_filters(df, [{"field": "not_a_column", "op": "eq", "value": 1}])
+        out = BacktestExecutor.apply_universe_filters(df, [{"field": "not_a_column", "op": "eq", "value": 1}])
         assert len(out) == len(df)
 
     def test_empty_filters_is_noop(self):
         df = _msf_df()
-        out = steps.apply_universe_filters(df, [])
+        out = BacktestExecutor.apply_universe_filters(df, [])
         assert len(out) == len(df)
 
     def test_filter_universe_applies_configured_universe_filters(self):
         df = _msf_df()
         config = {"universe_filters": [{"field": "me", "op": "gte", "value": 50}]}
-        out = steps.filter_universe(df, config)
+        out = BacktestExecutor().filter_universe(df, config)
         # no baseline anymore -- me>=50 alone restricts {1,2,3,4} to {1,2}
         assert set(out["permno"]) == {1, 2}
 
@@ -81,33 +81,20 @@ class TestApplyUniverseFiltersDSL:
 class TestApplyDelistingReturns:
     def test_noop_when_no_dlret_column(self):
         df = _msf_df()
-        out = steps.apply_delisting_returns(df, config={})
+        out = BacktestExecutor().apply_delisting_returns(df, config={})
         pd.testing.assert_frame_equal(out, df)
 
     def test_noop_when_disabled_via_config(self):
         df = _msf_df()
         df["dlret"] = [None, None, -0.3, None]
-        out = steps.apply_delisting_returns(df, config={"apply_delisting_returns": False})
+        out = BacktestExecutor().apply_delisting_returns(df, config={"apply_delisting_returns": False})
         pd.testing.assert_series_equal(out["ret"], df["ret"])
 
     def test_combines_ret_and_dlret_for_delisted_rows(self):
         df = _msf_df()
         df["dlret"] = [None, None, -0.3, None]
-        out = steps.apply_delisting_returns(df, config={})
+        out = BacktestExecutor().apply_delisting_returns(df, config={})
         expected_row3 = (1 + 0.03) * (1 + -0.3) - 1
         assert out.loc[out["permno"] == 3, "ret"].iloc[0] == pytest.approx(expected_row3)
         # untouched rows keep their original return
         assert out.loc[out["permno"] == 1, "ret"].iloc[0] == pytest.approx(0.01)
-
-
-class TestMicrocapExclude:
-    def test_disabled_by_default(self):
-        df = _msf_df()
-        out = steps.filter_universe(df, config={})
-        assert set(out["permno"]) == {1, 2, 3, 4}
-
-    def test_excludes_below_nyse_p20_when_enabled(self):
-        df = _msf_df()
-        # NYSE (exchcd==1) MEs are 100, 50 -> 20th pct is closer to 50 (low sample size)
-        out = steps.filter_universe(df, config={"microcap_exclude": True})
-        assert 4 not in set(out["permno"])  # me=5, smallest, should be excluded

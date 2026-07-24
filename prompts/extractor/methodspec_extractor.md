@@ -170,7 +170,6 @@ Each MethodSpec JSON must follow this structure. Keep field names stable. If a f
       "lag_period": {"label": "", "description": "", "used_for": ""},
       "base_time_index": ""
     },
-    "skip_months": null,
     "source": {"location": "", "quote": "", "interpretation": ""}
   },
   "universe": {
@@ -216,9 +215,7 @@ Each MethodSpec JSON must follow this structure. Keep field names stable. If a f
       "use_for_backtest_if_needed": null,
       "note": ""
     },
-    "overlapping_portfolios": null,
     "construction_type": "",
-    "sorts": [],
     "return_combination": {"type": "", "expression": "", "long_leg": null, "short_leg": null, "note": ""}
   },
   "reported_results": {
@@ -252,7 +249,7 @@ portfolio.sort.breakpoint_source:
 nyse_only, full_sample, unspecified
 
 portfolio.construction_type:
-characteristic_sort, regression_weighted, other
+characteristic_sort, other
 
 portfolio.return_combination.type:
 extreme_group_spread, average_leg_spread, single_signal_portfolio_return, full_portfolio_return, other
@@ -407,9 +404,14 @@ If bounds are null, explain why in `status` and `source.interpretation`.
 
 `portfolio` is the single home for both the human-review summary and the
 executable construction. The portfolio-return construction fields —
-`portfolio.construction_type`, `portfolio.sorts[]`, `portfolio.return_combination`
+`portfolio.construction_type`, `portfolio.return_combination`
 — live directly on `portfolio` (there is no nested
-`reported_results.return_calculation.portfolio_return`).
+`reported_results.return_calculation.portfolio_return`). The engine only
+supports a single-dimension continuous quantile sort with the
+`portfolio_sort` estimator (`characteristic_sort`) — multi-dimensional
+(double) sorts, the discrete/categorical sort form, and the Fama-MacBeth
+regression estimator (`regression_weighted`) are not currently implemented;
+record any such paper design in prose / `ambiguous_fields` instead.
 
 For weighting, use `portfolio.weighting` with `vw` / `ew` (the standardized
 engine implements only these two; any other value is clamped to the menu

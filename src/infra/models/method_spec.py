@@ -41,10 +41,16 @@ class BreakpointSource(str, Enum):
 class PortfolioConstructionType(str, Enum):
     """Mirrors prompts/extractor/methodspec_extractor.md Allowed Values for
     portfolio.construction_type. Keep this vocabulary in sync with that
-    prompt file."""
+    prompt file.
+
+    Only `characteristic_sort` has a standard engine implementation
+    (portfolio-sort estimator) -- the Fama-MacBeth cross-sectional-regression
+    estimator (`regression_weighted`) was removed to keep the engine to one
+    standard path (see docs/decision-log.md); an unrecognized/other value is
+    clamped to `characteristic_sort` by `registry.build_config`.
+    """
 
     CHARACTERISTIC_SORT = "characteristic_sort"
-    REGRESSION_WEIGHTED = "regression_weighted"
     OTHER = "other"
     UNSPECIFIED = "unspecified"
 
@@ -239,8 +245,6 @@ class SignalTiming(BaseModel):
     rebalance_frequency: RebalanceFrequency = Field(default=RebalanceFrequency.UNSPECIFIED)
     holding_period: Optional[int] = Field(default=None, description="Months")
     accounting_lag: Optional[int] = Field(default=None, description="Months")
-    skip_month: Optional[int] = Field(default=None)
-    overlapping_portfolios: Optional[bool] = Field(default=None)
     evidence: list[EvidenceCitation] = Field(default_factory=list)
 
 
@@ -313,31 +317,6 @@ class UniverseFilterSpec(BaseModel):
     evidence: list[EvidenceCitation] = Field(default_factory=list)
 
 
-class SortLegSpec(BaseModel):
-    """One dimension of a (possibly multi-dimensional) portfolio sort.
-
-    Lives under `portfolio.sorts[]`. `len(portfolio.sorts) > 1` marks a
-    double/conditional sort; `registry.resolve_sort_dims` maps a
-    characteristic×size double sort onto the engine's `_multi` step variants,
-    and any other multi-dimensional sort is clamped to a single sort.
-    """
-
-    variable: str = Field(default="")
-    groups: list[str] = Field(default_factory=list)
-    breakpoint: str = Field(default="")
-    independent_sort: Optional[bool] = None
-
-    @model_validator(mode="before")
-    @classmethod
-    def _accept_bare_variable_name(cls, data: Any) -> Any:
-        # Some hand-curated specs list sorts as bare strings, e.g.
-        # "sorts": ["asset_growth_decile"], instead of the full
-        # {variable, groups, breakpoint, independent_sort} shape.
-        if isinstance(data, str):
-            return {"variable": data}
-        return data
-
-
 class ReturnCombinationSpec(BaseModel):
     """How per-portfolio returns combine into the reported factor return.
 
@@ -380,7 +359,6 @@ class PortfolioSpec(BaseModel):
     construction_type: PortfolioConstructionType = Field(
         default=PortfolioConstructionType.UNSPECIFIED
     )
-    sorts: list[SortLegSpec] = Field(default_factory=list)
     return_combination: ReturnCombinationSpec = Field(default_factory=ReturnCombinationSpec)
 
     evidence: list[EvidenceCitation] = Field(default_factory=list)
@@ -448,7 +426,6 @@ class MethodSpec(BaseModel):
 
     economic_intuition: str = Field(default="")
     detailed_definition: str = Field(default="")
-    cat_form: str = Field(default="continuous")
     sign: Optional[int] = Field(default=None)
     sample_start_year: Optional[int] = None
     sample_end_year: Optional[int] = None
@@ -508,8 +485,6 @@ class MethodSpec(BaseModel):
             raw_portfolio = dict(raw_portfolio)
             if raw_portfolio.get("construction_type") is None and pr.get("construction_type") is not None:
                 raw_portfolio["construction_type"] = pr.get("construction_type")
-            if not raw_portfolio.get("sorts") and pr.get("sorts"):
-                raw_portfolio["sorts"] = pr.get("sorts")
             if not raw_portfolio.get("return_combination") and pr.get("return_combination"):
                 raw_portfolio["return_combination"] = pr.get("return_combination")
             data["portfolio"] = raw_portfolio
@@ -528,8 +503,6 @@ class MethodSpec(BaseModel):
             data.setdefault("economic_intuition", intuition.get("value", ""))
         elif isinstance(intuition, str):
             data.setdefault("economic_intuition", intuition)
-
-        data.setdefault("cat_form", raw_signal.get("category", "continuous"))
 
         sign = raw_signal.get("sign")
         if isinstance(sign, dict):
@@ -566,8 +539,6 @@ class MethodSpec(BaseModel):
                 ),
                 "holding_period": raw_timing.get("holding_period_months"),
                 "accounting_lag": raw_timing.get("accounting_lag_months"),
-                "skip_month": raw_timing.get("skip_months"),
-                "overlapping_portfolios": raw_portfolio.get("overlapping_portfolios"),
                 "evidence": [raw_timing["source"]] if isinstance(raw_timing.get("source"), dict) else [],
             }
             raw_signal["missing_policy"] = missing_policy or {}
@@ -837,10 +808,6 @@ class MethodSpec(BaseModel):
     @property
     def accounting_lag_months(self) -> Optional[int]:
         return self.signal.timing.accounting_lag
-
-    @property
-    def skip_month(self) -> Optional[int]:
-        return self.signal.timing.skip_month
 
     @property
     def missing_action(self) -> MissingAction:

@@ -56,7 +56,7 @@ def test_delisting_return_folded_into_last_month():
 
 def test_engine_load_data_crsp_raw_layout():
     engine = BacktestExecutor(data_path=str(DATA_DIR))
-    panel = engine._load_data({"returns_layout": "crsp_raw"})
+    panel = engine.load_data(config={"returns_layout": "crsp_raw"})
     assert REQUIRED_COLS.issubset(panel.columns)
     assert len(panel) > 0
 
@@ -64,8 +64,8 @@ def test_engine_load_data_crsp_raw_layout():
 def test_returns_dir_override():
     # data_path elsewhere, but returns_dir points at the real tables
     engine = BacktestExecutor(data_path=str(REPO_ROOT / "data"))
-    panel = engine._load_data(
-        {"returns_layout": "crsp_raw", "returns_dir": str(DATA_DIR)}
+    panel = engine.load_data(
+        config={"returns_layout": "crsp_raw", "returns_dir": str(DATA_DIR)}
     )
     assert REQUIRED_COLS.issubset(panel.columns)
     assert len(panel) > 0

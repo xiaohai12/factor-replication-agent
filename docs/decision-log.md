@@ -32,6 +32,217 @@ when writing the paper.
 
 <!-- Add new entries below this line, newest first. -->
 
+## 2026-07-24 — Consolidate `steps.py`/`estimators.py`/`__init__.py` into one stateful `BacktestExecutor` class
+
+- **Context / problem:** The engine was split across three files (`__init__.py`
+  orchestration, `steps.py` pure step functions, `estimators.py` the
+  estimator-strategy registry), with state threaded explicitly through a
+  `BacktestContext` dataclass and a generic `_dispatch(name, *args, config=...)`
+  indirection. User feedback: this was harder to read than necessary for a
+  fixed, single-path pipeline (post the same-day capability-strip) — wanted
+  one file, one class, each pipeline step as one method, and `run_with_config()`
+  readable top-to-bottom as the complete pipeline.
+- **Options considered:** (a) leave the three-file/dataclass/dispatch design;
+  (b) merge to one class with zero-argument instance methods that only
+  read/write `self.*` (matches the user's literal preference, but would make
+  each step un-testable in isolation without first hand-populating instance
+  state — a real regression against this repo's long-standing "pure function,
+  independently testable" principle); (c) merge to one class where every step
+  method accepts its inputs as OPTIONAL explicit arguments (falling back to
+  the matching `self.*` attribute when omitted) — `run_with_config()` calls
+  each with zero arguments (reading/writing `self.*`, satisfying the
+  readability ask), while a unit test can still call the same method with
+  explicit arguments and read the return value directly, exactly like the
+  old pure-function call sites.
+- **Decision:** (c). Everything now lives in
+  `src/infra/backtest_engine/__init__.py` as one `BacktestExecutor` class;
+  `steps.py`/`estimators.py` are deleted. `_dispatch()`/`Step` Protocol/
+  `BacktestContext` are gone — `run_with_config()` is a flat sequence of
+  `self.<step>()` calls in fixed order. A handful of small pure utilities that
+  aren't themselves pipeline steps (`load_msf`, `load_daily_msf`,
+  `apply_universe_filters`, `_apply_filter_op`, `_rebalance_step_months`,
+  `_series_metrics`, `_sample_period_metrics`, `_newey_west_var`) are
+  `@staticmethod`s needing no instance state.
+- **Rationale:** Preserves the project's established testability/auditability
+  principle (every step still independently callable and unit-testable with
+  explicit inputs -> explicit output) while genuinely improving readability of
+  the top-level pipeline (`run_with_config()` reads as 10 method calls, one
+  per line, vs. the old `ctx.data = self._dispatch("name", ctx.data, config=config); ctx.trace.append("name")`
+  boilerplate repeated per step) and satisfying the one-file/one-class ask.
+- **Empirical impact:** None (pure refactor, no behavior change). Full suite
+  re-verified after: 134 passed, 26 skipped (same as immediately before this
+  change). 9 test files updated to call `BacktestExecutor().<method>(...)` /
+  `BacktestExecutor.<static_method>(...)` instead of `steps.<function>(...)`;
+  no test assertions changed.
+- **Trade-offs / risks:** An engine instance is not safe to reuse
+  concurrently/re-entrantly for two different `run_with_config()` calls at the
+  same time (shared mutable `self.*` state) — every current caller
+  (`app.py`, `script_generator.py`'s generated scripts, `pipeline.py`) already
+  constructs a fresh `BacktestExecutor()` per run, so this is not a change in
+  practice, just documented here as a constraint to keep in mind if a future
+  caller wants to reuse/parallelize instances.
+- **References:** [src/infra/backtest_engine/__init__.py](../src/infra/backtest_engine/__init__.py)
+  (now the only file in the package besides `__pycache__`).
+
+## 2026-07-24 — Formation-locked (cohort-based) breakpoints/portfolio assignment for the standard sort path
+
+- **Context / problem:** `steps.form_portfolios`'s standard (non-overlapping)
+  continuous-sort path recomputed breakpoints and portfolio membership fresh
+  every CURRENT month (`compute_breakpoints`/`assign_portfolios` grouped by
+  `yyyymm`), rather than locking them at the formation date and holding them
+  fixed for the whole holding period. This deviates from the standard
+  academic/industry factor-replication convention (Fama-French / Ken French
+  Data Library / AQR-style: form once per rebalance, hold membership fixed,
+  only recompute returns monthly) and had two concrete consequences: (a) a
+  stock's portfolio number could drift within its own nominal holding period
+  if the concurrent cross-section composition changed (e.g. another stock's
+  transient missing-return month, or a differently-scaled cohort
+  concurrently held), and (b) mixing staggered formation cohorts in the same
+  current month could corrupt everyone's breakpoints.
+- **Options considered:** (a) leave as-is (documented limitation); (b) always
+  route the standard path through the existing overlapping-cohort machinery
+  (`compute_breakpoints_overlap`/`assign_portfolios_overlap`, which already
+  compute breakpoints once per formation `cohort`); (c) write an independent
+  formation-locked implementation directly inside the standard
+  `compute_breakpoints`/`assign_portfolios` functions, with the overlapping-
+  cohort feature family removed entirely in the same pass (see the
+  companion entry below) so there is no ambiguity about which mechanism the
+  standard path uses.
+- **Decision:** (c). `steps.merge_signal` (renamed `apply_signal_holding_period`
+  the same day, see below) now tags every expanded row with a
+  `cohort` column (the signal's original, pre-shift formation `yyyymm`).
+  `compute_breakpoints` groups by `cohort` (de-duplicating to one row per
+  `(permno, cohort)` before quantiling — which specific held month's row
+  survives the de-dup doesn't matter, since `signal` is constant across a
+  cohort's held months by construction). `assign_portfolios` looks up
+  breakpoints by `cohort` instead of `yyyymm`, so a stock's portfolio number
+  is fixed for its whole holding period. A cohort whose de-duplicated
+  cross-section produces duplicate quantile edges (too few distinct signal
+  values to cut into `n` groups) is skipped entirely for that cohort, rather
+  than silently collapsing to fewer groups whose portfolio numbers would
+  mean something different from every other cohort's.
+- **Rationale:** Matches the standard convention used by Kenneth French's
+  Data Library, AQR's published factor-replication code, and virtually every
+  academic "portfolio sort" implementation — the goal of this project is
+  fidelity to a paper's stated methodology, not a lower-staleness variant
+  the paper never specified. `compute_returns`/`compute_long_short` needed
+  no changes: they only `groupby(["yyyymm","portfolio"])` and build a fresh
+  frame via `reset_index`, so the extra `cohort` column is inert metadata
+  that never survives past `compute_returns`'s output.
+- **Empirical impact:** No-op (byte-identical) for a synchronized formation
+  calendar with zero missing-data churn during a holding period (breakpoints
+  computed from an unchanged constant cross-section give identical numbers
+  whether keyed by cohort or current month) — confirmed by the full existing
+  `test_*_e2e.py` suite passing unchanged. Numbers change only for papers
+  with staggered/rolling formation dates or missing-return churn mid-holding
+  period — exactly the cases this fix targets. One pre-existing test
+  (`test_signal_master_multisource.py::test_generated_multi_source_script_runs`)
+  surfaced a genuine edge case (a monthly-refreshed IBES signal run through
+  the non-overlapping default without flagging `overlapping`, producing a
+  formation cohort with a degenerate/duplicate-value cross-section); fixed
+  by skipping portfolio formation for that one degenerate cohort instead of
+  crashing (see `compute_breakpoints`/`assign_portfolios` in `steps.py`).
+- **Trade-offs / risks:** Multi-dimensional (double) sorts were removed in
+  the same pass (see below) and never got a formation-locked treatment;
+  should double sorts return in the future, they would need the same fix
+  applied to their own breakpoint/assignment functions.
+- **References:** [src/infra/backtest_engine/steps.py](../src/infra/backtest_engine/steps.py)
+  (`apply_signal_holding_period`, `compute_breakpoints`, `assign_portfolios`),
+  [tests/test_formation_locked_breakpoints.py](../tests/test_formation_locked_breakpoints.py).
+
+## 2026-07-24 — Rename `merge_signal` to `apply_signal_holding_period`
+
+- **Context / problem:** `merge_signal`'s name only described the least
+  important part of what it does (a one-line `.merge()` at the end); the
+  actual non-trivial logic is expanding a low-frequency signal into one row
+  per held month, capped at the rebalance step (`apply_*` is the existing
+  naming convention for "apply a rule to the data", used by
+  `apply_delisting_returns`/`apply_missing_policy`/`apply_excess_returns").
+- **Decision:** Renamed to `apply_signal_holding_period` (via IDE rename
+  across `steps.py`, its call sites, and tests; the dynamic
+  `_dispatch("merge_signal", ...)` string literal and `ctx.trace.append(...)`
+  in `__init__.py` needed a manual follow-up fix since a language-server
+  rename can't see through `getattr(steps, step_name_string)`).
+- **Rationale:** Consistent naming makes the step list in
+  `BacktestExecutor`'s docstring read accurately; no behavior change.
+- **Empirical impact:** None (pure rename). Full suite re-verified: 134
+  passed, 26 skipped.
+- **References:** [src/infra/backtest_engine/steps.py](../src/infra/backtest_engine/steps.py),
+  [src/infra/backtest_engine/__init__.py](../src/infra/backtest_engine/__init__.py).
+
+## 2026-07-24 — Strip non-standard engine capabilities to one vanilla single-dim portfolio-sort path
+
+- **Context / problem:** An architecture review of every config/MethodSpec
+  field driving the backtest engine (schema → extractor → reviewer →
+  registry → engine) found five branches whose value, weighed purely
+  against "is this part of the single most standard factor-replication
+  path" (independent of how many existing fixtures happened to exercise
+  them), did not belong in a from-scratch vanilla engine: overlapping-cohort
+  holding (momentum/reversal convention), multi-dimensional (double) sorts,
+  the discrete/categorical sort form, the Fama-MacBeth cross-sectional-
+  regression estimator, and the optional microcap-exclusion filter.
+- **Options considered:** (a) keep all five (prior audit's recommendation,
+  weighing fixture-coverage loss — 9/26 fixtures used Fama-MacBeth, ~3-5
+  used double sorts); (b) remove only the two with near-zero fixture
+  coverage (overlapping: 2/26; discrete: 0/26; microcap: 0/26, always
+  `False`); (c) remove all five regardless of fixture coverage, per explicit
+  direction to standardize the engine to one vanilla path first and
+  re-introduce capabilities later, incrementally, only as a specific
+  paper's replication actually needs them.
+- **Decision:** (c). Removed: `config["overlapping"]` (+
+  `merge_signal_overlap`/`compute_breakpoints_overlap`/
+  `assign_portfolios_overlap`/`compute_returns_overlap`/
+  `compute_long_short_overlap`, `_OVERLAP_STEPS` dispatch routing,
+  `SignalTiming.overlapping_portfolios`/`skip_month` fields);
+  `cat_form="discrete"` (+ `MethodSpec.cat_form` field, the discrete
+  branches in `compute_breakpoints`/`assign_portfolios`/`compute_long_short`);
+  `config["microcap_exclude"]` (+ its branch in `filter_universe`);
+  `config["sort_dims"]`/multi-dimensional sort (+
+  `compute_breakpoints_multi`/`assign_portfolios_multi`, `_MULTI_DIM_STEPS`
+  dispatch routing, `registry.resolve_sort_dims`/`_sort_variable_column`,
+  `PortfolioSpec.sorts[]`/`SortLegSpec`); `estimator="fama_macbeth"` (+
+  `estimators.run_fama_macbeth`, `steps.compute_fama_macbeth`,
+  `PortfolioConstructionType.REGRESSION_WEIGHTED`, the optional
+  `linearmodels` dependency). Kept as-is (both options in each pair are
+  equally "standard" in the literature and removing either wouldn't reduce
+  branching complexity): `weighting_rule` (vw/ew), `breakpoint_source`
+  (nyse/full_sample), all four `return_combination_type` variants,
+  `rebalance_frequency`, the deterministic delisting/missing/excess-return
+  handling.
+- **Rationale:** A vanilla, easy-to-verify single path is a better
+  foundation to layer the formation-locked-breakpoints fix (see companion
+  entry above) onto than a codebase with four parallel step-families
+  (standard/`_overlap`/`_multi`/fama-macbeth) to keep in sync. Every removed
+  capability remains re-addable later, one at a time, against a concrete
+  paper that needs it, rather than carried as speculative generality.
+- **Empirical impact:** Deleted the fixtures/tests tied to the removed
+  capabilities: 9 Asness-Bender 1998 fixtures (`data/test_method_specs_human_labeled/AB1998_*`,
+  fama_macbeth), 2 LohWarachka 2011 fixtures (`..._StreakSign`/`..._StreakSURPQuintile`,
+  overlapping), 3 Ball 2016 fixtures (`Ball2016_ACC`/`RMWCbOP`/`RMWOP`, 2x3
+  double sort), and 3 orphaned `tests/fixtures/` momentum/double-sort
+  fixtures+plugins that no active test referenced
+  (`jegadeesh_titman_1993_momentum`, `moskowitz_grinblatt_1999_industry_momentum`,
+  `fama_french_1993_double_sort_hml`). Deleted `tests/test_overlapping_holding.py`,
+  `tests/test_multi_sort.py`, `tests/test_fama_macbeth.py`,
+  `tests/test_discrete_sort.py`, and the microcap tests in
+  `tests/test_research_design.py`. Full suite: 134 passed, 26 skipped
+  (previously 193 passed, 26 skipped — the 59 fewer are exactly the deleted
+  tests for removed capabilities, not a regression).
+- **Trade-offs / risks:** Replicating an Asness-Bender-style
+  (regression-weighted), momentum-overlapping, double-sort, or
+  categorical-signal paper is not currently possible until that capability
+  is deliberately re-added; the removed code is preserved in git history if
+  needed as a reference when re-adding.
+- **References:** [src/infra/backtest_engine/steps.py](../src/infra/backtest_engine/steps.py),
+  [src/infra/backtest_engine/estimators.py](../src/infra/backtest_engine/estimators.py),
+  [src/infra/backtest_engine/__init__.py](../src/infra/backtest_engine/__init__.py),
+  [src/steps/step3_codegen/registry.py](../src/steps/step3_codegen/registry.py),
+  [src/infra/models/method_spec.py](../src/infra/models/method_spec.py),
+  [src/steps/step1_extractor/__init__.py](../src/steps/step1_extractor/__init__.py),
+  [src/steps/step2_reviewer/__init__.py](../src/steps/step2_reviewer/__init__.py).
+
+
+
 ## 2026-07-23 — Full-repo audit: remove remaining silent CRSP defaults (universe screen + legacy path fallback)
 
 - **Context / problem:** After the `catalog.py`/`RETURNS_UNIVERSES` refactor

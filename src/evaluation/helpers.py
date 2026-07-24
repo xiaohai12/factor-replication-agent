@@ -147,9 +147,6 @@ def parse_signaldoc_ground_truth(row: dict) -> dict:
     if row.get("Filter"):
         gt["filter"] = row["Filter"].strip()
 
-    if row.get("Cat.Form"):
-        gt["cat_form"] = row["Cat.Form"].strip().lower()
-
     detailed_def = row.get("Detailed Definition", "")
     keywords = _extract_formula_keywords(detailed_def)
     if keywords:

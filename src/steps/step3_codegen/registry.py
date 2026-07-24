@@ -31,7 +31,6 @@ from src.infra.models.method_spec import (
     BreakpointSource,
     MissingAction,
     MethodSpec,
-    PortfolioConstructionType,
     ReturnCombinationType,
     WeightingRule,
 )
@@ -58,15 +57,6 @@ STANDARD: dict[str, set[str]] = {
         MissingAction.DROP.value,
         MissingAction.UNSPECIFIED.value,
     },
-    "portfolio_construction": {
-        PortfolioConstructionType.CHARACTERISTIC_SORT.value,
-        # REGRESSION_WEIGHTED added Phase 7 (plan.md): routed to the
-        # Fama-MacBeth estimator (steps.compute_fama_macbeth) entirely
-        # instead of compute_returns -- see build_config()'s "estimator"
-        # field and BacktestExecutor.run_with_config()'s branch.
-        PortfolioConstructionType.REGRESSION_WEIGHTED.value,
-        PortfolioConstructionType.UNSPECIFIED.value,
-    },
     "return_combination": {
         ReturnCombinationType.EXTREME_GROUP_SPREAD.value,
         ReturnCombinationType.SINGLE_SIGNAL_PORTFOLIO_RETURN.value,
@@ -80,14 +70,6 @@ STANDARD: dict[str, set[str]] = {
         ReturnCombinationType.FULL_PORTFOLIO_RETURN.value,
         ReturnCombinationType.UNSPECIFIED.value,
     },
-    # Sort form (plan.md CZ-import Phase B; mirrors CZ Cat.Form). Only the two
-    # forms with a canonical deterministic implementation are standard in
-    # steps.form_portfolios:
-    #   continuous -> quantile sort; discrete -> one portfolio per distinct
-    #   signal value (categorical scores like governance index / MS / PS).
-    # Anything else (e.g. CZ's "custom" pre-assigned portfolios) is clamped to
-    # "continuous" by build_config rather than being special-cased.
-    "cat_form": {"continuous", "discrete"},
 }
 
 
@@ -129,14 +111,8 @@ def build_config(spec: MethodSpec, overrides: dict | None) -> dict:
         "missing_action":       _clamp(spec.missing_action, STANDARD["missing_action"], "drop"),
         "universe":             spec.universe_description,
         "formation_month":      spec.formation_month or 6,
-        "skip_month":           spec.skip_month or 0,
         "long_leg":             resolve_long_leg(spec),
         "short_leg":            resolve_short_leg(spec),
-        # Sort form (plan.md CZ-import Phase B; mirrors CZ Cat.Form): drives
-        # steps.form_portfolios branching between quantile (continuous) and
-        # one-portfolio-per-value (discrete). Clamped to the two implemented
-        # forms.
-        "cat_form":             _clamp(spec.cat_form, STANDARD["cat_form"], "continuous"),
         # Sample-period segmentation (plan.md CZ-import Phase A). Drives the
         # optional in-sample / post-sample / post-publication metric split in
         # steps.compute_metrics (mirrors CZ's sumportmonth insamp/between/
@@ -151,14 +127,6 @@ def build_config(spec: MethodSpec, overrides: dict | None) -> dict:
             for f in spec.portfolio.universe_filters
         ],
         "apply_delisting_returns": True,
-        "microcap_exclude": False,
-        # Multi-dimensional sort (plan.md Phase 3): [] unless the spec's
-        # portfolio_return.sorts[] resolves to a standard characteristic x
-        # size double sort (see resolve_sort_dims). >1 entries makes
-        # steps.form_portfolios route internally to its multi-dim logic, and
-        # routes compute_returns/compute_long_short to their _multi
-        # counterparts in _dispatch().
-        "sort_dims": resolve_sort_dims(spec, default_quantiles=n_quantiles) or [],
         # Return combination (plan.md Phase 4): how per-portfolio returns
         # combine into the reported series; see steps.compute_long_short.
         "return_combination_type": _clamp(
@@ -166,30 +134,18 @@ def build_config(spec: MethodSpec, overrides: dict | None) -> dict:
             STANDARD["return_combination"],
             "extreme_group_spread",
         ),
-        # Overlapping-cohort holding (plan.md Phase 5): standard when true
-        # (steps.merge_signal_overlap + friends), unless combined with a
-        # multi-dimensional sort (still hooked in that case, see
-        # detect_hooks()).
-        "overlapping": bool(spec.signal.timing.overlapping_portfolios),
         # Return basis / frequency (plan.md Phase 6). "excess" only actually
         # takes effect when factor data with an `rf` column is supplied to
-        # BacktestExecutor.run(factors=...) -- see steps.apply_excess_returns.
+        # BacktestExecutor.run(factors=...) -- see BacktestExecutor.apply_excess_returns.
         # return_frequency isn't consumed by the standard steps yet (which
         # are frequency-agnostic given a `yyyymm`-keyed panel); it documents
         # intent and is available for callers that load daily source data
-        # via steps.load_daily_msf() ahead of time.
+        # via BacktestExecutor.load_daily_msf() ahead of time.
         "return_basis": "excess",
         "return_frequency": (spec.reported_results.return_horizon or "monthly"),
-        # Estimator (plan.md Phase 7): "portfolio_sort" (default) runs the
-        # standard sort/breakpoints/assign/returns/combine chain;
-        # "fama_macbeth" (construction_type=regression_weighted) routes to
-        # steps.compute_fama_macbeth entirely instead, right after
-        # merge_signal -- see BacktestExecutor.run_with_config().
-        "estimator": (
-            "fama_macbeth"
-            if ev(spec.portfolio.construction_type) == "regression_weighted"
-            else "portfolio_sort"
-        ),
+        # Estimator: "portfolio_sort" is the only standard estimator (see
+        # estimators.py / docs/decision-log.md).
+        "estimator": "portfolio_sort",
     }
     # Returns universe (portfolio-construction stock-return panel) comes from
     # the reviewed spec, never a hardcoded CRSP default. When the spec names a
@@ -206,57 +162,6 @@ def build_config(spec: MethodSpec, overrides: dict | None) -> dict:
     if overrides:
         config.update(overrides)
     return config
-
-
-def _sort_variable_column(variable: str) -> str | None:
-    """Map a SortLegSpec.variable name onto a column the standard engine's
-    merged panel actually has. Only 'size'-like variables are recognized as a
-    control dimension (-> `me`, already present from CRSP); anything else is
-    assumed to be the paper's own characteristic (-> `signal`)."""
-    v = (variable or "").lower()
-    if "size" in v or "market_equity" in v or v == "me" or v == "mktcap":
-        return "me"
-    return None
-
-
-def resolve_sort_dims(spec: MethodSpec, default_quantiles: int = 10) -> list[dict] | None:
-    """Best-effort mapping of `portfolio.sorts[]` onto the standard
-    engine's available columns (`signal`, `me`).
-
-    Deliberately narrow v1 (plan.md Phase 3): returns a resolved dims list
-    only for an exactly-2-dimensional sort where exactly one dimension is
-    recognized as a size/market-equity control variable and the other is the
-    paper's own characteristic. Anything else (3+ dims, 2 dims where neither
-    or both are size-like) returns None so build_config falls back to a single
-    sort — covers the single most common double-sort pattern in the
-    literature (characteristic x size) without over-claiming generality for
-    exotic multi-way sorts.
-    """
-    sorts = spec.portfolio.sorts
-    if len(sorts) != 2:
-        return None
-
-    resolved: list[dict] = []
-    signal_dim_seen = False
-    for leg in sorts:
-        col = _sort_variable_column(leg.variable)
-        if col is None:
-            if signal_dim_seen:
-                return None  # two unrecognized dims -- can't map both to "signal"
-            col = "signal"
-            signal_dim_seen = True
-        n_groups = len(leg.groups) if leg.groups else 0
-        quantiles = n_groups if n_groups >= 2 else (3 if col == "me" else default_quantiles)
-        resolved.append({
-            "variable": leg.variable,
-            "column": col,
-            "quantiles": quantiles,
-            "source": "nyse",
-            "independent": leg.independent_sort if leg.independent_sort is not None else True,
-        })
-    if not signal_dim_seen:
-        return None  # both dims recognized as size-like -- degenerate
-    return resolved
 
 
 def resolve_long_leg(spec: MethodSpec) -> str:

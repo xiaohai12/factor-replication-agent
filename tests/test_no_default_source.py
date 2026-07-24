@@ -94,7 +94,7 @@ def test_reviewer_passes_known_sources():
 def test_load_data_raises_without_returns_universe():
     from src.infra.backtest_engine import BacktestExecutor
     with pytest.raises(ValueError, match="never defaults to a CRSP returns panel"):
-        BacktestExecutor()._load_data({})
+        BacktestExecutor().load_data(config={})
 
 
 def test_load_data_does_not_fall_back_to_crsp_for_a_different_returns_table(tmp_path):
@@ -116,7 +116,7 @@ def test_load_data_does_not_fall_back_to_crsp_for_a_different_returns_table(tmp_
 
     executor = BacktestExecutor(data_path=str(tmp_path))
     with pytest.raises(FileNotFoundError, match="no legacy fallback"):
-        executor._load_data({"returns_table": "some_other_equity_universe"})
+        executor.load_data(config={"returns_table": "some_other_equity_universe"})
 
 
 def test_build_config_sets_returns_table_from_universe():

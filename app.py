@@ -349,7 +349,6 @@ def _compare_specs(extracted: dict, ground_truth: dict) -> list[dict]:
         ("signal.timing.rebalance_frequency", "signal.timing.rebalance_frequency"),
         ("signal.timing.holding_period", "signal.timing.holding_period"),
         ("signal.timing.accounting_lag", "signal.timing.accounting_lag"),
-        ("signal.timing.skip_month", "signal.timing.skip_month"),
         ("signal.missing_policy.action", "signal.missing_policy.action"),
         ("portfolio.sort.breakpoint_source", "portfolio.sort.breakpoint_source"),
         ("portfolio.weighting", "portfolio.weighting"),

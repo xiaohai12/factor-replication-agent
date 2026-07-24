@@ -77,7 +77,6 @@ HIGH_IMPACT_FIELDS = {
     "signal.timing.formation_month",
     "signal.timing.rebalance_frequency",
     "signal.timing.holding_period",
-    "signal.timing.skip_month",
     "signal.missing_policy",
     "portfolio.sort.breakpoint_source",
     "portfolio.sort.ls_quantile",
@@ -88,7 +87,6 @@ HIGH_IMPACT_FIELDS = {
     "portfolio.short_leg",
     "portfolio.implied_factor_direction",
     "portfolio.construction_type",
-    "portfolio.sorts",
     "portfolio.return_combination",
     "reported_results.return_horizon",
     "reported_results.spreads",
@@ -365,15 +363,15 @@ class ReviewGate:
     def _check_portfolio_structure_consistency(self, spec: MethodSpec, result: ReviewResult) -> None:
         """Warn (don't block) when the prose fields suggest a double-sort or
         multi-leg construction that the structured `portfolio`
-        (sorts/construction_type/return_combination) fields leave unpopulated.
+        (construction_type/return_combination) fields leave unpopulated.
 
-        The engine is standardized: a construction outside the fixed menu (or an
-        unpopulated structured field) is clamped to the menu default (a standard
-        single-variable sort / extreme_group_spread) rather than code-generated.
-        That default may not match the paper, so surface it as a review warning
-        for a human to populate the structured field — but it is not a hard
-        block, and any residual gap is decomposed downstream by step7's
-        replication-gap analysis.
+        The engine is standardized to a single-dimension continuous sort: a
+        construction outside that (or an unpopulated structured field) is
+        clamped to the menu default (extreme_group_spread) rather than
+        code-generated. That default may not match the paper, so surface it
+        as a review warning for a human to populate the structured field —
+        but it is not a hard block, and any residual gap is decomposed
+        downstream by step7's replication-gap analysis.
         """
         portfolio_return = spec.portfolio
 
@@ -383,18 +381,17 @@ class ReviewGate:
         ]).lower()
         sort_signal_words = ("double", "conditional", "interact", "two-way", "average of", " and ")
         sort_structure_populated = (
-            bool(portfolio_return.sorts)
-            or portfolio_return.construction_type != PortfolioConstructionType.UNSPECIFIED
+            portfolio_return.construction_type != PortfolioConstructionType.UNSPECIFIED
             or portfolio_return.return_combination.type != ReturnCombinationType.UNSPECIFIED
         )
         if any(k in sort_text for k in sort_signal_words) and not sort_structure_populated:
             result.warnings.append(
                 "portfolio.long_leg/short_leg suggest a double-sort or multi-leg "
-                "construction, but portfolio (sorts/construction_type/"
-                "return_combination) is unpopulated -- the standardized engine will "
-                "run a single-variable sort with the menu default combination. "
-                "Populate portfolio.sorts/return_combination if the paper's "
-                "construction should be captured."
+                "construction, but portfolio.construction_type/return_combination "
+                "is unpopulated -- the standardized engine only supports a "
+                "single-dimension sort and will run it with the menu default "
+                "combination. Populate portfolio.return_combination if the "
+                "paper's construction should be captured."
             )
 
     def _check_ambiguous_fields(self, spec: MethodSpec, result: ReviewResult) -> None:

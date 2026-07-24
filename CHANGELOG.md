@@ -2,6 +2,86 @@
 
 ## [Unreleased]
 
+### Changed — backtest engine consolidated into a single `BacktestExecutor` class/file
+- `src/infra/backtest_engine/steps.py` and `estimators.py` are deleted;
+  everything (orchestration + every step's computation) now lives in one
+  class, `BacktestExecutor`, in `src/infra/backtest_engine/__init__.py`.
+  `_dispatch()`/`Step` Protocol/`BacktestContext` dataclass are gone —
+  `run_with_config()` is now a flat, readable sequence of `self.<step>()`
+  calls in fixed order (10 steps: `load_data` -> `apply_delisting_returns` ->
+  `apply_missing_policy` -> `filter_universe` -> `apply_excess_returns` ->
+  `apply_signal_holding_period` -> `form_portfolios` -> `compute_returns` ->
+  `compute_long_short` -> `compute_metrics`, + `compute_factor_alphas` when
+  factor data is supplied).
+- Every step method accepts its inputs as optional explicit arguments
+  (falling back to the matching `self.*` attribute when omitted), so each
+  step stays independently unit-testable exactly like the old pure
+  functions (e.g. `BacktestExecutor().compute_long_short(rets, config)`)
+  without needing to run the whole pipeline first.
+- 9 test files updated to call `BacktestExecutor().<method>(...)` /
+  `BacktestExecutor.<static_method>(...)` (for the few pure utilities kept
+  as `@staticmethod`: `load_msf`, `load_daily_msf`, `apply_universe_filters`)
+  instead of the deleted `steps.<function>(...)`. No behavior/assertion
+  changes; full suite re-verified: 134 passed, 26 skipped (unchanged).
+- See `docs/decision-log.md` 2026-07-24 for full rationale and the
+  testability trade-off considered.
+
+### Fixed — backtest engine: formation-locked (cohort-based) breakpoints/portfolio assignment
+- `steps.apply_signal_holding_period` (renamed from `merge_signal`, see
+  below) now tags every expanded row with a `cohort` column
+  (the signal's original formation `yyyymm`). `compute_breakpoints`/
+  `assign_portfolios` group/look up by `cohort` instead of the current
+  `yyyymm`, so a stock's portfolio membership is computed once at formation
+  and held fixed for its whole holding period (the standard
+  form-once-hold-fixed factor-replication convention), instead of being
+  re-derived fresh every current month. A cohort whose de-duplicated
+  cross-section produces duplicate quantile breakpoints (too few distinct
+  signal values) is skipped for that cohort rather than crashing.
+- New tests: `tests/test_formation_locked_breakpoints.py`.
+- See `docs/decision-log.md` 2026-07-24 for full rationale and empirical
+  impact.
+
+### Changed — renamed `steps.merge_signal` to `steps.apply_signal_holding_period`
+- The old name only described the trailing `.merge()` call, not the
+  non-trivial work (expanding a low-frequency signal into one row per held
+  month, capped at the rebalance step) — renamed to match the existing
+  `apply_*` step-naming convention (`apply_delisting_returns`/
+  `apply_missing_policy`/`apply_excess_returns`). Pure rename, no behavior
+  change; full suite re-verified (134 passed, 26 skipped).
+
+### Removed — non-standard backtest engine capabilities (standardize to one vanilla single-dim portfolio-sort path)
+- Removed overlapping-cohort holding (`config["overlapping"]`,
+  `merge_signal_overlap`/`compute_breakpoints_overlap`/
+  `assign_portfolios_overlap`/`compute_returns_overlap`/
+  `compute_long_short_overlap`, `SignalTiming.overlapping_portfolios`/
+  `skip_month`), the discrete/categorical sort form (`cat_form="discrete"`,
+  `MethodSpec.cat_form`), the optional microcap-exclusion filter
+  (`config["microcap_exclude"]`), multi-dimensional (double) sorts
+  (`config["sort_dims"]`, `compute_breakpoints_multi`/
+  `assign_portfolios_multi`, `registry.resolve_sort_dims`,
+  `PortfolioSpec.sorts[]`/`SortLegSpec`), and the Fama-MacBeth
+  cross-sectional-regression estimator (`estimator="fama_macbeth"`,
+  `steps.compute_fama_macbeth`, `PortfolioConstructionType.REGRESSION_WEIGHTED`,
+  the optional `linearmodels` dependency).
+- Deleted fixtures/tests tied to the removed capabilities: 9 Asness-Bender
+  1998 fixtures (`data/test_method_specs_human_labeled/AB1998_*`), 2
+  LohWarachka 2011 fixtures, 3 Ball 2016 double-sort fixtures, 3 orphaned
+  momentum/double-sort fixtures+plugins under `tests/fixtures/`,
+  `tests/test_overlapping_holding.py`, `tests/test_multi_sort.py`,
+  `tests/test_fama_macbeth.py`, `tests/test_discrete_sort.py`, and the
+  microcap tests in `tests/test_research_design.py`.
+- Updated `src/steps/step1_extractor/__init__.py` (extraction schema/field
+  mapping), `src/steps/step2_reviewer/__init__.py` (fixed a latent
+  `AttributeError` in `_check_portfolio_structure_consistency` that referenced
+  the now-removed `portfolio.sorts`), `src/evaluation/gt_matcher.py`,
+  `src/evaluation/helpers.py`, `app.py`, `scripts/run_extraction_eval.py`,
+  and `prompts/extractor/methodspec_extractor.md` to stop referencing the
+  removed fields.
+- Full suite after both changes: 134 passed, 26 skipped (was 193/26 before
+  either change — the 59 fewer are the deleted tests for removed
+  capabilities, not a regression). See `docs/decision-log.md` 2026-07-24 for
+  full rationale.
+
 ### Fixed — README.md was still describing the pre-restructure, unimplemented framework
 - Answering "is README.md up to date": no — it hadn't been touched since the
   original framework proposal. Updated it to match the current repo:
