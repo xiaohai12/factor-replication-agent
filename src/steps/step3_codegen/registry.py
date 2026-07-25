@@ -61,7 +61,8 @@ STANDARD: dict[str, set[str]] = {
         ReturnCombinationType.EXTREME_GROUP_SPREAD.value,
         ReturnCombinationType.SINGLE_SIGNAL_PORTFOLIO_RETURN.value,
         # AVERAGE_LEG_SPREAD / FULL_PORTFOLIO_RETURN added Phase 4 (plan.md):
-        # steps.compute_long_short now implements all four types. Note
+        # BacktestExecutor.combine_portfolio_returns now implements all four
+        # types. Note
         # average_leg_spread only *actually* averages multiple portfolios
         # per leg when config["long_portfolios"]/["short_portfolios"] are
         # explicitly given (free-text leg descriptions aren't auto-parsed);

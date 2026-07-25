@@ -246,7 +246,7 @@ Meta-Coder 还实现 `repair_plugin(plugin, errors)`，在 Future-Leak Scan 命�
 
 | 文件 | 职责 |
 |---|---|
-| `__init__.py` | 唯一的文件：`BacktestExecutor` 一个类，编排 + 每一步的计算实现都是这个类的方法。`run_with_config()` 是一串按固定顺序调用的 `self.<step>()`，从上到下读下来就是完整流水线。每个 step 方法都接受可选的显式参数（省略时退回读 `self.*`），所以既能被 `run_with_config()` 无参调用，也能被单元测试直接传参调用（`engine.compute_long_short(rets, config)`）。不需要 self 状态的纯工具函数（`load_msf`/`load_daily_msf`/`apply_universe_filters`/`_apply_filter_op`/`_rebalance_step_months`/`_series_metrics`/`_sample_period_metrics`/`_newey_west_var`）是 `@staticmethod`。 |
+| `__init__.py` | 唯一的文件：`BacktestExecutor` 一个类，编排 + 每一步的计算实现都是这个类的方法。`run_with_config()` 是一串按固定顺序调用的 `self.<step>()`，从上到下读下来就是完整流水线。每个 step 方法都接受可选的显式参数（省略时退回读 `self.*`），所以既能被 `run_with_config()` 无参调用，也能被单元测试直接传参调用（`engine.combine_portfolio_returns(rets, config)`）。不需要 self 状态的纯工具函数（`load_msf`/`load_daily_msf`/`apply_universe_filters`/`_apply_filter_op`/`_rebalance_step_months`/`_series_metrics`/`_sample_period_metrics`/`_newey_west_var`）是 `@staticmethod`。 |
 
 `build_config()` 这个**只在生成时**被调用（从不被 `run_with_config()` 自己调用）的选择逻辑，住在 `src/steps/step3_codegen/registry.py`——这样 `step3_codegen`（只生成 `compute_signal()`、再组装完整回测脚本）不再需要依赖引擎库；`BacktestExecutor._build_config()`/`_resolve_long_leg()`/`_resolve_short_leg()`/`_normalize_leg()` 仍然保留在 `src/infra/backtest_engine/__init__.py` 里，作为对旧调用方（含测试）的薄委托，转发到 `step3_codegen.registry`。
 
@@ -282,8 +282,8 @@ STANDARD = {
 | 5 | `apply_excess_returns` | 有 `factors`（含 `rf`）且 `return_basis=excess`（默认）时减去无风险利率；否则 no-op |
 | 6 | `apply_signal_holding_period` | 年度 signal 展开持有，按 `rebalance_frequency` 封顶持有窗口；每行打上形成 `cohort` 标签，供下一步锁定断点（2026-07-24 formation-locked 修复） |
 | 7 | `form_portfolios` | 断点计算 + 分组一次完成；断点/分组按 **cohort（形成月）锁定**，不是按当前月现算——组合归属在整个持有期内固定不变（form-once-hold-fixed，Fama-French/Ken French Data Library 惯例） |
-| 8 | `compute_returns` | VW（`me` 权重）或 EW |
-| 9 | `compute_long_short` | 支持 `extreme_group_spread`/`average_leg_spread`/`single_signal_portfolio_return`/`full_portfolio_return` 四种组合 |
+| 8 | `compute_portfolio_returns` | 各组合自己的月度收益：VW（`me` 权重）或 EW |
+| 9 | `combine_portfolio_returns` | 把 Step 8 各组合的收益合成最终对外报告的收益序列；支持 `extreme_group_spread`/`average_leg_spread`/`single_signal_portfolio_return`/`full_portfolio_return` 四种组合方式（不总是 long-short 价差） |
 | 10 | `compute_metrics` | 月度均值、Newey-West t-stat、Sharpe；有 `factors` 时额外调用 `compute_factor_alphas`（CAPM/FF3/FF5，`statsmodels` OLS+HAC） |
 
 Attribution 保证：两个 track 使用同一个 plugin（相同 `compute_signal`），只改 config → 结果差异 100% 来自 config 选择。

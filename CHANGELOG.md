@@ -2,6 +2,66 @@
 
 ## [Unreleased]
 
+### Changed — clearer step 8/9 method names in `BacktestExecutor`
+- Renamed `BacktestExecutor.compute_returns` -> `compute_portfolio_returns`
+  and `BacktestExecutor.compute_long_short` -> `combine_portfolio_returns`
+  (`src/infra/backtest_engine/__init__.py`). Pure rename, no behavior change:
+  clarifies that Step 8 computes each portfolio's *own* return (not yet
+  combined), and Step 9 combines those into the final reported series --
+  which, depending on `config["return_combination_type"]`, is not always an
+  actual long-short spread (`single_signal_portfolio_return`/
+  `full_portfolio_return` aren't). Updated all call sites, docstrings, and
+  `docs/architecture.md`; historical `CHANGELOG.md`/`docs/decision-log.md`
+  entries that reference the old names are left as-is (accurate at the time
+  they were written). Full suite re-verified after rename.
+
+### Added — web UI backend scaffolding (Phase A of Streamlit -> React/FastAPI migration)
+- New `web` optional-dependencies group in `pyproject.toml`: `fastapi`,
+  `uvicorn[standard]`, `python-multipart`. Backend code will live in a new
+  `backend/` package (FastAPI app wrapping the existing `Pipeline`/step
+  classes; no pipeline logic is being rewritten, only wrapped).
+- Extracted the resolution-apply logic that previously lived only in
+  `scripts/resolve_review_blocks.py` (a CLI script) into
+  `src/steps/step2_reviewer/resolution.py`
+  (`get_path`/`set_path`/`build_decision`/`apply_decisions`), so both the CLI
+  script and the new backend's future `/api/resolve` endpoint share one
+  implementation instead of duplicating it. Pure refactor, no behavior
+  change. New tests: `tests/test_resolution.py` (6 tests). Full suite
+  re-verified: 140 passed, 26 skipped (was 134/26).
+- See `docs/decision-log.md` 2026-07-24 ("Replace Streamlit dashboard with a
+  React + FastAPI website") for the full migration rationale/plan.
+- Backend implemented: `backend/main.py` (FastAPI app + CORS + startup hook
+  that repopulates `RunRegistry` from `EvidenceStore`'s on-disk runs),
+  `backend/state.py` (one shared `Pipeline` instance; per-request LLM client
+  construction), `backend/jobs.py` (generic `JobManager` for SSE-streamed
+  background jobs -- extraction/LLM-review/codegen/backtest execution all
+  run through it), `backend/serialization.py` (recursive pydantic/dataclass/
+  DataFrame -> JSON helper), and routers `papers`/`methodspecs`/`codegen`/
+  `backtest`/`evidence`/`jobs`. Added two small additive methods needed by
+  the evidence/backtest routers: `RunRegistry.list_all()`
+  (`src/infra/evidence/__init__.py`) and `SnapshotManager.list_snapshots()`
+  (`src/infra/data_layer/__init__.py`) -- both non-breaking, existing classes
+  had no "list everything" accessor before. New `tests/test_backend_api.py`
+  (4 tests, no LLM calls; exercises rules-based review, human resolution,
+  and the full plugin -> backtest -> evidence-store flow against the same
+  synthetic-data golden numbers as `tests/test_mvp_e2e.py`). Full suite:
+  144 passed, 26 skipped. `ruff check src/ backend/` clean.
+- Frontend scaffolded: `frontend/` (Vite + React + TypeScript), Tailwind CSS
+  v4 + shadcn/ui (radix-nova style) + Recharts + `@tanstack/react-query` +
+  `react-router-dom`. Layout shell (`src/layout/AppLayout.tsx`, sidebar nav +
+  LLM provider/model selectors shared via `src/lib/llmContext.tsx`), shared
+  components (`JobLogPanel`, `MethodSpecViewer`, `MetricsTable`,
+  `ReturnChart`), `src/lib/api.ts` fetch client + `src/lib/useJobStream.ts`
+  SSE hook (falls back to a one-shot `GET /api/jobs/{id}` poll if the SSE
+  connection drops without a terminal event). Three pages wired up:
+  `PipelineE2EPage` (extract -> review -> resolve -> codegen -> validate ->
+  backtest, stage by stage), `BacktestExperimentsPage` (single-run backtest
+  against a resolved spec + pasted plugin code + picked snapshot),
+  `TraceLogsPage` (run registry table + evidence file browser/download).
+  `npx tsc -b`, `npm run build`, and `npm run lint` (oxlint) all clean.
+  Manually smoke-tested both dev servers together (`uvicorn` on :8000, Vite
+  on :5173 proxying `/api/*` to :8000).
+
 ### Changed — backtest engine consolidated into a single `BacktestExecutor` class/file
 - `src/infra/backtest_engine/steps.py` and `estimators.py` are deleted;
   everything (orchestration + every step's computation) now lives in one

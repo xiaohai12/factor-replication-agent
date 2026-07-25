@@ -14,8 +14,8 @@ to `self`, so `run_with_config()` doesn't need to pass anything between
 calls. Every step method ALSO accepts its inputs as optional explicit
 arguments (falling back to the matching `self.*` attribute when omitted),
 so each step stays independently unit-testable exactly like a plain
-function (`engine.compute_long_short(rets, config)`) without needing to run
-the whole pipeline first.
+function (`engine.combine_portfolio_returns(rets, config)`) without needing
+to run the whole pipeline first.
 
 The engine is fully standardized: there is no LLM-generated hook code —
 every portfolio-construction choice is *selected* from a fixed menu of
@@ -79,11 +79,13 @@ class BacktestExecutor:
                                         portfolio assignment, locked at each
                                         signal's own `cohort` and held fixed
                                         for the whole holding period
-      8.  compute_returns             — each portfolio's monthly return
+      8.  compute_portfolio_returns   — each portfolio's own monthly return
                                         (`config["weighting_rule"]`: vw or ew)
-      9.  compute_long_short          — combine per-portfolio returns into
-                                        the reported series
-                                        (`config["return_combination_type"]`)
+      9.  combine_portfolio_returns   — combine per-portfolio returns into
+                                        the final reported return series
+                                        (`config["return_combination_type"]`;
+                                        not always a long-short spread — see
+                                        that method's docstring)
       10. compute_metrics             — mean/t-stat/Sharpe (+ factor alphas
                                         via `compute_factor_alphas` when
                                         factor data is supplied)
@@ -92,8 +94,8 @@ class BacktestExecutor:
     list) AND returns its own result, and accepts its own inputs as optional
     explicit arguments — so `run_with_config()` calls each with no arguments
     (reading/writing `self.*`), while a unit test can call the same method
-    directly with explicit inputs (`engine.compute_long_short(rets, config)`)
-    without needing to run the rest of the pipeline first.
+    directly with explicit inputs (`engine.combine_portfolio_returns(rets,
+    config)`) without needing to run the rest of the pipeline first.
     """
 
     def __init__(self, data_path: str | None = None):
@@ -191,8 +193,8 @@ class BacktestExecutor:
         self.apply_excess_returns()
         self.apply_signal_holding_period()
         self.form_portfolios()
-        self.compute_returns()
-        self.compute_long_short()
+        self.compute_portfolio_returns()
+        self.combine_portfolio_returns()
         self.compute_metrics()
         if self.factors is not None:
             self.metrics.update(self.compute_factor_alphas())
@@ -677,12 +679,14 @@ class BacktestExecutor:
         return out
 
     # ------------------------------------------------------------------
-    # Step 8: compute_returns
+    # Step 8: compute_portfolio_returns
     # ------------------------------------------------------------------
 
-    def compute_returns(self, df: pd.DataFrame | None = None, config: dict | None = None) -> pd.DataFrame:
-        """Step 8: each portfolio's monthly return — value-weighted (by `me`)
-        or equal-weighted, selected by `config["weighting_rule"]` (vw/ew)."""
+    def compute_portfolio_returns(self, df: pd.DataFrame | None = None, config: dict | None = None) -> pd.DataFrame:
+        """Step 8: each portfolio's OWN monthly return (not yet combined into
+        a single reported series -- that's `combine_portfolio_returns`,
+        Step 9) -- value-weighted (by `me`) or equal-weighted, selected by
+        `config["weighting_rule"]` (vw/ew)."""
         df = self.portfolios if df is None else df
         config = self.config if config is None else config
 
@@ -709,30 +713,31 @@ class BacktestExecutor:
             )
 
         self.returns = rets
-        self.trace.append("compute_returns")
+        self.trace.append("compute_portfolio_returns")
         return rets
 
     # ------------------------------------------------------------------
-    # Step 9: compute_long_short
+    # Step 9: combine_portfolio_returns
     # ------------------------------------------------------------------
 
-    def compute_long_short(self, rets: pd.DataFrame | None = None, config: dict | None = None) -> pd.DataFrame:
-        """Step 9: combine per-portfolio returns into the reported series.
-
-        Selected via `config["return_combination_type"]`
+    def combine_portfolio_returns(self, rets: pd.DataFrame | None = None, config: dict | None = None) -> pd.DataFrame:
+        """Step 9: combine Step 8's per-portfolio returns into the final
+        reported return series. Despite the common `long_short` mental model,
+        this is NOT always a long-minus-short spread -- the actual behavior
+        is selected via `config["return_combination_type"]`
         (default `"extreme_group_spread"`):
           - `extreme_group_spread` (default): single top portfolio minus single
-            bottom portfolio.
+            bottom portfolio. (long - short)
           - `average_leg_spread`: average of `config["long_portfolios"]` minus
             average of `config["short_portfolios"]` (explicit portfolio-number
             lists) -- defaults to the same single top/bottom pair as
-            extreme_group_spread when those aren't given.
+            extreme_group_spread when those aren't given. (long - short)
           - `single_signal_portfolio_return`: report one portfolio's return
             as-is (`config["single_portfolio"]`, default: the "long" extreme),
-            no spread.
+            no spread -- NOT long-short.
           - `full_portfolio_return`: report every portfolio's return untouched,
-            no combination -- consumed differently by `compute_metrics` (no
-            single `ls_return`/t-stat; see there).
+            no combination -- NOT long-short; consumed differently by
+            `compute_metrics` (no single `ls_return`/t-stat; see there).
         """
         rets = self.returns if rets is None else rets
         config = self.config if config is None else config
@@ -774,7 +779,7 @@ class BacktestExecutor:
             out = pd.DataFrame(rows)
 
         self.long_short = out
-        self.trace.append("compute_long_short")
+        self.trace.append("combine_portfolio_returns")
         return out
 
     # ------------------------------------------------------------------
@@ -924,9 +929,10 @@ class BacktestExecutor:
         golden-number stability).
 
         Args:
-            ls: the combined return series from `compute_long_short` (must have
-                an `ls_return` column -- returns {} for the `full_portfolio_return`
-                shape, which has no single series to regress).
+            ls: the combined return series from `combine_portfolio_returns` (must
+                have an `ls_return` column -- returns {} for the
+                `full_portfolio_return` shape, which has no single series to
+                regress).
             factors: DataFrame with a `yyyymm` column plus whichever of
                 `mktrf`/`smb`/`hml`/`rmw`/`cma` are available (see
                 `scripts/fetch_ff_factors.py`). CAPM needs `mktrf`; FF3 needs

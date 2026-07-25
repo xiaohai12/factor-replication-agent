@@ -148,6 +148,10 @@ class SnapshotManager:
     def get_snapshot(self, snapshot_id: str) -> Optional[SnapshotMetadata]:
         return self._snapshots.get(snapshot_id)
 
+    def list_snapshots(self) -> list[SnapshotMetadata]:
+        """Get every registered snapshot (e.g. for a data-source picker UI)."""
+        return list(self._snapshots.values())
+
     def get_latest(self) -> Optional[SnapshotMetadata]:
         if not self._snapshots:
             return None

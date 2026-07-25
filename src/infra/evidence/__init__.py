@@ -62,6 +62,10 @@ class RunRegistry:
         """Get all runs for a factor."""
         return [r for r in self._runs.values() if r.factor_id == factor_id]
 
+    def list_all(self) -> list[RunRecord]:
+        """Get every registered run (e.g. for a run-registry table UI)."""
+        return list(self._runs.values())
+
     def get_pending(self) -> list[RunRecord]:
         """Get all pending runs."""
         return [r for r in self._runs.values() if r.status == "pending"]

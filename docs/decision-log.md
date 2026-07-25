@@ -32,6 +32,63 @@ when writing the paper.
 
 <!-- Add new entries below this line, newest first. -->
 
+## 2026-07-24 — Replace Streamlit dashboard with a React + FastAPI website
+
+- **Context / problem:** `app.py` (a single ~2,200-line Streamlit script, 7
+  pages) is hard to make interactive/responsive: Streamlit reruns the whole
+  script on every widget interaction, blocks the browser during long LLM/
+  backtest operations (only `st.spinner`/`st.progress` feedback), and has no
+  path to real-time step-by-step progress. User asked for a proper website
+  with good interactivity.
+- **Options considered:** (a) Keep Streamlit, add custom components /
+  `st.status` for nicer progress -- limited ceiling, still monolithic reruns.
+  (b) Next.js SSR app -- more routing/build machinery than an internal
+  single-user research tool needs. (c) FastAPI backend (wrapping existing
+  `Pipeline`/step classes unmodified) + React/TypeScript/Vite SPA frontend
+  with Tailwind/shadcn/ui, Recharts, and a generic SSE-based job system for
+  live progress.
+- **Decision:** Option (c). Full replacement of `app.py` (kept in place,
+  untouched, until the new site reaches feature parity; removal is a
+  separate future step). Local-only deployment (localhost:8000 backend /
+  localhost:5173 frontend dev servers), no auth. Scope staged: Phase 1 covers
+  Pipeline-E2E-wizard + Backtest&Experiments + Trace&Logs pages (the
+  highest-value core loop); the remaining 4 standalone pages
+  (Extractor/Review&Resolve/MetaCoder/Attribution) are explicit follow-up,
+  since their backend endpoints get built anyway (the E2E wizard calls the
+  same per-stage business logic).
+- **Rationale:** All business logic (`src/pipeline.py`, `src/steps/*`,
+  `src/infra/*`) is already well-factored and reusable as-is -- the backend
+  only needs to wrap existing entry points (`SemanticExtractor.extract`,
+  `ReviewGate.review`/`review_with_llm`, `MetaCoder.generate_plugin`,
+  `AdversarialSandbox.validate`, `BacktestRunner.build_script`/`execute`,
+  `EvidenceStore`/`RunRegistry`), never re-implementing empirical logic in
+  the web layer (preserves the "LLMs don't control empirical conclusions"
+  constraint). `PipelineTracer` (`src/infra/trace.py`) is in-memory,
+  read-after-fact only (no subscribe/callback API) -- rather than wiring
+  into it, the backend orchestrates each pipeline stage itself (mirroring
+  how `app.py` already manually drives stages 1-7 with human-in-the-loop
+  pauses) and emits its own SSE events per stage via a generic `JobManager`
+  (`asyncio.to_thread` + per-job event queue). This is simpler than making
+  `PipelineTracer` thread-safe/subscribable and needs no core pipeline
+  changes.
+- **Empirical impact:** None -- UI/tooling change only, no effect on
+  replication results.
+- **Trade-offs / risks:** (1) The resolution-decision logic
+  (`_apply_decisions` et al.) previously lived only in
+  `scripts/resolve_review_blocks.py`; extracted to
+  `src/steps/step2_reviewer/resolution.py` as a prerequisite so the backend
+  doesn't duplicate it -- pure refactor, covered by new
+  `tests/test_resolution.py`. (2) `BacktestRunner.execute()` has no
+  subprocess timeout today; not adding one as part of this migration (matches
+  current behavior) -- revisit only if a hung backtest becomes a real
+  problem. (3) Dual-track/ablation runs are already disabled/placeholder in
+  `app.py` itself, so the new Backtest & Experiments page intentionally only
+  covers single-run backtests for now -- not a regression, matches current
+  real functionality.
+- **References:** `pyproject.toml` (`web` extra), `src/steps/step2_reviewer/resolution.py`,
+  `tests/test_resolution.py`, `CHANGELOG.md` [Unreleased] "web UI backend
+  scaffolding".
+
 ## 2026-07-24 — Consolidate `steps.py`/`estimators.py`/`__init__.py` into one stateful `BacktestExecutor` class
 
 - **Context / problem:** The engine was split across three files (`__init__.py`
