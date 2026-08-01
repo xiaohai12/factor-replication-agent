@@ -15,7 +15,7 @@ The project foundation is in place:
 ## 1. MVP: End-to-End Minimal Workflow
 
 **Status: done (2026-07-17).** `Pipeline.run_from_method_spec()` runs the curated-MethodSpec
-chain (MetaCoder/repair loop → Sandbox → `DataLayer.get_signal_master_table()` → plugin
+chain (MetaCoder/repair loop → Sandbox → `assemble_signal_master_table()` → plugin
 `compute_signal()` → `BacktestEngine.run()` → `EvidenceStore`) against the synthetic data in
 `data/synthetic_data/`, and `tests/test_mvp_e2e.py` verifies the `cooper_gulen_schill_2008_asset_growth`
 result against independently-derived golden numbers
@@ -71,7 +71,7 @@ This phase uses synthetic data (small deterministic parquet snapshots), not WRDS
 | `ReviewGate` | LLM review runs, Evidence × Impact matrix fires, disposition (`auto_approve` / `needs_human_confirmation` / `blocked`) is returned |
 | `MetaCoder` | LLM prompt is sent, plugin code is generated, repair loop runs up to 3 retries for syntax/schema errors only |
 | `AdversarialSandbox` | Syntax check, schema check, future-leak scan (`shift(-`, `.future`, `lead(`), reproducibility check all execute |
-| `DataLayer` | `SnapshotManager` loads synthetic parquet; `TimeAvailComputer` computes `time_avail_m`; `CCMLinker` does point-in-time merge on synthetic data |
+| `DataLayer` | `SnapshotManager` loads synthetic parquet; the declarative `assemble_signal_master_table()` links gvkey→permno point-in-time and stamps `time_avail_m` on synthetic data (via the `sources.py` DataSource registry) |
 | `BacktestEngine` | All 10 steps run on synthetic data: load → lag → missing policy → universe filter → breakpoints → portfolio assignment → EW returns → long-short → metrics → evidence log |
 | `EvidenceStore` | `RunRecord` with MethodSpec hash, plugin code hash, synthetic-data snapshot hash, and metrics is persisted to `runs/evidence/` |
 

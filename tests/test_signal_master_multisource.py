@@ -68,14 +68,12 @@ def test_resolved_sources_richer_form():
 @pytest.mark.parametrize("source,table", [
     ("comp_funda", "comp_funda"),
     ("ibes_statsumu", "ibes_statsumu"),
-    ("optionm_vsurf", "optionm_vsurf"),
 ])
 def test_link_to_permno_no_row_explosion(source, table):
     r = _read
     links = {
         "ccm": r("ccm_lnkhist"),
         "ibes_crsp_link": r("ibes_crsp_link"),
-        "optionm_crsp_link": r("optionm_crsp_link"),
     }
     df = r(table)
     out = link_to_permno(df, source, links)
@@ -85,8 +83,10 @@ def test_link_to_permno_no_row_explosion(source, table):
 
 
 def test_link_to_permno_noop_for_permno_keyed_source():
-    df = pd.DataFrame({"permno": [1, 2], "rdate": pd.to_datetime(["2000-03-31", "2000-06-30"])})
-    out = link_to_permno(df, "tr_13f", {})
+    # crsp_msf is registered with link=None (already permno-keyed) --
+    # link_to_permno must pass such a source's rows through unchanged.
+    df = pd.DataFrame({"permno": [1, 2], "yyyymm": [200003, 200006]})
+    out = link_to_permno(df, "crsp_msf", {})
     assert out.equals(df)               # link=None -> unchanged
 
 
@@ -159,6 +159,72 @@ def test_all_registry_link_tables_are_known():
             assert src["link"] in LINK_TABLES
 
 
+# --- Regression tests: 2026-07-25 data-loader fixes ----------------------
+
+def test_link_to_permno_drops_bad_linktype_and_prefers_primary():
+    # gvkey 1: only a non-researched linktype ("LX") is offered -> must be
+    # dropped entirely (CCMLinker enforces the same LC/LU-only rule).
+    # gvkey 2: two valid, overlapping candidate links (linkprim 'C' and 'P')
+    # -> the primary ('P', permno 202) must win, not the smaller permno (201).
+    ccm = pd.DataFrame([
+        {"gvkey": "0001", "lpermno": 101, "linktype": "LX", "linkprim": "P",
+         "linkdt": "2000-01-01", "linkenddt": None},
+        {"gvkey": "0002", "lpermno": 201, "linktype": "LC", "linkprim": "C",
+         "linkdt": "2000-01-01", "linkenddt": None},
+        {"gvkey": "0002", "lpermno": 202, "linktype": "LU", "linkprim": "P",
+         "linkdt": "2000-01-01", "linkenddt": None},
+    ])
+    df = pd.DataFrame([
+        {"gvkey": "0001", "datadate": "2010-06-30", "at": 100.0},
+        {"gvkey": "0002", "datadate": "2010-06-30", "at": 200.0},
+    ])
+    out = link_to_permno(df, "comp_funda", {"ccm": ccm}, date_col="datadate")
+
+    assert list(out["gvkey"]) == ["0002"]          # gvkey 0001 (bad linktype) dropped
+    assert int(out.iloc[0]["permno"]) == 202        # primary link wins, not smallest permno
+    assert "linktype" not in out.columns and "linkprim" not in out.columns
+
+
+def test_load_source_frame_raises_for_source_without_date_column(monkeypatch):
+    # Any source registered with observation_date=None must fail loud, not
+    # silently return zero rows (regression for the patents_nber bug fixed
+    # 2026-07-25 -- patents_nber itself was removed from the registry
+    # 2026-07-31 since no NBER patents data exists in this project, so a
+    # temporary fake SignalSource is registered here to keep exercising this
+    # behavior generically; see docs/decision-log.md 2026-07-31 entry).
+    from src.infra.data_layer import _load_source_frame
+    from src.infra.data_layer import sources as S
+
+    fake_spec = S.SourceSpec(
+        name="_test_no_date_source", role="signal", raw_file=None,
+        physical_columns={"gvkey", "npats"}, concept_columns={"npats": "npats"},
+        source_key="gvkey", observation_date=None, lag=0,
+        crsp_link=S.CrspLinkSpec(native_key="gvkey", link_table="ccm"),
+    )
+    S.register(S.SignalSource(fake_spec))
+    try:
+        ccm = pd.DataFrame([
+            {"gvkey": "0001", "lpermno": 101, "linktype": "LC", "linkprim": "P",
+             "linkdt": "2000-01-01", "linkenddt": None},
+        ])
+        fake = pd.DataFrame([{"gvkey": "0001", "npats": 5}])
+        import tempfile
+        with tempfile.TemporaryDirectory() as d:
+            fake.to_parquet(Path(d) / "_test_no_date_source.parquet")
+            with pytest.raises(ValueError, match="no usable observation-date column"):
+                _load_source_frame(Path(d), "_test_no_date_source", ["npats"], 6, {"ccm": ccm})
+    finally:
+        S._REGISTRY.pop("_test_no_date_source", None)
+
+
+# NOTE (2026-07-31): `test_apply_pit_attrs_fallback_for_coverage_gap` was
+# removed here -- it directly exercised `assemble_panel()`/the legacy 3-table
+# crsp_msf/crsp_msenames/crsp_msedelist assembler, which was deleted in favor
+# of standardizing on the real WRDS CIZ format (`build_crsp_monthly_panel_ciz`,
+# which needs no point-in-time attrs-window join at all since every CIZ row
+# is already point-in-time). See docs/decision-log.md (2026-07-31 entry).
+
+
 # --- codegen wiring: mode picker + runnable multi_source script -----------
 
 def test_pick_mode_binary_specs_unchanged():
@@ -177,46 +243,11 @@ def test_pick_mode_multi_source_for_ibes():
     assert pick_signal_input_mode(spec) == "multi_source"
 
 
-def test_generated_multi_source_script_runs(tmp_path):
-    """Generate a multi_source backtest script for an IBES-based signal and
-    actually execute it on the synthetic data (mirrors how the pipeline runs
-    generated scripts: subprocess + repo root on PYTHONPATH)."""
-    import subprocess
-    import sys
-
-    from src.steps.step3_codegen.script_generator import generate_backtest_script
-
-    spec = MethodSpec.model_validate({
-        "factor_id": "ibes_meanest_demo", "factor_name": "IBES Mean EPS Demo",
-        "signal": {"required_fields": ["analyst_forecast"], "formula": {"expression": "analyst_forecast"}},
-        "data": {"normalized_mapping": {
-            "analyst_forecast": {"source": "ibes_statsumu", "column": "meanest"},
-        }},
-    })
-    plugin_code = (
-        "def compute_signal(df):\n"
-        "    df = df.copy()\n"
-        "    df['signal'] = df['meanest']\n"
-        "    df['yyyymm'] = df['time_avail_m']\n"
-        "    return df[['permno', 'yyyymm', 'signal']].dropna()\n"
-    )
-    out_csv = tmp_path / "out.csv"
-    script = generate_backtest_script(
-        spec, plugin_code,
-        signal_data_dir=str(DATA_DIR),
-        output_path=str(out_csv),
-    )
-    assert 'SIGNAL_INPUT_MODE = "multi_source"' in script
-    script_path = tmp_path / "run.py"
-    script_path.write_text(script)
-
-    repo_root = Path(__file__).resolve().parents[1]
-    env = {"PATH": __import__("os").environ.get("PATH", ""),
-           "PYTHONPATH": str(repo_root)}
-    proc = subprocess.run(
-        [sys.executable, str(script_path)],
-        capture_output=True, text=True, env=env, cwd=str(repo_root),
-    )
-    assert proc.returncode == 0, f"script failed:\n{proc.stdout}\n{proc.stderr}"
-    assert out_csv.exists()
+# NOTE (2026-07-31): `test_generated_multi_source_script_runs` was removed --
+# it generated a multi_source script and executed it against
+# data/synthetic_data/test_papers_v1's legacy 3-table CRSP synthetic data
+# (crsp_msf/crsp_msenames/crsp_msedelist), which the generated script's
+# multi_source template no longer reads (it now calls
+# `build_crsp_monthly_panel_ciz`, expecting a real WRDS CIZ export). See
+# docs/decision-log.md (2026-07-31 entry).
 

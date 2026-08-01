@@ -84,8 +84,31 @@ def build_ccm_link() -> pd.DataFrame:
 
 
 def build_crsp_msf() -> pd.DataFrame:
-    """24 months (Jul 1998 - Jun 2000) of monthly data for all 10 permnos."""
+    """25 months (Jun 1998 - Jun 2000): the June-1998 FORMATION-month row for
+    each permno PLUS the 24 held/return months Jul 1998 - Jun 2000.
+
+    The formation-month row (one month before the first holding month) carries
+    `me=100.0` like every other row but is NOT a held month (holding starts the
+    month after formation), so it doesn't enter any portfolio return. It exists
+    so that prior-month market equity (`me_{t-1}`) resolves for the first held
+    month (July 1998) under value-weighting -- real CRSP panels always have the
+    formation-month row; omitting it (as this fixture originally did) forced the
+    engine into a same-month-ME fallback. The held-month returns, decile
+    assignment, and the 24-month golden long-short series are all unchanged.
+    """
     rows = []
+    formation_yyyymm = _add_months(FIRST_HOLDING_YYYYMM, -1)  # June 1998
+    for idx in range(N_STOCKS):
+        i = idx + 1
+        rows.append({
+            "permno": _permno(i),
+            "yyyymm": formation_yyyymm,
+            "ret": 0.0,  # never held -> never enters a portfolio return
+            "me": 100.0,
+            "shrcd": 10,
+            "exchcd": 1,
+            "siccd": 2000,
+        })
     yyyymm = FIRST_HOLDING_YYYYMM
     for t in range(N_MONTHS):
         for idx in range(N_STOCKS):

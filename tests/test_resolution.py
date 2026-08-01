@@ -66,7 +66,6 @@ def test_apply_decisions_writes_value_clears_ambiguous_and_resets_status():
                 "field": "portfolio.breakpoints.source",
                 "source": "ambiguous",
                 "status": "blocked",
-                "confidence": "low",
                 "candidate_value": None,
             }
         ],
@@ -89,7 +88,6 @@ def test_apply_decisions_writes_value_clears_ambiguous_and_resets_status():
     ambiguous = spec_data["ambiguous_fields"][0]
     assert ambiguous["source"] == "clear"
     assert ambiguous["status"] == "clear"
-    assert ambiguous["confidence"] == "high"
     assert ambiguous["candidate_value"] == "nyse"
     assert ambiguous["human_resolution"]["decision_type"] == "human_empirical_assumption"
     assert ambiguous["human_resolution"]["reviewer"] == "human"

@@ -32,6 +32,1177 @@ when writing the paper.
 
 <!-- Add new entries below this line, newest first. -->
 
+## 2026-08-01 — DataLayer refactor Round 1 P4: one signal-master path (B-group deleted)
+
+- **Context / problem:** Two parallel mechanisms built the signal-master table:
+  the snapshot-based B-group (`CCMLinker` + `TimeAvailComputer` +
+  `get_signal_master_table`) — which the mvp/accruals GOLDEN NUMBERS ran through
+  — and the declarative D-group (`assemble_signal_master_table`, migrated to
+  `sources.py` in P3). Plan §5 (gated) merges them into one.
+- **Options considered:** (a) keep both; (b) merge, gated on a byte-identical
+  golden-number check with a fallback to split P4 into its own round.
+  Chose (b) — but FIRST ran a read-only equivalence check to quantify the risk.
+- **Read-only check (before any code change):** B-group vs D-group produced
+  BYTE-IDENTICAL `[permno, time_avail_m, *cols]` on both golden fixtures
+  (mvp/asset_growth, accruals). The only behavioral divergence: `CCMLinker`
+  drops a Compustat row whose linked `permno` is absent from the CRSP panel;
+  `link_to_permno` keeps it (irrelevant to the fixtures — every permno is in CRSP).
+- **Decision:** Deleted the B-group; the declarative loader is the single path.
+  The generated script's "compustat" mode now calls the same
+  `assemble_signal_master_table_from_sources` as "multi_source" (the modes
+  differ only in returns-panel loading). **Ghost-permno rule: KEEP** (user-
+  approved) — a permno with accounting data but no CRSP presence is retained
+  (CRSP-centric identity; the returns inner-join drops it downstream), rather
+  than replicating CCMLinker's pre-emptive drop.
+- **Rationale:** One implementation of "resolve gvkey→permno + stamp
+  time_avail_m", no drift risk between the in-process and generated paths, and
+  the registry/declarative loader is the single source of truth end to end.
+- **Empirical impact:** None — golden numbers byte-identical, verified by both
+  the read-only check and the subprocess-run mvp/accruals e2e.
+- **Trade-offs / risks:** Snapshot signal tables renamed to the real WRDS
+  layout (`comp_funda.parquet` + `ccm_lnkhist.parquet`, CCM keyed on `lpermno`);
+  every snapshot writer (e2e fixtures, `backend/state.py`, `app.py`,
+  `scripts/build_synthetic_data.py`) + `generate_backtest_script`'s signature
+  updated in lockstep. `SnapshotManager`/`DataLayer.snapshots` kept (orthogonal:
+  reproducible-run registry + UI picker + path resolution).
+- **References:** `src/infra/data_layer/__init__.py`,
+  `src/steps/step3_codegen/script_generator.py`,
+  `src/steps/step5_backtest_runner/__init__.py`, `src/pipeline.py`, `app.py`,
+  `tests/test_mvp_e2e.py`, `tests/test_accruals_e2e.py`, `plan.md` §5/P4,
+  CHANGELOG (Round 1 P4 entry).
+
+## 2026-08-01 — DataLayer refactor Round 1 P3: registry is the single source of truth; catalog derived
+
+- **Context / problem:** The signal-input metadata lived as hand-written dicts
+  in `catalog.py` (`DATA_CATALOG` / `LINK_TABLES`) while the loading behavior
+  lived as free functions in `data_layer/__init__.py` (the "D-group") — two
+  places to keep in sync, and a second signal-assembly path parallel to the
+  older snapshot one (plan.md §3).
+- **Options considered:** (a) keep catalog as the source of truth and have
+  `sources.py` read from it; (b) make the DataSource registry the source of
+  truth and DERIVE the catalog views from it. Chose (b) per plan §2② — one
+  place declares "what data exists / how it links", everything else is a view.
+- **Decision:** Registered `comp_funda`/`comp_fundq`/`ibes_statsumu` as
+  declarative `SourceSpec`s + `crsp_msf` as a `CrspSignalSource` (CRSP's dual
+  signal role, §2④), plus `ccm`/`ibes_crsp_link` as `LinkTableSpec`s; moved the
+  link/load/assemble logic into `sources.py`. `catalog.DATA_CATALOG` /
+  `LINK_TABLES` / `RETURNS_UNIVERSES` are now derived from the registry,
+  byte-identical to the old literals, so `source_of_column`/`resolve_concept`/
+  `signal_sources`/`concept_map` (and therefore MethodSpec + the reviewer) are
+  untouched (plan §6b). Raw dedup filters became declarative
+  `SourceSpec.raw_filters` instead of bespoke filter functions.
+- **Rationale:** Adding a Compustat-like source is now one `SourceSpec` entry
+  (the §0 litmus test) with no scattered dict edits; the "no silent default
+  source" rule is enforced by the same fail-loud registry lookups.
+- **Empirical impact:** None — the migrated loading logic is exercised
+  unchanged by `test_signal_master_multisource` on synthetic WRDS-shaped data,
+  and mvp/accruals golden numbers are byte-identical.
+- **Trade-offs / risks:** CRSP is now two registered objects (`crsp` returns
+  universe + `crsp_msf` signal source) sharing the CIZ assembler — intentional,
+  makes the dual role explicit. The old snapshot-based signal-master path
+  (B-group: CCMLinker/TimeAvailComputer/get_signal_master_table) still coexists;
+  merging it is the gated P4.
+- **References:** `src/infra/data_layer/sources.py`,
+  `src/infra/data_layer/catalog.py`, `src/infra/data_layer/__init__.py`,
+  `tests/test_data_sources.py`, `tests/test_signal_master_multisource.py`,
+  `plan.md` §2/§3/§4/P3, CHANGELOG (Round 1 P3 entry).
+
+## 2026-08-01 — DataLayer refactor Round 1 P2: CRSP returns via a DataSource registry
+
+- **Context / problem:** `BacktestExecutor.load_data` called the free assembler
+  `build_crsp_monthly_panel_ciz` directly, and returns/signal data entered the
+  pipeline through separate ad-hoc paths (see `plan.md` §1). Round 1 introduces a
+  CRSP-centric `DataSource` registry + `DataLayer` facade as the single source of
+  truth for "what data exists / how it links to permno".
+- **Options considered:** (a) config-driven `SourceSpec` for CRSP too;
+  (b) a bespoke `DataSource` subclass for CRSP. Chose (b) — CRSP needs multi-file
+  assembly (`CRSP_STOCK_MONTH.csv` + `CRSP_DELISTING.csv`), derived exchcd/shrcd
+  approximations, and a delisting merge, which `plan.md` §2③ explicitly carves out
+  as the "CRSP-shaped special" case for a custom class.
+- **Decision:** Migrated the CIZ returns backbone into `sources.py` as
+  `CrspReturnsUniverse` (+ the moved assembler/daily-loader/`_ciz_shrcd`/CIZ
+  constants). Added a returns sub-registry and a `DataLayer.load_returns*` facade;
+  `load_data` now resolves the panel through the registry. Kept the two public
+  assemblers re-exported from `sources.py` so the generated multi_source script,
+  `_load_source_frame`, and tests are unchanged.
+- **Rationale:** Establishes the one-directional `sources <- catalog <- __init__`
+  layering and the "no silent default panel" fail-loud contract without touching
+  the signal-assembly paths (deferred to P3/P4) — keeping golden numbers stable.
+- **Empirical impact:** None — mvp/accruals golden-number e2e byte-identical; the
+  panel-building code is a pure relocation, not a behavior change.
+- **Trade-offs / risks:** CRSP's signal role is still served by the re-exported
+  `build_crsp_monthly_panel_ciz` (D-group `_load_source_frame`); it becomes a
+  formally-registered CRSP `SignalSource` in P3. Transient duplication of the
+  `us_equity_crsp` alias between `catalog.RETURNS_UNIVERSES` and
+  `CrspReturnsUniverse.universe_aliases` until catalog is made registry-derived in P3.
+- **References:** `src/infra/data_layer/sources.py`,
+  `src/infra/data_layer/__init__.py`, `src/infra/backtest_engine/__init__.py`,
+  `tests/test_data_sources.py`, `plan.md` §2/§4/P2, CHANGELOG (Round 1 P2 entry).
+
+## 2026-07-31 — Deleted `load_msf`/`load_daily_msf` and the "panel" returns_layout
+
+- **Context / problem:** After removing the legacy 3-table CRSP assembler
+  (previous entry, same date), the user asked to also delete `load_msf`/
+  `load_daily_msf` ("还是删了msf或者daily msf吧"). These are format-agnostic
+  utilities (read an already-pre-flattened parquet, regardless of whether it
+  originated from legacy CRSP or CIZ) backing the `"panel"` returns_layout —
+  NOT specific to the legacy vs. CIZ distinction, so I flagged before
+  deleting that this would break the `"panel"` layout and
+  `tests/test_daily_frequency.py`'s `TestLoadDailyMsf` (3 tests). User
+  confirmed to proceed anyway.
+- **Approach:** Rather than fully hand-tracing every consumer up front
+  (as done for the previous, much larger legacy-assembler removal), deleted
+  the two methods + the `"panel"` layout, then ran the full test suite to
+  empirically discover the exact breakage — cheaper and more reliable than
+  guessing for a change of this size, and the test suite is comprehensive
+  enough to trust for this.
+- **What broke (only 6 tests, not the large cascade the "panel" layout's
+  other consumers implied):**
+  - `tests/test_daily_frequency.py::TestLoadDailyMsf` (all 3 tests) — deleted,
+    directly exercised the removed `load_daily_msf`.
+  - `tests/test_no_default_source.py::test_load_data_does_not_fall_back_to_crsp_for_a_different_returns_table`
+    — deleted, tested the removed `<data_path>/local/msf.parquet` legacy
+    file-location shim.
+  - `tests/test_no_default_source.py::test_build_config_sets_returns_table_from_universe`
+    / `test_build_config_defaults_returns_table_to_crsp_when_universe_unset` —
+    updated to assert `returns_layout == "crsp_ciz"` instead of `"panel"`
+    (since `catalog.RETURNS_UNIVERSES["us_equity_crsp"]` was repointed at
+    `crsp_ciz`, consolidating away the now-redundant separate
+    `"us_equity_crsp_ciz"` entry).
+- **What did NOT break (verified, not assumed):** `tests/test_mvp_e2e.py`,
+  `tests/test_accruals_e2e.py`, `tests/test_backend_api.py`, `app.py`,
+  `backend/state.py` — all pass. Root cause: the ACTUAL backtest execution for
+  these paths runs through `BacktestRunner.execute()`, which executes a
+  GENERATED STANDALONE SCRIPT via subprocess (see
+  `src/steps/step3_codegen/script_generator.py`). That generated script has
+  its OWN independent `load_msf()` function baked into its template — it
+  never calls `BacktestExecutor.load_data()`'s file-dispatch logic at all.
+  The `<data_path>/local/msf.parquet` file these e2e tests write was
+  apparently only ever consumed by `BacktestExecutor.load_data()`'s in-process
+  legacy shim (now removed), which nothing in the actual golden-number
+  execution path was relying on — the shim (and its supporting comment in
+  `tests/test_mvp_e2e.py`) had become stale/vestigial.
+- **Rationale:** Confirms `load_msf`/`load_daily_msf`/the `"panel"` layout
+  were narrower-scoped than they first appeared — removing them completes
+  the standardization on the real WRDS CIZ format for anything that goes
+  through `BacktestExecutor.load_data()` directly, while the
+  generated-script execution path (which most e2e tests and the demo
+  actually exercise) was never touched by any of this.
+- **Empirical impact:** None on any MethodSpec/backtest numbers. Full suite:
+  186 passed (down from 190 — 4 tests removed, 2 updated), 26 skipped.
+- **Trade-offs / risks:** Any FUTURE code that wants to hand
+  `BacktestExecutor.load_data()` a pre-flattened parquet by file path (rather
+  than an in-memory `data=` DataFrame or the real CIZ export) has no
+  supported mechanism anymore — would need a new, explicitly-scoped addition
+  if that need arises.
+- **References:** `src/infra/backtest_engine/__init__.py`,
+  `src/infra/data_layer/catalog.py`, `src/infra/data_layer/__init__.py`,
+  `src/steps/step3_codegen/registry.py`, `tests/test_daily_frequency.py`,
+  `tests/test_no_default_source.py`; CHANGELOG.md [Unreleased] same date.
+
+## 2026-07-31 — Deleted the legacy 3-table CRSP assembler; standardized on real WRDS CIZ format
+
+- **Context / problem:** After building real-WRDS-CIZ support (2026-07-30)
+  alongside the pre-existing legacy 3-table CRSP assembler
+  (`crsp_msf`/`crsp_msenames`/`crsp_msedelist`, joined via `SOURCE_SCHEMA`/
+  `assemble_panel()`), the user asked to drop the old format entirely and
+  standardize everything on the real sample-file-derived (CIZ) format
+  ("旧格式就不要了吧，全都按照sample文件为准").
+- **Options considered:**
+  1. Keep both formats side by side indefinitely (status quo from
+     2026-07-30).
+  2. Delete the legacy assembler and its `"crsp_raw"` returns_layout, and
+     delete/rework every test that depends on it.
+  3. Delete the legacy assembler but ALSO migrate its downstream synthetic
+     test fixtures (`data/synthetic_data/test_papers_v1/`) to a CIZ-shaped
+     equivalent, preserving full test coverage.
+- **Decision:** Option 2, per explicit user confirmation after being shown
+  the blast radius (a full audit was run first — see below — since this is
+  the kind of destructive, hard-to-reverse, cross-cutting change that
+  warrants explicit confirmation before touching anything). User also
+  explicitly confirmed deleting the dependent tests rather than pursuing
+  option 3's larger rework.
+- **Audit performed before touching anything** (to avoid guessing at blast
+  radius): confirmed that `scripts/build_synthetic_data.py`,
+  `tests/synthetic_data/asset_growth_synthetic_data.py`/
+  `accruals_synthetic_data.py`, `tests/test_mvp_e2e.py`,
+  `tests/test_accruals_e2e.py`, `tests/test_backend_api.py`, `app.py`,
+  `backend/state.py`, and `Pipeline.run_from_method_spec()` are all
+  INDEPENDENT of the legacy 3-table assembler — they all pass a single
+  pre-flattened DataFrame directly (via the `"panel"` returns_layout, or
+  `data=`/`DataLayer` snapshot passthrough), which reads a pre-flattened
+  parquet regardless of its internal provenance and was NOT touched. Only
+  `tests/test_crsp_raw_panel.py` (entirely), one test in
+  `tests/test_signal_master_multisource.py` (`test_apply_pit_attrs_
+  fallback_for_coverage_gap`, calling `assemble_panel()` directly), and one
+  more in the same file (`test_generated_multi_source_script_runs`, which
+  executes a generated multi-source script that transitively called the
+  legacy assembler through `script_generator.py`'s template) actually
+  depended on it.
+- **What was removed:**
+  - `src/infra/data_layer/__init__.py`: `SOURCE_SCHEMA`, `_DERIVE_OPS`,
+    `_load_base`, `_apply_pit_attrs`, `_apply_fold_last`, `assemble_panel`,
+    `build_crsp_monthly_panel` (the legacy one — `build_crsp_monthly_panel_ciz`
+    is now the only CRSP raw-tables assembler and was NOT renamed, to avoid
+    an unnecessary rename churn across already-working CIZ code).
+  - `BacktestExecutor.load_data()`'s `"crsp_raw"` returns_layout branch +
+    its `build_crsp_monthly_panel` import (kept `"panel"` and `"crsp_ciz"`).
+  - `catalog.RETURNS_UNIVERSES["us_equity_crsp_raw"]`.
+  - `_load_source_frame`'s special-cased `crsp_msf` branch: now calls
+    `build_crsp_monthly_panel_ciz(d / "local")` instead (matching where the
+    real CIZ export actually lives, same convention as the other raw-CSV
+    fallbacks).
+  - `script_generator.py`'s generated multi-source backtest script template:
+    now calls `build_crsp_monthly_panel_ciz(SIGNAL_DATA_DIR)` instead — a
+    generated script's `SIGNAL_DATA_DIR` is now expected to contain a real
+    WRDS CIZ export (`CRSP_STOCK_MONTH.csv`/`CRSP_DELISTING.csv`), not the
+    legacy 3-table split.
+  - `tests/test_crsp_raw_panel.py` (deleted entirely, all 5 tests) and two
+    tests in `tests/test_signal_master_multisource.py` (see above).
+- **Deliberately NOT removed / left as-is:**
+  - `scripts/build_test_papers_synthetic_data.py` — still generates
+    comp_funda/comp_fundq/ccm_lnkhist/ibes_crsp_link/ibes_statsumu fixtures
+    under `data/synthetic_data/test_papers_v1/` that
+    `test_signal_master_multisource.py`'s remaining tests use (those tests
+    never touched the legacy CRSP assembler — they exercise the generic
+    `_load_source_frame`/`link_to_permno` signal-input path against
+    Compustat/IBES parquet fixtures, independent of how the returns panel is
+    built). The same script's `crsp_msf`/`crsp_msenames`/`crsp_msedelist`/
+    `crsp_dsf`/`crsp_msedist` outputs are now simply unused, harmless
+    leftover files — not worth a separate script rewrite for this pass.
+  - The `"panel"` returns_layout / `DEFAULT_RETURNS_UNIVERSE="us_equity_crsp"`
+    — this is a GENERIC "read one pre-flattened parquet" mechanism, unrelated
+    to whether the underlying data was ever in the legacy 3-table shape; it's
+    what the MVP/accruals e2e tests and the Streamlit demo actually use, and
+    was never part of "the old format" being removed.
+- **Empirical impact:** None on any MethodSpec/backtest numbers (deletion +
+  test removal only). Full suite: 190 passed (down from 197 — 7 tests
+  removed), 26 skipped, unchanged otherwise.
+- **Trade-offs / risks:** Any future MethodSpec/generated script that needs a
+  multi-source signal + CRSP returns panel now REQUIRES the real WRDS CIZ
+  export to be present (no more legacy-format fallback for that combination).
+  `data/synthetic_data/test_papers_v1/`'s CRSP-shaped parquet files
+  (crsp_msf/crsp_msenames/crsp_msedelist/crsp_dsf/crsp_msedist) are now dead
+  weight on disk (gitignored, harmless) unless `build_test_papers_synthetic_data.py`
+  is revisited later to stop generating them.
+- **References:** `src/infra/data_layer/__init__.py`,
+  `src/infra/backtest_engine/__init__.py`,
+  `src/infra/data_layer/catalog.py`,
+  `src/steps/step3_codegen/script_generator.py`,
+  `tests/test_signal_master_multisource.py`; CHANGELOG.md [Unreleased] same
+  date; 2026-07-30 entries above (original CIZ-format introduction).
+
+## 2026-07-31 — Explicit WRDS date format after finding CCM's `LINKENDDT="E"` sentinel
+
+- **Context / problem:** Asked to validate the data layer against the
+  curated `data/local/samples/` (see the 2026-07-30 alignment work below).
+  Running the real Compustat/CCM/IBES loaders surfaced a `UserWarning:
+  Could not infer format... falling back to dateutil` on `CRSP_COMPUSTAT_LINK.csv`.
+  Root cause: `LINKENDDT` is not always a date string — an open (still
+  active) link is coded as the literal string `"E"`. Mixed real-dates +
+  `"E"` defeats pandas' fast columnar date-format inference, forcing a slow
+  per-row `dateutil` parse. The same unformatted `pd.to_datetime(...,
+  errors="coerce")` pattern was used everywhere else a date column from a
+  real WRDS file gets parsed (comp_funda/comp_fundq's `datadate`, IBES
+  summary's `statpers`, CRSP CIZ's `DlyCalDt`/`DelistingDt`, 13F's `rdate`,
+  IBES detail/actual's date columns, CRSP index's `mthcaldt`/`dlycaldt`,
+  liquidity factors' `date`) — same latent perf/warning issue at production
+  scale (comp_fundq alone is ~1.9M rows over a 4GB file).
+- **Options considered:**
+  1. Leave as-is — `errors="coerce"` already makes `"E"` become `NaT`, which
+     `link_to_permno`'s `.fillna(pd.Timestamp.max)` correctly treats as
+     "open-ended" anyway, so behavior is already correct.
+  2. Add an explicit `format="%Y-%m-%d"` everywhere a KNOWN real WRDS file's
+     date column is parsed.
+  3. Add the explicit format to the GENERIC, source-agnostic `link_to_permno`/
+     `_load_source_frame` date-parsing calls too (which run for every
+     source, including hypothetical future non-WRDS ones).
+- **Decision:** Option 2. Did NOT do option 3: `link_to_permno`/
+  `_load_source_frame`'s date parsing must stay format-agnostic since they're
+  shared infrastructure for ANY future registered source, not just
+  WRDS-shaped ones — hardcoding `"%Y-%m-%d"` there would silently turn every
+  row of a differently-formatted future source's dates into `NaT` (and then
+  zero rows downstream), exactly the "silent zero rows" class of bug this
+  project already fixed once for `patents_nber` (2026-07-25 entry). Instead,
+  `_read_raw_source_csv` (which IS scoped to a known real file) now
+  pre-parses the source's own `date` column with the explicit format before
+  handing off to the generic pipeline, so the later generic call becomes a
+  cheap no-op (already-datetime input) rather than needing its own format
+  hardcoded.
+- **Rationale:** This is a correctness-preserving performance/robustness fix,
+  not a behavior change — confirmed `"E"` still resolves to `NaT` ->
+  `Timestamp.max` (open-ended) exactly as before. Measured ~18% faster on the
+  real `comp_fundq` load (68.1s -> 56.3s) as a side benefit.
+- **Also found (documented, not fixed — not a bug):** a delisted stock's CIZ
+  monthly row for its OWN delisting month often has `PrimaryExch`/
+  `SecurityType`/`SecuritySubType`/`SICCD` blanked out entirely (confirmed on
+  permno 10000's 1987-06 delisting row: `PrimaryExch="X"`,
+  `SecurityType=NaN`, `SecuritySubType="UNK"`, `SICCD=0`, `MthRet=0.0` — the
+  real delisting return comes from `CRSP_DELISTING.csv`'s `DelRet`
+  separately). This means `exchcd=0`/`shrcd=0` for that one month even
+  though the stock was ordinary common stock every prior month — it won't
+  pass a `shrcd in [10, 11]` or `breakpoint_source="nyse"` filter for its
+  final month. This is genuinely how the CIZ export reports it (not an
+  adapter bug), and differs from the legacy 3-table path where
+  `_apply_pit_attrs`'s window-based join would carry forward the last known
+  attrs. Documented in `build_crsp_monthly_panel_ciz`'s module comment;
+  revisit only if this is ever shown to matter for a specific replication
+  (e.g. a paper whose universe filter would wrongly exclude a stock's exact
+  delisting month).
+- **Empirical impact:** None on any MethodSpec/backtest numbers — pure
+  parsing-performance fix, values unchanged.
+- **Trade-offs / risks:** None identified; `errors="coerce"` remains the
+  safety net for any date value that still doesn't match `"%Y-%m-%d"`.
+- **References:** `src/infra/data_layer/__init__.py`
+  (`_read_raw_link_table_csv`, `_read_raw_source_csv`,
+  `build_crsp_monthly_panel_ciz`, `load_daily_msf_ciz`,
+  `load_crsp_index_factors`, `load_liquidity_factors`,
+  `load_institutional_ownership_13f`, `load_ibes_recommendation_detail`,
+  `load_ibes_unadjusted_actual`); CHANGELOG.md [Unreleased] same date.
+
+## 2026-07-31 — Removed catalog.py entries with no real data behind them (optionm_vsurf, optionm_crsp_link, tr_13f, patents_nber)
+
+- **Context / problem:** After the 2026-07-30 real-data work, the user asked
+  for `catalog.py` to only reflect data sources actually backed by real data
+  in this project, not speculative/test-only registrations. Auditing every
+  `DATA_CATALOG`/`LINK_TABLES` entry against `data/local/`'s real files found
+  four with no real backing: `optionm_vsurf`/`optionm_crsp_link` (no
+  OptionMetrics data file exists anywhere in the project) and `patents_nber`
+  (no NBER patents data exists). `tr_13f` was a subtler case: it's registered
+  `{"key": "permno", "link": None, ...}` — i.e. assumed to be ALREADY
+  permno-keyed — but the real 13F export we now have (`data/local/13F.csv`)
+  has no permno column at all; its own key is `cusip`. So `tr_13f`'s
+  registered shape doesn't match how the one real 13F file we have actually
+  joins.
+- **Options considered:**
+  1. Leave all four registered (they exercise genuinely useful *generic*
+     catalog/join-framework behavior in tests, independent of whether real
+     data backs them).
+  2. Remove all four from `catalog.py`, and either drop or rework the tests
+     that depended on them reading from the real module-level `DATA_CATALOG`.
+  3. Fix `tr_13f`'s shape to match the real cusip-keyed 13F file (register a
+     new `crsp_cusip` link table) instead of removing it.
+- **Decision:** Option 2 — removed all four. For `tr_13f` specifically,
+  did NOT pursue option 3 in this pass: the real 13F loader
+  (`data_layer.load_institutional_ownership_13f()`, added 2026-07-30) already
+  documents that its CUSIP match is NOT point-in-time (uses each CUSIP's most
+  recent observed permno, no validity window) — registering it in the
+  declarative catalog would imply a level of correctness (point-in-time
+  join, like CCM/IBES-CRSP link) it doesn't actually have yet. Revisit once a
+  real point-in-time CUSIP history replaces that best-effort match.
+- **Rationale:** A catalog entry is effectively a claim "this is how this
+  real data source joins" — `optionm_vsurf`/`optionm_crsp_link`/
+  `patents_nber` made that claim about data that doesn't exist at all, and
+  `tr_13f` made a claim about join shape that's simply wrong for the one real
+  13F file this project has. Keeping them registered contradicts the
+  project's own "never silently guess/misrepresent a data source" principle
+  (the same principle behind `catalog.source_of_column`/`resolve_concept`
+  returning `(None, None)` rather than a guess, and the reviewer's hard-block
+  on unregistered sources). The tests that exercised these entries
+  (`test_link_to_permno_no_row_explosion[optionm_vsurf]`,
+  `test_link_to_permno_noop_for_permno_keyed_source`,
+  `test_load_source_frame_raises_for_source_without_date_column`) were
+  reworked to preserve their actual behavioral coverage — the generic
+  "link=None -> no-op" case now uses `crsp_msf` (a real, still-registered
+  permno-keyed source) instead of the removed `tr_13f`; the "join.date=None
+  must fail loud" regression test (originally added for the real
+  `patents_nber` bug, see the 2026-07-25 entry above) now monkeypatches a
+  temporary fake source into `SIGNAL_SOURCES` for the duration of that one
+  test, so the regression guard isn't lost even though `patents_nber` itself
+  is gone.
+- **Empirical impact:** None — pure data-plumbing/registry cleanup, no
+  MethodSpec/backtest numbers affected.
+- **Trade-offs / risks:** Re-adding any of these four requires a fresh
+  catalog entry once real data exists for it (OptionMetrics, NBER patents)
+  or once `tr_13f`'s join is redesigned around a real point-in-time CUSIP
+  history. `scripts/build_test_papers_synthetic_data.py` still builds
+  synthetic `optionm_vsurf.parquet`/`optionm_crsp_link.parquet`/
+  `tr_13f.parquet`/`patents_nber.parquet` fixtures — left in place
+  (harmless, unused parquet files) since touching that script was out of
+  scope for this catalog-only cleanup.
+- **References:** `src/infra/data_layer/catalog.py` (removed entries, with
+  a comment pointing back here); `tests/test_data_catalog.py`;
+  `tests/test_signal_master_multisource.py`; CHANGELOG.md [Unreleased] same
+  date; 2026-07-30 entry below (original `tr_13f` best-effort loader
+  decision) and 2026-07-25 entry (original `patents_nber` fail-loud fix).
+
+## 2026-07-30 — Real WRDS raw CSV data support: CIZ CRSP mapping approximations, Compustat/IBES dedup filters, and what was deliberately left unwired
+
+- **Context / problem:** `data/local/` gained real bulk WRDS exports for the
+  first time (CRSP monthly/daily, Compustat annual/quarterly, CCM link, IBES
+  x3, 13F, CRSP index, Pastor-Stambaugh liquidity factors). None of them
+  match the file names/column names/shapes the pipeline's catalog
+  (`src/infra/data_layer/catalog.py`) and loaders (`data_layer/__init__.py`)
+  already assumed (parquet files named `<source>.parquet` with a fixed,
+  legacy CRSP-shaped column set). Two design questions: (1) convert to the
+  legacy shape first via an offline script, or teach the data layer to read
+  the real files directly; (2) how much of the real data to wire up given
+  varying levels of schema ambiguity.
+- **Options considered:**
+  1. Offline conversion script producing `<source>.parquet` in the legacy
+     shape, no `data_layer.py` changes.
+  2. Extend `data_layer.py`/`catalog.py` to read the real files directly.
+  3. For scope: wire up only the sources with a clean 1:1 physical-column
+     match (Compustat, CCM/IBES links), vs. attempt every file including the
+     structurally ambiguous ones (13F has no permno; CIZ CRSP has no direct
+     shrcd equivalent; global Compustat is a different universe entirely).
+- **Decision:** Chose option 2 (direct CSV readers, no offline conversion
+  step) per explicit user direction. Chose to wire up everything with a
+  well-defined mapping (CRSP monthly/daily CIZ, Compustat annual/quarterly,
+  CCM link, IBES-CRSP link, IBES summary, CRSP index, liquidity factors), add
+  best-effort/lightly-wired loaders for the structurally ambiguous ones (13F,
+  IBES recommendation/actual), and explicitly skip
+  `COMPUSTAT_GLOBAL_STOCK_MONTH.csv` (a different, international returns
+  universe — its own design question, not a quick add).
+- **Rationale / key mapping decisions:**
+  - **CRSP CIZ `exchcd`:** the new CIZ format's `PrimaryExch` is a letter
+    code with no official published mapping back to legacy numeric exchcd.
+    Only the three unambiguous codes seen in this vendor's export are mapped
+    (N=1 NYSE, A=2 AMEX, Q=3 Nasdaq); every other code (this export also has
+    'X'/'R', meaning unclear) maps to 0 ("other/unclassified", a valid
+    legacy value) rather than guessing. This means `breakpoint_source="nyse"`
+    behaves identically to the legacy path (only real exchcd==1 rows count).
+  - **CRSP CIZ `shrcd`:** CIZ has NO direct share-code equivalent at all
+    (legacy CRSP's own `shrcd` classification was dropped from this export
+    format). Approximated from `SecurityType`/`SecuritySubType`/`ShareType`/
+    `USIncFlg` well enough for the common `shrcd in [10, 11]` "ordinary
+    common stock only" universe filter to evaluate correctly (US-incorporated
+    common, non-ADR -> 11; everything else common -> 12; CEF -> 18; ETF/FUND
+    -> 73; else -> 0). This is NOT a faithful reproduction of every legacy
+    shrcd value CRSP itself would have assigned — a real limitation if a
+    paper's universe filter depends on a shrcd distinction finer than
+    "ordinary common vs. everything else".
+  - **Compustat annual/quarterly dedup:** the raw bulk export is NOT
+    pre-cleaned to one row per (gvkey, datadate) the way a hand-converted
+    parquet snapshot was — it also carries an `indfmt=="FS"`
+    (financial-services) format variant of the same gvkey+datadate with
+    different field meanings for some items. Filtered to `indfmt=="INDL"`
+    (the standard non-financial-services format), matching the conventional
+    WRDS Compustat filter (`indfmt=INDL, datafmt=STD, popsrc=D, consol=C`
+    — datafmt/consol were already constant in this export; popsrc wasn't
+    present as a column at all).
+  - **IBES summary dedup:** the raw export carries multiple forecast
+    horizons (QTR/ANN/LTG) and FPI values per (ticker, statpers). Filtered to
+    the single standard series most papers use: FY1 (`fpi==1`) annual
+    (`fiscalp=="ANN"`) EPS (`measure=="EPS"`) consensus.
+  - **13F institutional ownership:** this export has no `permno` column at
+    all (its own key is `cusip`); resolved via a CUSIP match against
+    `CRSP_STOCK_MONTH.csv`'s own (permno, CUSIP) pairs using each CUSIP's
+    MOST RECENT observed permno — NOT a point-in-time link (no validity
+    window, unlike the CCM/IBES-CRSP link tables already in the catalog). A
+    CUSIP reassigned across permnos at some point in CRSP's history could
+    resolve to the wrong one. Deliberately kept OUTSIDE the declarative
+    catalog (not registered as a `DATA_CATALOG`/`tr_13f` join) until this is
+    replaced with a real point-in-time CUSIP history — registering a
+    catalog entry implies a level of correctness this loader doesn't have.
+  - **IBES recommendation detail / unadjusted actual:** no signal plugin in
+    the repo consumes either, so no catalog entry or permno-linking logic was
+    invented for them — a thin lower-case/date-parse pass-through loader
+    only. Wire up a real catalog entry (with its own join key/date/lag) once
+    a paper actually needs one.
+- **Empirical impact:** None yet measured — this is data-plumbing, not a
+  MethodSpec run. The exchcd/shrcd approximations could matter for any
+  future MethodSpec whose universe filter relies on a shrcd/exchcd
+  distinction finer than what's preserved here (see Trade-offs).
+- **Trade-offs / risks:**
+  - `shrcd`/`exchcd` on the CIZ path are best-effort approximations, not a
+    byte-exact reproduction of what legacy CRSP would have assigned — see
+    rationale above. Revisit if a paper's replication gap traces back to a
+    universe-filter mismatch on real CIZ data.
+  - The 13F CUSIP link is not point-in-time and is explicitly marked
+    not-production-quality.
+  - `CRSP_STOCK_DAILY.csv` (~60GB, ~10^8 rows) has a loader
+    (`load_daily_msf_ciz`) but was never run against the FULL file in this
+    session — tests use a small `nrows` sample only. A real production run
+    against the full file has not been timed/memory-profiled.
+  - `COMPUSTAT_GLOBAL_STOCK_MONTH.csv` remains completely unwired.
+- **References:** `src/infra/data_layer/__init__.py` (`build_crsp_monthly_panel_ciz`,
+  `load_daily_msf_ciz`, `_read_raw_source_csv`, `_read_raw_link_table_csv`,
+  `load_crsp_index_factors`, `load_liquidity_factors`,
+  `load_institutional_ownership_13f`, `load_ibes_recommendation_detail`,
+  `load_ibes_unadjusted_actual`); `src/infra/data_layer/catalog.py`
+  (`RAW_CSV_SOURCE_FILES`, `RAW_CSV_LINK_TABLE_FILES`,
+  `RETURNS_UNIVERSES["us_equity_crsp_ciz"]`); `src/infra/backtest_engine/__init__.py`
+  (`load_data`'s `returns_layout=="crsp_ciz"` branch);
+  `tests/test_real_wrds_csv_loaders.py`; CHANGELOG.md [Unreleased] same date.
+
+## 2026-07-28 — Fix (fifth pass): fail-loud on missing filter field; annual formation-month consistency; VW excludes (not fabricates) missing prior-month ME
+
+- **Context / problem:** A fifth-pass review surfaced three remaining
+  faithfulness gaps in `apply_signal_holding_period` / `compute_portfolio_returns`:
+  1. **Silent skip of a stated universe filter.** Both filter sites
+     (`apply_universe_filters` on the returns panel, and the formation
+     cross-section loop) did `if field not in columns: continue`. A MethodSpec
+     that explicitly requires e.g. `shrcd in [10,11]` would then keep every row
+     when the panel lacked `shrcd` — running a DIFFERENT universe than the paper
+     stated while still reporting success.
+  2. **No check that an annual signal forms in its declared month.** Nothing
+     verified that an annual-rebalanced signal's formation cohorts matched the
+     reviewed `formation_month`, so the engine and the spec could silently
+     disagree on the formation calendar.
+  3. **VW fabricated missing prior-month ME.** When `me_{t-1}` was unavailable,
+     `_attach_lagged_me` fell back to same-month ME — reintroducing the exact
+     same-month look-ahead the fourth pass removed, silently and only for the
+     rows where the lag was missing.
+- **Options considered:**
+  - Fix 1: (a) keep skipping, (b) warn, (c) **raise**. Chose raise — column
+    availability can't be validated at spec-review time (different returns
+    universes have different columns), so run time is the only place it's known,
+    and a stated restriction must never be silently dropped.
+  - Fix 2: (a) enforce a full formation calendar for all frequencies, (b)
+    **annual-only, explicit-formation_month-only validation**, (c) do nothing.
+    Chose (b). Rejected (a) because quarterly/monthly cohort-month sets are
+    convention-dependent (which 4 months? fiscal vs calendar quarters?) and the
+    engine must not invent a calendar the spec didn't state; and a DEFAULTED
+    `formation_month` (=6) is not authoritative over the signal's own cohorts,
+    so only an EXPLICIT `formation_month` triggers the check (new
+    `formation_month_explicit` config flag from `registry.build_config`).
+  - Fix 3: (a) error out, (b) **exclude the row (weight 0) + report missing
+    fraction**, (c) keep same-month fallback. Chose (b). Rejected (a) because a
+    sample's first held month legitimately can lack a prior-month row for some
+    stocks; a hard error would be too brittle. Rejected (c) as the actual bug.
+- **Decision:** Both filter sites raise `ValueError` naming the field and the
+  available columns. `apply_signal_holding_period` calls a new
+  `_validate_annual_formation_month` that raises when an annual + explicit-
+  `formation_month` signal has any cohort in a different month. VW now drops
+  rows with NaN/non-positive `me_lag` from the weighted average and surfaces
+  `vw_lagged_me_missing_frac` (None under EW) in `compute_metrics`;
+  `_attach_lagged_me` no longer fills NaN with same-month ME.
+- **Empirical impact:** No change to the golden e2e numbers. The single-stock-
+  per-decile MVP/accruals/backend fixtures needed a June-1998 formation-month
+  row added to the synthetic CRSP panel (`asset_growth_synthetic_data.build_crsp_msf`)
+  so that `me_{t-1}` resolves for the first held month under the new exclude
+  rule — real CRSP panels always have that row; the fixture simply omitted it.
+  With the row present, `me_lag` is defined for every held month and the 24-month
+  long-short series is byte-identical. The stale cached snapshot under
+  `data/synthetic_data/mvp_v1/` (gitignored) was regenerated.
+- **Trade-offs / risks:** Fix 2 does not police quarterly/monthly calendars
+  (deliberately — see above); a future paper needing quarterly formation-month
+  discipline would require a spec-declared calendar, not an engine-invented one.
+  Fix 1 will now hard-fail a spec that references an unregistered column, which
+  is the intended behavior but shifts the burden to catalog/spec correctness.
+- **References:** `src/infra/backtest_engine/__init__.py`
+  (`apply_universe_filters`, `apply_signal_holding_period`,
+  `_validate_annual_formation_month`, `compute_portfolio_returns`,
+  `_attach_lagged_me`, `compute_metrics`), `src/steps/step3_codegen/registry.py`
+  (`formation_month_explicit`), `tests/test_round5_faithfulness_fixes.py`,
+  `tests/test_research_design.py::TestApplyUniverseFilters::test_unknown_field_raises_not_skipped`,
+  `tests/synthetic_data/asset_growth_synthetic_data.py`. This is the FIFTH
+  same-day fix pass on `apply_signal_holding_period`.
+
+## 2026-07-28 — Fix (fourth pass): eligibility propagated to assignment; VW switched to prior-month ME; `formation_month` range-validated
+
+- **Context / problem:** A fourth-pass review found three more issues, one of
+  them a direct self-inconsistency introduced by the third-pass point-in-time
+  fix:
+  1. **Eligibility didn't reach the actual portfolio.** The third pass filtered
+     `self.formation` (the breakpoint population) by point-in-time
+     universe-filter eligibility, but `self.merged` (the population
+     `assign_portfolios`/`compute_portfolio_returns` actually use) was built
+     BEFORE that filtering and never got the same exclusion. Result: a stock
+     ineligible at its own formation month was correctly excluded from
+     DEFINING the breakpoints, yet still sorted BY those breakpoints and
+     contributing returns. Reproduced: a stock with `shrcd=99` at formation
+     (excluded) but `shrcd=10` (and valid returns) in its held months
+     appeared in `formation=[1,2,3]` but `assigned=[1,2,3,4]`.
+  2. **VW used same-month ME.** `compute_portfolio_returns` weighted month-`t`
+     returns by month-`t` end-of-month market equity (`|prc_t|*shrout_t`),
+     which already reflects the very return being weighted -- a subtle
+     look-ahead (two stocks +10%/-10% from equal starting caps net to 0%
+     under prior-month weights but a spurious +1% under same-month weights).
+  3. **`formation_month` had no range check.** An explicit `formation_month=13`
+     was approved with `paper_faithful=True` -- the reviewer's silent-field
+     check only tested `is None`, and neither the schema nor `build_config`
+     range-validates it.
+- **Options considered:** For eligibility, filter `merged` by the same
+  `(permno, cohort)` exclusion computed for `formation` (chosen) vs.
+  recomputing eligibility independently on `merged` (rejected -- duplicates
+  the point-in-time logic and risks the two drifting). For VW, three ME-timing
+  schemes: (a) prior-month-end ME `me_{t-1}` (chosen -- the standard monthly
+  VW convention, removes the look-ahead); (b) formation-date ME held fixed
+  across the holding period (a valid "formation weight, no drift" scheme, but
+  a bigger behavioral change and less common); (c) leave same-month (rejected
+  -- it's the look-ahead). For `formation_month`, add a range check to the
+  reviewer (chosen) vs. also ENGINE-enforcing `signal.yyyymm % 100 ==
+  formation_month` (REJECTED -- that would wrongly reject every
+  monthly/quarterly-rebalanced signal, whose cohorts legitimately appear in
+  many calendar months; formation_month=6 is an annual-June default, not a
+  universal constraint).
+- **Decision:** (1) In `apply_signal_holding_period`, compute the excluded
+  `(permno, cohort)` pairs (positive evidence: a formation-month row exists
+  AND fails the filter) once and remove them from BOTH `self.formation` and
+  `self.merged` (via an anti-join), so the exclusion reaches assignment and
+  returns. (2) Added `BacktestExecutor._attach_lagged_me`: looks up each held
+  row's `me_{t-1}` from `self._pre_missing_policy_data` (the fullest available
+  `[permno, yyyymm, me]` series, so the prior month is found even when it's
+  the formation month rather than a held row); VW now weights by `me_lag`.
+  Where a prior-month `me` genuinely can't be found (panel never recorded that
+  stock-month -- common in synthetic/test panels), `me_lag` falls back to the
+  row's own current-month `me` (a documented data-completeness fallback that
+  reintroduces the same-month dependency for ONLY those unresolved rows rather
+  than dropping the stock). (3) Added `_is_invalid_formation_month` to
+  `step2_reviewer` (mirroring `_is_invalid_ls_quantile`) and used it in
+  `_check_silent_high_impact_fields` so an unset OR out-of-1..12
+  `formation_month` blocks approval.
+- **Rationale:** A stock's eligibility to be sorted/returned must be the SAME
+  as its eligibility to define the sort -- decoupling them (as the third-pass
+  fix accidentally did) is a logical contradiction, not a methodology choice.
+  Prior-month VW is the standard convention precisely because same-month
+  weighting double-counts the current return. The reviewer-only
+  `formation_month` range check catches the genuinely-invalid case (13)
+  without the false-rejection risk of a rigid engine calendar constraint.
+- **Empirical impact:** VW change is a NO-OP for both golden-number e2e tests
+  (`test_mvp_e2e`, `test_accruals_e2e`) because they use single-stock-per-
+  decile designs, where a single-stock portfolio's VW return equals the
+  stock's own return regardless of ME timing (verified: full suite 182 passed,
+  up from 175, no golden-number changes). VW numbers change only for
+  multi-stock portfolios, exactly where the look-ahead lived. Eligibility
+  propagation changes numbers only when `universe_filters` excludes a stock
+  that has a formation-month row failing the filter AND survives into the
+  held-month panel. New `tests/test_eligibility_and_vw_weighting.py` covers
+  both (excluded stock absent from formation/merged/assignment; the
+  +10%/-10% two-stock VW example netting to 0% under prior-month weights;
+  single-stock VW = own return). New `formation_month` reviewer tests (13/0
+  blocked, 6 not) added to `tests/test_reviewer_silent_defaults.py`.
+- **Trade-offs / risks:** The VW prior-month-ME fallback to current-month ME
+  (when no prior-month row exists) still carries the same-month look-ahead for
+  those specific unresolved rows -- an honestly-documented data-completeness
+  limitation for panels that omit a stock's prior-month record (real CRSP
+  rarely does). `formation_month` is validated only at review time, not
+  enforced against actual signal cohorts in the engine (deliberately -- see
+  the rejected option). This is the FOURTH fix pass on `apply_signal_holding_period`
+  in one day; the recurring theme has been that "which population does X" was
+  under-specified across `formation`/`merged`/assignment -- future edits
+  should keep those three populations' relationship explicit.
+- **References:** [src/infra/backtest_engine/__init__.py](../src/infra/backtest_engine/__init__.py)
+  (`apply_signal_holding_period`, `compute_portfolio_returns`, `_attach_lagged_me`),
+  [src/steps/step2_reviewer/__init__.py](../src/steps/step2_reviewer/__init__.py)
+  (`_is_invalid_formation_month`, `_check_silent_high_impact_fields`),
+  [tests/test_eligibility_and_vw_weighting.py](../tests/test_eligibility_and_vw_weighting.py),
+  [tests/test_reviewer_silent_defaults.py](../tests/test_reviewer_silent_defaults.py).
+
+## 2026-07-28 — Fix (third pass): formation eligibility/exchcd made point-in-time and cohort-specific; explicit invalid `ls_quantile` now blocked
+
+- **Context / problem:** A third-pass external review of the same-day fixes
+  above (universe-filter eligibility + `ls_quantile` clamping) found the
+  second-pass fix was itself still wrong in two ways, plus a residual gap
+  in the `ls_quantile` reviewer check:
+  1. **Eligibility was permno-wide, not cohort-specific.** The second-pass
+     fix computed `excluded_permnos = seen_permnos - eligible_permnos`
+     across a permno's ENTIRE history in `self._pre_missing_policy_data` --
+     so a stock that passed `universe_filters` at ANY point in its history
+     (even an unrelated month, e.g. before or after the cohort in question)
+     was never excluded, even from a DIFFERENT cohort where it actually
+     fails the filter at formation. Reproduced: a stock with `shrcd=10` at
+     an unrelated month but `shrcd=99` at its own formation/held months for
+     a specific cohort still entered that cohort's `full_sample`
+     breakpoint (median 2.5 instead of the correct 2.0).
+  2. **`exchcd` for `breakpoint_source="nyse"` was still read from `df`**
+     (the post-`filter_universe` panel used for the returns join), not the
+     pre-missing-policy snapshot -- and, independently, `df` NEVER contains
+     a row at a cohort's own formation month at all under this engine's
+     held-months-only convention (held months start at `h=1`, strictly
+     after formation). Reproducing this end-to-end (nothing in the existing
+     test suite exercised `breakpoint_source="nyse"` through the full
+     pipeline) showed `exchcd` came back `NaN` for EVERY stock, not just
+     ones with a missing formation-return -- `compute_breakpoints` crashed
+     with an opaque pandas `ValueError` (0-column quantile frame) rather
+     than computing a wrong number. This was a more severe defect than
+     described: `breakpoint_source="nyse"` was effectively non-functional
+     after the same-day fix, not merely biased for an edge case.
+  3. **`ls_quantile` reviewer check only caught `None`,** not an explicit
+     invalid value (e.g. `-1`, `1`, `0.9`) -- `registry._resolve_ls_quantile`
+     (previous entry) silently clamps those to the standard 10-group
+     default at `build_config` time, but `ReviewGate` still approved the
+     spec (with `paper_faithful=True`) despite the explicit value being
+     numerically nonsensical for a long-short sort.
+- **Options considered (eligibility/exchcd):** (a) patch the permno-wide set
+  to be per-(permno, cohort) by intersecting with each cohort's own
+  held-month window -- rejected: still not truly point-in-time, and
+  doesn't fix the `exchcd`-from-`df` half of the bug; (b) require an exact
+  formation-month row in `df` (post-`filter_universe`) -- rejected: `df`
+  never has one, so this would evaluate to "no data" for every cohort in
+  every existing test fixture; (c) look up BOTH `universe_filters` fields
+  and `exchcd` from `self._pre_missing_policy_data` (already captured for
+  the eligibility fix), joined POINT-IN-TIME on `(permno, cohort)` where
+  `cohort` is that signal row's own formation `yyyymm` -- a permno/cohort
+  pair with a matching formation-month row gets real attributes and is
+  excluded only if it fails the filter there; a pair with NO matching row
+  (the panel never recorded that exact stock-month -- common in this
+  repo's synthetic/test panels, though real WRDS CRSP panels normally do
+  have one) is left unclassified (`exchcd` `NaN`, not excluded by
+  `universe_filters` -- no positive evidence either way).
+- **Decision:** (c). Rewrote the `self.formation` construction in
+  `apply_signal_holding_period`: build `attrs_at_formation` from
+  `self._pre_missing_policy_data` (falling back to `df`) with `yyyymm`
+  renamed to `cohort` and deduplicated to one row per `(permno, cohort)`;
+  left-merge it onto `formation` with a `_has_formation_row` indicator.
+  `universe_filters` are evaluated with `_apply_filter_op` directly (not
+  `apply_universe_filters`, to keep the per-row `passes` mask alongside the
+  indicator) and a row is dropped only when `has_formation_row AND NOT
+  passes` -- i.e. exclude only with positive, point-in-time evidence.
+  `exchcd` rides along in the same merge, so it's now the formation-month's
+  own point-in-time value (or `NaN` if genuinely unavailable) instead of an
+  arbitrary later held-month's value. Added a `bp_df.empty` guard in
+  `compute_breakpoints` that raises a clear `ValueError` (distinguishing
+  "no stock resolved to NYSE at formation" from "no signal at all") instead
+  of letting an empty quantile frame crash with a confusing pandas
+  `ValueError` on the column rename. For `ls_quantile`, added module-level
+  `_is_invalid_ls_quantile` to `step2_reviewer` (deliberately NOT imported
+  from `registry._resolve_ls_quantile`, keeping the reviewer independent of
+  the codegen module) mirroring the same validity rule, and used it (instead
+  of a bare `is None` check) in `_check_silent_high_impact_fields`'s
+  `ls_quantile` entry.
+- **Rationale:** Formation-time attributes must be evaluated AT formation
+  time for the SPECIFIC cohort in question, not aggregated across a stock's
+  whole history (a stock's eligibility/exchange listing can genuinely change
+  over time, and conflating cohorts would let a later/earlier month's
+  attributes leak into a decision that should only depend on what was true
+  at THAT formation). The permissive "no data = no exclusion" fallback keeps
+  the original 2026-07-28 look-ahead fix intact for panels that don't record
+  every formation month explicitly (this repo's synthetic test panels), while
+  still being exact for panels that do (real CRSP data). Keeping
+  `_is_invalid_ls_quantile` independent of `registry._resolve_ls_quantile`
+  (rather than importing it) avoids adding a `step2_reviewer -> step3_codegen`
+  dependency in the wrong direction of the pipeline.
+- **Empirical impact:** No-op for the full existing suite (175 passed, up
+  from 167, no failures) -- no existing fixture exercises `universe_filters`
+  with a time-varying attribute or `breakpoint_source="nyse"` end-to-end.
+  Rewrote `tests/test_formation_universe_eligibility.py` to include
+  formation-month rows in its panels (matching the point-in-time semantics)
+  and added two new test classes: cohort-specificity (a stock ineligible
+  ONLY at its own formation, still correctly excluded) and "no formation-row
+  means no exclusion" (explicit coverage of the permissive fallback). Added
+  `TestNyseExchcdIsPointInTimeAndDecoupledFromReturnAvailability` -- the
+  first test in this repo to exercise `breakpoint_source="nyse"`
+  end-to-end through `apply_signal_holding_period`/`compute_breakpoints`.
+  Added 5 new `ReviewGate` tests confirming `ls_quantile=-1`/`1`/`0.9` are
+  now blocked and `10`/`0.1` are not.
+- **Trade-offs / risks:** The "no formation-month row -> don't exclude,
+  exchcd stays NaN" fallback means `breakpoint_source="nyse"` can still
+  silently exclude fewer/more stocks than a true point-in-time CRSP
+  classification would, for any panel that (like this repo's synthetic test
+  data) doesn't record a row at every stock's exact formation month -- this
+  is now an honestly-documented data-completeness limitation, not a silent
+  wrong number, but it means synthetic/test panels used for `nyse`
+  breakpoints should include a formation-month row per signal to get exact
+  behavior. This is the third fix pass on this exact ~40 lines of code in
+  one day; future changes to `apply_signal_holding_period` should be
+  reviewed with particular care given this history.
+- **References:** [src/infra/backtest_engine/__init__.py](../src/infra/backtest_engine/__init__.py)
+  (`apply_signal_holding_period`, `compute_breakpoints`),
+  [src/steps/step2_reviewer/__init__.py](../src/steps/step2_reviewer/__init__.py)
+  (`_is_invalid_ls_quantile`, `_check_silent_high_impact_fields`),
+  [tests/test_formation_universe_eligibility.py](../tests/test_formation_universe_eligibility.py),
+  [tests/test_reviewer_silent_defaults.py](../tests/test_reviewer_silent_defaults.py).
+
+## 2026-07-28 — Fix: `self.formation` didn't inherit universe-filter eligibility (second-pass regression from the same-day look-ahead fix), plus `ls_quantile` clamping
+
+- **Context / problem:** A follow-up external review of the same-day
+  look-ahead fix (previous entry below) found that fix had itself introduced
+  a new leak: `self.formation` was built directly from the raw `signal`
+  DataFrame (`signal.rename(columns={"yyyymm": "cohort"})`), which is never
+  run through `filter_universe` at all — that step only ever touches the
+  returns panel `self.data`, not the separate `signal` object. So a stock
+  explicitly excluded by `config["universe_filters"]` (e.g. wrong share
+  class) still contributed its signal to its cohort's `full_sample`
+  breakpoint. Reproduction: formation signals `[1,2,3,4]`, permno 4 fails a
+  `shrcd in [10,11]` filter (present with `shrcd=99` in every month it
+  appears) — `filter_universe` correctly drops permno 4 from `self.data`,
+  but `self.formation` still contained it, giving a breakpoint of 2.5
+  instead of the correct 2.0 (median of the 3 eligible signals). The same
+  review also flagged that `registry._resolve_ls_quantile` (then inlined in
+  `build_config`) never validated `ls_quantile`: `None` correctly defaults
+  to a decile sort, but `-1` resolved to `-1` "groups", and `1.5`/`3.3` were
+  silently truncated by a bare `int()` to `1`/`3` — all of which reach
+  `compute_breakpoints`/`assign_portfolios` unvalidated (a genuinely
+  negative/zero group count crashes deep inside the engine with an opaque
+  `IndexError` on `bins[0]` rather than failing at config-build time).
+- **Options considered (universe eligibility):** (a) restrict `self.formation`
+  to permnos present in `self.merged` (the post-return-join panel) —
+  rejected outright, since that's exactly the population the SAME-DAY
+  look-ahead fix moved away from (it would reintroduce future-return-
+  availability dependence); (b) require a formation-month row to exist in
+  the (already `filter_universe`-restricted) returns panel `df` and inner-
+  join on it — rejected: this repo's returns-panel convention (all existing
+  test fixtures, and `apply_signal_holding_period`'s own held-month
+  expansion starting at `h=1`, i.e. strictly AFTER formation) never
+  populates a row at the formation month itself, so this would empty out
+  `self.formation` for every existing formation-locked test; (c) compute a
+  set of permnos with POSITIVE evidence of failing `universe_filters` (seen
+  somewhere in the panel, but excluded by `apply_universe_filters`) using
+  the panel state BEFORE `apply_missing_policy` drops missing-return rows,
+  and only remove those specific permnos from `self.formation` — a permno
+  with ZERO rows anywhere (no evidence either way — e.g. delisted before
+  any data was ever recorded) is left alone, preserving the same-day
+  look-ahead fix.
+- **Decision:** (c) for universe eligibility. `apply_missing_policy` now
+  snapshots its input into `self._pre_missing_policy_data` before dropping
+  missing-return rows. `apply_signal_holding_period` computes
+  `excluded_permnos = (permnos seen in that pre-drop snapshot) - (permnos
+  that pass config["universe_filters"] there)` and removes only those from
+  `self.formation` — decoupling "fails the universe screen" from both "has
+  a non-missing return" (uses the pre-`apply_missing_policy` panel) and
+  "has a future held-month return" (never checks `self.merged` at all).
+  Falls back to `df` when `self._pre_missing_policy_data` is unset (e.g.
+  the method exercised directly, bypassing `apply_missing_policy`). For
+  `ls_quantile`, extracted `registry._resolve_ls_quantile(ls_quantile)`:
+  `> 1` rounds (not truncates) to a whole group count, clamping to 10 if
+  that rounds below 2; a fraction in `(0, 0.5]` converts to `1/value`
+  groups; anything else (`None`, `<= 0`, a fraction `> 0.5`) clamps to the
+  standard 10-group default — same "clamp an out-of-menu value to the
+  canonical default" policy `_clamp` already applies to every other menu
+  field in `build_config`. Also added `"portfolio.sort.ls_quantile"` to
+  `ReviewGate._check_silent_high_impact_fields`'s covered-field list (see
+  the entry below this one) so an unset `ls_quantile` requires human
+  confirmation rather than silently defaulting to a decile sort on an
+  approved, `paper_faithful` spec.
+- **Rationale:** The correct formation-eligibility semantics is "include
+  unless there is positive evidence of exclusion" (permissive by default,
+  matching the look-ahead fix's spirit of not penalizing a stock for
+  missing FUTURE data it couldn't have controlled at formation time) rather
+  than "exclude unless there is positive evidence of inclusion" (which is
+  what an inner-join-based population check does, and which would have
+  re-broken the delisted-stock case). Using the pre-`apply_missing_policy`
+  snapshot specifically for the universe-filter check (rather than the
+  fully-processed `df`) cleanly separates two independent concerns that
+  the pipeline's linear ordering had otherwise conflated: "is this stock in
+  the reviewed universe" (a static-ish attribute question: shrcd/exchcd/
+  siccd) versus "does this stock have a valid return value this month" (an
+  outcome question that's irrelevant to universe membership).
+- **Empirical impact:** No-op for any run with no `universe_filters`
+  configured, or where every formation-eligible stock's universe-defining
+  attributes (shrcd/exchcd/siccd) are stable and pass the filter in every
+  month it appears (confirmed by the full existing suite passing
+  unchanged). Changes numbers only when `universe_filters` excludes a
+  stock that has a signal value AND appears somewhere in the panel with a
+  disqualifying attribute — exactly the case this fix targets. New
+  regression suite `tests/test_formation_universe_eligibility.py` covers:
+  the excluded-stock case (breakpoint corrected from 2.5 to 2.0), the
+  zero-data delisted-stock case (still NOT excluded, confirming no
+  regression on the same-day look-ahead fix), and the no-`universe_filters`
+  no-op case. `tests/test_ls_quantile_validation.py` covers all the
+  `_resolve_ls_quantile` clamping cases enumerated above.
+- **Trade-offs / risks:** The universe-eligibility check is per-permno, not
+  per-(permno, month) — a permno is excluded if it EVER fails the filter
+  anywhere in the pre-missing-policy panel, not specifically at its own
+  formation month (which, per the options-considered discussion, isn't
+  reliably available in this repo's panel convention). This is a reasonable
+  approximation for the largely time-invariant attributes
+  `universe_filters` typically screens on (share class, exchange, industry)
+  but is not a strictly point-in-time-exact eligibility check for a
+  genuinely time-varying filter field. `ls_quantile` rounding (`1.5` -> `2`)
+  changes behavior versus the old silent truncation (`1.5` -> `1`) for any
+  spec that happened to have a fractional `> 1` value before this fix —
+  no existing fixture hits this path (confirmed by the passing suite).
+- **References:** [src/infra/backtest_engine/__init__.py](../src/infra/backtest_engine/__init__.py)
+  (`apply_missing_policy`, `apply_signal_holding_period`),
+  [src/steps/step3_codegen/registry.py](../src/steps/step3_codegen/registry.py)
+  (`_resolve_ls_quantile`),
+  [src/steps/step2_reviewer/__init__.py](../src/steps/step2_reviewer/__init__.py)
+  (`_check_silent_high_impact_fields`),
+  [tests/test_formation_universe_eligibility.py](../tests/test_formation_universe_eligibility.py),
+  [tests/test_ls_quantile_validation.py](../tests/test_ls_quantile_validation.py).
+
+## 2026-07-28 — Fix: breakpoint population was leaking future return availability (look-ahead / survivorship)
+
+- **Context / problem:** An external technical review of `BacktestExecutor`
+  reproduced a concrete bias: `apply_signal_holding_period` expands each
+  signal row to its held months and does `df.merge(expanded, on=["permno",
+  "yyyymm"], how="inner")` against the returns panel — so a permno with NO
+  valid return in ANY of its held months (e.g. delisted the month right
+  after formation) is entirely absent from the resulting `self.merged`.
+  `compute_breakpoints` then computed the formation-cohort quantile
+  breakpoints FROM `self.merged`, meaning that stock's signal never entered
+  its own cohort's breakpoint calculation — a formation-time statistic was
+  silently conditioned on information (whether the stock has ANY future
+  return) that could not have been known at formation time. The reviewer's
+  minimal repro: formation signals `[1,2,3,4]` (true median 2.5) with the
+  signal-4 stock delisted before any held month, produced a breakpoint of
+  2.0 (computed from the surviving `[1,2,3]`) instead of the correct 2.5.
+- **Options considered:** (a) leave as documented limitation (the existing
+  formation-locked-breakpoints fix already addressed *when* breakpoints are
+  computed, not *which population* enters them); (b) restructure the engine
+  to fully decouple portfolio assignment from the returns panel until after
+  assignment (assign portfolios on the pure signal cross-section, join
+  returns only at `compute_portfolio_returns`) — the "textbook-correct" but
+  invasive rewrite touching `apply_signal_holding_period`'s public contract
+  and the two existing unit-test files that call
+  `compute_breakpoints`/`assign_portfolios` directly with an explicit
+  post-join `df`; (c) keep the existing method signatures/contracts (so
+  `compute_breakpoints(df, config)` called explicitly with an arbitrary
+  `df`, as the existing unit tests do, is unaffected) but change the
+  *default* population `compute_breakpoints` reads from `self.*` state when
+  called with no `df` — from `self.merged` to a new `self.formation`
+  cross-section built by `apply_signal_holding_period` independently of
+  return-join survival.
+- **Decision:** (c). `apply_signal_holding_period` now also builds
+  `self.formation`: one row per (permno, cohort) with `signal` (+ `exchcd`
+  read from that permno's OWN formation-month row in the base returns panel,
+  not from an arbitrary later held month, so `breakpoint_source="nyse"`
+  doesn't reintroduce the same leak) — built directly from `signal` before
+  the future-returns inner join, so it is unaffected by which permnos
+  survive that join. `form_portfolios` passes `self.formation` (falling back
+  to the merged panel only if `self.formation` was never built, e.g. a test
+  hand-sets `self.merged` bypassing `apply_signal_holding_period`) into
+  `compute_breakpoints` instead of the post-join panel.
+  `assign_portfolios`'s target population is unchanged (still the post-join
+  `self.merged`) — a permno with zero surviving held-month rows contributes
+  nothing to `compute_portfolio_returns` regardless, so there's no bias risk
+  in leaving that part alone; only the breakpoint *population* needed to
+  change.
+- **Rationale:** A formation-time statistic (the breakpoint) must be
+  computable from only formation-time-available information. Whether a
+  stock happens to have a valid return in a FUTURE held month is not
+  formation-time information — using it to decide whether that stock's
+  signal counts toward the breakpoint is a look-ahead/survivorship leak, and
+  one that gets worse the more delisting/missing-return churn a factor's
+  universe has (i.e. it's not a rare edge case for many real cross-sections).
+  Keeping the existing method signatures/explicit-`df` contract intact meant
+  the fix required zero changes to the two existing
+  `test_formation_locked_breakpoints.py`/`test_calendar_rebalance.py` test
+  files, which call `compute_breakpoints`/`assign_portfolios` with an
+  explicit `df` and therefore exercise the same (unbiased-by-this-issue)
+  grouping/quantile/pd.cut mechanics either way.
+- **Empirical impact:** No-op for any signal/universe with zero
+  delisting/missing-return churn during the holding period (confirmed by the
+  full existing test suite passing unchanged, 150 passed / 26 skipped).
+  Changes numbers only for cohorts where at least one formation-eligible
+  stock has no valid return in any of its held months — exactly the case
+  this fix targets. New regression test
+  (`tests/test_no_lookahead_breakpoints.py`) reproduces the reviewer's exact
+  scenario: breakpoint moves from the biased 2.0 back to the correct 2.5,
+  and the resulting portfolio assignment for the surviving stocks changes
+  accordingly (permno with signal 2.0 moves from the "high" leg to the "low"
+  leg once measured against the true 4-stock median instead of the
+  survivor-only 3-stock median).
+- **Trade-offs / risks:** `self.formation` only carries `exchcd` (the one
+  formation-time attribute `compute_breakpoints` currently needs) alongside
+  `signal` — if a future breakpoint variant needs additional formation-time
+  columns (e.g. a size-conditional double sort), `apply_signal_holding_period`
+  will need to pull those into `self.formation` too. The direct
+  `engine.merged = ...; engine.form_portfolios()` isolated-testing pattern
+  documented in the class docstring still reproduces the old (biased)
+  behavior when used without going through `apply_signal_holding_period`,
+  since the true formation population can't be reconstructed from `merged`
+  alone — this is called out explicitly in both methods' docstrings.
+- **References:** [src/infra/backtest_engine/__init__.py](../src/infra/backtest_engine/__init__.py)
+  (`apply_signal_holding_period`, `form_portfolios`, `compute_breakpoints`),
+  [tests/test_no_lookahead_breakpoints.py](../tests/test_no_lookahead_breakpoints.py).
+
+## 2026-07-28 — Fix: ReviewGate approved fully-defaulted specs as `paper_faithful`
+
+- **Context / problem:** The same external review that found the P0-1
+  breakpoint issue above also constructed a MethodSpec with only
+  `signal.formula`/`signal.required_fields`/`portfolio.long_leg`/`short_leg`
+  set (the last two already default to "high"/"low", so setting them isn't
+  even required) and every other empirical field left at its schema default
+  (`breakpoint_source`/`weighting`/`missing_policy`/`rebalance_frequency`
+  all "unspecified", `formation_month`/`holding_period`/`accounting_lag`/
+  `sign` all `None`, `universe`/`universe_filters` empty). `ReviewGate.review()`
+  returned `approved=True, codegen_ready=True, paper_faithful=True` for it.
+  Root cause: `_check_required_fields` only checks those three
+  non-empty-string conditions; `_check_ambiguous_fields` (the mechanism that
+  actually applies the Evidence×Impact Review Decision Matrix and can block
+  approval) only iterates `spec.ambiguous_fields` -- a list the EXTRACTOR
+  must proactively populate. A spec where the extractor (or a hand-built
+  test spec) never records an `ambiguous_fields` entry for a silent
+  high-impact field has *nothing* for that check to act on, so
+  `registry.build_config`'s menu-default clamping proceeds completely
+  unreviewed, and the resulting run still gets stamped `paper_faithful=True`.
+  This directly contradicts the project's core invariant ("empirical
+  parameters must be reviewed", `AGENTS.md` "Never let LLM output decide
+  empirical parameters without MethodSpec review").
+- **Options considered:** (a) leave as-is, since `_check_ambiguous_fields`
+  technically implements the full Review Decision Matrix once evidence is
+  reported -- but this leaves the matrix inert whenever evidence reporting
+  itself is silent, which is exactly the failure mode found; (b) require the
+  extractor to always emit an `ambiguous_fields` entry for every
+  `HIGH_IMPACT_FIELDS` path regardless of confidence, so `_check_ambiguous_fields`
+  always has something to classify -- pushes the fix into prompt-following
+  behavior that can't be verified deterministically at review time; (c) add
+  a deterministic reviewer-side backstop that inspects a fixed, individually
+  verified subset of `HIGH_IMPACT_FIELDS` for an unambiguous "nothing was
+  said" sentinel (explicit `UNSPECIFIED` enum member, or `None`/empty for a
+  plain Optional/list field), and — only when no matching `ambiguous_fields`
+  entry already covers that field — treats it as
+  `(EvidenceSource.UNSPECIFIED, EmpiricalImpact.HIGH)` per the existing
+  Review Decision Matrix (`needs_human_confirmation`), independent of
+  whether the extractor said anything at all.
+- **Decision:** (c). Added `ReviewGate._check_silent_high_impact_fields`,
+  wired into `review()` after `_check_ambiguous_fields`. Covers
+  `portfolio.sort.breakpoint_source`, `portfolio.weighting`,
+  `signal.missing_policy`, `signal.timing.rebalance_frequency`,
+  `signal.timing.formation_month`, `signal.timing.holding_period`,
+  `signal.timing.accounting_lag`, `signal.sign`, `portfolio.universe`,
+  `portfolio.universe_filters`, `portfolio.return_combination` — the
+  subset of `HIGH_IMPACT_FIELDS` whose silence is unambiguous by value.
+  Deliberately does NOT cover `portfolio.long_leg`/`short_leg`
+  (default to the affirmative-looking "high"/"low", not a sentinel) or
+  `portfolio.construction_type`/`portfolio.implied_factor_direction`/
+  `reported_results.*` (no individually-verified sentinel mapping yet) —
+  those remain dependent on the extractor's own `ambiguous_fields`
+  reporting, same as before.
+- **Rationale:** A deterministic, reviewer-owned check that can't be
+  bypassed by the extractor simply staying silent is a stronger guarantee
+  than relying entirely on the extractor to self-report uncertainty — it
+  makes "no evidence recorded" fail closed (block) instead of fail open
+  (silently default + stamp paper-faithful). Restricting it to an
+  individually-verified subset (rather than a generic loop over all of
+  `HIGH_IMPACT_FIELDS`) avoids guessing at fields whose "unspecified" value
+  can't be told apart from a legitimate explicit choice, which would risk
+  false positives blocking genuinely-complete specs.
+- **Empirical impact:** No-op for every existing fixture/test in the repo
+  (full suite: 154 passed / 26 skipped, no changes) — all curated
+  `tests/fixtures/method_specs/*.resolved.methodspec.json` specs already
+  have these fields explicitly set or covered by `ambiguous_fields`.
+  New regression suite `tests/test_reviewer_silent_defaults.py` reproduces
+  the reviewer's exact minimal-spec repro (now blocked, not
+  approved/paper_faithful), confirms an already-flagged field isn't
+  double-blocked, and confirms a genuinely complete spec still passes
+  cleanly (no false positives).
+- **Trade-offs / risks:** Not exhaustive over all 20 `HIGH_IMPACT_FIELDS`
+  entries (see the "deliberately does NOT cover" list above) — a spec could
+  still slip through with one of those uncovered fields silently defaulted.
+  Extending coverage to them requires verifying, field by field, what value
+  actually constitutes "the paper said nothing" for each (several of
+  `HIGH_IMPACT_FIELDS`' dotted paths are legacy aliases that don't map
+  1:1 onto the current Pydantic attribute tree, e.g. `"timing.accounting_lag_months"`
+  has no corresponding real attribute and always resolves to `None` via
+  `_get_field_value`'s dotted-path walker regardless of the spec's actual
+  content) — deferred rather than guessed at in this pass.
+- **References:** [src/steps/step2_reviewer/__init__.py](../src/steps/step2_reviewer/__init__.py)
+  (`_check_silent_high_impact_fields`, `HIGH_IMPACT_FIELDS`, `review`),
+  [tests/test_reviewer_silent_defaults.py](../tests/test_reviewer_silent_defaults.py).
+
+## 2026-07-26 — MethodSpec field audit: remove dead fields, keep the curated evidence-citation schema
+
+- **Context / problem:** After the engine/pipeline simplification (single
+  standard backtest path, `BacktestExecutor` consolidation), user asked
+  whether `MethodSpec` itself still carries residual complexity from the
+  earlier, more complex agent design that could now be simplified. A full
+  field-by-field audit (via a research subagent, cross-checking every
+  `MethodSpec` field against actual reads in `registry.py`, the engine,
+  `step2_reviewer`, `step1_extractor`, `src/evaluation/`, `app.py`, and
+  `scripts/`) found most "unread by Python code" fields are not actually
+  dead — `step2_reviewer` dumps the ENTIRE spec as JSON into the LLM
+  review-gate prompt (`json.dumps(spec.model_dump(...))`), so any field
+  reachable from that dump is consumed by the audit/review step even
+  without a dedicated `.field` access in Python. The one deliberately large
+  candidate for removal, `MethodSpec.normalize_curated_schema` (~150 lines,
+  converts the LLM's actual output shape — top-level `paper`/`timing`/
+  `universe`/`portfolio` keys with per-field `{location, quote,
+  interpretation}` evidence — into the flat pydantic fields the rest of the
+  pipeline consumes), turned out to be the LIVE extractor-prompt contract
+  (`prompts/extractor/methodspec_extractor.md` still requires this exact
+  curated shape), not legacy back-compat: `data/test_method_specs_human_labeled/`
+  (10 files), 5 `tests/fixtures/method_specs/*.resolved.methodspec.json`
+  fixtures, and `scripts/run_extraction_eval.py`'s `load_ground_truth()` all
+  depend on it today.
+- **Options considered:** For the curated schema specifically: (a) keep it
+  as-is; (b) rewrite the extractor prompt to have the LLM emit the flat
+  `MethodSpec` shape directly and delete `normalize_curated_schema`
+  entirely; (c) keep the curated input capability but restructure
+  `MethodSpec.economic_intuition`/`detailed_definition`/`sign` into
+  evidence-carrying sub-models so no per-field citation granularity is lost
+  either way.
+- **Decision:** Kept the curated schema/`normalize_curated_schema` as-is
+  (option a) — explicitly rejected flattening. The curated shape's entire
+  reason for existing is giving `economic_intuition`/`detailed_definition`/
+  `sign` (and other fields) their OWN per-field `{location, quote,
+  interpretation}` paper citation, independent of the coarser
+  sub-model-level `evidence: list[EvidenceCitation]` fields the flat
+  `MethodSpec` already has elsewhere (`SignalTiming.evidence`,
+  `MissingPolicy.evidence`, etc.). Flattening the extractor prompt would
+  either lose that per-field citation granularity or require a
+  larger redesign of the flat schema itself — neither was worth it just to
+  remove ~150 lines of adapter code, given per-field evidence citation is a
+  core "auditable pipeline" selling point of this project (see
+  `docs/architecture.md` §2). Instead, removed only what a full field audit
+  confirmed was genuinely dead: `PortfolioSortSpec.quantiles` (duplicated
+  `ls_quantile`, the field the engine actually reads), `ReturnCombinationSpec.long_leg`/
+  `short_leg` (duplicated `PortfolioSpec.long_leg`/`short_leg`, the fields
+  `registry.resolve_long_leg`/`resolve_short_leg` actually read),
+  `AmbiguousField.confidence` (written by the extractor and
+  `step2_reviewer/resolution.py` but never read — `empirical_impact` is the
+  field that actually drives review-blocking), and the orphaned
+  `src/evaluation/gt_matcher.py` module (`GroundTruthMatcher`, zero
+  production callers anywhere in the repo).
+- **Rationale:** "Not read by a Python `.field` access" is not the same as
+  "unused" for an audit-first schema whose primary consumer for many fields
+  is a human/LLM reading the full JSON dump, not runtime logic — conflating
+  the two would have deleted real audit-trail content. Narrowing to fields
+  confirmed dead by tracing every actual reader kept this a safe, reversible
+  cleanup instead of an extraction-prompt redesign with a real fidelity
+  trade-off.
+- **Empirical impact:** None — pure schema/dead-code cleanup, no behavior
+  change to extraction, review, codegen, or backtest numbers. One test
+  (`tests/test_resolution.py::test_apply_decisions_writes_value_clears_ambiguous_and_resets_status`)
+  updated to stop asserting on the removed `confidence` field. Full suite:
+  147 passed, 26 skipped (unchanged from baseline).
+- **Trade-offs / risks:** None identified for the fields actually removed
+  (confirmed zero readers across the whole repo before deleting each one).
+  The curated-schema simplification opportunity remains on the table for a
+  future, deliberate redesign if the per-field evidence-citation granularity
+  is ever judged not worth its complexity — that would need prompt
+  engineering care (`prompts/extractor/methodspec_extractor.md`) and is out
+  of scope here.
+- **References:** [src/infra/models/method_spec.py](../src/infra/models/method_spec.py)
+  (`PortfolioSortSpec`, `ReturnCombinationSpec`, `AmbiguousField`),
+  [src/steps/step1_extractor/__init__.py](../src/steps/step1_extractor/__init__.py),
+  [src/steps/step2_reviewer/resolution.py](../src/steps/step2_reviewer/resolution.py),
+  `tests/test_resolution.py`, `CHANGELOG.md` [Unreleased].
+
+## 2026-07-25 — Data-loader audit: CCM link-quality filter was missing from the multi-source join path
+
+- **Context / problem:** An audit of `src/infra/data_layer/__init__.py` +
+  `catalog.py` found the declarative multi-source signal-input loader
+  (`link_to_permno()`, used by `assemble_signal_master_table`/`multi_source`
+  codegen mode) had NO CCM linktype/linkprim data-quality filter at all,
+  unlike the legacy `CCMLinker` class (used by
+  `DataLayer.get_signal_master_table()`), which correctly restricts to
+  `linktype IN ('LC','LU')` / `linkprim IN ('P','C')` per
+  `docs/architecture.md` Section 3.2. `link_to_permno`'s own docstring
+  additionally claimed "primary link wins on ties" while the tie-break was
+  actually just "smallest permno wins" — misleading, and not the CRSP-
+  standard rule. Not caught by tests because
+  `scripts/build_test_papers_synthetic_data.py` only ever generates clean
+  `linktype∈{LC,LU}` / `linkprim∈{P,C}` rows, so the missing filter never
+  had a bad row to reject in test fixtures.
+- **Options considered:** (a) leave `link_to_permno` filter-free and document
+  it as a known gap; (b) hardcode the CCM-specific `linktype`/`linkprim`
+  column names into `link_to_permno`; (c) make the filter/tie-break rule
+  fully declarative in `catalog.LINK_TABLES` so it generalizes to any future
+  link table with its own quality-flag columns, not just CCM.
+- **Decision:** (c). Added optional `valid_filters: {column: [allowed
+  values]}` and `primary_filter: {column: value}` keys to a `LINK_TABLES`
+  entry (only `"ccm"` uses them today). `link_to_permno()` now drops rows
+  outside `valid_filters` before joining and prefers the `primary_filter`
+  row on ties (remaining ties still fall back to smallest permno for
+  determinism).
+- **Rationale:** Keeps the "register once" declarative philosophy (adding a
+  new link table with its own quality flags is a catalog entry, not new
+  join code) and makes the two CCM-linking code paths agree, matching the
+  documented CRSP/CCM convention instead of leaving a silent
+  correctness gap that would only bite once real (non-synthetic) WRDS data
+  with mixed linktypes is loaded.
+- **Empirical impact:** None on existing golden-number tests (all synthetic
+  fixtures already only contain "good" link rows) — this only changes
+  behavior once a raw `ccm_lnkhist` extract containing non-`LC`/`LU` or
+  non-primary rows is used.
+- **Trade-offs / risks:** None identified; purely additive/declarative.
+- **References:** `src/infra/data_layer/__init__.py` (`link_to_permno`),
+  `src/infra/data_layer/catalog.py` (`LINK_TABLES["ccm"]`),
+  `tests/test_signal_master_multisource.py::test_link_to_permno_drops_bad_linktype_and_prefers_primary`,
+  `tests/test_data_catalog.py::test_link_tables_unchanged`. Two related,
+  lower-severity findings from the same audit fixed alongside this one (see
+  `CHANGELOG.md` [Unreleased]): `_apply_pit_attrs` silently dropping
+  panel rows with no covering `msenames` window (now falls back to the
+  earliest attrs record, matching its own long-standing comment), and
+  `patents_nber` (a catalog source registered with `date: None`) silently
+  returning zero rows forever instead of failing loud.
+
+
 ## 2026-07-24 — Replace Streamlit dashboard with a React + FastAPI website
 
 - **Context / problem:** `app.py` (a single ~2,200-line Streamlit script, 7

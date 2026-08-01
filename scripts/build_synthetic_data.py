@@ -1,10 +1,10 @@
 """Persist the deterministic AssetGrowth MVP synthetic data as parquet files.
 
 Writes:
-- data/synthetic_data/mvp_v1/crsp_msf.parquet        (DataLayer snapshot table)
-- data/synthetic_data/mvp_v1/compustat_funda.parquet  (DataLayer snapshot table)
-- data/synthetic_data/mvp_v1/ccm_link.parquet         (DataLayer snapshot table)
-- data/synthetic_data/local/msf.parquet               (raw CRSP file BacktestExecutor reads directly)
+- data/synthetic_data/mvp_v1/crsp_msf.parquet     (returns panel + snapshot table)
+- data/synthetic_data/mvp_v1/comp_funda.parquet   (declarative signal source)
+- data/synthetic_data/mvp_v1/ccm_lnkhist.parquet  (CCM link table, keyed on lpermno)
+- data/synthetic_data/local/msf.parquet           (raw CRSP file BacktestExecutor reads directly)
 
 Run with: python3 scripts/build_synthetic_data.py
 """
@@ -33,8 +33,10 @@ def main() -> None:
     crsp = build_crsp_msf()
     crsp.to_parquet(snapshot_dir / "crsp_msf.parquet", index=False)
     crsp.to_parquet(local_dir / "msf.parquet", index=False)
-    build_compustat_funda().to_parquet(snapshot_dir / "compustat_funda.parquet", index=False)
-    build_ccm_link().to_parquet(snapshot_dir / "ccm_link.parquet", index=False)
+    build_compustat_funda().to_parquet(snapshot_dir / "comp_funda.parquet", index=False)
+    build_ccm_link().rename(columns={"permno": "lpermno"}).to_parquet(
+        snapshot_dir / "ccm_lnkhist.parquet", index=False
+    )
 
     print(f"Wrote synthetic data to {snapshot_dir} and {local_dir}")
 

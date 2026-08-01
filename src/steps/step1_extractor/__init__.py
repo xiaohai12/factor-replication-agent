@@ -561,15 +561,6 @@ class SemanticExtractor:
         else:
             ls_quantile = None
 
-        quantiles = raw.get("breakpoint_quantiles")
-        if not isinstance(quantiles, list):
-            # Derive from ls_quantile if available
-            if ls_quantile:
-                low_pct = int(ls_quantile * 100)
-                quantiles = [low_pct, 100 - low_pct]
-            else:
-                quantiles = []
-
         weighting = self._parse_enum(
             WeightingRule,
             raw.get("stock_weight", raw.get("weighting")),
@@ -582,9 +573,7 @@ class SemanticExtractor:
 
         portfolio = PortfolioSpec(
             universe=raw_universe,
-            sort=PortfolioSortSpec(
-                breakpoint_source=bp_source, quantiles=quantiles, ls_quantile=ls_quantile
-            ),
+            sort=PortfolioSortSpec(breakpoint_source=bp_source, ls_quantile=ls_quantile),
             weighting=weighting,
             long_leg=raw.get("long_leg", "high"),
             short_leg=raw.get("short_leg", "low"),
@@ -597,7 +586,6 @@ class SemanticExtractor:
                 field=item.get("field", "unknown"),
                 reason=item.get("reason", ""),
                 source=EvidenceSource.INFERRED,
-                confidence="low",
             ))
 
         # Mark "unspecified" fields as ambiguous too

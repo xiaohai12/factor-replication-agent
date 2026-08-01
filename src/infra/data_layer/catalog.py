@@ -38,153 +38,58 @@ from __future__ import annotations
 
 from typing import Any, Optional
 
+from src.infra.data_layer import sources
+
 
 # ---------------------------------------------------------------------------
 # Link tables: how a source's native key resolves to permno, with a validity
 # window. This is the "join with what" target of every source's `join.link`.
+#
+# Optional per-entry keys (currently only "ccm" needs them):
+#   valid_filters   — {column: [allowed values]}. Rows outside the allowed set
+#                      are dropped BEFORE joining — a data-quality filter, e.g.
+#                      CCM's linktype/linkprim (mirrors the same rule
+#                      `CCMLinker` enforces for the legacy snapshot path: only
+#                      linktype in LC/LU, linkprim in P/C are usable links).
+#   primary_filter  — {column: value} marking the "primary" row. When a
+#                      source row still has multiple valid link candidates
+#                      (rare overlapping windows), the row matching
+#                      `primary_filter` is preferred over an arbitrary pick
+#                      (e.g. CCM linkprim == "P"), matching `CCMLinker`'s
+#                      tie-break semantics.
 # ---------------------------------------------------------------------------
-LINK_TABLES: dict[str, dict[str, str]] = {
-    "ccm":               {"key": "gvkey",  "permno": "lpermno", "start": "linkdt", "end": "linkenddt"},
-    "ibes_crsp_link":    {"key": "ticker", "permno": "permno",  "start": "sdate",  "end": "edate"},
-    "optionm_crsp_link": {"key": "secid",  "permno": "permno",  "start": "sdate",  "end": "edate"},
-}
-
-# File name of each link table on disk (LINK_TABLES key -> parquet stem).
-LINK_TABLE_FILES: dict[str, str] = {
-    "ccm": "ccm_lnkhist",
-    "ibes_crsp_link": "ibes_crsp_link",
-    "optionm_crsp_link": "optionm_crsp_link",
-}
+# NOTE: `optionm_crsp_link` was removed 2026-07-31 -- no OptionMetrics data
+# exists in this project (see docs/decision-log.md).
+#
+# The link-table registry lives in `sources.py` (as `LinkTableSpec` objects,
+# alongside the sources that link through them, incl. the on-disk file names).
+# This dict is DERIVED from that registry so importers of `catalog.LINK_TABLES`
+# see the same shape as before.
+LINK_TABLES: dict[str, dict[str, Any]] = sources.link_tables_view()
 
 
 # ---------------------------------------------------------------------------
-# The catalog. One entry per registered data source:
+# The catalog. One entry per registered SIGNAL source, DERIVED from the
+# `sources.py` DataSource registry (the single source of truth):
 #   join:             {key, link, date, lag}  (see module docstring)
 #   physical_columns: the set of physical column names this source supplies —
 #                     drives `source_of_column()` (which source owns a column)
 #   columns:          {concept_alias (lower-case) -> physical_column} — drives
 #                     `resolve_concept()` (paper concept -> source + column).
-#                     Aliases are matched exactly; the CRSP/Compustat aliases
-#                     mirror the historical `_CONCEPT_MAP` so nothing moves.
 # `lag` is either an int (months) or the marker string "accounting_lag_months"
 # meaning "use the reviewed spec's accounting lag".
 # ---------------------------------------------------------------------------
-DATA_CATALOG: dict[str, dict[str, Any]] = {
-    "crsp_msf": {
-        "join": {"key": "permno", "link": None, "date": None, "lag": 0},
-        "physical_columns": {
-            "permno", "yyyymm", "date", "ret", "me",
-            "prc", "shrout", "shrcd", "exchcd", "siccd",
-        },
-        "columns": {
-            "monthly_return": "ret", "ret": "ret", "monthly stock return": "ret",
-            "monthly return": "ret", "stock return": "ret",
-            "market_equity": "me", "me": "me", "market_equity_june": "me",
-            "market value": "me", "market capitalization": "me",
-            "market value of equity": "me", "market cap": "me",
-            "listing_exchange": "exchcd", "exchcd": "exchcd",
-            "exchange": "exchcd", "exchange code": "exchcd",
-            "sic_code": "siccd", "siccd": "siccd", "sic": "siccd",
-            "four-digit sic": "siccd", "industry code": "siccd",
-            "shrcd": "shrcd", "share code": "shrcd", "share_code": "shrcd",
-            "shrout": "shrout", "shares outstanding": "shrout",
-            "prc": "prc", "price": "prc", "closing price": "prc",
-        },
-    },
-    "comp_funda": {
-        "join": {"key": "gvkey", "link": "ccm", "date": "datadate", "lag": "accounting_lag_months"},
-        "physical_columns": {
-            "gvkey", "datadate", "at", "ceq", "sale", "ib",
-            "dltt", "act", "lct", "dp", "capx",
-            "txditc", "pstkl", "pstk", "cogs", "xint", "revt", "che", "dlc",
-            "xsga", "xrd", "rect", "invt", "xpp", "drc", "drlt", "ap", "xacc",
-        },
-        "columns": {
-            "total_assets": "at", "at": "at", "compustat data item 6": "at",
-            "data6": "at", "data item 6": "at",
-            "book_equity": "ceq", "ceq": "ceq", "common equity": "ceq",
-            "sales": "sale", "sale": "sale", "revenue": "sale",
-            "revenues": "revt", "revt": "revt",
-            "net_income": "ib", "ib": "ib", "income before extraordinary": "ib",
-            "long_term_debt": "dltt", "dltt": "dltt", "long term debt": "dltt",
-            "short_term_debt": "dlc", "dlc": "dlc",
-            "current_assets": "act", "act": "act",
-            "current_liabilities": "lct", "lct": "lct",
-            "cash": "che", "che": "che",
-            "depreciation": "dp", "dp": "dp",
-            "capital_expenditure": "capx", "capx": "capx",
-            "cost_of_goods_sold": "cogs", "cogs": "cogs",
-            "interest_expense": "xint", "xint": "xint",
-            "deferred_taxes": "txditc", "txditc": "txditc",
-            "preferred_stock": "pstkl", "pstkl": "pstkl", "pstk": "pstk",
-            "sga_expense": "xsga", "xsga": "xsga",
-            "rd_expense": "xrd", "xrd": "xrd",
-            "receivables": "rect", "rect": "rect",
-            "inventory": "invt", "invt": "invt",
-            "prepaid_expenses": "xpp", "xpp": "xpp",
-            "deferred_revenue_current": "drc", "drc": "drc",
-            "deferred_revenue_longterm": "drlt", "drlt": "drlt",
-            "accounts_payable": "ap", "ap": "ap",
-            "accrued_expenses": "xacc", "xacc": "xacc",
-        },
-    },
-    "comp_fundq": {
-        "join": {"key": "gvkey", "link": "ccm", "date": "datadate", "lag": "accounting_lag_months"},
-        "physical_columns": {"gvkey", "datadate", "atq", "ceqq", "saleq", "ibq"},
-        "columns": {
-            "total_assets_quarterly": "atq", "atq": "atq",
-            "common_equity_quarterly": "ceqq", "ceqq": "ceqq",
-            "sales_quarterly": "saleq", "saleq": "saleq",
-            "net_income_quarterly": "ibq", "ibq": "ibq",
-        },
-    },
-    "ibes_statsumu": {
-        "join": {"key": "ticker", "link": "ibes_crsp_link", "date": "statpers", "lag": 0},
-        "physical_columns": {"ticker", "statpers", "meanest", "medest", "numest", "stdev"},
-        "columns": {
-            "analyst_forecast_mean": "meanest", "mean_estimate": "meanest", "meanest": "meanest",
-            "analyst_forecast_median": "medest", "median_estimate": "medest", "medest": "medest",
-            "num_analysts": "numest", "number_of_estimates": "numest", "numest": "numest",
-            "forecast_dispersion": "stdev", "forecast_stdev": "stdev", "stdev": "stdev",
-        },
-    },
-    "optionm_vsurf": {
-        "join": {"key": "secid", "link": "optionm_crsp_link", "date": "date", "lag": 0},
-        "physical_columns": {"secid", "date", "impl_volatility", "delta", "days"},
-        "columns": {
-            "implied_volatility": "impl_volatility", "implied_vol": "impl_volatility",
-            "impl_volatility": "impl_volatility",
-            "option_delta": "delta", "delta": "delta",
-            "days_to_maturity": "days", "days": "days",
-        },
-    },
-    "tr_13f": {
-        "join": {"key": "permno", "link": None, "date": "rdate", "lag": 0},
-        "physical_columns": {"permno", "rdate", "shares", "instown_perc"},
-        "columns": {
-            "institutional_ownership": "instown_perc", "instown_perc": "instown_perc",
-            "institutional_shares": "shares", "shares": "shares",
-        },
-    },
-    "patents_nber": {
-        "join": {"key": "gvkey", "link": "ccm", "date": None, "lag": 0},
-        "physical_columns": {"gvkey", "npats", "ncites"},
-        "columns": {
-            "patent_count": "npats", "npats": "npats",
-            "citation_count": "ncites", "ncites": "ncites",
-        },
-    },
-}
+DATA_CATALOG: dict[str, dict[str, Any]] = sources.data_catalog_view()
 
 
 # ---------------------------------------------------------------------------
 # Derived views + lookups. Keep these the ONLY way other modules read the
-# catalog so the four historical fragments stay in sync automatically.
+# catalog so every consumer stays in sync with the registry automatically.
 # ---------------------------------------------------------------------------
 
 def signal_sources() -> dict[str, dict[str, Any]]:
-    """The per-source join metadata (key/link/date/lag), byte-compatible with
-    the historical `SIGNAL_SOURCES` literal."""
+    """The per-source join metadata (key/link/date/lag), in the `SIGNAL_SOURCES`
+    dict shape."""
     return {name: dict(entry["join"]) for name, entry in DATA_CATALOG.items()}
 
 
@@ -237,15 +142,26 @@ def resolve_concept(concept: str) -> tuple[Optional[str], Optional[str]]:
 # default. CRSP US equity is ONE registered entry here, not a fallback.
 #
 # Each entry maps to the BacktestExecutor `_load_data` config:
-#   returns_table  — parquet stem under <data_path>/raw/ (panel layout)
-#   returns_layout — "panel" (single flat parquet) or "crsp_raw" (assembled
-#                    from separate WRDS-shaped tables; see assemble_panel)
-# Register a new universe (e.g. an international panel) by adding one entry.
+#   returns_table  — the table name passed through to `_load_data`
+#   returns_layout — "crsp_ciz" (assembled from the real WRDS "new CIZ"
+#                    export; see `data_layer.build_crsp_monthly_panel_ciz`).
+#                    The single-pre-flattened-parquet "panel" layout was
+#                    removed 2026-07-31 along with `load_msf`/`load_daily_msf`
+#                    — see docs/decision-log.md same date.
+# Register a new universe (e.g. an international panel) by registering a new
+# `ReturnsUniverse` in `sources.py`; this dict is DERIVED from that registry.
 # ---------------------------------------------------------------------------
-RETURNS_UNIVERSES: dict[str, dict[str, str]] = {
-    "us_equity_crsp": {"returns_table": "crsp_msf", "returns_layout": "panel"},
-    "us_equity_crsp_raw": {"returns_table": "crsp_msf", "returns_layout": "crsp_raw"},
-}
+RETURNS_UNIVERSES: dict[str, dict[str, str]] = sources.returns_universes_view()
+
+
+# ---------------------------------------------------------------------------
+# The on-disk file names + raw-CSV dedup filters for signal sources / link
+# tables live on their `SourceSpec` / `LinkTableSpec` in `sources.py`, and the
+# CIZ raw column lists + PrimaryExch->exchcd map live with the CRSP source
+# there too. `sources.py` can't import `catalog` under the sources <- catalog
+# <- __init__ layering, so this physical-schema detail lives with the sources
+# it describes.
+# ---------------------------------------------------------------------------
 
 
 #: The standardized default returns universe (CRSP monthly). Used when a

@@ -17,13 +17,17 @@ from typing import Any, Optional
 
 from src.infra.data_layer import DataDictionary
 from src.infra.models.method_spec import (
+    BreakpointSource,
     EvidenceCitation,
     EmpiricalImpact,
     EvidenceSource,
     MethodSpec,
+    MissingAction,
     PortfolioConstructionType,
+    RebalanceFrequency,
     RemediationMode,
     ReturnCombinationType,
+    WeightingRule,
 )
 
 DEFAULT_REVIEW_PROMPT_PATH = Path(__file__).resolve().parents[3] / "prompts" / "review_gate" / "methodspec_audit.md"
@@ -101,6 +105,39 @@ SENSIBLE_DEFAULTS = {
     "portfolio.weighting": "vw",
     "signal.timing.rebalance_frequency": "annual",
 }
+
+
+def _is_invalid_ls_quantile(value: float | None) -> bool:
+    """True when `portfolio.sort.ls_quantile` is either unset (`None`) or a
+    numerically invalid/degenerate value for a long-short breakpoint sort:
+    `<= 0`, a `> 1` value that doesn't round to at least 2 whole groups
+    (e.g. `1.5` -> 2 groups is fine, but `1` or `1.4` -> < 2 is not), or a
+    fraction outside `(0, 0.5]` (a fraction `> 0.5` would mean fewer than 2
+    groups). Kept independent of (not imported from)
+    `registry._resolve_ls_quantile`, which silently CLAMPS exactly these
+    same invalid values to the standard 10-group default -- that clamp
+    keeps `build_config` crash-safe for an already-approved spec, but an
+    EXPLICIT invalid value (e.g. `-1`, not just an unset `None`) should never
+    have been approved as `paper_faithful` in the first place. See
+    docs/decision-log.md for the gap this closes.
+    """
+    if value is None:
+        return True
+    if value > 1:
+        return round(value) < 2
+    return not (0 < value <= 0.5)
+
+
+def _is_invalid_formation_month(value: int | None) -> bool:
+    """True when `signal.timing.formation_month` is either unset (`None`) or
+    outside the valid calendar-month range 1-12. Like `_is_invalid_ls_quantile`,
+    this catches an EXPLICIT out-of-range value (e.g. `13`) that
+    `registry.build_config` would otherwise pass through / default silently,
+    approving a nonsensical formation calendar as `paper_faithful`. See
+    docs/decision-log.md for the gap this closes."""
+    if value is None:
+        return True
+    return not (1 <= value <= 12)
 
 
 class Disposition(str, Enum):
@@ -211,6 +248,7 @@ class ReviewGate:
         self._check_reported_results_contract(spec, result)
         self._check_portfolio_structure_consistency(spec, result)
         self._check_ambiguous_fields(spec, result)
+        self._check_silent_high_impact_fields(spec, result)
 
         # Determine overall disposition
         if result.blocked_fields:
@@ -421,6 +459,74 @@ class ReviewGate:
                 result.warnings.append(
                     f"Field '{amb.field}' needs LLM review: {amb.reason}"
                 )
+
+    def _check_silent_high_impact_fields(self, spec: MethodSpec, result: ReviewResult) -> None:
+        """Deterministic backstop for HIGH_IMPACT_FIELDS the extractor never
+        reported via `ambiguous_fields` at all.
+
+        `_check_ambiguous_fields` only reacts to fields the extractor
+        proactively flagged as uncertain -- a MethodSpec with an EMPTY
+        `ambiguous_fields` list (a hand-built spec, or an extractor that
+        silently omitted a field instead of flagging it) sails through
+        `review()` with every empirical field clamped to its
+        `registry.build_config` menu default AND `result.paper_faithful =
+        True`, even when core portfolio-construction choices were never
+        actually specified. This check inspects a fixed subset of
+        HIGH_IMPACT_FIELDS whose "unspecified" sentinel is unambiguous (an
+        explicit UNSPECIFIED enum member, or None/empty for a plain
+        Optional/list field) and, for each one left silent with no matching
+        `ambiguous_fields` entry, applies the Review Decision Matrix as
+        (EvidenceSource.UNSPECIFIED, EmpiricalImpact.HIGH) --
+        `needs_human_confirmation` per that matrix -- blocking approval (and
+        the `paper_faithful` stamp) instead of silently defaulting (e.g.
+        `registry.build_config` would otherwise silently default an unset
+        `ls_quantile` to a decile sort).
+
+        Deliberately NOT exhaustive over all of HIGH_IMPACT_FIELDS: fields
+        whose default value is itself a plausible affirmative choice rather
+        than an unambiguous "nothing was said" sentinel (e.g.
+        `portfolio.long_leg`/`short_leg` default to "high"/"low",
+        `portfolio.construction_type`) can't be judged silent by value alone
+        -- those still rely on the extractor's own `ambiguous_fields`
+        reporting via `_check_ambiguous_fields`. See docs/decision-log.md
+        (2026-07-28 entry) for the gap this closes.
+        """
+        already_flagged = {amb.field for amb in spec.ambiguous_fields}
+        silent_checks = [
+            ("portfolio.sort.breakpoint_source", spec.breakpoint_source == BreakpointSource.UNSPECIFIED),
+            ("portfolio.weighting", spec.weighting_rule == WeightingRule.UNSPECIFIED),
+            ("signal.missing_policy", spec.missing_action == MissingAction.UNSPECIFIED),
+            ("signal.timing.rebalance_frequency", spec.rebalance_frequency == RebalanceFrequency.UNSPECIFIED),
+            ("signal.timing.formation_month", _is_invalid_formation_month(spec.formation_month)),
+            ("signal.timing.holding_period", spec.holding_period_months is None),
+            ("signal.timing.accounting_lag", spec.accounting_lag_months is None),
+            ("signal.sign", spec.sign is None),
+            ("portfolio.universe", spec.universe_description == "unspecified"),
+            ("portfolio.universe_filters", not spec.portfolio.universe_filters),
+            (
+                "portfolio.return_combination",
+                spec.portfolio.return_combination.type == ReturnCombinationType.UNSPECIFIED,
+            ),
+            ("portfolio.sort.ls_quantile", _is_invalid_ls_quantile(spec.portfolio.sort.ls_quantile)),
+        ]
+        for field_path, is_silent in silent_checks:
+            if not is_silent or field_path in already_flagged:
+                continue
+            result.blocked_fields.append(field_path)
+            result.field_notes.append(FieldReviewNote(
+                field=field_path,
+                status=Disposition.NEEDS_HUMAN_CONFIRMATION,
+                reason=(
+                    "High-impact empirical field left unspecified, or set to a "
+                    "numerically invalid value, with no ambiguous_fields entry "
+                    "-- registry.build_config would silently clamp this to its "
+                    "menu default. Confirm the paper's actual choice (or that it "
+                    "is genuinely silent and the standard default is acceptable) "
+                    "before this spec can be approved."
+                ),
+                current_value=self._get_field_value(spec, field_path),
+                empirical_impact=EmpiricalImpact.HIGH.value,
+            ))
 
     def review_with_llm(
         self,

@@ -92,7 +92,7 @@ def _ensure_synthetic_data() -> bool:
     (tests/synthetic_data/asset_growth_synthetic_data.py). Returns True if the
     synthetic data is available (already present or just generated).
     """
-    if SYNTHETIC_MSF_PATH.exists() and SYNTHETIC_SNAPSHOT_DIR.exists():
+    if SYNTHETIC_MSF_PATH.exists() and (SYNTHETIC_SNAPSHOT_DIR / "comp_funda.parquet").exists():
         return True
     try:
         from tests.synthetic_data.asset_growth_synthetic_data import (
@@ -105,8 +105,12 @@ def _ensure_synthetic_data() -> bool:
         crsp = build_crsp_msf()
         crsp.to_parquet(SYNTHETIC_SNAPSHOT_DIR / "crsp_msf.parquet", index=False)
         crsp.to_parquet(SYNTHETIC_MSF_PATH, index=False)
-        build_compustat_funda().to_parquet(SYNTHETIC_SNAPSHOT_DIR / "compustat_funda.parquet", index=False)
-        build_ccm_link().to_parquet(SYNTHETIC_SNAPSHOT_DIR / "ccm_link.parquet", index=False)
+        # The declarative signal-master loader reads `comp_funda.parquet` +
+        # `ccm_lnkhist.parquet` (CCM keyed on `lpermno`).
+        build_compustat_funda().to_parquet(SYNTHETIC_SNAPSHOT_DIR / "comp_funda.parquet", index=False)
+        build_ccm_link().rename(columns={"permno": "lpermno"}).to_parquet(
+            SYNTHETIC_SNAPSHOT_DIR / "ccm_lnkhist.parquet", index=False
+        )
         return True
     except Exception as e:
         st.error(f"Failed to auto-generate synthetic data: {e}")
@@ -119,8 +123,7 @@ def _run_backtest_via_script(
     *,
     crsp_data_path,
     signal_input_mode: str,
-    compustat_data_path=None,
-    ccm_link_path=None,
+    signal_data_dir=None,
     config_overrides: dict | None = None,
 ) -> dict:
     """Generate a standalone backtest script and execute it via subprocess.
@@ -150,8 +153,7 @@ def _run_backtest_via_script(
         plugin_code,
         data_path=str(crsp_data_path),
         signal_input_mode=signal_input_mode,
-        compustat_data_path=str(compustat_data_path or "data/local/compustat_funda.parquet"),
-        ccm_link_path=str(ccm_link_path or "data/local/ccm_link.parquet"),
+        signal_data_dir=str(signal_data_dir or ""),
         output_path=str(output_csv),
         config_overrides=config_overrides,
     )
@@ -616,10 +618,9 @@ def _e2e_run_stage_3_to_7(
             needs_compustat = _default_signal_mode(spec) != "crsp_only"
 
         backtest_skipped = False
-        compustat_data_path = None
-        ccm_link_path = None
+        signal_data_dir = None
         if needs_compustat:
-            if not SYNTHETIC_SNAPSHOT_DIR.exists():
+            if not (SYNTHETIC_SNAPSHOT_DIR / "comp_funda.parquet").exists():
                 tracer.log(
                     "backtest",
                     "skipped — no Compustat snapshot available "
@@ -629,16 +630,14 @@ def _e2e_run_stage_3_to_7(
                 stages["backtest"] = {"status": "skipped", "reason": "no compustat snapshot"}
                 backtest_skipped = True
             else:
-                compustat_data_path = SYNTHETIC_SNAPSHOT_DIR / "compustat_funda.parquet"
-                ccm_link_path = SYNTHETIC_SNAPSHOT_DIR / "ccm_link.parquet"
+                signal_data_dir = SYNTHETIC_SNAPSHOT_DIR
 
         if not backtest_skipped:
             bt_result = _run_backtest_via_script(
                 spec, plugin.code,
                 crsp_data_path=crsp_data_path,
                 signal_input_mode="compustat" if needs_compustat else "crsp_only",
-                compustat_data_path=compustat_data_path,
-                ccm_link_path=ccm_link_path,
+                signal_data_dir=signal_data_dir,
             )
             tracer.log("backtest", "done", f"t_stat={bt_result['metrics'].get('t_stat', 'N/A'):.2f}")
             stages["backtest"] = {"status": "done", "metrics": bt_result["metrics"]}

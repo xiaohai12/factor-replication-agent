@@ -154,7 +154,7 @@ class Pipeline:
             snapshot_id: Data snapshot registered on self.data_layer.snapshots
                 (needed once the script is built -- see step 3 -- so
                 `BacktestRunner.build_script` can locate
-                crsp_msf.parquet/compustat_funda.parquet/ccm_link.parquet
+                crsp_msf.parquet/comp_funda.parquet/ccm_lnkhist.parquet
                 for every track `DualTrackController` runs).
             paper_text: Raw paper text handed to the extractor.
             plan: Experiment plan for steps 5-6 (defaults to original +
@@ -359,8 +359,8 @@ class Pipeline:
         (a durable, independently-runnable audit artifact — see
         src/steps/step3_codegen/script_generator.py). The registered
         snapshot's data files must already exist on disk (crsp_msf.parquet,
-        and for Compustat-based signals also compustat_funda.parquet +
-        ccm_link.parquet) — this method does not generate data.
+        and for Compustat-based signals also comp_funda.parquet +
+        ccm_lnkhist.parquet) — this method does not generate data.
 
         Args:
             spec: Approved MethodSpec (review_status=approved, codegen_ready=True)
@@ -451,13 +451,22 @@ class Pipeline:
         block validation.
         """
         try:
+            import pandas as pd
+
+            from src.infra.data_layer import assemble_signal_master_table
+
             mode = pick_signal_input_mode(spec)
+            snapshot = self.data_layer.snapshots.get_snapshot(snapshot_id)
+            if snapshot is None:
+                return None
+            storage_path = Path(snapshot.storage_path)
             if mode == "compustat":
-                si = self.data_layer.get_signal_master_table(
-                    snapshot_id, lag_months=spec.accounting_lag_months or 6
-                )
+                # Same declarative loader the generated script uses
+                # (assemble_signal_master_table), reading comp_funda.parquet +
+                # ccm_lnkhist.parquet from the snapshot dir.
+                si = assemble_signal_master_table(spec, storage_path)
             elif mode == "crsp_only":
-                crsp = self.data_layer.get_snapshot_data(snapshot_id, "crsp_msf")
+                crsp = pd.read_parquet(storage_path / "crsp_msf.parquet")
                 si = crsp.rename(columns={"yyyymm": "time_avail_m"})
             else:
                 # multi_source (IBES/OptionMetrics/...) — assembling it in-process

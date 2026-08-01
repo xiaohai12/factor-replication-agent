@@ -67,7 +67,7 @@ class BacktestRunner:
 
         Data is NOT auto-generated here: the registered snapshot's
         storage_path must already contain crsp_msf.parquet (and, in
-        'compustat' mode, compustat_funda.parquet + ccm_link.parquet).
+        'compustat' mode, comp_funda.parquet + ccm_lnkhist.parquet).
 
         Returns a dict: script_text, script_path, output_csv, config.
         """
@@ -100,8 +100,6 @@ class BacktestRunner:
             plugin.code,
             data_path=str(storage_path / "crsp_msf.parquet"),
             signal_input_mode=signal_input_mode,
-            compustat_data_path=str(storage_path / "compustat_funda.parquet"),
-            ccm_link_path=str(storage_path / "ccm_link.parquet"),
             output_path=str(output_csv),
             config_overrides=config_overrides,
             ff_factors_path=ff_factors_path,

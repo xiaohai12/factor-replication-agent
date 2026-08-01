@@ -4,7 +4,7 @@ Exercises the full Phase 1 MVP chain from docs/roadmap.md on synthetic data
 (no network / LLM calls):
 
     resolved MethodSpec (sloan_1996_accruals)
-    -> DataLayer.get_signal_master_table()   (CCMLinker + TimeAvailComputer)
+    -> assemble_signal_master_table()        (declarative gvkey->permno link + lag)
     -> plugin.compute_signal()               (already-generated plugin, incl.
                                                its own per-formation-date
                                                1%/99% winsorization)
@@ -75,8 +75,12 @@ def pipeline(tmp_path) -> Pipeline:
     snapshot_dir = data_path / "snapshots" / SNAPSHOT_ID
     snapshot_dir.mkdir(parents=True)
     crsp.to_parquet(snapshot_dir / "crsp_msf.parquet", index=False)
-    build_compustat_funda().to_parquet(snapshot_dir / "compustat_funda.parquet", index=False)
-    build_ccm_link().to_parquet(snapshot_dir / "ccm_link.parquet", index=False)
+    # The declarative signal-master loader reads `comp_funda.parquet` +
+    # `ccm_lnkhist.parquet` (CCM keyed on `lpermno`).
+    build_compustat_funda().to_parquet(snapshot_dir / "comp_funda.parquet", index=False)
+    build_ccm_link().rename(columns={"permno": "lpermno"}).to_parquet(
+        snapshot_dir / "ccm_lnkhist.parquet", index=False
+    )
 
     pipe.data_layer.snapshots.register_snapshot(
         SnapshotMetadata(
@@ -108,12 +112,13 @@ def generated_plugin() -> PluginRecord:
 
 
 def test_signal_master_table_has_expected_shape(pipeline, approved_spec):
-    smt = pipeline.data_layer.get_signal_master_table(
-        SNAPSHOT_ID, lag_months=approved_spec.accounting_lag_months
-    )
+    # The signal-master is built by the declarative loader.
+    from src.infra.data_layer import assemble_signal_master_table
+
+    storage_path = pipeline.data_layer.snapshots.get_snapshot(SNAPSHOT_ID).storage_path
+    smt = assemble_signal_master_table(approved_spec, storage_path)
     assert len(smt) == 30
     assert set(smt.columns) >= {"permno", "time_avail_m", "act", "che", "lct", "dlc", "dp", "at"}
-    assert pipeline.data_layer.ccm_linker.link_issues == []
 
 
 def test_mvp_chain_matches_golden_numbers(pipeline, approved_spec, generated_plugin):

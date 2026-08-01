@@ -42,8 +42,8 @@ infrastructure used by many callers with no single "owning" step —
 `pipeline.py` (orchestration), `step6_dual_track_controller` (ablation
 experiments), `app.py` (dashboard), and unit tests that exercise individual
 step methods directly, the same way `src/infra/data_layer`
-(`DataLayer`/`CCMLinker`/`TimeAvailComputer`) is used by many callers rather
-than being one step's private implementation.
+(`DataLayer` + the `sources.py` DataSource registry) is used by many callers
+rather than being one step's private implementation.
 """
 
 from __future__ import annotations
@@ -57,6 +57,7 @@ import pandas as pd
 from src.infra.models.method_spec import MethodSpec
 from src.steps.step3_codegen import registry as codegen_registry
 
+from src.infra.data_layer import DataLayer
 
 class BacktestExecutor:
     """Controlled backtesting lifecycle engine — one class, one file.
@@ -110,6 +111,32 @@ class BacktestExecutor:
         self.plugin = None
         self.data: pd.DataFrame | None = None
         self.merged: pd.DataFrame | None = None
+        #: Formation cross-section built by `apply_signal_holding_period`:
+        #: one row per (permno, cohort) with `signal` (+ `exchcd` as of the
+        #: formation month, if available) -- INDEPENDENT of whether that
+        #: permno has any valid return in its future held months. This is
+        #: the population `compute_breakpoints` uses by default (see that
+        #: method's docstring for why `self.merged` must not be used for
+        #: this). None until `apply_signal_holding_period` runs, or when the
+        #: signal/base panel were never supplied (e.g. `assign_portfolios`
+        #: exercised in isolation from a hand-built `self.merged`).
+        self.formation: pd.DataFrame | None = None
+        #: Snapshot of the returns panel taken by `apply_missing_policy`
+        #: BEFORE it drops rows with a missing `ret` -- lets
+        #: `apply_signal_holding_period` determine universe-filter
+        #: eligibility (shrcd/exchcd/siccd-type static attributes) for
+        #: `self.formation` independently of whether a given stock-month's
+        #: RETURN happened to be missing. None if `apply_missing_policy`
+        #: never ran (e.g. `apply_signal_holding_period` exercised directly
+        #: in isolation) -- falls back to whatever panel is on hand then.
+        self._pre_missing_policy_data: pd.DataFrame | None = None
+        #: Fraction of value-weighted held rows whose prior-month market
+        #: equity (`me_{t-1}`) could not be resolved (and were therefore
+        #: EXCLUDED from that month's value-weighting -- see
+        #: `compute_portfolio_returns`/`_attach_lagged_me`). Set by
+        #: `compute_portfolio_returns` on a vw run (None on an ew run or
+        #: before it runs); surfaced as `metrics["vw_lagged_me_missing_frac"]`.
+        self._vw_lag_me_missing_frac: float | None = None
         self.breakpoints: pd.DataFrame | None = None
         self.portfolios: pd.DataFrame | None = None
         self.returns: pd.DataFrame | None = None
@@ -219,25 +246,20 @@ class BacktestExecutor:
         If `data` is given directly (a pre-loaded MSF DataFrame), disk
         loading is skipped entirely.
 
-        Two layouts (`config["returns_layout"]`):
+        Only one layout (`config["returns_layout"]`):
 
-        - "panel": a single pre-flattened parquet located BY NAME at
-          `<data_path>/raw/<returns_table>.parquet`. Only when `returns_table`
-          is literally `"crsp_msf"` (the legacy default table name) does a
-          missing raw/ file fall back to `<data_path>/local/msf.parquet` (a
-          FILE-location compatibility shim for pre-catalog snapshots/tests,
-          not a data-source default) -- for every OTHER registered returns
-          universe, a missing raw/ file fails loud instead of silently
-          substituting the CRSP legacy file (that substitution would be
-          exactly the silent-default-to-CRSP bug this design is meant to
-          prevent).
-
-        - "crsp_raw": assemble the panel from the raw, SEPARATE WRDS-shaped
-          tables (crsp_msf + crsp_msenames + crsp_msedelist) in the directory
-          `config["returns_dir"]` (default `<data_path>`) via
-          `data_layer.build_crsp_monthly_panel` — this is what reads the
-          realistic multi-source layout produced by
-          scripts/build_test_papers_synthetic_data.py.
+        - "crsp_ciz": assemble the panel from a real WRDS "new CIZ" export
+          (`CRSP_STOCK_MONTH.csv` + `CRSP_DELISTING.csv`, a single
+          already-point-in-time table) in `config["returns_dir"]` (default
+          `<data_path>`) via `DataLayer.load_returns_by_layout` — the
+          `CrspReturnsUniverse` DataSource in `data_layer/sources.py` (the
+          registry is the single source of truth; see that class for the
+          documented exchcd/shrcd approximations). This is the ONLY
+          raw-multi-table CRSP assembly path (the legacy 3-table
+          crsp_msf/crsp_msenames/crsp_msedelist "crsp_raw" layout was
+          removed 2026-07-31, and the single-pre-flattened-parquet "panel"
+          layout + `load_msf`/`load_daily_msf` were removed 2026-07-31 too —
+          see docs/decision-log.md same date).
         """
         config = self.config if config is None else config
         if data is not None:
@@ -245,107 +267,21 @@ class BacktestExecutor:
             self.trace.append("load_data")
             return self.data
 
-        if config.get("returns_layout") == "crsp_raw":
-            from src.infra.data_layer import build_crsp_monthly_panel
+        if config.get("returns_layout") == "crsp_ciz":
             returns_dir = config.get("returns_dir") or self.data_path
-            self.data = build_crsp_monthly_panel(returns_dir)
+            self.data = DataLayer(str(self.data_path)).load_returns_by_layout(
+                config["returns_layout"], returns_dir
+            )
             self.trace.append("load_data")
             return self.data
 
-        name = config.get("returns_table")
-        if not name:
-            raise ValueError(
-                "No returns universe specified: config has neither returns_table nor "
-                "returns_layout='crsp_raw'. The stock-return panel must come from the "
-                "reviewed MethodSpec.returns_universe (a registered "
-                "catalog.RETURNS_UNIVERSES entry, e.g. 'us_equity_crsp') — the "
-                "pipeline never defaults to a CRSP returns panel."
-            )
-        raw_path = self.data_path / "raw" / f"{name}.parquet"
-        if raw_path.exists():
-            self.data = self.load_msf(raw_path)
-            self.trace.append("load_data")
-            return self.data
-        if name == "crsp_msf":
-            # Legacy pre-catalog file-location shim: existing snapshots/tests
-            # store CRSP at <data_path>/local/msf.parquet instead of
-            # raw/crsp_msf.parquet. Scoped to this exact table name so a
-            # missing file for any OTHER returns universe fails loud instead
-            # of silently loading CRSP data for the wrong universe.
-            legacy_path = self.data_path / "local" / "msf.parquet"
-            if legacy_path.exists():
-                self.data = self.load_msf(legacy_path)
-                self.trace.append("load_data")
-                return self.data
-        raise FileNotFoundError(
-            f"Returns table {name!r} not found at {raw_path} (no legacy fallback "
-            f"applies to this table name). Export/place the returns panel there — "
-            "the pipeline never substitutes a different returns universe's data."
+        raise ValueError(
+            "No returns universe specified: config has no returns_layout='crsp_ciz'. "
+            "The stock-return panel must come from the reviewed "
+            "MethodSpec.returns_universe (a registered catalog.RETURNS_UNIVERSES "
+            "entry, e.g. 'us_equity_crsp') — the pipeline never defaults to a "
+            "CRSP returns panel."
         )
-
-    @staticmethod
-    def load_msf(msf_path: Path) -> pd.DataFrame:
-        """Load the historical monthly stock return data (CRSP-shaped parquet)."""
-        if not msf_path.exists():
-            raise FileNotFoundError(
-                f"MSF data not found at {msf_path}. "
-                "Export CRSP monthly from WRDS and place it there."
-            )
-        df = pd.read_parquet(msf_path)
-        if "date" in df.columns and "yyyymm" not in df.columns:
-            df["yyyymm"] = (
-                pd.to_datetime(df["date"]).dt.year * 100
-                + pd.to_datetime(df["date"]).dt.month
-            )
-        for col in ("permno", "yyyymm"):
-            df[col] = df[col].astype(int)
-        return df
-
-    @staticmethod
-    def load_daily_msf(daily_path: Path) -> pd.DataFrame:
-        """Load daily CRSP-shaped data (permno, date, ret, prc, shrout, exchcd,
-        shrcd, siccd) and compound it into the same monthly-keyed panel the rest
-        of the standard pipeline expects: `ret` becomes the compounded monthly
-        return (`prod(1+daily_ret)-1`), `me` is computed from the LAST trading
-        day of the month (`|prc|*shrout`), and other identifying columns take
-        that last trading day's value. This lets a signal that needs daily
-        PRICES as input (e.g. short-term reversal, realized volatility,
-        illiquidity) flow through the existing monthly-rebalanced engine
-        unchanged, without every other step needing to know about daily data
-        at all.
-
-        Documented v1 scope limit: this does NOT implement genuine daily-
-        frequency REBALANCING (breakpoints/holding computed at daily
-        granularity) -- only "daily source data, monthly output".
-        """
-        if not daily_path.exists():
-            raise FileNotFoundError(
-                f"Daily CRSP data not found at {daily_path}. "
-                "Export CRSP daily from WRDS and place it there."
-            )
-        df = pd.read_parquet(daily_path)
-        df.columns = [c.lower() for c in df.columns]
-        df["date"] = pd.to_datetime(df["date"])
-        df["permno"] = df["permno"].astype(int)
-        df["yyyymm"] = df["date"].dt.year * 100 + df["date"].dt.month
-        df = df.sort_values(["permno", "date"])
-
-        monthly_ret = (
-            df.groupby(["permno", "yyyymm"])["ret"]
-            .apply(lambda g: float((1 + g.fillna(0)).prod() - 1))
-            .reset_index(name="ret")
-        )
-
-        last_day = df.groupby(["permno", "yyyymm"], as_index=False).tail(1).copy()
-        if "prc" in last_day.columns and "shrout" in last_day.columns:
-            last_day["me"] = last_day["prc"].abs() * last_day["shrout"]
-        keep_cols = [c for c in ("permno", "yyyymm", "me", "exchcd", "shrcd", "siccd") if c in last_day.columns]
-        last_day = last_day[keep_cols]
-
-        merged = last_day.merge(monthly_ret, on=["permno", "yyyymm"], how="left")
-        for col in ("permno", "yyyymm"):
-            merged[col] = merged[col].astype(int)
-        return merged
 
     # ------------------------------------------------------------------
     # Step 2: apply_delisting_returns
@@ -382,9 +318,16 @@ class BacktestExecutor:
     # ------------------------------------------------------------------
 
     def apply_missing_policy(self, df: pd.DataFrame | None = None, config: dict | None = None) -> pd.DataFrame:
-        """Step 3: what to do when the return is missing (standardized: drop)."""
+        """Step 3: what to do when the return is missing (standardized: drop).
+
+        Snapshots the pre-drop `df` into `self._pre_missing_policy_data` --
+        see `apply_signal_holding_period`'s docstring for why the formation
+        cross-section needs a universe-eligibility source that isn't
+        conflated with return-availability.
+        """
         df = self.data if df is None else df
         config = self.config if config is None else config
+        self._pre_missing_policy_data = df
         # `missing_action` is always clamped to "drop" by build_config; no
         # other implementation exists (no bespoke winsorize/fill).
         out = df.dropna(subset=["ret"]).copy()
@@ -423,9 +366,16 @@ class BacktestExecutor:
 
         Point-in-time by construction: filters are evaluated row-wise on the
         already-point-in-time monthly panel (each row is one stock-month
-        snapshot), so applying them here introduces no look-ahead. A filter
-        field absent from the loaded data is skipped rather than raising, since
-        column availability can't be validated at spec-review time.
+        snapshot), so applying them here introduces no look-ahead.
+
+        Fails loud (raises `ValueError`) when a filter references a `field`
+        absent from the loaded panel: a MethodSpec that explicitly requires
+        e.g. `shrcd in [10,11]` must NOT silently keep every row when the
+        returns panel has no `shrcd` column (that would run a DIFFERENT
+        universe than the paper stated while still reporting success). The
+        reviewer can't validate column availability at spec-review time --
+        different returns universes have different columns -- so this is
+        caught here, at run time, where the actual panel columns are known.
         """
         if not filters:
             return df
@@ -433,7 +383,15 @@ class BacktestExecutor:
         for f in filters:
             field_name = f.get("field")
             if field_name not in df.columns:
-                continue
+                raise ValueError(
+                    f"Universe filter references field {field_name!r}, which the "
+                    f"loaded returns panel does not have (columns: "
+                    f"{sorted(df.columns)}). The reviewed MethodSpec requires this "
+                    "filter, but this returns universe can't supply the field -- "
+                    "register an equivalent column for this returns universe, or "
+                    "correct the MethodSpec's universe_filters. The pipeline never "
+                    "silently ignores a stated universe restriction."
+                )
             op = f.get("op", "nonmissing")
             mask &= BacktestExecutor._apply_filter_op(df[field_name], op, f.get("value"))
         return df[mask].copy()
@@ -535,18 +493,45 @@ class BacktestExecutor:
         not a stale 12. `rebalance_frequency="unspecified"` falls back to
         `holding_period_months` verbatim.
 
-        Each expanded row also carries a `cohort` column (the original,
-        pre-shift formation yyyymm) so `compute_breakpoints`/`assign_portfolios`
-        can lock breakpoints/portfolio membership at the formation date and hold
-        them fixed for the whole holding period, instead of re-deriving
-        membership fresh every current month -- the standard
-        form-once-hold-fixed factor-replication convention (Fama-French/Ken
-        French Data Library style). See docs/decision-log.md for the fix this
-        implements.
+        Also builds `self.formation` (see `__init__`): the formation
+        cross-section (`signal` + formation-month attributes), BEFORE the
+        `how="inner"` join with future returns below drops any permno that
+        has no valid return in ANY of its held months (e.g. a stock
+        delisted immediately after formation). `compute_breakpoints` reads
+        from `self.formation`, not from this method's returned/`merged`
+        DataFrame, precisely to avoid that future-return-availability leak
+        into the breakpoint population -- see docs/decision-log.md for the
+        2026-07-28 fix this implements.
+
+        `self.formation`'s `universe_filters`/`exchcd` attributes are looked
+        up POINT-IN-TIME at each (permno, cohort)'s OWN formation month in
+        `self._pre_missing_policy_data` (the panel BEFORE `apply_missing_policy`
+        dropped missing-return rows) -- NOT from `df` (which never contains a
+        formation-month row at all under this engine's held-months-only
+        convention: held months start at `h=1`, i.e. strictly AFTER
+        formation), and NOT aggregated across the stock's whole history
+        (which would let a stock's attributes from an unrelated month decide
+        its OWN cohort's eligibility/exchange classification). A
+        (permno, cohort) with NO matching formation-month row in the source
+        (e.g. the panel simply never recorded that stock-month) is NOT
+        excluded by `universe_filters` -- there is no positive evidence
+        against it -- but its `exchcd` is left `NaN`, meaning it's honestly
+        left unclassified for `breakpoint_source="nyse"` rather than
+        silently misclassified. Falls back to `df` when
+        `self._pre_missing_policy_data` is unset (e.g. this method
+        exercised directly, bypassing `apply_missing_policy`). See
+        docs/decision-log.md for the two rounds of fixes this closes: the
+        original 2026-07-28 look-ahead fix, a same-day follow-up that fixed
+        `universe_filters` exclusion but used a permno-wide (not
+        cohort-specific) eligibility set and left `exchcd` reading from
+        `df` (so `breakpoint_source="nyse"` was still effectively broken),
+        and this point-in-time rewrite.
         """
         df = self.data if df is None else df
         signal = self.signal if signal is None else signal
         config = self.config if config is None else config
+
+        self._validate_annual_formation_month(signal, config)
 
         hp = int(config.get("holding_period_months", 12))
         step = self._rebalance_step_months(config)
@@ -568,9 +553,116 @@ class BacktestExecutor:
         expanded = pd.DataFrame(rows)
         merged = df.merge(expanded, on=["permno", "yyyymm"], how="inner")
 
+        # Formation cross-section: every (permno, cohort) with a signal
+        # value, regardless of whether that permno survives into `merged`
+        # above. Attributes (universe_filters fields, exchcd) are attached
+        # from that (permno, cohort)'s OWN formation-month row -- see
+        # docstring above.
+        formation = signal.rename(columns={"yyyymm": "cohort"}).copy()
+        formation["permno"] = formation["permno"].astype(int)
+
+        attrs_source = self._pre_missing_policy_data if self._pre_missing_policy_data is not None else df
+        attrs_at_formation = attrs_source.rename(columns={"yyyymm": "cohort"}).copy()
+        attrs_at_formation["permno"] = attrs_at_formation["permno"].astype(int)
+        attrs_at_formation = attrs_at_formation.drop_duplicates(subset=["permno", "cohort"])
+
+        formation = formation.merge(
+            attrs_at_formation, on=["permno", "cohort"], how="left", indicator="_has_formation_row"
+        )
+        has_formation_row = formation["_has_formation_row"] == "both"
+
+        universe_filters = config.get("universe_filters") or []
+        if universe_filters:
+            passes = pd.Series(True, index=formation.index)
+            for f in universe_filters:
+                field_name = f.get("field")
+                if field_name not in formation.columns:
+                    raise ValueError(
+                        f"Universe filter references field {field_name!r}, which the "
+                        f"formation cross-section does not have (columns: "
+                        f"{sorted(formation.columns)}). Same fail-loud rule as "
+                        "filter_universe/apply_universe_filters -- a stated universe "
+                        "restriction must never be silently ignored. Register an "
+                        "equivalent formation-time column for this returns universe, "
+                        "or correct the MethodSpec's universe_filters."
+                    )
+                op = f.get("op", "nonmissing")
+                passes &= self._apply_filter_op(formation[field_name], op, f.get("value"))
+            # Exclude only (permno, cohort) pairs with POSITIVE evidence of
+            # failing the filter: a formation-month row exists AND it fails.
+            # A pair with no formation-month data at all is kept regardless
+            # (no positive evidence of exclusion -- see docstring).
+            excluded_mask = has_formation_row & ~passes
+            excluded = formation.loc[excluded_mask, ["permno", "cohort"]].drop_duplicates()
+            formation = formation[~excluded_mask]
+            # CRITICAL: the SAME exclusion must reach the actual portfolio
+            # assignment/return population (`merged`), not just the
+            # breakpoint population (`formation`). Otherwise a stock
+            # excluded from defining the breakpoints would still be sorted
+            # BY those breakpoints and contribute returns -- a self-
+            # inconsistent state. See docs/decision-log.md for the fix this
+            # implements.
+            if not excluded.empty:
+                merged = merged.merge(
+                    excluded.assign(_excluded=True), on=["permno", "cohort"], how="left"
+                )
+                merged = merged[merged["_excluded"].isna()].drop(columns=["_excluded"])
+
+        formation = formation.drop(columns=["_has_formation_row"])
+
         self.merged = merged
+        self.formation = formation
         self.trace.append("apply_signal_holding_period")
         return merged
+
+    @staticmethod
+    def _validate_annual_formation_month(signal: pd.DataFrame, config: dict) -> None:
+        """Fail loud when an ANNUAL-rebalanced strategy carries a signal whose
+        formation cohorts don't all sit in the MethodSpec's stated
+        `formation_month`.
+
+        Only annual strategies are validated, and only when `formation_month`
+        was set EXPLICITLY in the reviewed MethodSpec (`formation_month_explicit`
+        in config). Rationale:
+
+        - Annual rebalancing implies a single formation month per year (e.g. an
+          accounting-based factor formed every June). If the signal's cohorts
+          land in a DIFFERENT month than the reviewed `formation_month`, the
+          engine and the MethodSpec disagree about WHEN the portfolio is formed
+          -- a silent inconsistency that would run a different calendar than the
+          paper stated while still reporting success. That's exactly the class
+          of silent-empirical-drift bug the controlled pipeline exists to catch.
+        - Quarterly/monthly are deliberately NOT validated here: their
+          cohort-month sets are convention-dependent (which 4 months? fiscal vs
+          calendar quarters?), and the engine must not invent a calendar the
+          MethodSpec didn't state. Enforcing one would wrongly reject legitimate
+          signals.
+        - When `formation_month` was only DEFAULTED (not explicit in the spec),
+          the signal's own cohort months are authoritative -- validating against
+          a defaulted 6 would raise false positives for any non-June annual
+          factor whose spec simply left formation_month unset.
+        """
+        if str(config.get("rebalance_frequency", "unspecified")).lower() != "annual":
+            return
+        if not config.get("formation_month_explicit"):
+            return
+        formation_month = config.get("formation_month")
+        if formation_month is None:
+            return
+        if signal is None or signal.empty or "yyyymm" not in signal.columns:
+            return
+        cohort_months = {int(v) % 100 for v in signal["yyyymm"].dropna().unique()}
+        off = sorted(cohort_months - {int(formation_month)})
+        if off:
+            raise ValueError(
+                f"Annual strategy declares formation_month={int(formation_month)}, but "
+                f"the signal has formation cohorts in month(s) {off} "
+                f"(all cohort months: {sorted(cohort_months)}). For an annual "
+                "rebalance the signal must form in the MethodSpec's stated month; "
+                "this mismatch means the engine and the reviewed spec disagree on "
+                "the formation calendar. Correct MethodSpec.formation_month or the "
+                "signal's formation dates so they agree."
+            )
 
     @staticmethod
     def _rebalance_step_months(config: dict) -> int | None:
@@ -591,10 +683,22 @@ class BacktestExecutor:
         sort) -- multi-dimensional sorts and the discrete/categorical sort
         form were removed to keep the engine to one standard path (see
         docs/decision-log.md).
+
+        Breakpoints are computed from `self.formation` (the formation
+        cross-section built by `apply_signal_holding_period`), NOT from `df`
+        -- see `compute_breakpoints`'s docstring for why using the
+        return-availability-filtered panel for the breakpoint population
+        would leak future information into formation-time eligibility.
+        Falls back to `df` when `self.formation` wasn't built (e.g. `self.merged`
+        was set by hand for isolated testing, bypassing
+        `apply_signal_holding_period`) -- that fallback reproduces the old,
+        biased behavior, since the true formation population can't be
+        reconstructed from the post-join panel alone.
         """
         df = self.merged if df is None else df
         config = self.config if config is None else config
-        breakpoints = self.compute_breakpoints(df, config)
+        formation = self.formation if self.formation is not None else df
+        breakpoints = self.compute_breakpoints(formation, config)
         portfolios = self.assign_portfolios(df, breakpoints, config)
         self.portfolios = portfolios
         self.trace.append("form_portfolios")
@@ -612,15 +716,52 @@ class BacktestExecutor:
         formation time -- which specific held month's row `drop_duplicates`
         keeps doesn't matter, since `signal` is constant across a cohort's
         held months by construction.
+
+        `df` defaults to `self.formation` (NOT `self.merged`). `self.merged`
+        is the signal panel AFTER an inner join with future held-month
+        returns -- a permno with NO valid return in ANY of its held months
+        (e.g. delisted immediately after formation) is entirely absent from
+        it, so computing breakpoints from `self.merged` silently drops that
+        permno from its own cohort's breakpoint population based on
+        information (future return availability) that didn't exist at
+        formation time -- a future-availability/survivorship leak. Falls
+        back to `self.merged` only when `self.formation` was never built
+        (see `form_portfolios`). See docs/decision-log.md for the fix this
+        implements.
         """
-        df = self.merged if df is None else df
+        if df is None:
+            df = self.formation if self.formation is not None else self.merged
         config = self.config if config is None else config
 
         n = int(config.get("breakpoint_quantiles", 10))
         src = config.get("breakpoint_source", "full_sample")
 
+        if src == "nyse" and "exchcd" not in df.columns:
+            raise ValueError(
+                "config['breakpoint_source'] == 'nyse' requires an 'exchcd' column "
+                "(exchcd == 1 selects NYSE-listed stocks) but the loaded returns panel "
+                "has none -- this returns_universe isn't CRSP-shaped, or the column was "
+                "dropped upstream. Register a real 'exchcd'-equivalent column for this "
+                "returns universe, or use breakpoint_source='full_sample' instead."
+            )
         bp_df = df[df["exchcd"] == 1].copy() if src == "nyse" else df.copy()
         bp_df = bp_df.drop_duplicates(subset=["permno", "cohort"]).dropna(subset=["signal"])
+
+        if bp_df.empty:
+            raise ValueError(
+                f"No stocks available to compute breakpoints (breakpoint_source={src!r}). "
+                + (
+                    "No formation-time 'exchcd' value resolved to NYSE (exchcd == 1) for "
+                    "any stock -- the returns panel likely never records a row at each "
+                    "stock's own formation month (see apply_signal_holding_period's "
+                    "docstring), so 'nyse' can't be evaluated point-in-time for this "
+                    "panel. Use breakpoint_source='full_sample', or supply a returns "
+                    "panel with a formation-month row for each signal."
+                    if src == "nyse" else
+                    "The formation signal cross-section is empty after dropping rows "
+                    "with a missing signal value."
+                )
+            )
 
         quantile_vals = np.linspace(0, 1, n + 1)
         bp = (
@@ -685,8 +826,19 @@ class BacktestExecutor:
     def compute_portfolio_returns(self, df: pd.DataFrame | None = None, config: dict | None = None) -> pd.DataFrame:
         """Step 8: each portfolio's OWN monthly return (not yet combined into
         a single reported series -- that's `combine_portfolio_returns`,
-        Step 9) -- value-weighted (by `me`) or equal-weighted, selected by
-        `config["weighting_rule"]` (vw/ew)."""
+        Step 9) -- value-weighted (by PRIOR-month `me`) or equal-weighted,
+        selected by `config["weighting_rule"]` (vw/ew).
+
+        Value-weighting uses each stock's market equity as of the PRIOR
+        month-end (`me_{t-1}`), not the same month `t` whose return is being
+        weighted -- see `_attach_lagged_me`. Weighting month-`t` returns by
+        month-`t` end-of-month market cap would be a subtle look-ahead: the
+        end-of-`t` cap already reflects the very return being weighted, so a
+        winner gets a mechanically larger weight in the same month it won
+        (e.g. two stocks +10%/-10% from equal starting caps net to 0% under
+        prior-month weights but a spurious +1% under same-month weights).
+        See docs/decision-log.md for the fix this implements.
+        """
         df = self.portfolios if df is None else df
         config = self.config if config is None else config
 
@@ -694,11 +846,33 @@ class BacktestExecutor:
         df = df.copy()
         df["portfolio"] = df["portfolio"].astype(int)
 
+        if wt == "vw" and "me" not in df.columns:
+            raise ValueError(
+                "config['weighting_rule'] == 'vw' requires an 'me' (market equity) "
+                "column for value-weighting but the loaded returns panel has none -- "
+                "this returns_universe doesn't supply market equity under that name, "
+                "or the column was dropped upstream. Register the market-equity column "
+                "for this returns universe, or use weighting_rule='ew' instead."
+            )
         if wt == "vw":
+            df = self._attach_lagged_me(df)
+            # A held row whose prior-month ME couldn't be resolved is EXCLUDED
+            # from that month's value-weighting (you can't value-weight a
+            # stock with no market cap) rather than silently reweighted by a
+            # look-ahead-prone same-month cap. Record the missing fraction as
+            # a coverage diagnostic (surfaced in metrics).
+            self._vw_lag_me_missing_frac = (
+                float(df["me_lag"].isna().mean()) if len(df) else 0.0
+            )
+
             def _vw(g: pd.DataFrame) -> float:
-                w = g["me"].clip(lower=0)
-                s = w.sum()
-                return float((g["ret"] * w).sum() / s) if s > 0 else float("nan")
+                me_lag = g["me_lag"]
+                valid = me_lag.notna() & (me_lag > 0)
+                if not valid.any():
+                    return float("nan")
+                w = me_lag[valid]
+                r = g["ret"][valid]
+                return float((r * w).sum() / w.sum())
 
             rets = (
                 df.groupby(["yyyymm", "portfolio"])
@@ -706,6 +880,7 @@ class BacktestExecutor:
                 .reset_index(name="ret")
             )
         else:
+            self._vw_lag_me_missing_frac = None
             rets = (
                 df.groupby(["yyyymm", "portfolio"])["ret"]
                 .mean()
@@ -715,6 +890,41 @@ class BacktestExecutor:
         self.returns = rets
         self.trace.append("compute_portfolio_returns")
         return rets
+
+    def _attach_lagged_me(self, df: pd.DataFrame) -> pd.DataFrame:
+        """Attach a `me_lag` column: each held row's market equity as of the
+        PRIOR calendar month (`me_{t-1}`), for value-weighting month-`t`
+        returns without the same-month look-ahead (see
+        `compute_portfolio_returns`).
+
+        Prior-month `me` is looked up from `self._pre_missing_policy_data`
+        (falling back to `self.data`) -- the fullest available `[permno,
+        yyyymm, me]` time series, so month `t-1` is found even when it isn't
+        one of the held rows in `df` (e.g. `t` is the first held month and
+        `t-1` is the formation month). When a prior-month `me` genuinely
+        can't be found (the panel never recorded that stock-month), `me_lag`
+        is left `NaN` -- the caller (`compute_portfolio_returns`) EXCLUDES
+        those rows from value-weighting rather than falling back to the
+        row's own current-month `me` (which would reintroduce the same-month
+        look-ahead this method exists to remove) and reports the missing
+        fraction as a coverage diagnostic.
+        """
+        source = self._pre_missing_policy_data if self._pre_missing_policy_data is not None else self.data
+        out = df.copy()
+        month = out["yyyymm"] % 100
+        out["_prev_yyyymm"] = np.where(
+            month == 1, (out["yyyymm"] // 100 - 1) * 100 + 12, out["yyyymm"] - 1
+        )
+        if source is not None and "me" in source.columns:
+            me_lag = (
+                source[["permno", "yyyymm", "me"]]
+                .rename(columns={"yyyymm": "_prev_yyyymm", "me": "me_lag"})
+                .drop_duplicates(subset=["permno", "_prev_yyyymm"])
+            )
+            out = out.merge(me_lag, on=["permno", "_prev_yyyymm"], how="left")
+        else:
+            out["me_lag"] = np.nan
+        return out.drop(columns=["_prev_yyyymm"])
 
     # ------------------------------------------------------------------
     # Step 9: combine_portfolio_returns
@@ -826,6 +1036,9 @@ class BacktestExecutor:
             by_period = self._sample_period_metrics(ls, config)
             if by_period is not None:
                 metrics["by_sample_period"] = by_period
+
+        if getattr(self, "_vw_lag_me_missing_frac", None) is not None:
+            metrics["vw_lagged_me_missing_frac"] = self._vw_lag_me_missing_frac
 
         self.metrics = metrics
         self.trace.append("compute_metrics")

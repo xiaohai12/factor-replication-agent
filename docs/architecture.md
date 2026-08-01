@@ -217,16 +217,45 @@ Meta-Coder 还实现 `repair_plugin(plugin, errors)`，在 Future-Leak Scan 命�
 
 命中即拒绝，返回 Meta-Coder 重新生成（最多 3 次）。其余检查（语法、schema、reproducibility）运行时自然暴露，无需静态扫描。
 
-### 4.5 Data Layer（本地文件模式）
+### 4.5 Data Layer（DataSource 注册表 + 声明式加载）
 
-预存两张表（来源不限，可从 WRDS 导出后本地存好）：
+> **2026-08 更新（Round 1 P1–P4）：** 数据层重构为 **CRSP-centric 的 DataSource
+> 注册表**，`src/infra/data_layer/sources.py` 是**唯一真相源**。`catalog.py` 的查询
+> 视图(`DATA_CATALOG`/`LINK_TABLES`/`RETURNS_UNIVERSES`/`signal_sources`/
+> `concept_map`/`source_of_column`/`resolve_concept`)全部**从注册表派生**;旧的
+> 快照式信号主表路径(`CCMLinker`/`TimeAvailComputer`/`get_signal_master_table`)
+> 已删除,只保留一条声明式路径。下文即当前状态。
 
-| 文件 | 内容 | 关键列 |
-|---|---|---|
-| `data/local/funda.parquet` | Compustat annual（已 CCM 关联好，带 permno） | `permno, datadate, at, siccd, exchcd, shrcd` |
-| `data/local/msf.parquet` | CRSP monthly returns | `permno, date, ret, me`（`me = abs(prc)*shrout`） |
+分层(单向依赖 `sources.py ← catalog.py ← __init__.py`):
 
-`build_signal_master_table`：`time_avail_m = datadate + lag_months → YYYYMM`，输出年度表 keyed `[permno, time_avail_m]`，`at` 已按时点对齐——signal plugin 只读列，不处理 lag。
+- **`sources.py`** —— `DataSource` 抽象 + 注册表:
+  - `ReturnsUniverse`(自定义 class):`CrspReturnsUniverse` 从真实 WRDS "new CIZ"
+    导出(`CRSP_STOCK_MONTH.csv` + `CRSP_DELISTING.csv`)组装月度收益骨架
+    `[permno, yyyymm, ret, me, exchcd, shrcd, siccd, dlret]`;按 alias
+    `us_equity_crsp` / layout tag `crsp_ciz` 寻址。
+  - `SignalSource`(声明式 `SourceSpec`):`comp_funda`/`comp_fundq`/`ibes_statsumu`
+    各一条声明;`crsp_msf` 是 `CrspSignalSource`(CRSP 的信号双角色)。
+  - `LinkTableSpec` 注册表:`ccm`(gvkey→lpermno,含 linktype/linkprim 过滤 +
+    linkprim=='P' tie-break)、`ibes_crsp_link`(ticker→permno)。
+  - 加载:`assemble_signal_master_table(spec, data_dir)` →
+    读各源需要的列 → `link_to_permno` 时点链接到 permno →
+    `time_avail_m = 观测月 + lag` → 按 `[permno, time_avail_m]` 外连接。
+    signal plugin 只读列,不处理 lag(lag 属于数据层,AGENTS.md 硬约束)。
+- **`catalog.py`** —— 从注册表派生的查询视图(与历史字面量逐字节兼容,MethodSpec/
+  reviewer 零改动)。
+- **`__init__.py`** —— `DataLayer` 门面(`load_returns`/`load_returns_by_layout`
+  经注册表加载收益面板)+ `DataDictionary` + `SnapshotManager`(可复现实验的
+  冻结数据登记 + UI 选择器,与 DataSource 正交)。
+
+**快照布局**:一个 snapshot 目录含 `crsp_msf.parquet`(收益面板)+
+`comp_funda.parquet`(声明式信号源)+ `ccm_lnkhist.parquet`(CCM 链接表,键
+`lpermno`)。生成的回测脚本 compustat/multi_source 模式都经
+`assemble_signal_master_table_from_sources` 从该目录装配信号主表。
+
+**新增一个数据源** = 在 `sources.py` 注册一条 `SourceSpec`(声明 native key /
+observation date / lag / CRSP link / raw_filters),人工一次性登记;reviewer 硬
+阻断未注册源。
+
 
 ### 4.6 BacktestExecutor：标准化步骤菜单
 
@@ -316,9 +345,10 @@ data/
   paper_text_cache/             # PDF 转换后的文本缓存（审计用）
   eval_history/                 # 批量 extraction accuracy 评估记录
   test_method_specs_human_labeled/  # 人工标注的 ground truth MethodSpec（评估用，非生成）
-  local/                        # ⚠ 尚未建立（见 §10）
-    funda.parquet               # Compustat annual（需人工导出后放置）
-    msf.parquet                 # CRSP monthly（需人工导出后放置）
+  local/                        # 开发者本地真实数据（gitignored；见 §10）
+    CRSP_STOCK_MONTH.csv        # 真实 WRDS "new CIZ" 月度导出（收益骨架来源）
+    COMPUSTAT_FUNDAMENTALS_ANNUAL.csv  # Compustat annual
+    CRSP_COMPUSTAT_LINK.csv     # CCM 链接表（gvkey→lpermno）
 
 runs/                            # ⚠ gitignored — 所有 pipeline 运行时生成的产物统一放这里
   method_specs/
@@ -354,7 +384,7 @@ src/
     trace.py                      # Pipeline 执行事件日志
     repair.py                     # 共享 RepairLoop（技术性修复回路）
     backtest_engine/               # BacktestExecutor（单一文件 __init__.py：编排 + 每步计算）
-    data_layer/                    # DataLayer + DataDictionary + TimeAvailComputer + CCMLinker
+    data_layer/                    # sources.py（DataSource 注册表=唯一真相源）+ catalog（派生视图）+ DataLayer 门面 + DataDictionary + SnapshotManager
     evidence/                      # EvidenceStore + RunRegistry
     models/                        # Pydantic models（MethodSpec、PluginRecord、RunRecord …）
     registry/                     # 占位，暂未使用

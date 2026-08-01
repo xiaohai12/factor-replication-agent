@@ -43,7 +43,7 @@ and controlled pipeline components.
 | `src/steps/step7_replication_diff/` | 7 | Replication-gap analysis vs reference (C&Z/paper): decompose where the gap comes from (`ReplicationDiff`). Terminal reporting step, not a feedback-loop trigger. |
 | `src/infra/backtest_engine/` | — | The controlled backtest lifecycle engine (`BacktestExecutor`, standard step computations). Fully standardized — no LLM hook loading; steps are selected from config. Shared infrastructure used by pipeline.py/step6/app.py and the generated script's runtime import — not itself "step 5" (see step5 row above), which is just the build+execute action around it. |
 | `src/infra/models/` | — | Pydantic models (MethodSpec, PluginRecord, RunRecord). |
-| `src/infra/data_layer/` | — | Data loaders, dictionary, snapshots, CCM link, time_avail. |
+| `src/infra/data_layer/` | — | `sources.py` DataSource registry (single source of truth: CRSP returns universe + Compustat/IBES signal sources + CCM/IBES link tables + declarative signal-master loader); `catalog.py` derived query views; `__init__.py` `DataLayer` facade + `DataDictionary` + `SnapshotManager`. |
 | `src/infra/evidence/` | — | Evidence store + RunRegistry for run artifacts. |
 | `src/infra/llm.py` | — | LLM client wrappers for Codex, Copilot, and OpenRouter. |
 | `src/infra/trace.py` | — | Pipeline execution event logger. |
@@ -105,7 +105,7 @@ Claude, or Copilot. If the current model is excessive for the task, recommend sw
 ## Hard Constraints
 
 - Never pass `data/osap/SignalDoc.csv` to `SemanticExtractor`; it is evaluation-only.
-- Never add lag logic inside signal plugins; lag belongs in `DataLayer.TimeAvailComputer`.
+- Never add lag logic inside signal plugins; lag belongs in the DataLayer signal-source loader (`src/infra/data_layer/sources.py`: `_load_generic_signal_frame` / `assemble_signal_master_table`).
 - Never let LLM output decide empirical parameters without MethodSpec review.
 - Never call `MetaCoder.generate_plugin()` when `codegen_ready=False`.
 - Never repair empirical issues in the sandbox repair loop; only syntax/schema errors are repairable.
@@ -115,10 +115,12 @@ Claude, or Copilot. If the current model is excessive for the task, recommend sw
   code-generated). The LLM writes only `compute_signal`.
 - Never modify `BacktestExecutor` during active experiments; use config overrides for ablations.
 - Never default the *signal-input* source/columns. They come from the reviewed
-  MethodSpec via the declarative data catalog (`src/infra/data_layer/catalog.py`):
-  signal columns resolve through `catalog.source_of_column`/`resolve_concept`;
-  an unknown/unset signal source is hard-blocked at review (a human registers it
-  once in the catalog), never silently guessed (e.g. to Compustat). The
+  MethodSpec via the DataSource registry (`src/infra/data_layer/sources.py`, the
+  single source of truth), surfaced through the derived catalog query functions
+  (`src/infra/data_layer/catalog.py`): signal columns resolve through
+  `catalog.source_of_column`/`resolve_concept`; an unknown/unset signal source is
+  hard-blocked at review (a human registers one `SourceSpec` in `sources.py`),
+  never silently guessed (e.g. to Compustat). The
   *returns* panel, by contrast, defaults to CRSP monthly
   (`catalog.DEFAULT_RETURNS_UNIVERSE` = `us_equity_crsp`) when
   `MethodSpec.returns_universe` is unset; an explicitly-set but unregistered

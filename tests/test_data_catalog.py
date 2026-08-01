@@ -1,5 +1,13 @@
 """Phase 0 catalog: the derived SIGNAL_SOURCES/LINK_TABLES must be byte-identical
-to the historical hand-written literals so nothing moves, plus lookups behave."""
+to the historical hand-written literals so nothing moves, plus lookups behave.
+
+As of 2026-07-31 the catalog only registers sources actually backed by real
+data (see catalog.py's DATA_CATALOG comment): `optionm_vsurf`/
+`optionm_crsp_link` (no OptionMetrics data anywhere in this project) and
+`tr_13f`/`patents_nber` (tr_13f's assumed permno-keyed shape doesn't match
+the real, cusip-keyed data/local/13F.csv export; no NBER patents data
+exists) were removed -- see docs/decision-log.md (2026-07-31 entry).
+"""
 
 from __future__ import annotations
 
@@ -13,15 +21,18 @@ _HISTORICAL_SIGNAL_SOURCES = {
     "comp_funda":    {"key": "gvkey",  "link": "ccm",               "date": "datadate", "lag": "accounting_lag_months"},
     "comp_fundq":    {"key": "gvkey",  "link": "ccm",               "date": "datadate", "lag": "accounting_lag_months"},
     "ibes_statsumu": {"key": "ticker", "link": "ibes_crsp_link",    "date": "statpers", "lag": 0},
-    "optionm_vsurf": {"key": "secid",  "link": "optionm_crsp_link", "date": "date",     "lag": 0},
-    "tr_13f":        {"key": "permno", "link": None,                "date": "rdate",    "lag": 0},
-    "patents_nber":  {"key": "gvkey",  "link": "ccm",               "date": None,       "lag": 0},
 }
 
 _HISTORICAL_LINK_TABLES = {
-    "ccm":               {"key": "gvkey",  "permno": "lpermno", "start": "linkdt", "end": "linkenddt"},
+    "ccm": {
+        "key": "gvkey", "permno": "lpermno", "start": "linkdt", "end": "linkenddt",
+        # Data-quality filter added 2026-07-25: link_to_permno() now enforces
+        # the same linktype/linkprim rule CCMLinker already used for the
+        # legacy snapshot path (see CHANGELOG.md / decision-log.md).
+        "valid_filters": {"linktype": ["LC", "LU"], "linkprim": ["P", "C"]},
+        "primary_filter": {"linkprim": "P"},
+    },
     "ibes_crsp_link":    {"key": "ticker", "permno": "permno",  "start": "sdate",  "end": "edate"},
-    "optionm_crsp_link": {"key": "secid",  "permno": "permno",  "start": "sdate",  "end": "edate"},
 }
 
 
@@ -43,8 +54,9 @@ def test_source_of_column_known_and_unknown():
     assert catalog.source_of_column("ceq") == "comp_funda"
     # Other registered sources
     assert catalog.source_of_column("meanest") == "ibes_statsumu"
-    assert catalog.source_of_column("impl_volatility") == "optionm_vsurf"
-    # Unknown -> "" (fail loud, never guess)
+    # Unknown -> "" (fail loud, never guess) -- also covers a source that WAS
+    # registered before 2026-07-31 (no real data ever backed it)
+    assert catalog.source_of_column("impl_volatility") == ""
     assert catalog.source_of_column("totally_made_up_col") == ""
     assert catalog.source_of_column("") == ""
 

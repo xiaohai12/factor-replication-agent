@@ -291,7 +291,6 @@ class SignalSpec(BaseModel):
 class PortfolioSortSpec(BaseModel):
     breakpoint_source: BreakpointSource = Field(default=BreakpointSource.UNSPECIFIED)
     ls_quantile: Optional[float] = None
-    quantiles: list[int] = Field(default_factory=list)
     evidence: list[EvidenceCitation] = Field(default_factory=list)
 
     @model_validator(mode="before")
@@ -326,19 +325,17 @@ class ReturnCombinationSpec(BaseModel):
 
     type: ReturnCombinationType = Field(default=ReturnCombinationType.UNSPECIFIED)
     expression: str = Field(default="")
-    long_leg: str = Field(default="")
-    short_leg: str = Field(default="")
     note: str = Field(default="")
 
     @model_validator(mode="before")
     @classmethod
     def _tolerate_unknown_type(cls, data: Any) -> Any:
         data = _coerce_enum_field(data, "type", ReturnCombinationType)
-        # Some curated specs store long_leg/short_leg/expression/note as null;
-        # these are plain strings here, so coerce None -> "".
+        # Some curated specs store expression/note as null; these are plain
+        # strings here, so coerce None -> "".
         if isinstance(data, dict):
             data = dict(data)
-            for k in ("expression", "long_leg", "short_leg", "note"):
+            for k in ("expression", "note"):
                 if data.get(k) is None and k in data:
                     data[k] = ""
         return data
@@ -389,7 +386,6 @@ class AmbiguousField(BaseModel):
     field: str
     reason: str = Field(default="")
     source: EvidenceSource = Field(default=EvidenceSource.INFERRED)
-    confidence: str = Field(default="medium", description="low | medium | high")
     candidate_value: Any = None
     empirical_impact: EmpiricalImpact = Field(default=EmpiricalImpact.HIGH)
     evidence: list[EvidenceCitation] = Field(default_factory=list)
@@ -435,9 +431,10 @@ class MethodSpec(BaseModel):
     #: Which stock-return universe the portfolio-construction/return side runs
     #: on. Must name an entry registered in
     #: `src.infra.data_layer.catalog.RETURNS_UNIVERSES` (e.g. "us_equity_crsp").
-    #: There is deliberately NO default: the returns universe comes from the
-    #: reviewed spec, never a hardcoded CRSP fallback — the reviewer hard-blocks
-    #: a spec that leaves this unset or names an unregistered universe.
+    #: When left unset, `catalog.returns_universe_config`/`DEFAULT_RETURNS_UNIVERSE`
+    #: defaults it to CRSP monthly ("us_equity_crsp") rather than hard-blocking —
+    #: an explicitly-set but UNREGISTERED universe name is still hard-blocked at
+    #: review (a human registers it once in the catalog before it can be used).
     returns_universe: Optional[str] = None
 
     data: DataSpec = Field(default_factory=DataSpec)

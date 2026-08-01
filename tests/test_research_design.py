@@ -60,10 +60,13 @@ class TestApplyUniverseFiltersDSL:
         out = BacktestExecutor.apply_universe_filters(df, [{"field": "me", "op": "gte", "value": 50}])
         assert set(out["permno"]) == {1, 2}
 
-    def test_unknown_field_is_skipped_not_raised(self):
+    def test_unknown_field_raises_not_skipped(self):
+        # Fail loud: a MethodSpec-stated universe filter whose field is absent
+        # from the panel must NOT be silently ignored (that would run a
+        # different universe than stated while reporting success).
         df = _msf_df()
-        out = BacktestExecutor.apply_universe_filters(df, [{"field": "not_a_column", "op": "eq", "value": 1}])
-        assert len(out) == len(df)
+        with pytest.raises(ValueError, match="not_a_column"):
+            BacktestExecutor.apply_universe_filters(df, [{"field": "not_a_column", "op": "eq", "value": 1}])
 
     def test_empty_filters_is_noop(self):
         df = _msf_df()

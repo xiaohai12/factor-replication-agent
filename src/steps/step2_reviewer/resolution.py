@@ -73,7 +73,6 @@ def apply_decisions(spec_data: dict[str, Any], decisions: list[dict[str, Any]]) 
                 continue
             ambiguous["source"] = "clear"
             ambiguous["status"] = "clear"
-            ambiguous["confidence"] = "high"
             ambiguous["candidate_value"] = decision["new_value"]
             ambiguous["human_resolution"] = {
                 "decision_type": decision["decision_type"],

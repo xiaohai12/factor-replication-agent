@@ -97,26 +97,12 @@ def test_load_data_raises_without_returns_universe():
         BacktestExecutor().load_data(config={})
 
 
-def test_load_data_does_not_fall_back_to_crsp_for_a_different_returns_table(tmp_path):
-    """The legacy `<data_path>/local/msf.parquet` file-location shim is scoped
-    to `returns_table == "crsp_msf"` only. A different (e.g. future non-CRSP)
-    returns universe whose raw/ file is missing must fail loud -- never
-    silently substitute the CRSP legacy file, even if one happens to exist on
-    disk at the legacy path."""
-    import pandas as pd
-    from src.infra.backtest_engine import BacktestExecutor
-
-    local_dir = tmp_path / "local"
-    local_dir.mkdir(parents=True)
-    # A real CRSP legacy file IS present on disk, but returns_table names a
-    # different, unrelated universe -- it must not be used.
-    pd.DataFrame({"permno": [1], "yyyymm": [200001], "ret": [0.01]}).to_parquet(
-        local_dir / "msf.parquet", index=False
-    )
-
-    executor = BacktestExecutor(data_path=str(tmp_path))
-    with pytest.raises(FileNotFoundError, match="no legacy fallback"):
-        executor.load_data(config={"returns_table": "some_other_equity_universe"})
+# NOTE (2026-07-31): `test_load_data_does_not_fall_back_to_crsp_for_a_different_
+# returns_table` was removed here -- it tested the legacy `<data_path>/local/
+# msf.parquet` file-location shim, which was deleted along with `load_msf`/the
+# "panel" returns_layout (see docs/decision-log.md same date). `load_data()`
+# now only supports `returns_layout="crsp_ciz"` (or an explicit `data=`), so
+# there's no file-location fallback left to test.
 
 
 def test_build_config_sets_returns_table_from_universe():
@@ -125,7 +111,7 @@ def test_build_config_sets_returns_table_from_universe():
     spec.returns_universe = "us_equity_crsp"
     config = build_config(spec, None)
     assert config["returns_table"] == "crsp_msf"
-    assert config["returns_layout"] == "panel"
+    assert config["returns_layout"] == "crsp_ciz"
 
 
 def test_build_config_defaults_returns_table_to_crsp_when_universe_unset():
@@ -133,7 +119,7 @@ def test_build_config_defaults_returns_table_to_crsp_when_universe_unset():
     spec = _spec({"a": "at"})  # returns_universe unset -> standardized CRSP default
     config = build_config(spec, None)
     assert config["returns_table"] == "crsp_msf"
-    assert config["returns_layout"] == "panel"
+    assert config["returns_layout"] == "crsp_ciz"
 
 
 def test_reviewer_warns_not_blocks_unset_returns_universe():

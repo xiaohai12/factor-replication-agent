@@ -48,7 +48,10 @@ def ensure_synthetic_snapshot() -> None:
     it on the fly if needed (mirrors app.py's `_ensure_synthetic_data`)."""
     if pipeline.data_layer.snapshots.get_snapshot(SYNTHETIC_SNAPSHOT_ID) is not None:
         return
-    if not _SYNTHETIC_SNAPSHOT_DIR.exists():
+    # The declarative signal-master loader reads `comp_funda.parquet` +
+    # `ccm_lnkhist.parquet` (CCM keyed on `lpermno`). Regenerate if that file is
+    # missing (e.g. a stale older snapshot dir).
+    if not (_SYNTHETIC_SNAPSHOT_DIR / "comp_funda.parquet").exists():
         from tests.synthetic_data.asset_growth_synthetic_data import (
             build_ccm_link,
             build_compustat_funda,
@@ -57,8 +60,10 @@ def ensure_synthetic_snapshot() -> None:
 
         _SYNTHETIC_SNAPSHOT_DIR.mkdir(parents=True, exist_ok=True)
         build_crsp_msf().to_parquet(_SYNTHETIC_SNAPSHOT_DIR / "crsp_msf.parquet", index=False)
-        build_compustat_funda().to_parquet(_SYNTHETIC_SNAPSHOT_DIR / "compustat_funda.parquet", index=False)
-        build_ccm_link().to_parquet(_SYNTHETIC_SNAPSHOT_DIR / "ccm_link.parquet", index=False)
+        build_compustat_funda().to_parquet(_SYNTHETIC_SNAPSHOT_DIR / "comp_funda.parquet", index=False)
+        build_ccm_link().rename(columns={"permno": "lpermno"}).to_parquet(
+            _SYNTHETIC_SNAPSHOT_DIR / "ccm_lnkhist.parquet", index=False
+        )
     pipeline.data_layer.snapshots.register_snapshot(
         SnapshotMetadata(
             snapshot_id=SYNTHETIC_SNAPSHOT_ID,
@@ -76,7 +81,7 @@ def ensure_local_snapshot() -> None:
     auto-generated, unlike the synthetic snapshot."""
     if pipeline.data_layer.snapshots.get_snapshot(LOCAL_SNAPSHOT_ID) is not None:
         return
-    required = ("crsp_msf.parquet", "compustat_funda.parquet", "ccm_link.parquet")
+    required = ("crsp_msf.parquet", "comp_funda.parquet", "ccm_lnkhist.parquet")
     if not all((_LOCAL_DATA_DIR / name).exists() for name in required):
         return
     pipeline.data_layer.snapshots.register_snapshot(

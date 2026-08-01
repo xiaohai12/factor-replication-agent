@@ -17,10 +17,11 @@ other (see plan.md Phase 0). The tradeoff: the generated script now depends on
 this repo being installed (`from src...` imports) rather than being fully
 self-contained; that's an accepted tradeoff (see plan.md "Decisions").
 
-Similarly, Compustat-mode signal input construction reuses
-`src.infra.data_layer.CCMLinker` + `TimeAvailComputer` (the same classes
-`DataLayer.get_signal_master_table()` uses) instead of a separate inline
-CCM-linking implementation.
+Similarly, Compustat-mode signal-input construction reuses the same declarative
+loader the pipeline uses — `src.infra.data_layer.assemble_signal_master_table_from_sources`
+(reads `comp_funda.parquet` + `ccm_lnkhist.parquet` and links gvkey->permno
+point-in-time). The "compustat" and "multi_source" modes share this one
+loader; they differ only in how the RETURNS panel is loaded.
 """
 
 from __future__ import annotations
@@ -85,8 +86,6 @@ def generate_backtest_script(
     plugin_code: str,
     data_path: str = "data/local/msf.parquet",
     signal_input_mode: str | None = None,
-    compustat_data_path: str = "data/local/compustat_funda.parquet",
-    ccm_link_path: str = "data/local/ccm_link.parquet",
     output_path: str | None = None,
     config_overrides: dict[str, Any] | None = None,
     ff_factors_path: str | None = None,
@@ -98,16 +97,14 @@ def generate_backtest_script(
         spec: Resolved MethodSpec with all empirical decisions finalized.
         plugin_code: The signal plugin source code (the compute_signal function).
         data_path: Relative path to the CRSP monthly parquet file.
-        signal_input_mode: "compustat" (build a SignalMasterTable via CCM
-            linking + accounting lag before calling compute_signal),
+        signal_input_mode: "compustat" / "multi_source" (both build the master
+            table [permno, time_avail_m, *cols] from a directory of raw
+            WRDS-shaped source tables via the SAME declarative source-driven
+            loader; the two modes differ only in how the RETURNS panel is
+            loaded, see `main()`), or
             "crsp_only" (alias yyyymm -> time_avail_m and call compute_signal
             directly on CRSP monthly data, for price-based signals like
-            momentum), or "multi_source" (build the master table from a
-            directory of raw WRDS-shaped source tables via the declarative
-            multi-source loader — for signals spanning IBES/OptionMetrics/etc).
-            Auto-chosen by `pick_signal_input_mode(spec)` when not given.
-        compustat_data_path: Compustat annual parquet path (compustat mode only).
-        ccm_link_path: CCM link table parquet path (compustat mode only).
+            momentum). Auto-chosen by `pick_signal_input_mode(spec)` when not given.
         output_path: If given, path where backtest results CSV will be saved.
         config_overrides: Optional per-run config overrides (e.g. for ablation
             experiments), merged into the resolved-spec-derived config.
@@ -139,21 +136,22 @@ def generate_backtest_script(
     if signal_input_mode not in ("compustat", "crsp_only", "multi_source"):
         raise ValueError("signal_input_mode must be 'compustat', 'crsp_only', or 'multi_source'")
 
-    # Baked {source: [columns]} map for multi_source mode (empty otherwise) so
-    # the standalone script needs no MethodSpec at run time.
-    signal_sources_map = signal_input_sources(spec) if signal_input_mode == "multi_source" else {}
+    # Baked {source: [columns]} map for the source-driven modes (empty for
+    # crsp_only) so the standalone script needs no MethodSpec at run time.
+    # "compustat" and "multi_source" share ONE declarative loader
+    # (assemble_signal_master_table_from_sources); the mode names remain only as
+    # the spec classification (see pick_signal_input_mode) + the returns-loading
+    # choice in the generated `main()`.
+    signal_sources_map = (
+        signal_input_sources(spec)
+        if signal_input_mode in ("compustat", "multi_source")
+        else {}
+    )
 
-    if signal_input_mode == "multi_source":
+    if signal_input_mode in ("compustat", "multi_source"):
         compustat_requirements = (
             f"  - Raw WRDS-shaped source tables under: {signal_data_dir}\n"
             f"    Sources read: {', '.join(signal_sources_map) or '(none)'}"
-        )
-    elif signal_input_mode == "compustat":
-        compustat_requirements = (
-            f"  - Compustat annual data at: {compustat_data_path}\n"
-            f"    Expected columns: gvkey, datadate, plus whatever fields compute_signal() uses\n"
-            f"  - CCM link table at: {ccm_link_path}\n"
-            f"    Expected columns: gvkey, permno, linktype, linkprim, linkdt, linkenddt"
         )
     else:
         compustat_requirements = ""
@@ -168,8 +166,6 @@ def generate_backtest_script(
         factor_name=spec.factor_name,
         paper_ref=spec.paper_ref or "",
         data_path=data_path,
-        compustat_data_path=compustat_data_path,
-        ccm_link_path=ccm_link_path,
         compustat_requirements=compustat_requirements,
         accounting_lag_months=spec.accounting_lag_months or 6,
         signal_input_mode=signal_input_mode,
@@ -228,7 +224,6 @@ from pathlib import Path
 
 import pandas as pd
 
-from src.infra.data_layer import CCMLinker, TimeAvailComputer
 from src.infra.models.plugin import PluginRecord
 from src.infra.backtest_engine import BacktestExecutor
 
@@ -243,8 +238,6 @@ CONFIG = {{
 
 FACTOR_ID = "{factor_id}"
 DATA_PATH = "{data_path}"
-COMPUSTAT_DATA_PATH = "{compustat_data_path}"
-CCM_LINK_PATH = "{ccm_link_path}"
 ACCOUNTING_LAG_MONTHS = {accounting_lag_months}
 SIGNAL_INPUT_MODE = "{signal_input_mode}"  # "compustat" | "crsp_only" | "multi_source"
 SIGNAL_DATA_DIR = "{signal_data_dir}"  # multi_source only: dir of raw WRDS-shaped tables
@@ -285,23 +278,15 @@ def load_msf(path: str) -> pd.DataFrame:
 
 
 def build_signal_input(msf: pd.DataFrame) -> pd.DataFrame:
-    """Build the DataFrame passed to compute_signal(): either a Compustat-merged
-    SignalMasterTable (via CCMLinker + TimeAvailComputer, same as
-    DataLayer.get_signal_master_table()), a multi-source master table (via the
-    declarative source-driven loader), or CRSP-only data with yyyymm aliased to
-    time_avail_m."""
-    if SIGNAL_INPUT_MODE == "multi_source":
+    """Build the DataFrame passed to compute_signal(): a source-driven
+    SignalMasterTable [permno, time_avail_m, *cols] via the declarative
+    multi-source loader (both "compustat" and "multi_source" modes share one
+    loader), or CRSP-only data with yyyymm aliased to time_avail_m
+    ("crsp_only", for price-based signals like momentum)."""
+    if SIGNAL_INPUT_MODE in ("multi_source", "compustat"):
         from src.infra.data_layer import assemble_signal_master_table_from_sources
         return assemble_signal_master_table_from_sources(
             SIGNAL_DATA_DIR, SIGNAL_INPUT_SOURCES, ACCOUNTING_LAG_MONTHS
-        )
-    if SIGNAL_INPUT_MODE == "compustat":
-        compustat = pd.read_parquet(COMPUSTAT_DATA_PATH)
-        ccm_link = pd.read_parquet(CCM_LINK_PATH)
-        linker = CCMLinker()
-        linker.load_link_table(ccm_link)
-        return TimeAvailComputer().build_signal_master_table(
-            msf, compustat, linker, lag_months=ACCOUNTING_LAG_MONTHS
         )
     return msf.rename(columns={{"yyyymm": "time_avail_m"}})
 
@@ -325,11 +310,13 @@ def main():
     print()
 
     if SIGNAL_INPUT_MODE == "multi_source":
-        # Returns panel + signal inputs both come from the raw WRDS-shaped
-        # tables in SIGNAL_DATA_DIR (crsp_msf/msenames/msedelist assembled into
-        # the flat panel; other sources joined by the master-table builder).
-        from src.infra.data_layer import build_crsp_monthly_panel
-        msf = build_crsp_monthly_panel(SIGNAL_DATA_DIR)
+        # Returns panel + signal inputs both come from the real WRDS "new
+        # CIZ" export in SIGNAL_DATA_DIR (CRSP_STOCK_MONTH.csv +
+        # CRSP_DELISTING.csv assembled into the flat panel; other sources
+        # joined by the master-table builder). The legacy 3-table
+        # crsp_msf/msenames/msedelist assembler was removed 2026-07-31.
+        from src.infra.data_layer import build_crsp_monthly_panel_ciz
+        msf = build_crsp_monthly_panel_ciz(SIGNAL_DATA_DIR)
     else:
         msf = load_msf(DATA_PATH)
 

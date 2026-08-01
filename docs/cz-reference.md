@@ -33,7 +33,7 @@ updated: 2026-05-24
 | `Sign` | long-short 方向 (+1 / -1) | `portfolio.long_leg` |
 | `Return`, `T-Stat` | 原文报告的月均收益和 t-stat | benchmark 比对 |
 | `Stock Weight` | EW / VW | `portfolio.weighting` |
-| `LS Quantile` | 分位数 (如 0.1 = decile) | `portfolio.breakpoints.quantiles` |
+| `LS Quantile` | 分位数 (如 0.1 = decile) | `portfolio.sort.ls_quantile` |
 | `Quantile Filter` | breakpoint filter (如 NYSE) | `portfolio.breakpoints.source` |
 | `Portfolio Period` | holding period（月） | `signal.timing.holding_period` |
 | `Start Month` | formation month (如 6 = June) | `signal.timing.formation_month` |

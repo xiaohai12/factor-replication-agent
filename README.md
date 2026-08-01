@@ -149,7 +149,6 @@ portfolio:
   sort:
     breakpoint_source: nyse
     ls_quantile: 0.1
-    quantiles: [10, 90]
   weighting: vw
   long_leg: high
   short_leg: low

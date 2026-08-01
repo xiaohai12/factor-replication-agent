@@ -4,7 +4,7 @@ Exercises the full Phase 1 MVP chain from docs/roadmap.md on synthetic data
 (no network / LLM calls):
 
     approved MethodSpec (cooper_gulen_schill_2008_asset_growth)
-    -> DataLayer.get_signal_master_table()   (CCMLinker + TimeAvailComputer)
+    -> assemble_signal_master_table()        (declarative gvkey->permno link + lag)
     -> plugin.compute_signal()               (already-generated, sandbox-passed plugin)
     -> BacktestExecutor.run()                (9-step controlled lifecycle)
     -> Pipeline.run_from_method_spec()       (persists a RunRecord to EvidenceStore)
@@ -65,8 +65,13 @@ def pipeline(tmp_path) -> Pipeline:
     snapshot_dir = data_path / "snapshots" / SNAPSHOT_ID
     snapshot_dir.mkdir(parents=True)
     crsp.to_parquet(snapshot_dir / "crsp_msf.parquet", index=False)
-    build_compustat_funda().to_parquet(snapshot_dir / "compustat_funda.parquet", index=False)
-    build_ccm_link().to_parquet(snapshot_dir / "ccm_link.parquet", index=False)
+    # The declarative signal-master loader (assemble_signal_master_table_from_sources)
+    # reads `comp_funda.parquet` + `ccm_lnkhist.parquet` (CCM keyed on `lpermno`,
+    # the real WRDS column).
+    build_compustat_funda().to_parquet(snapshot_dir / "comp_funda.parquet", index=False)
+    build_ccm_link().rename(columns={"permno": "lpermno"}).to_parquet(
+        snapshot_dir / "ccm_lnkhist.parquet", index=False
+    )
 
     pipe.data_layer.snapshots.register_snapshot(
         SnapshotMetadata(
@@ -98,13 +103,16 @@ def generated_plugin() -> PluginRecord:
 
 
 def test_signal_master_table_has_expected_shape(pipeline, approved_spec):
-    smt = pipeline.data_layer.get_signal_master_table(
-        SNAPSHOT_ID, lag_months=approved_spec.accounting_lag_months
-    )
+    # The signal-master is built by the declarative loader
+    # (assemble_signal_master_table), reading comp_funda.parquet +
+    # ccm_lnkhist.parquet from the snapshot dir.
+    from src.infra.data_layer import assemble_signal_master_table
+
+    storage_path = pipeline.data_layer.snapshots.get_snapshot(SNAPSHOT_ID).storage_path
+    smt = assemble_signal_master_table(approved_spec, storage_path)
     # 10 permnos x 3 fiscal years, all successfully CCM-linked
     assert len(smt) == 30
     assert set(smt.columns) >= {"permno", "time_avail_m", "at"}
-    assert pipeline.data_layer.ccm_linker.link_issues == []
     # Dec-1996 fiscal year end + 6mo lag -> available June 1997
     first_row = smt.sort_values(["permno", "time_avail_m"]).iloc[0]
     assert int(first_row["time_avail_m"]) == 199706

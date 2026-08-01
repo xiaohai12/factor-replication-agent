@@ -95,12 +95,40 @@ def _clamp(val: Any, allowed: set[str], default: str) -> str:
     return v
 
 
+def _resolve_ls_quantile(ls_quantile: float | None) -> int:
+    """Resolve `MethodSpec.portfolio.sort.ls_quantile` into a breakpoint
+    group count.
+
+    Two accepted forms: a value `> 1` means "N groups" (e.g. `10` -> decile
+    sort); a value in `(0, 0.5]` means a fraction, `1/value` groups (e.g.
+    `0.1` -> decile). Any other value -- `None`, `<= 0`, a fraction `> 0.5`
+    (which would mean fewer than 2 groups), or a `> 1` value that doesn't
+    round to at least 2 whole groups -- is invalid/ambiguous for a
+    long-short sort and is clamped to the standard 10-group (decile)
+    default, same "clamp an out-of-menu value to the canonical default"
+    policy as every other field in `build_config`. Without this, a negative
+    or degenerate value (e.g. `-1` -> `-1` "groups", `1.5`/`3.3` silently
+    truncated to `1`/`3` via a bare `int()`) used to reach
+    `compute_breakpoints`/`assign_portfolios` unvalidated and fail deep
+    inside the engine (`np.linspace(0, 1, 0)` producing zero breakpoint
+    columns -> `IndexError` on `bins[0]`) instead of resolving to a sensible
+    value at config-build time. See docs/decision-log.md for the fix this
+    implements.
+    """
+    if ls_quantile is None:
+        return 10
+    if ls_quantile > 1:
+        n = round(ls_quantile)
+        return n if n >= 2 else 10
+    if 0 < ls_quantile <= 0.5:
+        return round(1.0 / ls_quantile)
+    return 10
+
+
 def build_config(spec: MethodSpec, overrides: dict | None) -> dict:
     """Build run config entirely from resolved MethodSpec fields."""
 
-    # ls_quantile > 1 means "N groups"; < 1 means it's a fraction (1/N groups)
-    ls_q = spec.portfolio.sort.ls_quantile or 10.0
-    n_quantiles = int(ls_q) if ls_q >= 1 else int(round(1.0 / ls_q))
+    n_quantiles = _resolve_ls_quantile(spec.portfolio.sort.ls_quantile)
 
     config = {
         "breakpoint_source":    _clamp(spec.breakpoint_source, STANDARD["breakpoint_source"], "full_sample"),
@@ -112,6 +140,7 @@ def build_config(spec: MethodSpec, overrides: dict | None) -> dict:
         "missing_action":       _clamp(spec.missing_action, STANDARD["missing_action"], "drop"),
         "universe":             spec.universe_description,
         "formation_month":      spec.formation_month or 6,
+        "formation_month_explicit": spec.formation_month is not None,
         "long_leg":             resolve_long_leg(spec),
         "short_leg":            resolve_short_leg(spec),
         # Sample-period segmentation (plan.md CZ-import Phase A). Drives the
@@ -141,7 +170,7 @@ def build_config(spec: MethodSpec, overrides: dict | None) -> dict:
         # return_frequency isn't consumed by the standard steps yet (which
         # are frequency-agnostic given a `yyyymm`-keyed panel); it documents
         # intent and is available for callers that load daily source data
-        # via BacktestExecutor.load_daily_msf() ahead of time.
+        # via `data_layer.load_daily_msf_ciz()` ahead of time.
         "return_basis": "excess",
         "return_frequency": (spec.reported_results.return_horizon or "monthly"),
         # Estimator: "portfolio_sort" is the only standard estimator (see
