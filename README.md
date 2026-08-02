@@ -107,8 +107,8 @@ Paper / C&Z metadata / OSAP code / Data dictionaries
 ```
 
 Evidence Store/Run Registry and Plugin Registry are shared infra used across
-steps 3–7, not separate pipeline stages (Plugin Registry is currently deferred
-— pilot-stage file-path tracing is sufficient).
+steps 3–7, not separate pipeline stages. Plugin Registry currently provides
+in-memory traceability; persistent cross-process storage is deferred.
 
 Key design principle: **LLM generates signal code; everything else is controlled by the framework.** Universe filtering, breakpoints, weighting, portfolio construction, return computation, and metrics are all fixed by the engine configuration — never by LLM output.
 
@@ -127,11 +127,11 @@ src/
 │   ├── step6_dual_track_controller/  # Basic original/standardized/OAT orchestration
 │   └── step7_replication_diff/   # Basic terminal gap report (full diagnosis pending)
 ├── infra/
-│   ├── models/            # Pydantic models: MethodSpec, FactorSpec, PluginRecord, RunRecord
-│   ├── backtest_engine/   # Controlled backtesting lifecycle (BacktestExecutor + steps.py)
+│   ├── models/            # Pydantic models: MethodSpec, PluginRecord, RunRecord
+│   ├── backtest_engine/   # Controlled backtesting lifecycle (single-file BacktestExecutor)
 │   ├── data_layer/        # Unified data access (dictionary, CCM, time_avail_m)
 │   ├── evidence/          # Evidence store + run registry
-│   ├── registry/          # Plugin storage with code hashing (deferred, not yet used)
+│   ├── registry/          # In-memory plugin registry with code hashing
 │   ├── pdf_mapper.py      # PDF → factor filename mapping
 │   ├── llm.py             # LLM client (OpenRouter / Claude CLI / Codex)
 │   ├── repair.py          # Shared bounded repair loop (technical failures only)

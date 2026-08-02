@@ -15,7 +15,6 @@ from src.infra.models.method_spec import (
     SignalSpec,
     SignalTiming,
 )
-from src.infra.models.factor_spec import FactorSpec
 from src.infra.models.plugin import PluginRecord
 from src.infra.models.run_record import RunRecord
 
@@ -35,7 +34,6 @@ __all__ = [
     "ExtractionSource",
     "ReviewNote",
     "ResolutionLogEntry",
-    "FactorSpec",
     "PluginRecord",
     "RunRecord",
 ]

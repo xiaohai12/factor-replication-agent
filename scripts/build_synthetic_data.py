@@ -4,7 +4,7 @@ Writes:
 - data/synthetic_data/mvp_v1/crsp_msf.parquet     (returns panel + snapshot table)
 - data/synthetic_data/mvp_v1/comp_funda.parquet   (declarative signal source)
 - data/synthetic_data/mvp_v1/ccm_lnkhist.parquet  (CCM link table, keyed on lpermno)
-- data/synthetic_data/local/msf.parquet           (raw CRSP file BacktestExecutor reads directly)
+- data/synthetic_data/local/msf.parquet           (dashboard/script CRSP input compatibility)
 
 Run with: python3 scripts/build_synthetic_data.py
 """

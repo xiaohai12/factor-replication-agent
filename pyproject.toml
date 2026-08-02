@@ -33,8 +33,8 @@ research = [
 evaluation = [
     "openassetpricing==0.0.2",
 ]
-# FastAPI backend for the new web UI (frontend/ + backend/), replacing the
-# Streamlit app.py dashboard. See docs/decision-log.md for the migration plan.
+# FastAPI backend for the React UI (frontend/ + backend/). Streamlit remains
+# available during migration; both reuse the same `src/` logic.
 web = [
     "fastapi>=0.110",
     "uvicorn[standard]>=0.29",

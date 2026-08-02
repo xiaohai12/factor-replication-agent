@@ -265,7 +265,9 @@ observation date / lag / CRSP link / raw_filters),人工一次性登记;reviewer
 |---|---|
 | `__init__.py` | `BacktestExecutor` 的编排和每一步计算实现。`run_with_config()` 按固定顺序调用 step 方法；纯工具函数使用 `@staticmethod`。数据加载通过 DataLayer/DataSource registry，而不是引擎内的文件格式分支。 |
 
-`build_config()` 这个**只在生成时**被调用（从不被 `run_with_config()` 自己调用）的选择逻辑，住在 `src/steps/step3_codegen/registry.py`——这样 `step3_codegen`（只生成 `compute_signal()`、再组装完整回测脚本）不再需要依赖引擎库；`BacktestExecutor._build_config()`/`_resolve_long_leg()`/`_resolve_short_leg()`/`_normalize_leg()` 仍然保留在 `src/infra/backtest_engine/__init__.py` 里，作为对旧调用方（含测试）的薄委托，转发到 `step3_codegen.registry`。
+`build_config()` 等 MethodSpec-to-config 选择逻辑住在
+`src/steps/step3_codegen/registry.py`；生成脚本与引擎 convenience `run()` 都调用这一
+份实现，不维护第二套兼容委托。
 
 单一执行路径：`src/steps/step3_codegen/script_generator.py` 生成的独立脚本是薄封装，直接 `import BacktestExecutor` 调 `run_with_config()`，不再内联重复实现执行链路——engine 与生成脚本不可能再互相漂移。
 
@@ -329,7 +331,9 @@ flowchart TD
 ## 5. 文件结构 / File Layout
 
 ```
-app.py                          # Streamlit dashboard（主要人工交互入口）
+app.py                          # 完整 Streamlit 研究 UI（迁移期间保留）
+backend/                        # FastAPI API/SSE 层；复用 src/ 逻辑，不重写实证逻辑
+frontend/                       # React/Vite UI；Pipeline/Backtest/Trace 页面已实现
 
 data/
   paper_text_cache/             # PDF 转换后的文本缓存（审计用）
@@ -369,7 +373,7 @@ src/
     step6_dual_track_controller/     # DualTrackController + ExperimentPlan + HXZ_STANDARD_CONFIG
     step7_replication_diff/          # ReplicationDiff + ReplicationDiffResult
   infra/                        # 跨 step 共享基础设施（无 LLM hook 加载，纯标准化实现）
-    pdf_mapper.py                 # PDF 文本提取工具
+    pdf_mapper.py                 # PDF 文件名 ↔ factor_id 映射工具
     llm.py                        # LLM client（支持 OpenRouter / Claude CLI / Codex）
     trace.py                      # Pipeline 执行事件日志
     repair.py                     # 共享 RepairLoop（技术性修复回路）
@@ -377,8 +381,8 @@ src/
     data_layer/                    # sources.py（DataSource 注册表=唯一真相源）+ catalog（派生视图）+ DataLayer 门面 + DataDictionary + SnapshotManager
     evidence/                      # EvidenceStore + RunRegistry
     models/                        # Pydantic models（MethodSpec、PluginRecord、RunRecord …）
-    registry/                     # 占位，暂未使用
-  evaluation/                   # Extraction accuracy evaluation（vs C&Z SignalDoc）
+    registry/                     # Pipeline 使用的 in-memory PluginRegistry
+  evaluation/                   # 事后 reference parsing/scoring helpers
 
 scripts/
   extract_methodspecs.py        # CLI：从 PDF 批量提取 MethodSpec
@@ -388,14 +392,13 @@ scripts/
   convert_papers_to_md.py       # PDF → Markdown 转换
   download_papers.py            # 下载论文 PDF
   download_osap.py              # 下载 OSAP 数据
-  csv_to_gold_standard.py       # C&Z SignalDoc → gold standard 格式转换
 ```
 
 ---
 
 ## 6. 端到端流程示例 / End-to-End Example
 
-### 6.1 Streamlit Dashboard（推荐入口）
+### 6.1 Streamlit Dashboard（完整研究 UI）
 
 ```bash
 # 启动 dashboard（需先激活 virtualenv）
@@ -406,7 +409,17 @@ streamlit run app.py
 
 Dashboard 覆盖完整人工环节：PDF 上传 → 提取 MethodSpec → LLM 审查 → 应用 resolution → MetaCoder 生成 plugin → Sandbox 验证。
 
-### 6.2 CLI 脚本（批量 / 无界面）
+### 6.2 React + FastAPI（迁移目标）
+
+`backend/` 只暴露 `src/` 的既有逻辑；`frontend/` 已实现 Pipeline、Backtest、Trace
+页面，其余页面仍在迁移。迁移完成前两套 UI 共存，实证逻辑只保留在 `src/`。
+
+```bash
+.venv/bin/python -m uvicorn backend.main:app --reload --port 8000
+cd frontend && npm run dev
+```
+
+### 6.3 CLI 脚本（批量 / 无界面）
 
 ```bash
 # Step 1: 从 PDF 提取 MethodSpec
@@ -540,7 +553,7 @@ level——不能互换展示。这一层还依赖尚未实现的 bridge 实验�
 | Resolution Applier | ✅ 已实现 | 字段级 patch，`codegen_ready=true` 写入 |
 | Meta-Coder | ✅ 已实现 | 只生成 `compute_signal()`（纯公式）；读 `spec.data.normalized_mapping` |
 | Future-Leak Scan | ✅ 已实现 | 扫描 `shift(-`/`.future`/`lead(`，命中即拒绝重生成 |
-| Plugin Registry | ⏳ 暂不需要 | pilot 阶段用文件路径追溯即可；多因子跨实验时扩展 |
+| Plugin Registry | ✅ 内存实现 | Pipeline 注册/查询 plugin；跨进程持久化随完整 evidence bundle 实现 |
 | Evidence Store + Run Registry | 🚧 部分实现 | 当前只稳定写 `metadata.json`；完整序列/中间产物/runtime provenance 未实现 |
 | Basic Multi-Track Controller | 🚧 部分实现 | `ExperimentPlan` + `HXZ_STANDARD_CONFIG` + OAT 编排已存在；严格 config 校验、plugin 批次冻结、factorial matrix 未实现 |
 | Pipeline 反馈回路 | ✅ 两条回路已实现 | `src/pipeline.py`，见 §3.1——技术性修复（共享 `RepairLoop`，`src/infra/repair.py`）+ Review→Extractor 定向重抽（`MAX_REEXTRACT=2`）；ReplicationDiff 为终点报告不回流 |

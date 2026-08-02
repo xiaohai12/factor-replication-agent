@@ -9,10 +9,11 @@ from src.infra.models.plugin import PluginRecord
 
 
 class PluginRegistry:
-    """Persistent registry of validated signal plugins.
+    """In-memory registry of validated signal plugins.
 
-    Provides traceability from experiment results back to specific
-    plugin code and MethodSpec versions.
+    Provides within-process traceability from experiment results back to
+    specific plugin code and MethodSpec versions. Persistent cross-process
+    storage is part of the planned evidence-bundle work.
     """
 
     def __init__(self):

@@ -8,19 +8,16 @@ is deterministically clamped to the menu default (``build_config`` /
 ``_clamp``) rather than triggering code generation.
 
 This module answers "how does a MethodSpec resolve into a run config" — not
-"what does a backtest compute" (that's
-`src/infra/backtest_engine/steps.py`).
+"what does a backtest compute" (that's the single-file
+`src/infra/backtest_engine/__init__.py`).
 
 Lives in `step3_codegen/` (not `src/infra/backtest_engine/`) because every
 function here is only ever called at generation time — by
 `script_generator.generate_backtest_script()` (`build_config`) — never by
 `BacktestExecutor`'s own run-time dispatch (`run_with_config`/`_dispatch`),
 which only consumes the already-resolved config dict `build_config` produced.
-`BacktestExecutor._build_config()`/`_resolve_long_leg()`/
-`_resolve_short_leg()`/`_normalize_leg()` remain as thin backward-compatible
-delegates to this module (existing callers, including tests, use those
-names) — the engine library depends on this decision layer for those
-delegates, but this module never depends on the engine library.
+The engine library depends on this decision layer for MethodSpec-to-config
+resolution; this module never depends on the engine library.
 """
 
 from __future__ import annotations

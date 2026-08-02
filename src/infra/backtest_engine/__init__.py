@@ -30,12 +30,8 @@ exclusion).
 
 The generation-time decision layer (how a MethodSpec resolves into a run
 config: `build_config`, `resolve_long_leg`/`resolve_short_leg`/`normalize_leg`)
-lives in `src/steps/step3_codegen/registry.py` instead — it's only ever called
-at generation time (by script_generator), never by this module's own
-pipeline, so step3_codegen owns it and doesn't need to depend on this
-package for it. `BacktestExecutor._build_config()`/etc. below remain as thin
-backward-compatible delegates to that module for existing callers (including
-tests) that use those names.
+lives in `src/steps/step3_codegen/registry.py`. The engine calls that single
+implementation when its convenience `run()` entry receives a MethodSpec.
 
 Lives in `src/infra/` (not `src/steps/`) because this is shared computation
 infrastructure used by many callers with no single "owning" step —
@@ -176,7 +172,7 @@ class BacktestExecutor:
         Returns:
             Dict with keys: metrics, return_series, config
         """
-        config = self._build_config(spec, config_overrides)
+        config = codegen_registry.build_config(spec, config_overrides)
         return self.run_with_config(signal, config, plugin=plugin, data=data, factors=factors)
 
     def run_with_config(
@@ -200,7 +196,8 @@ class BacktestExecutor:
 
         Args:
             signal:  DataFrame [permno, yyyymm, signal] from compute_signal()
-            config:  Already-resolved run config, e.g. from `_build_config()`
+            config:  Already-resolved run config from
+                `src.steps.step3_codegen.registry.build_config()`.
             data:    Optional pre-loaded MSF DataFrame; see `run()`.
             factors: Optional FF factor + rf DataFrame; see `run()`.
 
@@ -1192,27 +1189,3 @@ class BacktestExecutor:
                 results[f"beta_{name}_{col}"] = float(model.params[i])
 
         return results
-
-    # ------------------------------------------------------------------
-    # Config resolution — thin delegation to step3_codegen.registry (the
-    # generation-time decision layer), kept as a method here for backward
-    # compatibility (existing callers use `engine._build_config(spec,
-    # overrides)`).
-    # ------------------------------------------------------------------
-
-    def _build_config(self, spec: MethodSpec, overrides: dict | None) -> dict:
-        """Build run config entirely from resolved MethodSpec fields."""
-        return codegen_registry.build_config(spec, overrides)
-
-    @staticmethod
-    def _resolve_long_leg(spec: MethodSpec) -> str:
-        return codegen_registry.resolve_long_leg(spec)
-
-    @staticmethod
-    def _resolve_short_leg(spec: MethodSpec) -> str:
-        return codegen_registry.resolve_short_leg(spec)
-
-    @staticmethod
-    def _normalize_leg(value: Any, default: str) -> str:
-        return codegen_registry.normalize_leg(value, default)
-

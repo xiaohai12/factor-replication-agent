@@ -33,13 +33,12 @@ class ReplicationDiffResult:
 
 
 class ReplicationDiff:
-    """Decomposes the replication gap into implementation-choice contributions.
+    """Basic terminal comparison for original/standardized/OAT runs.
 
-    Methods:
-    - One-at-a-time ablation
-    - Full-factorial ANOVA
-    - Variance decomposition
-    - Shapley-style decomposition
+    This is not yet a causal decomposition: OAT effects may interact and the
+    pipeline does not persist or return the result. The complete pairwise,
+    bridge, and identification-level design is documented in
+    `docs/multi-config-evidence-plan.md`.
     """
 
     def diff_ablation(self, runs: list[RunRecord]) -> ReplicationDiffResult:
@@ -82,14 +81,6 @@ class ReplicationDiff:
             result.residual = result.total_gap - total_explained
 
         return result
-
-    def diff_shapley(self, runs: list[RunRecord]) -> ReplicationDiffResult:
-        """Decompose gap using Shapley-style decomposition.
-
-        Requires: full-factorial combination runs.
-        """
-        # TODO: Implement Shapley decomposition
-        raise NotImplementedError
 
     def generate_report(self, result: ReplicationDiffResult) -> str:
         """Generate human-readable replication-diff report."""

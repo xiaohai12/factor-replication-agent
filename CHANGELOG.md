@@ -16,6 +16,8 @@
   post-hoc/independent replication references, never empirical ground truth.
 - Configured pytest to collect only `tests/`, preventing accidental collection
   of third-party C&Z scripts under `data/CZ code/`.
+- Clarified the parallel UI migration: Streamlit remains the complete research
+  UI while React/FastAPI reaches feature parity; both reuse `src/` logic.
 
 ### Added
 
@@ -37,8 +39,22 @@
   prompt are the authoritative contracts.
 - Unreferenced hook-era HXZ/Novy-Marx plugin fixtures and dead hook code from
   the active Sloan fixture.
+- Unused `Evaluator` stubs, the orphan `FactorSpec` model, and the obsolete
+  `csv_to_gold_standard.py` workflow.
+- Tracked macOS `.DS_Store` metadata (already covered by `.gitignore`).
+- Redundant BacktestExecutor config-resolution compatibility delegates; engine,
+  script generation, and dashboard now use the single codegen registry source.
 - The duplicate English multi-config plan and obsolete CHANGELOG release
   history. Historical methodology decisions remain in `docs/decision-log.md`.
+
+### Fixed
+
+- Dashboard plugin generation no longer calls removed hook APIs.
+- Dashboard backtest execution now passes the supported `signal_data_dir`
+  argument instead of removed `compustat_data_path`/`ccm_link_path` arguments.
+- Removed the non-functional Attribution dashboard path and replaced it with an
+  honest Replication Diagnosis status view.
+- Plugin Registry documentation now reflects its active in-memory use.
 
 ### Known Gaps
 

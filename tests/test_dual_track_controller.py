@@ -1,7 +1,6 @@
-"""Unit tests for DualTrackController (step6) — the multi-track/ablation
-orchestrator whose `_run_track()` used to be an unimplemented stub
-(`raise NotImplementedError`). Now it delegates Step 5 (build+execute) to
-`BacktestRunner` and, on an execution failure, loops back to Step 3
+"""Unit tests for the current basic multi-track/OAT controller.
+
+It delegates Step 5 (build+execute) to `BacktestRunner` and, on an execution failure, loops back to Step 3
 (`MetaCoder.repair_plugin`) with a quick Step 4 re-validate, bounded by
 `MAX_REPAIR_RETRIES` — mirroring `Pipeline.run_from_method_spec`'s
 run-with-repair loop, applied per track.

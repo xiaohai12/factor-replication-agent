@@ -128,8 +128,7 @@ def _run_backtest_via_script(
 ) -> dict:
     """Generate a standalone backtest script and execute it via subprocess.
 
-    Mirrors ``src.pipeline.Pipeline._run_backtest_via_script()``: the script
-    is written to ``runs/backtest_scripts/{factor_id}_backtest.py`` (a
+    The script is written to ``runs/backtest_scripts/{factor_id}_backtest.py`` (a
     durable, independently re-runnable audit artifact — see
     src/steps/step3_codegen/script_generator.py) and run with the current Python
     interpreter. Results are read back from the CSV/metrics.json the script
@@ -141,7 +140,7 @@ def _run_backtest_via_script(
     import subprocess
     import sys
     from src.steps.step3_codegen.script_generator import generate_backtest_script
-    from src.infra.backtest_engine import BacktestExecutor
+    from src.steps.step3_codegen.registry import build_config
 
     scripts_dir = BACKTEST_SCRIPTS_DIR
     scripts_dir.mkdir(parents=True, exist_ok=True)
@@ -160,8 +159,7 @@ def _run_backtest_via_script(
     script_path = scripts_dir / f"{spec.factor_id}_backtest.py"
     script_path.write_text(script)
 
-    # See src/pipeline.py._run_backtest_via_script for why this is needed:
-    # the generated script does `from src...` imports, but this repo's
+    # The generated script does `from src...` imports, but this repo's
     # editable install only puts `src/` itself on sys.path, and Python puts
     # the *script's own directory* (not the repo root) on sys.path[0] — so
     # PYTHONPATH must be set explicitly for the subprocess to find `src`.
@@ -180,7 +178,7 @@ def _run_backtest_via_script(
     metrics_path = output_csv.with_suffix(".metrics.json")
     metrics = json.loads(metrics_path.read_text())
     return_series = pd.read_csv(output_csv)
-    config = BacktestExecutor()._build_config(spec, config_overrides)
+    config = build_config(spec, config_overrides)
 
     return {
         "metrics": metrics,
@@ -1550,16 +1548,14 @@ elif page == "Backtest & Experiments":
                         crsp_data_path = uploads_dir / f"{spec.factor_id}_uploaded_msf.parquet"
                         crsp_data_path.write_bytes(bt_uploaded_msf.getvalue())
 
-                    compustat_data_path = None
-                    ccm_link_path = None
+                    signal_data_dir = None
                     if needs_compustat:
                         if not SYNTHETIC_SNAPSHOT_DIR.exists():
                             raise RuntimeError(
                                 "No Compustat snapshot available. Run scripts/build_synthetic_data.py "
                                 "or select 'CRSP monthly only' signal input."
                             )
-                        compustat_data_path = SYNTHETIC_SNAPSHOT_DIR / "compustat_funda.parquet"
-                        ccm_link_path = SYNTHETIC_SNAPSHOT_DIR / "ccm_link.parquet"
+                        signal_data_dir = SYNTHETIC_SNAPSHOT_DIR
 
                     overrides = {}
                     if ov_nq != 10: overrides["breakpoint_quantiles"] = ov_nq
@@ -1581,8 +1577,7 @@ elif page == "Backtest & Experiments":
                         spec, plugin_code,
                         crsp_data_path=crsp_data_path,
                         signal_input_mode="compustat" if needs_compustat else "crsp_only",
-                        compustat_data_path=compustat_data_path,
-                        ccm_link_path=ccm_link_path,
+                        signal_data_dir=signal_data_dir,
                         config_overrides=overrides or None,
                     )
                     st.session_state["bt_result"] = result
