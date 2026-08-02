@@ -300,7 +300,19 @@ eq, neq, in, not_in, between, not_between, gt, gte, lt, lte, nonmissing, nonzero
 `portfolio.sort.breakpoint_source` must be one of:
 
 ```text
-nyse_only, full_sample, unspecified
+nyse_only, full_sample, other, unspecified
+```
+
+`portfolio.weighting` must be one of:
+
+```text
+vw, ew, other, unspecified
+```
+
+`signal.missing_policy.action` must be one of:
+
+```text
+drop, other, unspecified
 ```
 
 `portfolio.construction_type` must be one of:
@@ -322,6 +334,16 @@ explicit, inferred, unspecified, ambiguous, conflicting, weak_or_conflicting, no
 ```
 
 If a paper-specific construction is not covered, the JSON must use `other`, not an invented enum-like string.
+
+For `breakpoint_source` / `weighting` / `missing_policy.action`, `other` is not
+interchangeable with `unspecified`: `unspecified` means the paper never
+addresses the choice; `other` means the paper states a specific value that
+isn't a menu member (e.g. weighting = "capped_vw"), and that value must ALSO
+appear in `unsupported_fields[]` (never silently dropped, never silently
+normalized to the closest supported value by the extractor). Flag a spec that
+sets a field to `other` with no matching `unsupported_fields[]` entry, and
+flag a spec that records a custom scheme only in prose/`ambiguous_fields`
+instead of `unsupported_fields[]`.
 
 `portfolio.sort.group_type` is an open string, not a closed enum. Do not flag paper-specific group types as schema violations if they are machine-readable and explained in `portfolio.sort.role` or `portfolio.sort.source.interpretation`.
 
@@ -354,11 +376,11 @@ Check:
 
 - base variables in `formula.expression` match `signal.formula.inputs[]`;
 - `signal.formula.inputs[]` appear in `data.required_fields[].field`;
-- `portfolio.weighting` is one of `vw` / `ew` / `unspecified`;
+- `portfolio.weighting` is one of `vw` / `ew` / `other` / `unspecified`;
 
 Additional weighting/construction variant check:
 
-If a table reports multiple construction variants (for example individual-stock quantile alphas, equal-weighted portfolio returns, and value-weighted portfolio returns), verify that the JSON clearly identifies the main executable target via `portfolio.weighting` (`vw`/`ew`) and `portfolio.construction_type`; otherwise recommend splitting variants into separate MethodSpecs or moving non-main variants to `robustness_or_secondary_specs`. The standardized engine implements only `vw`/`ew`; a custom weighting rule the paper states is clamped to the menu default, so record it in prose/evidence rather than expecting bespoke codegen.
+If a table reports multiple construction variants (for example individual-stock quantile alphas, equal-weighted portfolio returns, and value-weighted portfolio returns), verify that the JSON clearly identifies the main executable target via `portfolio.weighting` (`vw`/`ew`) and `portfolio.construction_type`; otherwise recommend splitting variants into separate MethodSpecs or moving non-main variants to `robustness_or_secondary_specs`. The standardized engine implements only `vw`/`ew`; a custom weighting rule the paper states must be set to `portfolio.weighting = "other"` with a matching `unsupported_fields[]` entry recording the paper's literal value (registry.build_config then clamps `other` to the menu default and records the substitution) -- not just recorded in prose/evidence.
 
 - `portfolio.long_leg`/`short_leg` direction matches the paper's reported result direction;
 - `portfolio.construction_type` / `portfolio.sorts` / `portfolio.return_combination` are populated when the paper describes a non-standard (e.g. double-sort or multi-leg) construction.

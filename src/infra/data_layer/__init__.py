@@ -172,15 +172,9 @@ class SnapshotManager:
         return pd.read_parquet(path)
 
 
-# ---------------------------------------------------------------------------
-# The old snapshot-based signal-master path (`CCMLinker` + `TimeAvailComputer` +
-# `DataLayer.get_signal_master_table`/`get_snapshot_data`) has been removed. Its
-# job — resolve a Compustat gvkey to `permno` point-in-time and stamp
-# `time_avail_m` — is now done by the single declarative loader in `sources.py`
-# (`assemble_signal_master_table` / `link_to_permno` / `_load_generic_signal_frame`),
-# which the pipeline, the generated backtest script's "compustat" mode, and the
-# mvp/accruals golden-number e2e tests all go through.
-# ---------------------------------------------------------------------------
+# Signal-input assembly and point-in-time linking live in the declarative
+# DataSource registry (`sources.py`). Pipeline and generated scripts share that
+# single implementation.
 
 
 class DataLayer:

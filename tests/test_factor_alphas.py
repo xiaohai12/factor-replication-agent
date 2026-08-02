@@ -1,4 +1,4 @@
-"""Unit tests for `BacktestExecutor.compute_factor_alphas` (plan.md Phase 2):
+"""Unit tests for `BacktestExecutor.compute_factor_alphas`:
 CAPM/FF3/FF5 alpha regressions via `statsmodels`. Uses a synthetic return
 series constructed as `ls_return = alpha + beta*mktrf` (zero noise) so OLS
 recovers the exact alpha/beta -- a hand-checkable, network-free correctness

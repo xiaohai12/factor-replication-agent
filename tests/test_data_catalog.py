@@ -27,7 +27,7 @@ _HISTORICAL_LINK_TABLES = {
     "ccm": {
         "key": "gvkey", "permno": "lpermno", "start": "linkdt", "end": "linkenddt",
         # Data-quality filter added 2026-07-25: link_to_permno() now enforces
-        # the same linktype/linkprim rule CCMLinker already used for the
+        # the same linktype/linkprim rule used for the
         # legacy snapshot path (see CHANGELOG.md / decision-log.md).
         "valid_filters": {"linktype": ["LC", "LU"], "linkprim": ["P", "C"]},
         "primary_filter": {"linkprim": "P"},

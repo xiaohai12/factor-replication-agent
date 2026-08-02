@@ -96,7 +96,18 @@ HIGH_IMPACT_FIELDS = {
     "reported_results.spreads",
 }
 
-# Sensible defaults (HXZ / C&Z convention) for unspecified fields
+# Field-level defaults for a paper-SILENT field — the per-field convention used
+# to keep `original_method` faithful to the paper when the paper doesn't state a
+# value. Keyed by dotted MethodSpec path (NOT engine-config keys). This is a
+# DIFFERENT concept from step6's HXZ_STANDARD_CONFIG, which deliberately forces
+# every factor onto ONE uniform house standard; here we only fill a gap with the
+# field's own convention. The two legitimately disagree where the field-level
+# default differs from the standardized protocol — most notably rebalance is
+# "annual" here (the usual default for an unspecified accounting-factor
+# rebalance, Fama-French/C&Z convention) vs "monthly" in the standardized track
+# (HXZ protocol). Provenance: 6-month accounting lag = Fama-French (1992);
+# NYSE breakpoints + value weighting = Hou, Xue & Zhang (2020). Do not merge
+# with HXZ_STANDARD_CONFIG. See docs/cz-reference.md §7.
 SENSIBLE_DEFAULTS = {
     "signal.timing.accounting_lag": 6,
     "signal.missing_policy.action": "drop",
@@ -249,6 +260,7 @@ class ReviewGate:
         self._check_portfolio_structure_consistency(spec, result)
         self._check_ambiguous_fields(spec, result)
         self._check_silent_high_impact_fields(spec, result)
+        self._check_unsupported_fields(spec, result)
 
         # Determine overall disposition
         if result.blocked_fields:
@@ -297,7 +309,7 @@ class ReviewGate:
                 result.issues.append(f"Field '{f}' not found in data dictionary")
 
     def _check_source_mapping_resolved(self, spec: MethodSpec, result: ReviewResult) -> None:
-        """New-source safety net (plan.md data-loader Phase 4).
+        """Block signal fields whose physical data source is not registered.
 
         `data.normalized_mapping` says which physical source each field comes
         from; `spec.resolved_sources()` groups those by source. The data loader
@@ -526,6 +538,41 @@ class ReviewGate:
                 ),
                 current_value=self._get_field_value(spec, field_path),
                 empirical_impact=EmpiricalImpact.HIGH.value,
+            ))
+
+    def _check_unsupported_fields(self, spec: MethodSpec, result: ReviewResult) -> None:
+        """Flag fields the paper states EXPLICITLY but whose value isn't an
+        engine menu member (`MethodSpec.unsupported_fields`, e.g.
+        `weighting="capped_vw"` normalized to `WeightingRule.OTHER` --
+        see `UnsupportedField`/`_record_unsupported` in method_spec.py).
+
+        Deliberately a SEPARATE check from `_check_silent_high_impact_fields`
+        (which reacts to the `UNSPECIFIED` sentinel, i.e. "paper never said").
+        Here the paper is unambiguous; the engine simply has no menu member
+        for that scheme, so `registry.build_config` will substitute the
+        standard default and record it in `config["substitutions"]` (a
+        deterministic, non-LLM decision -- see registry.py). This check only
+        surfaces that substitution for human confirmation; it never decides
+        what the substitute should be.
+        """
+        already_flagged = {amb.field for amb in spec.ambiguous_fields}
+        for uf in spec.unsupported_fields:
+            if uf.field in already_flagged:
+                continue
+            result.blocked_fields.append(uf.field)
+            impact = uf.empirical_impact.value if hasattr(uf.empirical_impact, "value") else str(uf.empirical_impact)
+            result.field_notes.append(FieldReviewNote(
+                field=uf.field,
+                status=Disposition.NEEDS_HUMAN_CONFIRMATION,
+                reason=(
+                    f"Paper explicitly states {uf.paper_value!r} for this field, which "
+                    "is not in the engine's standard menu (this is NOT a paper-silent "
+                    "default -- registry.build_config will substitute the standard menu "
+                    "default and record the substitution). Confirm the substitution is "
+                    "acceptable before approving."
+                ),
+                current_value=uf.paper_value,
+                empirical_impact=impact,
             ))
 
     def review_with_llm(

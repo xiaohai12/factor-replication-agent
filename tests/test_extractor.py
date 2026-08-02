@@ -3,7 +3,7 @@
 Redesigned to use:
 1. Real LLM calls (codex CLI) — no mocks
 2. Real PDFs from data/papers/ as input
-3. SignalDoc.csv as ground truth for evaluation
+3. SignalDoc.csv as a post-hoc extraction reference
 4. Structured evaluation output (JSON report + per-field breakdown)
 
 Run with:
@@ -46,7 +46,7 @@ from src.evaluation.helpers import (
     PASS_THRESHOLD,
     extract_pdf_text,
     load_signaldoc,
-    parse_signaldoc_ground_truth,
+    parse_signaldoc_reference,
     build_field_details,
     compute_score,
     FactorEvalResult,
@@ -67,12 +67,12 @@ def _load_signaldoc() -> dict[str, dict]:
     return load_signaldoc()
 
 
-def _parse_signaldoc_ground_truth(row: dict) -> dict:
-    return parse_signaldoc_ground_truth(row)
+def _parse_signaldoc_reference(row: dict) -> dict:
+    return parse_signaldoc_reference(row)
 
 
-def _build_field_details(extractor, spec, ground_truth, reasons=None):
-    return build_field_details(extractor, spec, ground_truth, reasons)
+def _build_field_details(extractor, spec, reference, reasons=None):
+    return build_field_details(extractor, spec, reference, reasons)
 
 
 def _compute_score(metrics):
@@ -108,14 +108,14 @@ AVAILABLE_FACTORS = _available_factors()
 PILOT_FACTORS = [f for f in ["BM", "Illiquidity", "CF", "Investment", "OPLeverage"] if f in AVAILABLE_FACTORS]
 
 
-# --- Tests: Real LLM + Real PDF + Ground Truth ---
+# --- Tests: Real LLM + Real PDF + SignalDoc reference ---
 
 
 @pytest.mark.skipif(not HAS_CODEX, reason="codex CLI not installed")
 @pytest.mark.skipif(not HAS_PYMUPDF, reason="PyMuPDF not installed")
 @pytest.mark.skipif(not HAS_SIGNALDOC, reason="SignalDoc.csv not available")
 class TestRealExtraction:
-    """End-to-end extraction tests: real PDF -> real LLM -> SignalDoc ground truth."""
+    """End-to-end extraction tests: real PDF -> real LLM -> SignalDoc reference."""
 
     def setup_method(self):
         self.llm_client = create_llm_client(provider="codex")
@@ -138,14 +138,14 @@ class TestRealExtraction:
 
     @pytest.mark.parametrize("factor_id", PILOT_FACTORS)
     def test_extraction_accuracy(self, factor_id: str):
-        """Extraction should achieve reasonable accuracy against SignalDoc ground truth."""
+        """Extraction should achieve reasonable accuracy against SignalDoc."""
         pdf_path = PAPERS_DIR / FACTOR_TO_PDF[factor_id]
         paper_text = _extract_pdf_text(pdf_path)
 
         result = self.extractor.extract(factor_id, paper_text)
         assert result.spec is not None
 
-        gt = _parse_signaldoc_ground_truth(self.signaldoc[factor_id])
+        gt = _parse_signaldoc_reference(self.signaldoc[factor_id])
         metrics = self.extractor.evaluate_extraction(result.spec, gt)
 
         # Phase 1 acceptance: core field accuracy >= 50% (realistic for paper-only)
@@ -223,7 +223,7 @@ class TestFullEvaluation:
                     eval_result.extraction_success = True
                     report.successful_extractions += 1
 
-                    gt = _parse_signaldoc_ground_truth(self.signaldoc[factor_id])
+                    gt = _parse_signaldoc_reference(self.signaldoc[factor_id])
                     metrics = self.extractor.evaluate_extraction(result.spec, gt)
                     eval_result.metrics = metrics
                     eval_result.field_details = _build_field_details(
@@ -272,7 +272,7 @@ class TestFullEvaluation:
         result = self.extractor.extract(factor_id, paper_text)
         assert result.spec is not None, f"{factor_id}: extraction failed"
 
-        gt = _parse_signaldoc_ground_truth(self.signaldoc[factor_id])
+        gt = _parse_signaldoc_reference(self.signaldoc[factor_id])
         metrics = self.extractor.evaluate_extraction(result.spec, gt)
         details = _build_field_details(self.extractor, result.spec, gt)
 
@@ -301,15 +301,15 @@ class TestEvaluationLogic:
         rows = _load_signaldoc()
         assert len(rows) >= 200
 
-    def test_ground_truth_parsing(self):
-        """Ground truth parser should extract known fields correctly."""
+    def test_reference_parsing(self):
+        """SignalDoc reference parser should extract known fields correctly."""
         if not HAS_SIGNALDOC:
             pytest.skip("SignalDoc.csv not available")
         rows = _load_signaldoc()
 
         # BM should be EW, formation=6, holding=12
         if "BM" in rows:
-            gt = _parse_signaldoc_ground_truth(rows["BM"])
+            gt = _parse_signaldoc_reference(rows["BM"])
             assert gt.get("stock_weight") == "ew"
             assert gt.get("formation_month") == "6"
 
@@ -320,7 +320,7 @@ class TestEvaluationLogic:
         rows = _load_signaldoc()
         parsed_count = 0
         for acronym, row in rows.items():
-            gt = _parse_signaldoc_ground_truth(row)
+            gt = _parse_signaldoc_reference(row)
             assert isinstance(gt, dict)
             if gt:
                 parsed_count += 1
@@ -414,7 +414,7 @@ def run_evaluation(
             eval_result.extraction_success = True
             report.successful_extractions += 1
 
-            gt = _parse_signaldoc_ground_truth(signaldoc[factor_id])
+            gt = _parse_signaldoc_reference(signaldoc[factor_id])
             metrics = extractor.evaluate_extraction(result.spec, gt)
             eval_result.metrics = metrics
             eval_result.score = _compute_score(metrics)

@@ -15,7 +15,7 @@ const NAV_ITEMS = [
   { to: "/trace", label: "Trace & Logs" },
 ]
 
-const COMING_SOON = ["Extractor", "Review & Resolve", "MetaCoder", "Attribution"]
+const COMING_SOON = ["Extractor", "Review & Resolve", "MetaCoder", "Replication Diagnosis"]
 
 export function AppLayout() {
   const { provider, model, setProvider, setModel } = useLlm()

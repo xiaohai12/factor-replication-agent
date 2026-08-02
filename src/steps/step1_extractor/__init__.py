@@ -206,7 +206,7 @@ class RateLimitExhausted(Exception):
 class ExtractionMetrics:
     """Metrics for evaluating extraction quality (Section 4.2).
 
-    Used against C&Z metadata as ground truth for pilot factors.
+    Used against C&Z metadata as a post-hoc reference for pilot factors.
     """
 
     field_coverage: float = 0.0       # non-empty fields / total fields
@@ -695,18 +695,18 @@ class SemanticExtractor:
     # --- Evaluation ---
 
     def evaluate_extraction(
-        self, spec: MethodSpec, ground_truth: dict
+        self, spec: MethodSpec, reference: dict
     ) -> ExtractionMetrics:
-        """Evaluate extraction quality against C&Z ground truth.
+        """Evaluate extraction quality against a C&Z reference profile.
 
         Used for pilot factor validation. This is POST-HOC only —
         results are NOT fed back to correct the MethodSpec.
 
         Args:
             spec: Extracted MethodSpec
-            ground_truth: Dict of field_name -> expected_value from SignalDoc.csv
+            reference: Dict of field_name -> reference_value from SignalDoc.csv
         """
-        total_fields = len(ground_truth)
+        total_fields = len(reference)
         if total_fields == 0:
             return ExtractionMetrics()
 
@@ -718,8 +718,8 @@ class SemanticExtractor:
         core_matching = 0
         core_total = 0
 
-        for key, expected in ground_truth.items():
-            # If ground truth is unspecified/None, treat as correct (don't penalize)
+        for key, expected in reference.items():
+            # If the reference is unspecified/None, do not penalize the extractor.
             if expected is None or str(expected).strip().lower() in ("", "none", "unspecified", "n/a", "nan"):
                 matching += 1
                 non_empty += 1

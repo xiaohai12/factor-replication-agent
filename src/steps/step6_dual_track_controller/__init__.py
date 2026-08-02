@@ -1,4 +1,10 @@
-"""Dual-Track + Factorial Controller - Run experiments across implementation variants."""
+"""Basic multi-track controller for original, standardized, and OAT runs.
+
+The module/directory retain their historical name for API compatibility. A
+validated declarative matrix, factorial expansion, batch-level plugin freeze,
+and complete evidence persistence are future work documented in
+`docs/multi-config-evidence-plan.md`.
+"""
 
 from __future__ import annotations
 
@@ -14,7 +20,33 @@ from src.infra.models.run_record import RunRecord
 from src.infra.repair import RepairLoop
 
 
-# Standard HXZ-style settings for the standardized track
+# Standardized-track config: force EVERY factor onto one uniform "house
+# standard" so cross-factor results are comparable and any original-vs-standard
+# gap is attributable to a known set of switches. This is NOT auto-derived from
+# any dataset — it is a hand-curated convention. Provenance per field (cited so
+# the "standard" is defensible in the paper — see docs/cz-reference.md §7):
+#
+#   breakpoint_source="nyse"      Hou, Xue & Zhang (2020, RFS) "Replicating
+#   breakpoint_quantiles=deciles   Anomalies" — NYSE breakpoints + value weights
+#   weighting_rule="vw"            + decile sorts are their core protocol for
+#                                  damping microcap influence.
+#   rebalance_frequency="monthly"  HXZ q-factor protocol (monthly VW rebalance).
+#   holding_period_months=1        1-month holding (standard monthly-rebalanced).
+#   universe (exchcd 1/2/3,        Common CRSP ordinary-common-stock universe
+#     shrcd 10/11)                 (Fama-French / HXZ shared convention).
+#   accounting_lag_months=6        Fama-French (1992) 6-month accounting lag,
+#                                  NOT HXZ (HXZ match most-recent quarterly
+#                                  earnings monthly). Kept here as the
+#                                  conservative FF-style default; the "HXZ"
+#                                  label is therefore approximate for THIS field.
+#   missing_action="drop"          Drop firm-months with a missing signal input.
+#
+# Distinct from step2's SENSIBLE_DEFAULTS (a DIFFERENT concept): that fills a
+# paper-SILENT field with its field-level convention to keep `original_method`
+# faithful to the paper; this deliberately OVERRIDES the paper onto one house
+# standard. They legitimately differ — e.g. rebalance is "annual" there (the
+# usual default for an unspecified accounting-factor rebalance) vs "monthly"
+# here (the HXZ standardized protocol). Do not merge them.
 HXZ_STANDARD_CONFIG = {
     "breakpoint_source": "nyse",
     "breakpoint_quantiles": [10, 20, 30, 40, 50, 60, 70, 80, 90],

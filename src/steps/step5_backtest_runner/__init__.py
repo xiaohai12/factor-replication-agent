@@ -4,7 +4,7 @@
 the actual "Step 5" pipeline action. `build_script()` calls
 `src.steps.step3_codegen.script_generator.generate_backtest_script` and is
 conceptually part of step3's output (assembling the plugin's compute_signal +
-hooks into the one complete standalone script) — it lives on this class
+the deterministic engine config into one complete standalone script) — it lives on this class
 rather than in `step3_codegen/` only because it needs `DataLayer` snapshot
 path resolution, which step3_codegen doesn't have access to. Neither method
 has retry/repair logic of its own; that's orchestration owned by callers
@@ -83,8 +83,8 @@ class BacktestRunner:
         results_dir = scripts_dir / "results"
         output_csv = results_dir / f"{spec.factor_id}.csv"
 
-        # Phase 2 (plan.md): FF factor + rf data for alpha metrics, if
-        # available. Checked per-snapshot first (most reproducible — matches
+        # FF factor + rf data for alpha metrics, if available. Checked
+        # per-snapshot first (most reproducible — matches
         # the snapshot's own pull date), falling back to the shared
         # data/local/ff_factors.parquet fetched once via
         # scripts/fetch_ff_factors.py. Neither is required; alphas are simply

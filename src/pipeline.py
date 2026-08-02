@@ -139,7 +139,7 @@ class Pipeline:
         config_overrides: dict | None = None,
     ) -> tuple[list[RunRecord], PipelineStatus]:
         """Run all 7 steps end-to-end for a single factor: extract -> review
-        -> generate -> validate -> execute -> dual-track/ablations ->
+        -> generate -> validate -> execute -> basic multi-track runs ->
         replication-diff.
         Fails fast: the first stage that rejects the factor stops the run and
         is reported on the returned `PipelineStatus` (`.stage` says which
@@ -339,7 +339,7 @@ class Pipeline:
         track: str = "original_method",
     ) -> RunRecord:
         """Run the pipeline starting from an already-approved MethodSpec,
-        skipping extraction and dual-track orchestration entirely:
+        skipping extraction and multi-track orchestration entirely:
 
             approved MethodSpec -> MetaCoder generates plugin.code -> Step3
             assembles the ONE complete standalone script (BacktestRunner.build_script) ->

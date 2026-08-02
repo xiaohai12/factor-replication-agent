@@ -60,9 +60,8 @@ STANDARD: dict[str, set[str]] = {
     "return_combination": {
         ReturnCombinationType.EXTREME_GROUP_SPREAD.value,
         ReturnCombinationType.SINGLE_SIGNAL_PORTFOLIO_RETURN.value,
-        # AVERAGE_LEG_SPREAD / FULL_PORTFOLIO_RETURN added Phase 4 (plan.md):
-        # BacktestExecutor.combine_portfolio_returns now implements all four
-        # types. Note
+        # BacktestExecutor.combine_portfolio_returns implements all four
+        # supported return-combination types. Note
         # average_leg_spread only *actually* averages multiple portfolios
         # per leg when config["long_portfolios"]/["short_portfolios"] are
         # explicitly given (free-text leg descriptions aren't auto-parsed);
@@ -79,6 +78,17 @@ def ev(v: Any) -> str:
     if hasattr(v, "value"):
         return v.value
     return str(v) if v is not None else "unspecified"
+
+
+# Dotted MethodSpec.unsupported_fields[].field -> the resolved config key that
+# build_config eventually clamps it to, so the substitution log (see
+# build_config) can report "paper said X, engine ran Y" for exactly those
+# fields the engine has a standard menu for.
+_UNSUPPORTED_FIELD_TO_CONFIG_KEY: dict[str, str] = {
+    "portfolio.weighting": "weighting_rule",
+    "portfolio.sort.breakpoint_source": "breakpoint_source",
+    "signal.missing_policy.action": "missing_action",
+}
 
 
 def _clamp(val: Any, allowed: set[str], default: str) -> str:
@@ -143,28 +153,27 @@ def build_config(spec: MethodSpec, overrides: dict | None) -> dict:
         "formation_month_explicit": spec.formation_month is not None,
         "long_leg":             resolve_long_leg(spec),
         "short_leg":            resolve_short_leg(spec),
-        # Sample-period segmentation (plan.md CZ-import Phase A). Drives the
-        # optional in-sample / post-sample / post-publication metric split in
+        # Optional in-sample / post-sample / post-publication metric split in
         # steps.compute_metrics (mirrors CZ's sumportmonth insamp/between/
         # postpub). No-op there when all three are None.
         "sample_start_year":    spec.sample_start_year,
         "sample_end_year":      spec.sample_end_year,
         "publication_year":     spec.publication_year,
-        # Deterministic ResearchDesign fields (plan.md Phase 2.5). Each is a
-        # documented canonical default, overridable per run/ablation.
+        # Deterministic ResearchDesign fields. Each has a documented canonical
+        # default and may be overridden only by an explicit run config.
         "universe_filters": [
             {"field": f.field, "op": ev(f.op), "value": f.value}
             for f in spec.portfolio.universe_filters
         ],
         "apply_delisting_returns": True,
-        # Return combination (plan.md Phase 4): how per-portfolio returns
-        # combine into the reported series; see steps.compute_long_short.
+        # How per-portfolio returns combine into the reported series; see
+        # steps.compute_long_short.
         "return_combination_type": _clamp(
             spec.portfolio.return_combination.type,
             STANDARD["return_combination"],
             "extreme_group_spread",
         ),
-        # Return basis / frequency (plan.md Phase 6). "excess" only actually
+        # Return basis / frequency. "excess" only actually
         # takes effect when factor data with an `rf` column is supplied to
         # BacktestExecutor.run(factors=...) -- see BacktestExecutor.apply_excess_returns.
         # return_frequency isn't consumed by the standard steps yet (which
@@ -188,6 +197,28 @@ def build_config(spec: MethodSpec, overrides: dict | None) -> dict:
     if returns_cfg:
         config["returns_table"] = returns_cfg["returns_table"]
         config["returns_layout"] = returns_cfg["returns_layout"]
+
+    # Substitution log: MethodSpec.unsupported_fields is the authoritative
+    # record of "the paper stated this value explicitly, but it isn't an
+    # engine menu member" (see UnsupportedField / _record_unsupported in
+    # method_spec.py) -- distinct from a field the paper never addressed
+    # (`unspecified`, not logged here). build_config is the single place that
+    # decides what the engine actually ran instead, so pair each recorded
+    # paper value with the resolved config value here. Never used to make an
+    # empirical decision; purely descriptive provenance for review/reporting
+    # (e.g. Phase C/D "vs paper" comparisons must carry this as a caveat).
+    substitutions = [
+        {
+            "field": uf.field,
+            "paper_value": uf.paper_value,
+            "engine_value": config[config_key],
+            "reason": uf.reason,
+        }
+        for uf in spec.unsupported_fields
+        if (config_key := _UNSUPPORTED_FIELD_TO_CONFIG_KEY.get(uf.field)) is not None
+    ]
+    if substitutions:
+        config["substitutions"] = substitutions
 
     if overrides:
         config.update(overrides)

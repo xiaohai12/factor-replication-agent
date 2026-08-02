@@ -1,4 +1,4 @@
-"""Unit tests for sample-period segmented metrics (plan.md CZ-import Phase A).
+"""Unit tests for sample-period segmented metrics.
 
 `BacktestExecutor.compute_metrics` gains an optional `by_sample_period` split
 (in-sample / between / post-publication) mirroring CZ's sumportmonth

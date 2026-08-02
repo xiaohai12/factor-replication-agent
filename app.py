@@ -8,7 +8,7 @@ Seven-page dashboard aligned with architecture.md pipeline:
   3. Review & Resolve
   4. MetaCoder
   5. Backtest & Experiments
-  6. Attribution
+    6. Replication Diagnosis
   7. Trace & Logs
 """
 
@@ -203,7 +203,7 @@ page = st.sidebar.radio(
         "Review & Resolve",
         "MetaCoder",
         "Backtest & Experiments",
-        "Attribution",
+        "Replication Diagnosis",
         "Trace & Logs",
     ],
     index=0,
@@ -217,7 +217,7 @@ _plugin_count = len(list(PLUGINS_DIR.glob("*.py"))) + len(list(FIXTURE_PLUGINS_D
 st.sidebar.markdown(f"- MetaCoder {'✅' if _plugin_count else '🚧'} ({_plugin_count} plugins)")
 st.sidebar.markdown("- Sandbox ✅")
 st.sidebar.markdown("- Backtest ✅")
-st.sidebar.markdown("- Attribution 🚧")
+st.sidebar.markdown("- Replication Diagnosis 🚧")
 st.sidebar.markdown("- Trace ✅")
 
 st.sidebar.markdown("---")
@@ -238,9 +238,11 @@ llm_model = st.sidebar.selectbox(
     index=0,
 )
 
-_gt_count = len(list(TEST_SPECS_DIR.glob("*.methodspec.json"))) if TEST_SPECS_DIR.exists() else 0
+_reference_count = len(list(TEST_SPECS_DIR.glob("*.methodspec.json"))) if TEST_SPECS_DIR.exists() else 0
 st.sidebar.markdown("---")
-st.sidebar.markdown(f"**Ground Truth:** {_gt_count} specs in `test_method_specs_human_labeled/`")
+st.sidebar.markdown(
+    f"**Curated References:** {_reference_count} specs in `test_method_specs_human_labeled/`"
+)
 
 st.title("Factor Replication Agent")
 
@@ -328,8 +330,8 @@ def _save_review_artifacts(spec, review_result, raw_llm_review=None) -> None:
     )
 
 
-def _load_ground_truth_specs() -> dict[str, dict]:
-    """Load all ground truth MethodSpecs from test_method_specs_human_labeled/."""
+def _load_curated_reference_specs() -> dict[str, dict]:
+    """Load human-curated MethodSpec references used for post-hoc scoring."""
     specs = {}
     if TEST_SPECS_DIR.exists():
         for p in sorted(TEST_SPECS_DIR.glob("*.methodspec.json")):
@@ -342,8 +344,8 @@ def _load_ground_truth_specs() -> dict[str, dict]:
     return specs
 
 
-def _compare_specs(extracted: dict, ground_truth: dict) -> list[dict]:
-    """Compare extracted spec fields against ground truth. Returns list of field comparisons."""
+def _compare_specs(extracted: dict, reference: dict) -> list[dict]:
+    """Compare extracted fields against a human-curated reference spec."""
     fields_to_compare = [
         ("signal.formula.expression", "signal.formula.expression"),
         ("signal.formula.paper_expression", "signal.formula.paper_expression"),
@@ -361,12 +363,12 @@ def _compare_specs(extracted: dict, ground_truth: dict) -> list[dict]:
     results = []
     for ext_path, gt_path in fields_to_compare:
         ext_val = _get_nested(extracted, ext_path)
-        gt_val = _get_nested(ground_truth, gt_path)
+        gt_val = _get_nested(reference, gt_path)
         match = _values_match(ext_val, gt_val)
         results.append({
             "field": ext_path,
             "extracted": str(ext_val) if ext_val is not None else "",
-            "ground_truth": str(gt_val) if gt_val is not None else "",
+            "reference": str(gt_val) if gt_val is not None else "",
             "match": match,
         })
     return results
@@ -403,11 +405,11 @@ def _compute_eval_metrics(comparisons: list[dict]) -> dict:
     """Compute evaluation metrics from field comparisons."""
     total = len(comparisons)
     matched = sum(1 for c in comparisons if c["match"])
-    gt_present = sum(1 for c in comparisons if c["ground_truth"])
+    reference_present = sum(1 for c in comparisons if c["reference"])
     extracted_present = sum(1 for c in comparisons if c["extracted"])
     return {
         "field_accuracy": matched / total if total > 0 else 0,
-        "field_coverage": extracted_present / gt_present if gt_present > 0 else 0,
+        "field_coverage": extracted_present / reference_present if reference_present > 0 else 0,
         "matched": matched,
         "total": total,
     }
@@ -501,7 +503,7 @@ def _e2e_run_stage_3_to_7(
     spec, review_result, tracer, stages, human_resolutions,
     e2e_data_src, e2e_signal_mode, llm_provider, llm_model,
 ):
-    """Stage 3 (Resolve) through Stage 7 (Attribution) of the E2E pipeline.
+    """Stage 3 (Resolve) through Stage 7 (Replication Diagnosis) of the E2E pipeline.
 
     Split out from Stage 1/2 (Extract/Review) so the page can pause between
     them: if ReviewGate flags any field as needs_human_confirmation, the
@@ -574,7 +576,7 @@ def _e2e_run_stage_3_to_7(
     plugin_path.write_text(plugin.code)
     tracer.log(
         "metacoder", "done",
-        f"code_hash={plugin.code_hash}, hooks={len(plugin.hooks or {})}, saved to {plugin_path}",
+        f"code_hash={plugin.code_hash}, formula-only plugin saved to {plugin_path}",
     )
     stages["metacoder"] = {"status": "done", "code_hash": plugin.code_hash}
 
@@ -667,10 +669,11 @@ def _e2e_run_stage_3_to_7(
         tracer.log("backtest", f"skipped — {msf_path} not found", level="warning")
         stages["backtest"] = {"status": "skipped", "reason": "no data"}
 
-    # Stage 7: Attribution (placeholder)
-    progress.progress(1.0, text="Stage 7/7 — Attribution...")
-    tracer.log("attribution", "skipped — requires dual-track runs")
-    stages["attribution"] = {"status": "skipped"}
+    # Stage 7: deterministic diagnosis is terminal and is not yet wired into
+    # this dashboard path. It never changes MethodSpec/config automatically.
+    progress.progress(1.0, text="Stage 7/7 — Replication diagnosis...")
+    tracer.log("diagnosis", "not run — multi-config evidence matrix not implemented")
+    stages["diagnosis"] = {"status": "not_implemented"}
 
     st.session_state["e2e_stages"] = stages
     st.session_state["e2e_spec"] = spec
@@ -872,7 +875,7 @@ if page == "Pipeline — End to End":
     if stages:
         st.markdown("---")
         st.subheader("Stage Results")
-        stage_names = ["extract", "review", "resolve", "metacoder", "sandbox", "backtest", "attribution"]
+        stage_names = ["extract", "review", "resolve", "metacoder", "sandbox", "backtest", "diagnosis"]
         stage_icons = {"done": "✅", "passed": "✅", "failed": "❌", "skipped": "⏭️"}
         for sn in stage_names:
             s = stages.get(sn, {})
@@ -1017,10 +1020,10 @@ elif page == "Extractor":
         with st.expander("Full MethodSpec JSON"):
             st.json(json.loads(spec.model_dump_json()))
 
-        # Eval vs ground truth
+        # Eval vs human-curated reference
         st.markdown("---")
-        st.subheader("4. Eval vs Ground Truth")
-        gt_specs = _load_ground_truth_specs()
+        st.subheader("4. Eval vs Curated Reference")
+        gt_specs = _load_curated_reference_specs()
         gt_match = gt_specs.get(spec.factor_id) or gt_specs.get(getattr(spec, "cz_acronym", "") or "")
 
         if gt_match:
@@ -1038,17 +1041,20 @@ elif page == "Extractor":
                 eval_data.append({
                     "Field": c["field"],
                     "Extracted": c["extracted"],
-                    "Ground Truth": c["ground_truth"],
+                    "Curated Reference": c["reference"],
                     "Match": "✅" if c["match"] else "❌",
                 })
             st.table(eval_data)
         else:
-            st.info(f"No ground truth found for `{spec.factor_id}` in `data/test_method_specs_human_labeled/`.")
+            st.info(
+                f"No curated reference found for `{spec.factor_id}` in "
+                "`data/test_method_specs_human_labeled/`."
+            )
 
         # Batch eval
-        with st.expander("Batch Eval — All Ground Truth Specs"):
+        with st.expander("Batch Eval — All Curated Reference Specs"):
             if st.button("Run Batch Extraction Eval", key="ext_batch_eval"):
-                st.info("Batch eval compares already-extracted specs against ground truth. "
+                st.info("Batch eval compares already-extracted specs against curated references. "
                         "For full re-extraction, use the CLI scripts.")
                 batch_results = []
                 for fid, gt_data in gt_specs.items():
@@ -1229,7 +1235,7 @@ elif page == "Review & Resolve":
                     st.error(str(e))
 
     with tab_eval:
-        st.subheader("Resolution Eval vs Ground Truth")
+        st.subheader("Resolution Eval vs Curated Reference")
 
         # Pick which resolved MethodSpec to evaluate — defaults to whatever's
         # currently loaded/resolved on this page, but can be overridden to any
@@ -1256,7 +1262,7 @@ elif page == "Review & Resolve":
         else:
             resolved = None
 
-        gt_specs = _load_ground_truth_specs()
+        gt_specs = _load_curated_reference_specs()
         if resolved:
             gt_options = [""] + sorted(gt_specs.keys())
             auto_match = resolved.factor_id if resolved.factor_id in gt_specs else (
@@ -1264,9 +1270,9 @@ elif page == "Review & Resolve":
             )
             default_idx = gt_options.index(auto_match) if auto_match in gt_options else 0
             gt_choice = st.selectbox(
-                "Ground truth factor", gt_options, index=default_idx, key="rr_eval_gt_sel",
+                "Curated reference factor", gt_options, index=default_idx, key="rr_eval_gt_sel",
                 help="Defaults to an auto-match on factor_id/cz_acronym; override to compare "
-                "against any ground truth entry.",
+                "against any curated reference entry.",
             )
             gt = gt_specs.get(gt_choice) if gt_choice else None
         else:
@@ -1278,11 +1284,14 @@ elif page == "Review & Resolve":
             ec1, ec2 = st.columns(2)
             ec1.metric("Resolution Accuracy", f"{metrics['field_accuracy']:.0%}")
             ec2.metric("Matched", f"{metrics['matched']}/{metrics['total']}")
-            eval_data = [{"Field": c["field"], "Resolved": c["extracted"], "Ground Truth": c["ground_truth"],
+            eval_data = [{"Field": c["field"], "Resolved": c["extracted"], "Curated Reference": c["reference"],
                           "Correct": "✅" if c["match"] else "❌"} for c in comps]
             st.table(eval_data)
         elif resolved:
-            st.info(f"No ground truth selected/found for `{resolved.factor_id}` in `test_method_specs_human_labeled/`.")
+            st.info(
+                f"No curated reference selected/found for `{resolved.factor_id}` in "
+                "`test_method_specs_human_labeled/`."
+            )
         else:
             st.info("Select a MethodSpec to evaluate.")
 
@@ -1337,23 +1346,9 @@ elif page == "MetaCoder":
         sc2.metric("Codegen Ready", "Yes" if mc_spec.codegen_ready else "No")
         sc3.metric("Version", mc_spec.version)
 
-        # Hook detection
-        st.subheader("3. Hook Detection")
-        try:
-            from src.infra.backtest_engine import BacktestExecutor
-            hooks_needed = BacktestExecutor._detect_hooks(mc_spec)
-            if hooks_needed:
-                st.warning(f"**{len(hooks_needed)} non-standard step(s):**")
-                for step, reason in hooks_needed.items():
-                    st.markdown(f"- `{step}_hook` — {reason}")
-            else:
-                st.success("All steps standard — only `compute_signal()` needed.")
-        except Exception as e:
-            st.error(str(e))
-
         # Generate
         st.markdown("---")
-        st.subheader("4. Generate Plugin")
+        st.subheader("3. Generate Plugin")
         approved = rs_val == "approved" and mc_spec.codegen_ready
         if not approved:
             st.error("MethodSpec not codegen-ready. Go to Review & Resolve first.")
@@ -1376,7 +1371,7 @@ elif page == "MetaCoder":
 
         mc_plugin = st.session_state.get("mc_plugin")
         if mc_plugin:
-            st.subheader("5. Generated Code")
+            st.subheader("4. Generated Code")
             st.code(mc_plugin.code, language="python")
 
             dl_col, save_col, _ = st.columns([1, 1, 2])
@@ -1388,7 +1383,7 @@ elif page == "MetaCoder":
                     st.success("Saved!")
 
             # Sandbox
-            st.subheader("6. Sandbox Validation")
+            st.subheader("5. Sandbox Validation")
             if st.button("Run Sandbox", key="mc_sandbox"):
                 from src.steps.step4_validator import AdversarialSandbox
                 report = AdversarialSandbox().validate(mc_plugin, mc_spec)
@@ -1447,7 +1442,7 @@ elif page == "MetaCoder":
 elif page == "Backtest & Experiments":
     st.header("Backtest & Experiments")
 
-    tab_single, tab_dual, tab_ablation = st.tabs(["Single Run", "Dual-Track", "Ablation"])
+    tab_single, tab_tracks, tab_ablation = st.tabs(["Single Run", "Track Status", "Ablation Status"])
 
     with tab_single:
         st.subheader("Single Backtest Run")
@@ -1658,103 +1653,45 @@ elif page == "Backtest & Experiments":
             with dl2:
                 st.download_button("Download Metrics JSON", json.dumps(m, indent=2), "metrics.json", key="bt_dl_json")
 
-    with tab_dual:
-        st.subheader("Dual-Track Comparison")
-        st.info("**Disabled** — `DualTrackController._run_track()` is not yet implemented. "
-                "Run same plugin under `original_method` vs `standardized_hxz` configs.")
+    with tab_tracks:
+        st.subheader("Basic Multi-Track Status")
+        st.info(
+            "`DualTrackController` can orchestrate original/standardized/OAT runs through "
+            "the pipeline, but this dashboard does not yet expose the controller or persist "
+            "a collision-safe multi-config evidence matrix."
+        )
         st.markdown(
-            "Once implemented, this tab will:\n"
-            "- Run the same plugin with paper-stated config vs HXZ-standard config\n"
-            "- Show side-by-side metrics comparison\n"
-            "- Overlay cumulative return charts"
+            "The planned interface will load a versioned `experiments/<factor_id>.experiments.yaml`, "
+            "freeze one plugin for the batch, and show deterministic pairwise comparisons. "
+            "See `docs/multi-config-evidence-plan.md`."
         )
 
     with tab_ablation:
-        st.subheader("Ablation Experiments")
-        st.info("Select implementation switches to vary one at a time.")
-        st.markdown(
-            "Available switches:\n"
-            "- `breakpoint_source`: nyse ↔ full_sample\n"
-            "- `weighting_rule`: vw ↔ ew\n"
-            "- `accounting_lag`: 4m ↔ 6m\n"
-            "- `universe`: with/without financials"
+        st.subheader("Ablation Status")
+        st.info(
+            "The basic controller supports named one-at-a-time switches, but strict key "
+            "validation, effective-diff checks, unique artifact paths, and factorial sweep "
+            "expansion are not implemented."
         )
-        st.caption("Run ablations from the Single Run tab by changing config overrides, "
-                    "then compare results in the Attribution page.")
+        st.caption("Use Single Run only for local inspection; do not treat manual overrides as a persisted experiment matrix.")
 
 
 # ############################################################
-# PAGE 6: Attribution
+# PAGE 6: Replication Diagnosis
 # ############################################################
-elif page == "Attribution":
-    st.header("Attribution — Implementation Gap Decomposition")
-    st.markdown("Compare runs to decompose the replication gap by implementation choice.")
-
-    # Load evidence
-    evidence_factors = []
-    if EVIDENCE_DIR.exists():
-        evidence_factors = sorted([d.name for d in EVIDENCE_DIR.iterdir() if d.is_dir()])
-
-    if not evidence_factors:
-        st.info("No evidence runs found. Run backtests first (they will be saved to `evidence/`).")
-        st.markdown(
-            "### How Attribution Works\n\n"
-            "1. Run the same factor with different configs (original vs standardized vs ablations)\n"
-            "2. Each run is saved to the Evidence Store\n"
-            "3. Attribution decomposes the gap:\n\n"
-            "```\n"
-            "Gap = Σ contribution(switch_i) + residual\n"
-            "```\n\n"
-            "**Anomaly triggers:**\n"
-            "- t-stat sign flip between tracks\n"
-            "- |gap| / |original_tstat| > 50%"
-        )
-    else:
-        factor_sel = st.selectbox("Factor", evidence_factors, key="attr_factor")
-        if factor_sel and st.button("Run Replication-Diff", key="attr_run"):
-            try:
-                from src.steps.step7_replication_diff import ReplicationDiff
-                from src.infra.evidence import EvidenceStore
-                store = EvidenceStore(base_path=str(EVIDENCE_DIR))
-                # Load runs for this factor
-                factor_dir = EVIDENCE_DIR / factor_sel
-                runs = []
-                for run_dir in sorted(factor_dir.iterdir()):
-                    meta_path = run_dir / "metadata.json"
-                    if meta_path.exists():
-                        runs.append(json.loads(meta_path.read_text()))
-
-                if len(runs) < 2:
-                    st.warning("Need at least 2 runs for replication-diff. Run ablations first.")
-                else:
-                    differ = ReplicationDiff()
-                    result = differ.diff_ablation(runs)
-                    st.session_state["attr_result"] = result
-            except Exception as e:
-                st.error(str(e))
-
-        attr_result = st.session_state.get("attr_result")
-        if attr_result:
-            ac1, ac2, ac3 = st.columns(3)
-            ac1.metric("Original t-stat", f"{attr_result.original_tstat:.2f}")
-            ac2.metric("Standardized t-stat", f"{attr_result.standardized_tstat:.2f}")
-            ac3.metric("Explained", f"{attr_result.explained_fraction:.0%}")
-
-            if attr_result.contributions:
-                st.subheader("Contribution Breakdown")
-                contrib_df = pd.DataFrame([
-                    {"Switch": k, "Contribution": v}
-                    for k, v in attr_result.contributions.items()
-                ])
-                st.bar_chart(contrib_df.set_index("Switch"))
-
-            # Anomaly check
-            if attr_result.original_tstat * attr_result.standardized_tstat < 0:
-                st.error("⚠️ **Anomaly: t-stat sign flip** — consider re-review.")
-            elif abs(attr_result.total_gap) / max(abs(attr_result.original_tstat), 0.01) > 0.5:
-                st.warning("⚠️ **Large gap (>50%)** — consider re-review.")
-            else:
-                st.success("No anomalies detected.")
+elif page == "Replication Diagnosis":
+    st.header("Replication Diagnosis")
+    st.info(
+        "The deterministic diagnosis report is not wired into the dashboard yet. "
+        "Current Step 7 computes only a basic structural gap and the pipeline does not "
+        "persist or return it."
+    )
+    st.markdown(
+        "The target design requires collision-safe multi-config evidence, pairwise "
+        "identification levels, a C&Z-signal bridge, and a persisted "
+        "`ReplicationDiagnosisReport`. No automatic threshold here changes a MethodSpec "
+        "or config. See `docs/multi-config-evidence-plan.md`."
+    )
 
 
 # ############################################################

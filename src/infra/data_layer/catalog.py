@@ -48,15 +48,13 @@ from src.infra.data_layer import sources
 # Optional per-entry keys (currently only "ccm" needs them):
 #   valid_filters   — {column: [allowed values]}. Rows outside the allowed set
 #                      are dropped BEFORE joining — a data-quality filter, e.g.
-#                      CCM's linktype/linkprim (mirrors the same rule
-#                      `CCMLinker` enforces for the legacy snapshot path: only
-#                      linktype in LC/LU, linkprim in P/C are usable links).
+#                      CCM's linktype/linkprim: only linktype in LC/LU and
+#                      linkprim in P/C are usable links.
 #   primary_filter  — {column: value} marking the "primary" row. When a
 #                      source row still has multiple valid link candidates
 #                      (rare overlapping windows), the row matching
 #                      `primary_filter` is preferred over an arbitrary pick
-#                      (e.g. CCM linkprim == "P"), matching `CCMLinker`'s
-#                      tie-break semantics.
+#                      (e.g. CCM linkprim == "P") for deterministic tie-breaks.
 # ---------------------------------------------------------------------------
 # NOTE: `optionm_crsp_link` was removed 2026-07-31 -- no OptionMetrics data
 # exists in this project (see docs/decision-log.md).

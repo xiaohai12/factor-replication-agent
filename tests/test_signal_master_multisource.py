@@ -1,5 +1,4 @@
-"""Tests for the declarative multi-source signal-input data loader (plan.md
-data-loader Phases 1-4):
+"""Tests for the declarative multi-source signal-input data loader:
 
 - MethodSpec.resolved_sources() grouping (richer + legacy mapping forms)
 - data_layer.link_to_permno() point-in-time key->permno for each source
@@ -163,7 +162,7 @@ def test_all_registry_link_tables_are_known():
 
 def test_link_to_permno_drops_bad_linktype_and_prefers_primary():
     # gvkey 1: only a non-researched linktype ("LX") is offered -> must be
-    # dropped entirely (CCMLinker enforces the same LC/LU-only rule).
+    # dropped entirely (the link-table registry enforces the LC/LU-only rule).
     # gvkey 2: two valid, overlapping candidate links (linkprim 'C' and 'P')
     # -> the primary ('P', permno 202) must win, not the smaller permno (201).
     ccm = pd.DataFrame([

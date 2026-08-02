@@ -12,6 +12,16 @@ Controlled Meta-Coder pipeline for auditable factor replication:
 4. Validate plugin safety in sandbox.
 5. Run controlled backtests and attribute replication gaps.
 
+Research core (see `docs/replication-diagnosis-design.md`): can a controlled,
+leakage-proof LLM agent reconstruct a factor's method from the paper, and what
+does inter-implementer agreement (agent vs C&Z) plus implementation sensitivity
+reveal about reproducibility? C&Z is an **independent human replication**
+reference — not ground truth and not the original author's code. HXZ is the
+standardized-config source (a config we run on our own signal), not an external
+result. The LLM appears only at extraction (Step 1) and `compute_signal`
+generation (Step 3), with optional review and an optional final-analysis
+explanation layer; every empirical number stays deterministic.
+
 Key constraint: LLMs do not control empirical conclusions. Signal plugins only compute formulas.
 Universe, breakpoints, lags, weighting, and portfolio construction come from approved MethodSpec
 and controlled pipeline components.
@@ -39,7 +49,7 @@ and controlled pipeline components.
 | `src/steps/step3_codegen/` | 3 | Approved MethodSpec to signal plugin code (the `compute_signal` formula only — no hook code), then assembles it into the one complete standalone backtest script (`script_generator.generate_backtest_script`) that step4/step5 operate on unchanged. The script-assembly call is exposed as `BacktestRunner.build_script()` (physically in the step5 module, since it also needs `DataLayer` snapshot-path resolution that step3_codegen doesn't have) but is conceptually step3's output. Empirical parameters (weighting, breakpoints, missing policy, return combination, sort form, estimator) are *selected* from a fixed menu by `registry.build_config`, which clamps any out-of-menu value to the menu default. |
 | `src/steps/step4_validator/` | 4 | Plugin syntax/schema/safety validation (future-leak scan) + a compute_signal execution smoke test on the script step3 built. |
 | `src/steps/step5_backtest_runner/` | 5 | Execute the standalone backtest script (already built by step3) via subprocess (`BacktestRunner.execute()`) — literally "run the generated file". Used by both `Pipeline.run_from_method_spec` (single track) and `DualTrackController` (multi-track), so there's one implementation of "execute" either way. |
-| `src/steps/step6_dual_track_controller/` | 6 | Dual-track and ablation orchestration: runs each track via `BacktestRunner` (step5), with its own bounded repair loop back to `MetaCoder` (step3) on an execution failure. |
+| `src/steps/step6_dual_track_controller/` | 6 | Basic original/standardized/OAT orchestration. Current per-track repair is not a valid frozen-matrix guarantee; the target batch-level freeze/invalidation design is in `docs/multi-config-evidence-plan.md`. |
 | `src/steps/step7_replication_diff/` | 7 | Replication-gap analysis vs reference (C&Z/paper): decompose where the gap comes from (`ReplicationDiff`). Terminal reporting step, not a feedback-loop trigger. |
 | `src/infra/backtest_engine/` | — | The controlled backtest lifecycle engine (`BacktestExecutor`, standard step computations). Fully standardized — no LLM hook loading; steps are selected from config. Shared infrastructure used by pipeline.py/step6/app.py and the generated script's runtime import — not itself "step 5" (see step5 row above), which is just the build+execute action around it. |
 | `src/infra/models/` | — | Pydantic models (MethodSpec, PluginRecord, RunRecord). |
@@ -47,7 +57,7 @@ and controlled pipeline components.
 | `src/infra/evidence/` | — | Evidence store + RunRegistry for run artifacts. |
 | `src/infra/llm.py` | — | LLM client wrappers for Codex, Copilot, and OpenRouter. |
 | `src/infra/trace.py` | — | Pipeline execution event logger. |
-| `src/evaluation/` | — | Ground truth matching + extraction accuracy metrics. |
+| `src/evaluation/` | — | Post-hoc reference matching + extraction accuracy metrics. |
 | `src/pipeline.py` | — | End-to-end orchestrator with feedback loops. |
 | `app.py` | — | 7-page Streamlit dashboard. |
 

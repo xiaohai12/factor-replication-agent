@@ -4,6 +4,38 @@
 
 让 LLM 写因子 signal，不让 LLM 控制实证结论。
 
+## Research Core
+
+Can a **controlled, leakage-proof LLM agent** faithfully reconstruct a published
+factor's method from the paper alone, and what does **inter-implementer
+agreement** (our agent vs an independent human replication) reveal about the
+reproducibility of the cross-sectional asset-pricing literature?
+
+The study has three separable layers:
+
+1. **Extraction fidelity** — does the agent's reviewed MethodSpec match the
+   factor definition? (agent vs C&Z `SignalDoc`)
+2. **Signal-implementation agreement** — does the agent's firm-level signal
+   agree with an independent implementation? (agent signal vs C&Z signal, rank
+   correlation)
+3. **Conclusion robustness** — with the signal fixed, how sensitive is the
+   factor to controlled implementation choices (EW/VW, NYSE breakpoints,
+   microcaps, …)?
+
+Reference roles (see [docs/replication-diagnosis-design.md](docs/replication-diagnosis-design.md)):
+
+- **C&Z (Chen–Zimmermann Open Source Asset Pricing)** is an *independent human
+  replication* used to measure inter-implementer agreement — **not** ground
+  truth and **not** the original author's code.
+- **HXZ (Hou–Xue–Zhang)** is the *standardized-config* source and a robustness
+  benchmark — a configuration we run on our own signal, not an external result.
+
+**LLM usage boundary:** the LLM appears only at extraction (Step 1) and
+`compute_signal` generation (Step 3), with optional review (Step 2) and an
+optional final-analysis explanation layer. Every empirical number — returns,
+t-stats, correlations, attribution, thresholds — is produced by deterministic
+code, so all core conclusions are reproducible with the LLM switched off.
+
 ## Overview
 
 An auditable, AI-assisted factor backtesting pipeline system. Given an academic paper describing a factor, the agent:
@@ -12,8 +44,43 @@ An auditable, AI-assisted factor backtesting pipeline system. Given an academic 
 2. Generates signal construction code (constrained to formula only)
 3. Validates the generated code in an adversarial sandbox
 4. Executes controlled backtests under fixed portfolio construction rules
-5. Runs dual-track (original vs standardized) and ablation experiments
-6. Attributes the replication gap to specific implementation choices
+5. Runs basic original/standardized/ablation tracks with one frozen signal
+6. Builds toward a persisted multi-config diagnosis matrix and C&Z signal bridge
+
+## How Experiments Run
+
+The agent signal is **frozen once**, then executed under multiple controlled
+backtest-engine configs on the same data snapshot — so any difference is
+attributable to a known change (see design doc §5.3):
+
+| What | Status | Purpose |
+|---|---|---|
+| Agent signal × `original_method` config (from reviewed MethodSpec) | implemented | paper-method baseline within the engine menu |
+| Agent signal × `standardized_hxz` config | basic controller implemented | standardized robustness run; config contract still needs validation cleanup |
+| Agent signal × one-at-a-time `ablation_*` | basic controller implemented | screen sensitivity to one requested override |
+| Declarative multi-config/factorial matrix | designed, not implemented | controlled pairwise/config-interaction analysis |
+| **C&Z signal × our engine (bridge, E2)** | designed, not implemented | isolate signal-implementation difference |
+| C&Z published portfolio returns | downloadable | observational reference only |
+
+The target experiment runs the agent signal under validated configs, runs one
+C&Z-signal bridge under a matched config, and treats C&Z published returns as an
+observational reference. HXZ is a config source, not a separate downloadable
+per-factor implementation.
+
+**Design status:** the frozen-signal MethodSpec → code → backtest path and a
+basic named-track controller are implemented. Unique multi-config evidence,
+strict config validation, a declarative matrix, bridge execution, and diagnosis
+report persistence are not yet built. See the canonical Chinese plan,
+[docs/multi-config-evidence-plan.md](docs/multi-config-evidence-plan.md), for a
+per-key `ConfigKeySpec` stage taxonomy (pre-signal vs post-signal) drives
+identification level instead of a hand-written experiment family; run identity
+is allocated *before* a script is built so parallel configs never overwrite
+each other's output; each run's config, signal, and return series are
+separately hashed and persisted; and a declarative
+`experiments/<factor_id>.experiments.yaml` will replace today's hardcoded
+`ExperimentPlan`. The bridge track (C&Z signal × our engine) and a
+`ReplicationDiagnosisReport` comparison bundle are part of that same plan,
+not yet implemented.
 
 ## Architecture
 
@@ -28,13 +95,15 @@ Paper / C&Z metadata / OSAP code / Data dictionaries
 │  4. Future-Leak Scan + Sandbox  (step4_validator)│
 │  5. Backtest Runner       (step5_backtest_runner)│
 │     └─ Controlled Backtest Engine (infra, shared)│
-│  6. Dual-Track + Ablation Controller             │
+│  6. Basic Multi-Track Controller                 │
 │                (step6_dual_track_controller)     │
-│  7. Replication-Gap Diff   (step7_replication_diff)│
+│  7. Terminal Replication Diagnosis (basic)       │
+│                (step7_replication_diff)          │
 └─────────────────────────────────────────────────┘
         │
         ▼
-  Evaluation (vs C&Z ground truth)
+  Evaluation (vs C&Z, an independent human replication —
+  inter-implementer agreement, not ground truth)
 ```
 
 Evidence Store/Run Registry and Plugin Registry are shared infra used across
@@ -55,8 +124,8 @@ src/
 │   │                              #   + script_generator (assembles standalone backtest script)
 │   ├── step4_validator/          # Future-Leak Scan + plugin syntax/schema/sandbox smoke test
 │   ├── step5_backtest_runner/    # BacktestRunner.build_script() / .execute()
-│   ├── step6_dual_track_controller/  # Dual-track + factorial ablation controller
-│   └── step7_replication_diff/   # Replication-gap decomposition vs C&Z/paper
+│   ├── step6_dual_track_controller/  # Basic original/standardized/OAT orchestration
+│   └── step7_replication_diff/   # Basic terminal gap report (full diagnosis pending)
 ├── infra/
 │   ├── models/            # Pydantic models: MethodSpec, FactorSpec, PluginRecord, RunRecord
 │   ├── backtest_engine/   # Controlled backtesting lifecycle (BacktestExecutor + steps.py)
@@ -67,7 +136,7 @@ src/
 │   ├── llm.py             # LLM client (OpenRouter / Claude CLI / Codex)
 │   ├── repair.py          # Shared bounded repair loop (technical failures only)
 │   └── trace.py           # Pipeline execution event logger
-└── evaluation/             # Post-hoc evaluation vs C&Z ground truth
+└── evaluation/             # Post-hoc evaluation vs C&Z (independent replication reference)
 ```
 
 ## Data Sources
@@ -75,18 +144,19 @@ src/
 | Source | Usage | Notes |
 |--------|-------|-------|
 | OSAP `Predictors/*.py` | Few-shot examples for Meta-Coder | ~200 signal construction scripts |
-| OSAP `SignalDoc.csv` | Evaluation ground truth ONLY | Never used as Extractor input |
-| C&Z Firm-Level Characteristics | Signal-level evaluation | Compare plugin output vs reference signals |
-| C&Z Long-Short Returns | Portfolio-level evaluation | Compare LS returns vs reference |
+| OSAP `SignalDoc.csv` | Post-hoc extraction reference ONLY | Never used as Extractor input (leakage); compares MethodSpec fidelity |
+| C&Z Firm-Level Characteristics | Signal-level inter-implementer agreement | Independent replication signal; rank-correlate vs our signal, and run through our engine as the bridge track |
+| C&Z Long-Short Returns | Portfolio-level reference | Downloaded published returns; observational comparison (not ground truth) |
 | WRDS (Compustat/CRSP) | Raw data for signal computation | Accessed via Data Layer |
 
 ## Key Design Decisions
 
 - **`time_avail_m`**: Point-in-time available date with accounting lag baked into the Data Layer. Plugins never handle lag themselves.
-- **SignalDoc exclusion**: SignalDoc.csv is NOT fed to the Extractor (would be information leakage). Used only for post-hoc evaluation.
+- **SignalDoc exclusion**: SignalDoc.csv is NOT fed to the Extractor (would be information leakage). Used only as a post-hoc reference to score extraction fidelity, never as ground truth for empirical conclusions.
 - **Bounded repair**: Sandbox→Meta-Coder repair loop limited to 3 retries. Empirical issues route back to Review Gate.
-- **Max backtrack depth**: 3 levels (e.g., Attribution→Review→Extractor).
+- **Bounded feedback**: Review→Extractor targeted re-extraction and technical code repair each have explicit retry budgets; ReplicationDiff is terminal and never auto-tunes empirical choices.
 - **Plugin output schema**: `[permno, yyyymm, signal]` — standardized across all factors.
+- **`unspecified` vs `other`**: a MethodSpec field the paper never addresses stays `unspecified` (a plain default fills the gap silently); a field the paper states explicitly but that isn't an engine menu member (e.g. `weighting="capped_vw"`) normalizes to `other` and is recorded verbatim in `MethodSpec.unsupported_fields` — the engine still only ever runs `vw`/`ew` (no menu growth), but the substitution is recorded (`registry.build_config`'s `substitutions`) and surfaced to review, never silently discarded like the paper-silent case.
 
 ## What a Good MethodSpec Looks Like
 
@@ -197,7 +267,8 @@ paper_faithful: true
 |-------|---------|-------------|
 | `ew` | Equal-weighted (1/N) | Most common (210/242 in SignalDoc). Simple, gives small stocks equal influence |
 | `vw` | Value-weighted (by market cap) | Reduces micro-cap noise, closer to investable strategy |
-| `capped_vw` | Value-weighted with max cap | Prevents single mega-cap from dominating |
+| `other` | Paper states a non-menu scheme | Not executed as a bespoke method; literal value is preserved in `unsupported_fields`, then the engine uses and records its default substitution |
+| `unspecified` | Paper does not state a scheme | Review/default policy applies |
 
 #### `EvidenceSource` — Confidence tag on each extracted field
 
@@ -212,14 +283,15 @@ Used in `AmbiguousField.source` to record how certain the Extractor is about a f
 
 #### `EmpiricalImpact` — Does this ambiguity matter for replication?
 
-Used in the **Factorial Attribution Layer** to tag whether an ambiguous field choice materially changes results:
+Used by review and future diagnosis reporting to prioritize ambiguous fields:
 
 | Value | Meaning | Example |
 |-------|---------|---------|
 | `high` | Different choices → meaningfully different returns/t-stats | `weighting: ew` vs `vw` for micro-cap-heavy factors |
 | `low` | Result is robust to this choice | `formation_month: 6` vs `7` for most annual factors |
 
-The Attribution Layer runs ablation experiments on ambiguous fields. If flipping a choice changes the long-short return by >20% or flips t-stat significance, it's tagged `HIGH`. This tells the researcher which implementation details actually explain the replication gap.
+Multi-config diagnosis will quantify sensitivity with versioned deterministic
+criteria. No fixed effect threshold is currently implemented.
 
 ## Setup
 
@@ -233,7 +305,8 @@ python scripts/download_osap.py
 
 ## Requirements
 
-- Python 3.10+
+- Python 3.11 recommended for the validated development environment
+  (`.python-version`); source compatibility remains Python 3.10+
 - pydantic >= 2.0
 - pandas, numpy
 - openai (for LLM calls)
@@ -241,14 +314,12 @@ python scripts/download_osap.py
 
 ## Status
 
-**Implemented, single-factor pilot stage.** All seven pipeline steps (Extractor,
-Review Gate, Meta-Coder, Validator, Backtest Runner, Dual-Track Controller,
-Replication-Diff) and the shared BacktestExecutor standard-step library run
-end-to-end (Streamlit dashboard in `app.py`, CLI scripts in `scripts/`).
-Honest remaining gaps: the replication-diff decomposition algorithm is
-structural only (no automated gap attribution yet), `data/local/*.parquet`
-(Compustat/CRSP) must be supplied manually, there is no live WRDS connection,
-and the Plugin Registry is in-memory/deferred. See
+**Implemented, single-factor pilot stage.** Extraction, review/resolution,
+formula-only code generation, validation, generated-script execution, the
+standardized engine, and basic named-track orchestration are implemented.
+Complete multi-config evidence persistence, bridge execution, and automated
+diagnosis are not. Real WRDS files must be supplied locally; there is no live
+WRDS service. See
 [docs/architecture.md](docs/architecture.md) §10 for the full per-module
 implementation-status table.
 

@@ -1,5 +1,5 @@
-"""Unit tests for the generalized `BacktestExecutor.combine_portfolio_returns`
-(plan.md Phase 4): extreme_group_spread / average_leg_spread /
+"""Unit tests for `BacktestExecutor.combine_portfolio_returns`:
+extreme_group_spread / average_leg_spread /
 single_signal_portfolio_return / full_portfolio_return combination modes.
 """
 

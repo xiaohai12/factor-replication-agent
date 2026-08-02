@@ -1,5 +1,5 @@
-"""Unit tests for the deterministic ResearchDesign steps added in plan.md
-Phase 2.5: universe filter DSL and delisting-return handling. These are
+"""Unit tests for deterministic ResearchDesign steps: universe filter DSL and
+delisting-return handling. These are
 methods on `BacktestExecutor` in `src/infra/backtest_engine/__init__.py`,
 tested directly (no MethodSpec/plugin needed).
 """

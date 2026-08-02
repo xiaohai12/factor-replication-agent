@@ -1,7 +1,7 @@
 """Download OSAP reference data from Chen & Zimmermann's GitHub repo.
 
 Downloads:
-1. SignalDoc.csv - Factor metadata (used as evaluation ground truth)
+1. SignalDoc.csv - Factor metadata (used as a post-hoc evaluation reference)
 2. Predictors/*.py - Signal construction code (used as few-shot examples)
 
 Usage:

@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """Fetch Fama-French factor returns + risk-free rate from the Ken French Data
-Library and snapshot them to parquet (plan.md Phase 2).
+Library and snapshot them to parquet for reproducible alpha estimation.
 
 Build-time only: run this once (or whenever you want to refresh the factor
 data), never at backtest run time -- BacktestExecutor only ever reads the

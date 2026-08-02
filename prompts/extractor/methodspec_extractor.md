@@ -246,7 +246,13 @@ universe.filters[].op:
 eq, neq, in, not_in, between, not_between, gt, gte, lt, lte, nonmissing, nonzero, is_true, is_false
 
 portfolio.sort.breakpoint_source:
-nyse_only, full_sample, unspecified
+nyse_only, full_sample, other, unspecified
+
+portfolio.weighting:
+vw, ew, other, unspecified
+
+signal.missing_policy.action:
+drop, other, unspecified
 
 portfolio.construction_type:
 characteristic_sort, other
@@ -259,6 +265,17 @@ explicit, inferred, unspecified, ambiguous, conflicting, weak_or_conflicting, no
 ```
 
 If a paper-specific construction is not covered, use `other`; do not invent enum-like strings.
+
+`other` vs `unspecified` for `breakpoint_source` / `weighting` / `missing_policy.action`
+is NOT a free choice -- it records a real distinction the pipeline depends on:
+
+- `unspecified`: the paper never addresses this choice at all.
+- `other`: the paper explicitly states a value, but it is not one of the
+  engine's standard menu members (e.g. weighting = "capped_vw", a
+  weight-capped value-weighted scheme). Put the field itself to `other`, and
+  ALSO add an entry to `unsupported_fields[]` (see §4.7a) recording the
+  paper's literal value -- do not just drop it into `ambiguous_fields`, and do
+  not silently pick the closest supported value yourself.
 
 ---
 
@@ -414,9 +431,36 @@ regression estimator (`regression_weighted`) are not currently implemented;
 record any such paper design in prose / `ambiguous_fields` instead.
 
 For weighting, use `portfolio.weighting` with `vw` / `ew` (the standardized
-engine implements only these two; any other value is clamped to the menu
-default). Record a paper's custom weighting rule in prose / `ambiguous_fields`
-rather than a separate `weighting_scheme` block.
+engine implements only these two). If the paper states a different, specific
+scheme (e.g. a weight-capped VW), set `portfolio.weighting = "other"` and add
+a `unsupported_fields[]` entry (§4.7a) -- do not silently normalize it to
+`vw`/`ew` yourself, and do not invent a new enum value.
+
+## 4.7a Fields the paper states explicitly but the engine can't run
+
+`unsupported_fields[]` is for a field the paper is EXPLICIT and UNAMBIGUOUS
+about, where that specific value is simply not one of the engine's standard
+menu members -- distinct from `ambiguous_fields[]` (paper silent, vague, or
+internally conflicting). Each entry:
+
+```json
+{
+  "field": "portfolio.weighting",
+  "paper_value": "capped_vw",
+  "reason": "not_in_engine_menu",
+  "evidence": [{"location": "...", "quote": "...",
+                "interpretation": "Describe what the paper's value MEANS "
+                                   "(e.g. 'value-weighted with a cap on any "
+                                   "single stock's weight'). Do NOT propose "
+                                   "or justify a substitute -- the engine, "
+                                   "not the extractor, decides what to run "
+                                   "instead, deterministically."}]
+}
+```
+
+The corresponding field itself (e.g. `portfolio.weighting`) must still be set
+to `other`; `unsupported_fields[]` is the only place the paper's literal value
+survives.
 
 ## 4.8 Reported results
 
@@ -502,7 +546,7 @@ Before final response, check all generated JSON files:
 - no `timing.return_window.description`;
 - `data.sources[].source_details` is an array;
 - `data.required_fields[].source_detail` is a string;
-- no separate `weighting_scheme` block (use `portfolio.weighting` = `vw`/`ew`);
+- no separate `weighting_scheme` block (use `portfolio.weighting` = `vw`/`ew`/`other`, with `unsupported_fields[]` for `other`);
 - every high-impact source has `location`, `quote`, `interpretation`;
 - quotes are short paper-original text;
 - no C&Z / OSAP / SignalDoc evidence in paper-first fields;

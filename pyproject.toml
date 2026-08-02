@@ -24,9 +24,14 @@ dev = [
 ]
 # Statistical libraries for metrics/estimators. Pinned for reproducible,
 # auditable numbers. Statistical computation only -- no empirical/portfolio
-# decisions (see plan.md "Tooling / libraries").
+# decisions.
 research = [
     "statsmodels==0.14.6",
+]
+# Post-hoc C&Z/Open Asset Pricing reference-data downloads. Kept separate
+# because this pulls WRDS/Polars dependencies that the core pipeline does not need.
+evaluation = [
+    "openassetpricing==0.0.2",
 ]
 # FastAPI backend for the new web UI (frontend/ + backend/), replacing the
 # Streamlit app.py dashboard. See docs/decision-log.md for the migration plan.
@@ -43,3 +48,9 @@ build-backend = "setuptools.build_meta"
 [tool.ruff]
 line-length = 100
 target-version = "py310"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+markers = [
+    "slow: tests that call external LLMs or process full papers",
+]

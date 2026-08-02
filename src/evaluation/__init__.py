@@ -1,6 +1,6 @@
-"""Evaluation Module - Compare extraction/signal outputs against C&Z ground truth.
+"""Post-hoc evaluation against independent replication references.
 
-Uses SignalDoc.csv and Firm-Level Characteristics as ground truth for:
+Uses SignalDoc.csv and Firm-Level Characteristics as references for:
 1. Extraction accuracy: MethodSpec fields vs SignalDoc.csv
 2. Signal accuracy: Plugin output vs C&Z firm-level signals (correlation)
 3. Portfolio accuracy: LS returns vs C&Z long-short returns
@@ -22,7 +22,7 @@ from src.infra.models.method_spec import MethodSpec
 
 @dataclass
 class ExtractionEvalResult:
-    """Evaluation of MethodSpec extraction against SignalDoc ground truth.
+    """Evaluation of MethodSpec extraction against the SignalDoc reference.
 
     Categorizes discrepancies:
     - paper_ambiguous: paper itself doesn't specify (not LLM's fault)
@@ -39,7 +39,7 @@ class ExtractionEvalResult:
     # Per-field breakdown
     matches: list[str] = field(default_factory=list)
     discrepancies: list[dict] = field(default_factory=list)
-    # Each discrepancy: {field, extracted, ground_truth, category}
+    # Each discrepancy: {field, extracted, reference, category}
 
 
 @dataclass
@@ -66,7 +66,7 @@ class PortfolioEvalResult:
 
 
 class Evaluator:
-    """Post-hoc evaluation against C&Z ground truth.
+    """Post-hoc evaluation against C&Z's independent replication.
 
     Three levels of evaluation:
     1. Extraction: MethodSpec fields vs SignalDoc.csv
@@ -93,7 +93,7 @@ class Evaluator:
     def evaluate_extraction(
         self, spec: MethodSpec, factor_id: str
     ) -> ExtractionEvalResult:
-        """Compare extracted MethodSpec against SignalDoc.csv ground truth.
+        """Compare extracted MethodSpec against the SignalDoc.csv reference.
 
         Maps MethodSpec fields to SignalDoc columns and compares values.
         """
@@ -126,7 +126,7 @@ class Evaluator:
                 result.discrepancies.append({
                     "field": field_name,
                     "extracted": str(extracted),
-                    "ground_truth": str(gt_value),
+                    "reference": str(gt_value),
                     "category": "unknown",  # Categorized manually or by LLM later
                 })
 
@@ -169,11 +169,11 @@ class Evaluator:
                 return None
         return obj
 
-    def _values_match(self, extracted, ground_truth) -> bool:
-        """Fuzzy match between extracted and ground truth values."""
+    def _values_match(self, extracted, reference) -> bool:
+        """Fuzzy match between an extracted and reference value."""
         if extracted is None:
             return False
         # Normalize for comparison
         ext_str = str(extracted).lower().strip()
-        gt_str = str(ground_truth).lower().strip()
+        gt_str = str(reference).lower().strip()
         return ext_str == gt_str

@@ -29,12 +29,21 @@ class RebalanceFrequency(str, Enum):
 class WeightingRule(str, Enum):
     EQUAL_WEIGHTED = "ew"
     VALUE_WEIGHTED = "vw"
+    #: Paper states a specific scheme (e.g. capped-VW) that isn't a standard
+    #: engine menu member. Distinct from UNSPECIFIED ("paper didn't say") --
+    #: see UnsupportedField / MethodSpec.unsupported_fields, which preserves
+    #: the paper's actual value. `registry.build_config` clamps OTHER to the
+    #: menu default and records the substitution.
+    OTHER = "other"
     UNSPECIFIED = "unspecified"
 
 
 class BreakpointSource(str, Enum):
     NYSE = "nyse"
     FULL_SAMPLE = "full_sample"
+    #: See WeightingRule.OTHER docstring -- same paper-stated-but-unsupported
+    #: semantics, recorded in MethodSpec.unsupported_fields.
+    OTHER = "other"
     UNSPECIFIED = "unspecified"
 
 
@@ -89,6 +98,9 @@ class FilterOp(str, Enum):
 
 class MissingAction(str, Enum):
     DROP = "drop"
+    #: See WeightingRule.OTHER docstring -- same paper-stated-but-unsupported
+    #: semantics, recorded in MethodSpec.unsupported_fields.
+    OTHER = "other"
     UNSPECIFIED = "unspecified"
 
 
@@ -391,6 +403,29 @@ class AmbiguousField(BaseModel):
     evidence: list[EvidenceCitation] = Field(default_factory=list)
 
 
+class UnsupportedField(BaseModel):
+    """A field the paper states EXPLICITLY, but whose value is not a member of
+    the engine's standard menu (e.g. `portfolio.weighting = "capped_vw"`).
+
+    Distinct from `AmbiguousField` / `unspecified`: this is NOT "the paper is
+    silent or ambiguous" -- the paper is clear, the engine just doesn't
+    implement that scheme. The field itself is normalized to the enum's
+    `OTHER` member (see `WeightingRule.OTHER` etc.); this record is the only
+    place the paper's actual value survives, purely for audit/review/research
+    statistics. `interpretation` (on `evidence`) may describe what the paper's
+    value MEANS, but must never prescribe what the engine should substitute --
+    that substitution is a separate, deterministic decision made once, in
+    `registry.build_config` (see its `substitutions` output), never here and
+    never by an LLM.
+    """
+
+    field: str = Field(description="Dotted MethodSpec path, e.g. 'portfolio.weighting'")
+    paper_value: str = Field(description="The paper's literal value, e.g. 'capped_vw'")
+    reason: str = Field(default="not_in_engine_menu")
+    empirical_impact: EmpiricalImpact = Field(default=EmpiricalImpact.HIGH)
+    evidence: list[EvidenceCitation] = Field(default_factory=list)
+
+
 class ReviewNote(BaseModel):
     field: str
     status: str
@@ -444,6 +479,13 @@ class MethodSpec(BaseModel):
 
     extraction_sources: list[ExtractionSource] = Field(default_factory=list)
     ambiguous_fields: list[AmbiguousField] = Field(default_factory=list)
+    #: Fields the paper states explicitly but whose value isn't in the
+    #: engine's standard menu (e.g. weighting="capped_vw"). Populated by
+    #: `normalize_curated_schema` whenever a field normalizer routes a
+    #: non-empty, off-menu value to `OTHER` -- see `UnsupportedField`. Distinct
+    #: from `ambiguous_fields` (paper silent/ambiguous); never used to make an
+    #: empirical substitution decision (that's `registry.build_config`'s job).
+    unsupported_fields: list[UnsupportedField] = Field(default_factory=list)
 
     review_status: ReviewStatus | str = Field(default=ReviewStatus.PENDING)
     remediation_mode: Optional[RemediationMode | str] = None
@@ -520,6 +562,17 @@ class MethodSpec(BaseModel):
                 formula["evidence"] = [formula["source"]]
 
             missing_policy = raw_universe.get("missing_policy")
+            # Prefer an already-resolved signal.missing_policy (the internal/
+            # resolved-fixture shape) over the freshly-derived universe one
+            # (the curated-schema shape) -- same "don't let a derived value
+            # silently wipe out already-resolved data" rule the
+            # universe_filters merge below follows. Without this, any spec
+            # whose `signal` has no `timing` key (so this legacy-shape branch
+            # fires) but DOES already carry its own `signal.missing_policy`
+            # would have that policy silently discarded whenever
+            # `universe.missing_policy` is absent.
+            if isinstance(raw_signal.get("missing_policy"), dict):
+                missing_policy = raw_signal["missing_policy"]
             if isinstance(missing_policy, dict) and "source" in missing_policy:
                 missing_policy = dict(missing_policy)
                 missing_policy["evidence"] = [missing_policy["source"]]
@@ -540,9 +593,11 @@ class MethodSpec(BaseModel):
             }
             raw_signal["missing_policy"] = missing_policy or {}
             if isinstance(raw_signal["missing_policy"], dict):
-                raw_signal["missing_policy"]["action"] = cls._normalize_missing_action(
-                    raw_signal["missing_policy"].get("action", "unspecified")
-                )
+                raw_missing_action = raw_signal["missing_policy"].get("action", "unspecified")
+                normalized_missing_action = cls._normalize_missing_action(raw_missing_action)
+                if normalized_missing_action == "other":
+                    cls._record_unsupported(data, "signal.missing_policy.action", raw_missing_action)
+                raw_signal["missing_policy"]["action"] = normalized_missing_action
             if isinstance(sign, dict):
                 raw_signal["sign"] = cls._normalize_sign(sign.get("value"))
             elif sign is not None:
@@ -587,19 +642,27 @@ class MethodSpec(BaseModel):
             # already-resolved data.
             universe_filters = raw_portfolio.get("universe_filters") or derived_universe_filters
 
+            raw_breakpoint_source = sort.get("breakpoint_source", "unspecified")
+            normalized_breakpoint_source = cls._normalize_breakpoint_source(raw_breakpoint_source)
+            if normalized_breakpoint_source == "other":
+                cls._record_unsupported(data, "portfolio.sort.breakpoint_source", raw_breakpoint_source)
+
+            raw_weighting = weighting or "unspecified"
+            normalized_weighting = cls._normalize_weighting(raw_weighting)
+            if normalized_weighting == "other":
+                cls._record_unsupported(data, "portfolio.weighting", raw_weighting)
+
             data["portfolio"] = {
                 **raw_portfolio,
                 "universe": raw_universe.get("description", raw_portfolio.get("universe", "unspecified")),
                 "universe_filters": universe_filters,
                 "sort": {
-                    "breakpoint_source": cls._normalize_breakpoint_source(
-                        sort.get("breakpoint_source", "unspecified")
-                    ),
+                    "breakpoint_source": normalized_breakpoint_source,
                     "ls_quantile": cls._normalize_ls_quantile(sort.get("ls_quantile")),
                     "quantiles": sort.get("quantiles", []),
                     "evidence": [sort["source"]] if isinstance(sort.get("source"), dict) else [],
                 },
-                "weighting": cls._normalize_weighting(weighting or "unspecified"),
+                "weighting": normalized_weighting,
                 "long_leg": long_leg or "high",
                 "short_leg": short_leg or "low",
                 "implied_factor_direction": implied_direction or "",
@@ -655,9 +718,14 @@ class MethodSpec(BaseModel):
             return "nyse"
         if value in {"full_sample", "all_stocks", "all_eligible"}:
             return "full_sample"
-        # conditional/paper_specific are no longer menu members -> unspecified
-        # (build_config clamps to the default).
-        return "unspecified"
+        if not value or value == "unspecified":
+            return "unspecified"
+        # A non-empty value the paper stated (e.g. "conditional",
+        # "paper_specific") that isn't a menu member -> "other". Distinct from
+        # "unspecified" (paper silent); the caller records the paper's literal
+        # value in MethodSpec.unsupported_fields before this return value
+        # overwrites it. build_config still clamps "other" to the default.
+        return "other"
 
     @staticmethod
     def _normalize_weighting(value: Any) -> Any:
@@ -667,17 +735,37 @@ class MethodSpec(BaseModel):
             return "ew"
         if value in {"vw", "value_weight", "value_weighted", "value-weighted"}:
             return "vw"
-        # capped_vw / other custom schemes are not menu members -> unspecified
-        # (build_config clamps to the default).
-        return "unspecified"
+        if not value or value == "unspecified":
+            return "unspecified"
+        # e.g. "capped_vw" -- paper-stated but not a menu member -> "other"
+        # (see _normalize_breakpoint_source docstring for the A/B distinction).
+        return "other"
 
     @staticmethod
     def _normalize_missing_action(value: Any) -> Any:
         if value in {"drop", "exclude", "omit"}:
             return "drop"
-        # fill_*/winsorize are no longer menu members: the engine is
-        # standardized to drop NaNs -> unspecified (build_config clamps to drop).
-        return "unspecified"
+        if not value or value == "unspecified":
+            return "unspecified"
+        # e.g. "winsorize", "fill_mean" -- paper-stated but not a menu member
+        # -> "other" (see _normalize_breakpoint_source docstring).
+        return "other"
+
+    @classmethod
+    def _record_unsupported(cls, data: dict, field: str, paper_value: Any) -> None:
+        """Append an `UnsupportedField` entry when a normalizer routed a
+        non-empty, off-menu paper value to "other" -- the only place that
+        value survives (the enum field itself becomes "other"). No-op for an
+        empty/None/"unspecified" value (that's case A, paper silent, not
+        recorded here)."""
+        if paper_value is None or paper_value == "" or paper_value == "unspecified":
+            return
+        if isinstance(paper_value, dict):
+            paper_value = paper_value.get("type") or paper_value.get("value") or paper_value.get("name") or ""
+            if not paper_value:
+                return
+        entries = data.setdefault("unsupported_fields", [])
+        entries.append({"field": field, "paper_value": str(paper_value), "reason": "not_in_engine_menu"})
 
     @staticmethod
     def _normalize_evidence_source(value: Any) -> Any:

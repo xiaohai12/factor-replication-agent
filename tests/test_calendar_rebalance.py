@@ -1,5 +1,4 @@
-"""Unit tests for rebalance-frequency-aware non-overlapping hold
-(plan.md CZ-import Phase C).
+"""Unit tests for rebalance-frequency-aware non-overlapping hold.
 
 BacktestExecutor.apply_signal_holding_period now caps the hold window at the
 rebalance step derived from config["rebalance_frequency"] (annual=12,

@@ -13,9 +13,9 @@ universe filter -> merge signal -> breakpoints -> portfolios -> returns ->
 long-short -> metrics) instead of re-implementing those steps inline. This
 means the standalone script and the in-process engine share exactly one
 implementation of the lifecycle and can never drift out of sync with each
-other (see plan.md Phase 0). The tradeoff: the generated script now depends on
+other. The tradeoff: the generated script now depends on
 this repo being installed (`from src...` imports) rather than being fully
-self-contained; that's an accepted tradeoff (see plan.md "Decisions").
+self-contained; runtime provenance must therefore include the repository code.
 
 Similarly, Compustat-mode signal-input construction reuses the same declarative
 loader the pipeline uses — `src.infra.data_layer.assemble_signal_master_table_from_sources`
@@ -40,7 +40,7 @@ _BINARY_SIGNAL_SOURCES = {"crsp_msf", "comp_funda"}
 
 def pick_signal_input_mode(spec: MethodSpec) -> str:
     """Choose the generated script's signal-input mode from the spec's SOURCE
-    SET (plan.md data-loader Phase 3), fully driven by the reviewed MethodSpec's
+    SET, fully driven by the reviewed MethodSpec's
     `data.normalized_mapping` — never a hardcoded data-source default:
 
       - raises when the source is UNKNOWN: an empty mapping (no source at all)
@@ -112,7 +112,7 @@ def generate_backtest_script(
             (see scripts/fetch_ff_factors.py). When given and the file exists
             at run time, the script loads it and passes it to
             `BacktestExecutor.run_with_config(..., factors=...)` so
-            `alpha_capm`/`alpha_ff3`/`alpha_ff5` get computed (plan.md Phase 2).
+            `alpha_capm`/`alpha_ff3`/`alpha_ff5` get computed.
             When omitted, no factor-model alphas are computed.
         signal_data_dir: Directory of raw WRDS-shaped source tables
             (crsp_msf/comp_funda/ibes_*/optionm_*/... + link tables);
@@ -293,7 +293,7 @@ def build_signal_input(msf: pd.DataFrame) -> pd.DataFrame:
 
 def load_factors() -> pd.DataFrame | None:
     """Load FF factor + rf data if FF_FACTORS_PATH was supplied and the file
-    exists at run time (plan.md Phase 2) -- fetched once, ahead of time, via
+    exists at run time -- fetched once, ahead of time, via
     scripts/fetch_ff_factors.py; never fetched here. Returns None (no
     factor-model alphas computed) if not supplied/not found."""
     if not FF_FACTORS_PATH:

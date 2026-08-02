@@ -1,4 +1,4 @@
-"""Unit tests for the excess-return support added in plan.md Phase 6:
+"""Unit tests for excess-return support:
 `BacktestExecutor.apply_excess_returns` (subtracts rf when factor data is
 supplied).
 

@@ -5,6 +5,13 @@ The goal is to preserve enough context (problem, alternatives considered, why we
 chose what we chose, empirical impact) to later cite and justify these choices
 when writing the paper.
 
+> **Historical audit notice:** entries are intentionally preserved as decisions
+> made at the time. Older entries may mention files, hooks, classes, paths, or
+> designs that have since been removed. They are not current implementation
+> instructions. For current architecture and planned work, use
+> [architecture.md](architecture.md), [roadmap.md](roadmap.md), and
+> [multi-config-evidence-plan.md](multi-config-evidence-plan.md).
+
 ## How to use
 
 - Add a new entry at the **top** of the log (most recent first).
@@ -31,6 +38,298 @@ when writing the paper.
 ---
 
 <!-- Add new entries below this line, newest first. -->
+
+## 2026-08-02 — MethodSpec must record "paper stated but engine-unsupported" separately from "paper silent"
+
+- **Context / problem:** Investigating whether the pipeline can capture a
+  non-standard portfolio choice (e.g. Novy-Marx 2013's weight-capped VW
+  scheme, `weighting="capped_vw"`) found that `MethodSpec`'s normalizers
+  (`_normalize_weighting`/`_normalize_breakpoint_source`/
+  `_normalize_missing_action`) silently mapped ANY off-menu value to the same
+  `"unspecified"` sentinel used for "the paper never addressed this choice" —
+  discarding the paper's literal value with no trace and making the two cases
+  indistinguishable in review. A concrete orphaned fixture
+  (`novy_marx_2013_gross_profitability.resolved.methodspec.json`, referenced by
+  no test) already encoded this exact scenario.
+- **Options considered:** (1) widen the engine's supported menu to include
+  non-standard schemes like capped-VW (rejected — the user does not want to
+  implement every non-standard config a paper might use); (2) widen MethodSpec
+  fields to plain, unconstrained strings (rejected — reintroduces "enumerate
+  every possible value" and weakens type safety for no benefit, since the
+  engine still only executes menu members); (3) keep the standard menu closed
+  and the engine untouched, but stop silently discarding an off-menu paper
+  value: normalize it to a single `OTHER` sentinel (distinct from
+  `UNSPECIFIED`) and preserve the literal value in a dedicated record.
+- **Decision:** Chose (3). Added `OTHER` to `WeightingRule`, `BreakpointSource`,
+  `MissingAction` (already the convention for `PortfolioConstructionType`/
+  `ReturnCombinationType`). Added `MethodSpec.unsupported_fields` (paper's
+  literal value + reason + evidence) as the only place that value survives —
+  distinct from `ambiguous_fields` (paper silent/ambiguous), and explicitly
+  descriptive-only (may explain what the paper's value *means*, never propose
+  what to substitute). `registry.build_config` is the single deterministic
+  point that decides the substitute, and now records it in
+  `config["substitutions"]`. `ReviewGate` surfaces every unsupported field for
+  human confirmation via a dedicated check, distinct from the existing
+  paper-silent check.
+- **Rationale:** This keeps the engine menu closed (no `capped_vw` branch is
+  ever implemented) while making the pipeline's core "LLM-independent,
+  auditable" claim hold for this case too: MethodSpec stays a faithful record
+  of what the paper said, execution stays standardized, and the gap between
+  them is recorded rather than silently erased. It also unlocks a future
+  research statistic (substitution rate across factors) called for in
+  `docs/replication-diagnosis-design.md` §15, and gives Phase C/D (see
+  `docs/multi-config-evidence-plan.md`) a caveat to attach to any "vs paper"
+  comparison for a factor with a recorded substitution — no substitution
+  enters comparisons among our own multi-config runs, since it is a constant
+  shared by every run of that factor's signal.
+- **Empirical impact:** None on any existing run's numbers (a substitution
+  only changes provenance/reporting, not what gets computed) — verified by a
+  full test-suite run (208 passed, 26 skipped, no regressions) and by
+  round-tripping the previously-unused `novy_marx_2013_gross_profitability`
+  fixture end to end (`weighting` normalizes to `OTHER`;
+  `unsupported_fields` records `paper_value="capped_vw"`; `build_config` clamps
+  to `vw` and logs the substitution).
+- **Trade-offs / risks:** Fixed an unrelated bug found while wiring this up:
+  the curated-schema legacy-shape translator (fires whenever `signal` has no
+  `timing` key) previously discarded an already-resolved
+  `signal.missing_policy` in favor of the (usually absent)
+  `universe.missing_policy`; now prefers the already-resolved value, matching
+  the file's existing `universe_filters` precedence pattern. The
+  `_UNSUPPORTED_FIELD_TO_CONFIG_KEY` map in `registry.py` must be kept in sync
+  by hand if a new clamped config key is added.
+- **References:** `src/infra/models/method_spec.py` (`WeightingRule`,
+  `BreakpointSource`, `MissingAction`, `UnsupportedField`,
+  `MethodSpec.unsupported_fields`, `_record_unsupported`),
+  `src/steps/step3_codegen/registry.py` (`build_config` substitutions),
+  `src/steps/step2_reviewer/__init__.py` (`_check_unsupported_fields`),
+  `prompts/extractor/methodspec_extractor.md`,
+  `prompts/review_gate/methodspec_audit.md`,
+  `tests/test_unsupported_fields.py`,
+  `tests/fixtures/method_specs/novy_marx_2013_gross_profitability.resolved.methodspec.json`,
+  CHANGELOG `[Unreleased]`.
+
+## 2026-08-02 — Pre/post-signal grouping, family vs identification level, and an experiment-matrix authoring layer
+
+- **Context / problem:** A self-review of the multi-config evidence plan found
+  three remaining gaps: (1) Decision 2's diff-set rule only covered 2 of the 5
+  declared `ConfigKeySpec` stages (`portfolio`, `signal_input`), leaving
+  `universe`/`sample`/`estimator` single-key diffs unaddressed even though they
+  behave like `portfolio` (post-signal, signal-invariant); (2) the worked
+  example's comparison table conflated the declared experiment *family* with
+  the computed *identification level* into one column, inventing non-standard
+  level names instead of using the design's own §5.2 vocabulary; (3) there was
+  no answer to "where does a researcher actually declare which configs to
+  run" — `ExperimentPlan` is only ever hardcoded in Python or clicked once in
+  the Streamlit dashboard, never versioned or entered into the evidence chain.
+- **Options considered:** (1) leave the two-stage rule as-is and special-case
+  `universe`/`sample`/`estimator` later; (2) generalize to a pre-signal/
+  post-signal grouping now; for authoring, (a) keep configs as inline Python/UI
+  state, (b) add a declarative per-factor experiment-matrix file validated
+  against `ConfigKeySpec` at load time.
+- **Decision:** Generalized to (2): every `ConfigKeySpec.stage` is pre-signal
+  (`signal_input`) or post-signal (`portfolio`/`universe`/`sample`/`estimator`);
+  a single-key diff in either group is `controlled`, with the group determining
+  whether a semantic-hash-equal (post-signal) or code-hash-equal (pre-signal)
+  assertion applies. Split `family` (declared, on `ExperimentSpec`) from
+  `identification level` (computed from the resolved diff, using design §5.2's
+  four values) as two separate, never-merged report columns. Added Phase A2.1:
+  a versioned `experiments/<factor_id>.experiments.yaml` per factor, validated
+  whole-file against `ConfigKeySpec` at load time, with a `sweep` grid that
+  expands into `ExperimentSpec`s and an `experiment_spec_hash` recorded on every
+  run/batch.
+- **Rationale:** The two-stage rule was incomplete, not just simplified — it
+  silently left 3 of 5 stages without a defined comparability rule. Conflating
+  family and identification level would let a `portfolio_ablation`-labeled
+  experiment masquerade as `controlled` even when its resolved diff actually
+  spans both groups. Without an authoring layer, "which configs were run" is
+  never itself a reproducible, hashed input — undermining the audit trail the
+  rest of the plan builds.
+- **Empirical impact:** None — documentation only.
+- **Trade-offs / risks:** The experiment-matrix file format is new surface area
+  (schema, `ConfigKeySpec`-based validation, sweep expansion) that must be
+  implemented before Phase A2 can proceed; deferred design of a Streamlit editor
+  for the file.
+- **References:** `docs/multi-config-evidence-plan.md` §3, §4
+  Phase A2.1, §9; CHANGELOG `[Unreleased]`.
+
+## 2026-08-02 — Run-identity, per-key config validation, provenance, and the LLM-classification boundary for multi-config experiments
+
+- **Context / problem:** Before running one frozen signal under many configs, a
+  review found that the naive first cut (`run_id` built in `make_run_record`)
+  would harden a run-identity API that later phases must overturn, and that
+  several defects make multi-config attribution untrustworthy: config overrides
+  bypass menu validation, a `lag` override is a no-op on the signal, per-track
+  repair can change `code_hash`, the generated script is non-hermetic, and the
+  evidence store persists only metadata. A concrete existing bug:
+  `HXZ_STANDARD_CONFIG["breakpoint_quantiles"]` is a percentile list while the
+  engine calls `int(...)`; no test catches it because the dual-track test uses a
+  fake runner. (All verified against code.)
+- **Options considered:** (1) implement multi-config persistence directly
+  (unique paths in `make_run_record`); (2) a binary portfolio-only/signal-input
+  config taxonomy; (3) a per-key `ConfigKeySpec` stage taxonomy with
+  resolved-diff-driven comparability, run identity allocated before build, full
+  runtime provenance, semantic vs artifact hashing, and an explanation-only LLM
+  layer.
+- **Decision:** Chose (3). Run identity = per-execution unique `execution_id`
+  with content hashes stored as fields (audit-friendly), plus matrix/batch
+  identity so a frozen-input group can be invalidated atomically. Config
+  validity = per-key stage taxonomy; comparability and identification level come
+  from the resolved diff-set, not from a whole-config label. Reproducibility =
+  runtime provenance (commit/dirty, engine source hash, versions, FF file hash)
+  because the script imports engine code at run time. Signal equality = a
+  canonicalized `series_semantic_hash`, not a Parquet byte hash, captured at a
+  defined stage (post-canonicalization, pre-portfolio). LLM = explanation-only,
+  each claim bound to a claim-type→evidence-schema, classifications are
+  `llm_assisted_proposal` and never written back.
+- **Rationale:** These are the minimal invariants that make config-vs-signal
+  attribution and cross-factor conclusions auditable and LLM-independent. The
+  binary taxonomy could not express factorial or cross-stage diffs and would have
+  masked the `breakpoint_quantiles` bug.
+- **Empirical impact:** None yet — plan/docs only; no run numbers changed.
+- **Trade-offs / risks:** Heavier evidence model (intermediate artifacts,
+  provenance); mitigated by a configurable evidence level (full for pilot/bridge,
+  lean for bulk). The `breakpoint_quantiles` fix + real-runner smoke test are
+  called out as immediate, plan-independent work.
+- **References:** `docs/multi-config-evidence-plan.md`,
+  `docs/replication-diagnosis-design.md` Phases A–E, `src/steps/step6_dual_track_controller/__init__.py`,
+  `src/steps/step3_codegen/registry.py`, `src/steps/step3_codegen/script_generator.py`,
+  `src/infra/repair.py`, `src/infra/evidence/__init__.py`, `src/pipeline.py`,
+  CHANGELOG `[Unreleased]`.
+
+## 2026-08-02 — Reframe the research core around inter-implementer agreement and codify the LLM usage boundary
+
+- **Context / problem:** The original framing ("which implementation choices
+  drive the replication gap") overlaps heavily with the HXZ/C&Z literature and
+  is weakened by the absence of original-author code — we only have C&Z's
+  independent replication and its download API. The docs also still called C&Z
+  "ground truth" and did not state where the LLM may and may not act.
+- **Options considered:** (1) keep the implementation-gap-attribution framing as
+  the headline; (2) pivot the headline to "can a controlled, leakage-proof LLM
+  agent reconstruct a factor's method, and what does inter-implementer agreement
+  (agent vs C&Z) plus implementation sensitivity reveal about reproducibility?",
+  keeping gap-attribution as a supporting layer.
+- **Decision:** Chose (2). C&Z is treated as an independent human replication
+  (not ground truth, not original code); HXZ as the standardized-config source
+  and robustness benchmark. Three separable layers: extraction fidelity, signal
+  implementation agreement, conclusion robustness. Codified the LLM usage
+  boundary (extraction + `compute_signal` only, optional review/explanation;
+  everything empirical deterministic).
+- **Rationale:** Without original-author code, "copying the author" is not a
+  defensible claim; "reproducibility of the literature via inter-implementer
+  agreement" is. The deterministic empirical layer is what makes the agent's
+  contribution auditable and the conclusions LLM-independent.
+- **Empirical impact:** None — documentation only; no code or numbers changed.
+- **Trade-offs / risks:** The bridge track (C&Z signal × our engine, E2) needed
+  to identify signal-vs-portfolio contributions is not yet implemented; docs now
+  mark it as the one extra backtest to build.
+- **References:** `README.md`, `docs/architecture.md` §1,
+  `docs/replication-diagnosis-design.md` §1.1/§5.3, `docs/roadmap.md`,
+  `AGENTS.md`, CHANGELOG `[Unreleased]`.
+
+## 2026-08-02 — Keep reviewer field-defaults and the standardized-track config separate; cite the standard's provenance
+
+- **Context / problem:** `HXZ_STANDARD_CONFIG` (step6 standardized track) was an
+  uncited hardcoded constant, and step2's `SENSIBLE_DEFAULTS` held an
+  overlapping-looking copy of the same conventions. Their `rebalance` values
+  disagree (`monthly` vs `annual`), which looked like drift and raised the
+  question "where do these numbers come from?".
+- **Options considered:** (1) merge the two into one shared constant and force a
+  single rebalance value; (2) keep them separate but add per-field provenance
+  and document why they differ.
+- **Decision:** Chose (2). The two are different concepts with different key
+  namespaces: `SENSIBLE_DEFAULTS` (dotted MethodSpec paths) fills a
+  paper-SILENT field with its field-level convention to keep `original_method`
+  faithful to the paper; `HXZ_STANDARD_CONFIG` (engine-config keys) deliberately
+  OVERRIDES the paper to force a uniform house standard for cross-factor
+  comparison. Merging would conflate "faithful default" with "standardized
+  override" and break the diagnosis design.
+- **Rationale:** The `annual` vs `monthly` difference is the correct answer to
+  two different questions (unspecified-accounting-factor default vs HXZ
+  standardized protocol), not a bug. Auditable replication requires the
+  standardized "house standard" to have a citable provenance.
+- **Empirical impact:** None — documentation and comments only; no config value
+  changed.
+- **Trade-offs / risks:** Verified that `accounting_lag_months=6` is a
+  Fama-French (1992) convention, not HXZ (which matches most-recent quarterly
+  earnings monthly). The "HXZ_STANDARD" name is therefore approximate for that
+  field; logged a TODO to either realign to HXZ or rename the track to a neutral
+  `standardized`.
+- **References:** `src/steps/step6_dual_track_controller/__init__.py`,
+  `src/steps/step2_reviewer/__init__.py`, `docs/cz-reference.md` §7,
+  CHANGELOG `[Unreleased]`.
+
+## 2026-08-01 — Standardize the validated project environment on Python 3.11
+
+- **Context / problem:** The existing `.venv` was created with Python 3.14.
+  The official `openassetpricing==0.0.2` client imported and loaded SignalDoc
+  there, but `dl_port('op', ..., ['AssetGrowth'])` caused a native segmentation
+  fault. The identical portfolio and firm-signal requests succeeded in an
+  isolated Python 3.11 environment. The package documents testing on Python
+  3.10, while the project's scientific dependencies are mature on 3.11.
+- **Options considered:** (1) keep Python 3.14 and bypass the client; (2) run
+  only C&Z downloads in a separate environment; (3) standardize the whole
+  project development/test environment on Python 3.11 while keeping the C&Z
+  client evaluation-only. Chose (3), gated on golden and full-suite tests.
+- **Decision:** Add `.python-version` = 3.11 and an `evaluation` optional extra
+  for `openassetpricing==0.0.2`. Recreate the virtual environment rather than
+  attempting to replace an interpreter inside an existing venv. Preserve the
+  Python 3.14 environment as a backup until Python 3.11 validation passes.
+- **Rationale:** One validated interpreter reduces cross-environment drift and
+  avoids a demonstrated native crash. Python 3.11 has stable wheels for the
+  project's pandas/pyarrow/scientific stack and requires no source syntax
+  changes. Keeping the client optional avoids imposing WRDS/Polars dependencies
+  on core pipeline users.
+- **Empirical impact:** None observed. Both golden E2E tests passed unchanged;
+  the focused migration gate passed 19 tests, and the full Python 3.11 suite
+  passed 200 tests with 26 expected skips. The AssetGrowth OP portfolio API
+  also completed successfully (9,570 rows), while the Python 3.14 call had
+  crashed natively.
+- **Trade-offs / risks:** Dependency resolution selects pandas 2.2.x when the
+  evaluation extra is installed, rather than the unpinned pandas 3.x version
+  previously present. Tests must establish compatibility. Python 3.14 is no
+  longer the validated development interpreter even though the source metadata
+  still permits future versions.
+- **References:** `.python-version`, `pyproject.toml`, CHANGELOG `[Unreleased]`,
+  `docs/replication-diagnosis-design.md`.
+
+## 2026-08-01 — C&Z is a post-freeze diagnostic reference, not the second endpoint of a simple dual track
+
+- **Context / problem:** The implemented Step 6 compares `original_method`
+  with `standardized_hxz`, but the research objective is to explain why a
+  published factor does or does not replicate. The repository actually has
+  four evidence families: paper claims, C&Z per-factor signal code plus shared
+  R portfolio code/SignalDoc settings, independently generated agent code, and
+  our executed results. A two-endpoint result comparison changes several
+  components at once and cannot identify the cause of a gap.
+- **Options considered:** (1) retain original vs standardized as the primary
+  replication design; (2) treat C&Z as ground truth and tune our pipeline to
+  match it; (3) freeze the paper-only agent attempt, then use C&Z as a layered
+  post-hoc reference for MethodSpec, signal, portfolio, data, and return
+  comparisons. Chose (3); the standardized profile remains a robustness run.
+- **Decision:** The target-factor extractor/reviewer/MetaCoder never receives
+  target C&Z answers. After MethodSpec, human resolutions, plugin, target
+  variant, snapshot, and paper-method config are frozen, diagnostic bridge
+  experiments may compare agent and C&Z signals and portfolio results. Every
+  claimed contribution must be labeled controlled, harmonized, observational,
+  or unidentified. Replication outcomes use explicit cause labels and Step 7
+  remains terminal rather than auto-tuning MethodSpec.
+- **Rationale:** C&Z is valuable as an independent, explicit interpretation,
+  not an infallible truth. Layered bridge experiments can distinguish paper
+  ambiguity, extraction error, signal formula/timing, portfolio construction,
+  data vintage/linking, and statistical fragility. End-to-end agreement alone
+  cannot make those distinctions and target-code leakage would invalidate the
+  evaluation of agent independence.
+- **Empirical impact:** No backtest numbers change in this documentation-only
+  decision. Future reports will distinguish paper target variants (for example
+  AssetGrowth EW versus VW) before calling a result replicated or failed.
+- **Trade-offs / risks:** Full diagnosis requires C&Z firm-level signals and
+  returns, immutable per-track artifacts, signal-series persistence, adapters,
+  and bridge experiments that are not implemented yet. Some historical data
+  gaps may remain observational or unresolved.
+- **References:** [replication-diagnosis-design.md](replication-diagnosis-design.md),
+  [cz-reference.md](cz-reference.md), `src/evaluation/`,
+  `src/steps/step6_dual_track_controller/`,
+  `src/steps/step7_replication_diff/`, CHANGELOG `[Unreleased]`.
 
 ## 2026-08-01 — DataLayer refactor Round 1 P4: one signal-master path (B-group deleted)
 

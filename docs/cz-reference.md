@@ -10,13 +10,15 @@ updated: 2026-05-24
 **网站:** https://www.openassetpricing.com
 **论文:** Chen & Zimmermann (2021), "Open Source Cross-Sectional Asset Pricing"
 
-本文件记录 C&Z 提供的代码、数据和 metadata 的完整结构，以及它们与 [[architecture]] 各模块的对应关系。
+本文件记录 C&Z 提供的代码、数据和 metadata 的完整结构，以及它们与 [[architecture]] 各模块的对应关系。C&Z 在因子可复现性诊断中的方法论角色、实验矩阵和原因分类见
+[replication-diagnosis-design.md](replication-diagnosis-design.md)。
 
 ---
 
 ## 1. SignalDoc.csv — 结构化因子 metadata
 
-每行一个 predictor（212 个），是 Semantic Extractor 的核心 structured input。关键字段：
+每行一个 predictor（212 个），是冻结 paper-only MethodSpec 后使用的
+post-hoc evaluation reference，绝不作为 Semantic Extractor 的输入。关键字段：
 
 | 字段 | 含义 | 对应 MethodSpec 字段 |
 |---|---|---|
@@ -42,7 +44,7 @@ updated: 2026-05-24
 | `Key Table in OP`, `Test in OP` | 原文对标表格和检验方法 | citation, 回测方法 |
 | `GScholarCites202509` | Google Scholar 引用数 | 因子重要性排序 |
 
-**项目用途：** SignalDoc.csv 不作为 Semantic Extractor 的输入（避免信息泄漏），而是作为 **extraction evaluation ground truth**。LLM 仅从论文原文提取 MethodSpec，提取完成后与 SignalDoc.csv 逐字段比对，量化 extraction accuracy。差异分类（论文模糊 / LLM 误读 / C&Z 自行补充 / 合理分歧）本身是论文的分析素材。
+**项目用途：** SignalDoc.csv 不作为 Semantic Extractor 的输入（避免信息泄漏），而是作为**事后提取评估参考**。LLM 仅从论文原文提取 MethodSpec，冻结后再与 SignalDoc.csv 逐字段比对，量化 extraction accuracy。C&Z 是独立人工复现，不是唯一真值；差异分类（论文模糊 / LLM 误读 / C&Z 自行补充 / 合理分歧）本身是论文的分析素材。
 
 ---
 
@@ -125,7 +127,7 @@ Portfolios/Code/
 ```
 
 **项目用途：**
-- **参考阅读**：`01_PortfolioFunction.R` 和 `30_PredictorAltPorts.R` 可作为理解 C&Z 实现思路的参考，了解他们的 portfolio construction 和 variant 设计选择。本项目的 Lifecycle Engine 和 Dual-Track Controller 独立实现，不直接移植 C&Z 代码——其 R 代码未必符合本项目的工程规范，且实现细节需要根据 MethodSpec 和 ablation 设计重新控制。
+- **参考阅读**：`01_PortfolioFunction.R` 和 `30_PredictorAltPorts.R` 可用于理解 C&Z 的 portfolio construction 和 variant 选择。本项目的 controlled engine 独立实现，不直接移植 C&Z 代码；所有比较都通过显式 MethodSpec/config 与 bridge 设计控制。
 
 ---
 
@@ -133,9 +135,9 @@ Portfolios/Code/
 
 | 数据集 | 粒度 | 频率 | 格式 | 项目用途 |
 |---|---|---|---|---|
-| Long-Short Returns (wide) | 212 predictors × month | 月度 | CSV | Attribution Layer benchmark：比对 original_method 的 LS return |
+| Long-Short Returns (wide) | 212 predictors × month | 月度 | CSV | Portfolio comparison reference：与我们的 LS return 做 observational 对比 |
 | Individual Predictor Portfolios | 每个 predictor 分组收益 | 月度 | CSV (文件夹) | 逐组检查 portfolio assignment 是否正确 |
-| Firm-Level Characteristics | 209 个 signed firm-level signals | 月度 | CSV (1.6 GB) | **Signal validation ground truth**：plugin 输出 vs C&Z 输出逐行比对 |
+| Firm-Level Characteristics | 209 个 signed firm-level signals | 月度 | CSV (1.6 GB) | **独立信号实现参考**：plugin 输出 vs C&Z 输出逐行比对 |
 | Daily Portfolio Returns | portfolio-level | 日度 | CSV | 可选：日频 robustness check |
 
 ---
@@ -148,19 +150,157 @@ Portfolios/Code/
 | R: `OpenSourceAP.DownloadR` | R 包 |
 | GitHub: `OpenSourceAP/CrossSection` | 全部代码 + SignalDoc.csv |
 
+### 5.1 Python API 实测契约（2026-08-01）
+
+以下结果使用 Python 3.11、`openassetpricing==0.0.2` 和 October 2025
+release（`OpenAP(202510)`，data version 2.0.0）实测。该客户端的 portfolio
+API 在 Python 3.14 曾触发 native segmentation fault，因此项目开发环境固定为
+Python 3.11。
+
+可选 release：`2022`、`2023`、`202408`、`202410`、`202510`。
+
+`list_port()` 暴露八种 portfolio 产品：
+
+| API 名称 | 含义 |
+|---|---|
+| `op` | C&Z 按 SignalDoc/original-paper profile 构造的 baseline |
+| `deciles_ew` | EW deciles |
+| `deciles_vw` | VW deciles |
+| `quintiles_ew` | EW quintiles |
+| `quintiles_vw` | VW quintiles |
+| `nyse` | NYSE-only universe |
+| `ex_price5` | 排除 price <= 5 的股票 |
+| `ex_nyse_p20_me` | 排除 NYSE 市值后 20% 阈值以下股票 |
+
+#### SignalDoc
+
+```python
+doc = openap.dl_signal_doc("pandas")
+```
+
+202510 返回 331 行、29 列：212 predictors、114 placebos、5 drops。
+`Return`/`T-Stat` 是从 original papers 手工收集的 benchmark，不是当前 C&Z
+data release 的回测汇总。AssetGrowth 的 SignalDoc 值为 1.73%/月、t=8.45，
+而从当前 `op` 月序列按 1968-2003 重算得到约 1.495%/月、t=7.656。
+因此研究报告必须分别保存 `paper_reported` 和 `cz_replicated`，不能把二者
+当成同一个结果。
+
+#### Firm-level signal
+
+```python
+raw = openap.dl_signal("pandas", ["AssetGrowth"], signed=False)
+signed = openap.dl_signal("pandas", ["AssetGrowth"], signed=True)
+```
+
+输出契约：`[permno:int32, yyyymm:int32, <Acronym>:float64]`。AssetGrowth
+实测 3,312,735 个唯一 firm-month、24,301 个 permno，无空值或重复键。
+`signed=False` 返回 predictor code 的原始公式值；`signed=True` 再乘
+SignalDoc 的 `Sign`。AssetGrowth 的 `Sign=-1`，实测 `signed == -raw`
+逐行严格成立。
+
+Signal 数据可延伸到 returns release 之后（AssetGrowth 到 202610，而 return
+series 到 202412），因为 C&Z 会把已知 accounting observation 延展到未来可用
+月份。这不是未来信息泄漏；与收益比较时仍必须 inner-join 到共同月份。
+
+#### Portfolio returns
+
+```python
+port = openap.dl_port("op", "pandas", ["AssetGrowth"])
+```
+
+输出契约：
+`[signalname, port, date, ret, signallag, Nlong, Nshort]`。AssetGrowth `op`
+实测 9,570 行、1952-07 至 2024-12，包含 `01`-`10` 和 `LS`；每个
+`(signalname, port, date)` 唯一。`ret` 单位是百分数（例如 `1.0` = 1%），
+接入本项目 decimal-return contract 前必须除以 100。
+
+`signallag` 是该 portfolio 的加权平均 signed signal，并已向后移一个月；
+LS 行的 `signallag` 为 NA。普通 portfolio 行用 `Nlong` 记录持仓数、
+`Nshort=0`；LS 行分别记录两端股票数。C&Z 先给 signal 乘 `Sign` 再排序，
+所以 `LS = highest signed-signal portfolio - lowest signed-signal portfolio`。
+AssetGrowth 实测严格等于 `port10 - port01`；因 `Sign=-1`，这对应原始
+asset growth 的 low-minus-high。
+
+C&Z R summary 使用普通 `mean / standard_error` t-stat；本项目使用最多 6
+lags 的 Newey-West t-stat。对同一 AssetGrowth `op` 序列，1968-2003 的
+simple t-stat 为 7.656，而本项目算法得到 NW(6) t-stat 6.677。因此对比时
+应在同一月序列上同时重算两种 estimator，不能把 estimator difference
+误归因于 signal 或 portfolio construction。
+
+API 不提供 firm-level portfolio assignments、每只股票的实际 portfolio
+weight、逐月 breakpoint 或底层 WRDS/CCM vintage。它能支持 signal values、
+portfolio return series、组合股票数和 profile-level robustness 对比，但不能
+仅凭下载结果定位某只股票为何被分到不同组合；这类诊断仍需我们的 engine
+artifact 或执行 C&Z code 后增加中间输出。
+
+### 5.2 与本项目对比时的标准化规则
+
+1. **Paper benchmark：** 从 SignalDoc/MethodSpec 取 original-paper result，
+	但先匹配 table、EW/VW、raw/alpha、方向、单位和样本期。
+2. **Signal comparison：** 使用 `signed=False`，重命名因子列为 `signal`，
+	通过 `[permno, yyyymm]` 与 agent 原始 formula output 对齐；不要提前乘
+	`Sign`，避免与本项目 engine 的 long/short direction 重复反转。
+3. **Return comparison：** 取 `port == "LS"`，将 `date` 转成 `yyyymm`，
+	并做 `ret / 100` 后与本项目 decimal monthly return inner-join。
+4. **C&Z baseline：** `op` 是 C&Z 对 original-paper profile 的可执行解释；
+	它不是论文本身，也不一定与我们选中的 paper target variant 相同。
+5. **Robustness：** 七种 alternative profiles 可直接作为 C&Z-side ablation，
+	无需运行 C&Z R code。对相同 switch 比较 ours 与 C&Z 时，必须确保
+	universe、quantiles、weighting 和 sample window 的定义一致。
+6. **Statistic estimator：** 在共同月份上同时报告 simple t-stat 和统一的
+	NW(6) t-stat；SignalDoc headline t-stat、C&Z R summary 和本项目 headline
+	指标必须标注 estimator，不能直接混用。
+
 ---
 
 ## 6. C&Z 资源 → 架构模块映射总览
 
 | C&Z 资源 | 架构模块 | 具体用法 |
 |---|---|---|
-| `SignalDoc.csv` | Extraction Evaluation | **ground truth**，不作为 Extractor 输入；事后比对量化 extraction accuracy |
-| `SignalDoc.csv` 的 `Return`, `T-Stat` | Attribution Layer | benchmark 数字，判断 replication gap 大小 |
+| `SignalDoc.csv` | Extraction Evaluation | **事后参考**，不作为 Extractor 输入；冻结后比对 extraction accuracy |
+| `SignalDoc.csv` 的 `Return`, `T-Stat` | Portfolio Comparison | 论文摘录数字，判断 observational replication gap 大小 |
 | `SignalDoc.csv` 的 `Predictability`, `Rep Quality` | 实验设计 | 筛选 pilot factors（`1_clear` + `1_good`） |
 | `Predictors/*.py` | Controlled Meta-Coder | few-shot examples；指导 plugin 输出格式和代码模式 |
 | `Predictors/*.py` | Evaluation（后期可选） | signal-level reference；跑同一数据比较相关系数，量化 formula 偏差 |
 | `SignalMasterTable.py` + `PrepScripts/` | Data Layer | `time_avail_m` point-in-time 机制参考 |
 | `01_PortfolioFunction.R` | 参考阅读 | 了解 C&Z 的 portfolio construction 思路；不直接移植 |
 | `30_PredictorAltPorts.R` | 参考阅读 | 了解 C&Z 的 variant 设计；不直接移植 |
-| Firm-Level Characteristics CSV | Adversarial Sandbox | signal-level ground truth，逐行验证 plugin 输出 |
-| Long-Short Returns CSV | Attribution Layer | portfolio-level benchmark，验证 LS return 和 t-stat |
+| Firm-Level Characteristics CSV | Signal Evaluation | independent signal reference，逐行比较 plugin 输出 |
+| Long-Short Returns CSV | Portfolio Comparison | portfolio-level observational reference，比较 LS return 和 t-stat |
+
+---
+
+## 7. 标准化 track 配置的出处（`HXZ_STANDARD_CONFIG`）
+
+`standardized_hxz` track（[src/steps/step6_dual_track_controller/__init__.py](../src/steps/step6_dual_track_controller/__init__.py)
+的 `HXZ_STANDARD_CONFIG`）把**每个因子强制统一到一套 house standard**，好让
+跨因子结果可比、original-vs-standardized 的 gap 可归因到一组已知开关。这组值
+**不是从任何数据集自动推导的**，而是手工约定；下表给出逐字段出处，使这个
+"standard" 在论文里可被引用、可辩护。
+
+| 字段 | 值 | 出处 |
+|---|---|---|
+| `breakpoint_source` | `nyse` | Hou, Xue & Zhang (2020, RFS) "Replicating Anomalies" —— NYSE breakpoints |
+| `breakpoint_quantiles` | deciles | 同上，decile 排序 |
+| `weighting_rule` | `vw` | 同上，value-weighted（NYSE bp + VW 是其抑制 microcap 影响的核心协议） |
+| `rebalance_frequency` | `monthly` | HXZ q-factor 协议（月度 VW 调仓） |
+| `holding_period_months` | 1 | 月度调仓的标准 1 个月持有 |
+| `universe` (exchcd 1/2/3, shrcd 10/11) | 普通股 | Fama-French / HXZ 共用的 CRSP ordinary-common-stock 惯例 |
+| `accounting_lag_months` | 6 | **Fama-French (1992) 的 6 个月会计滞后，非 HXZ**（HXZ 用最新季度盈利月度匹配）。此处作为保守的 FF-style 默认保留，因此 "HXZ" 标签对该字段仅为近似。 |
+| `missing_action` | `drop` | 丢弃信号输入缺失的 firm-month |
+
+**与 reviewer `SENSIBLE_DEFAULTS` 的区别（两个不同概念，勿合并）：**
+
+- `SENSIBLE_DEFAULTS`（[src/steps/step2_reviewer/__init__.py](../src/steps/step2_reviewer/__init__.py)）
+  在论文**未写**某字段时，用该字段的**惯例默认值**补空，目的是让
+  `original_method` 尽量贴近论文；key 是 dotted MethodSpec 路径。
+- `HXZ_STANDARD_CONFIG` 则**故意覆盖**论文方法，把所有因子压到一套统一标准；
+  key 是 engine-config 名。
+
+两者在"字段级默认值 ≠ 标准化协议"处合理地不一致 —— 最典型的是 rebalance：
+reviewer 默认 `annual`（未指定会计类因子 rebalance 的通常默认，FF/C&Z 惯例），
+标准化 track 用 `monthly`（HXZ 协议）。这不是 drift，是两个问题各自的正确答案。
+
+> 待办：`accounting_lag_months=6` 的 FF 出处使 "HXZ_STANDARD" 命名对该字段名不
+> 副实；若后续要严格对齐 HXZ，应改为最新季度盈利月度匹配，或把该 track 更名为
+> 中性的 `standardized`。见 [replication-diagnosis-design.md](replication-diagnosis-design.md)。

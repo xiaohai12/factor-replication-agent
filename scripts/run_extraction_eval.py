@@ -3,11 +3,11 @@
 For each paper in data/test_papers/paper_spec_mapping.json, extracts all of its
 mapped factors (one LLM call per paper via SemanticExtractor.extract_batch when a
 paper defines more than one factor) and compares the result field-by-field against
-the human-curated ground truth in data/test_method_specs_human_labeled/, using the same
+the curated references in data/test_method_specs_human_labeled/, using the same
 comparison logic as app.py's Extractor eval panel (field_accuracy / field_coverage).
 
 No SignalDoc.csv / C&Z data is given to the extractor as input (paper text only) —
-ground truth is only used post-hoc here, for scoring.
+curated references are used only post-hoc here, for scoring.
 
 Usage:
     python3 scripts/run_extraction_eval.py
@@ -100,15 +100,15 @@ def values_match(a: Any, b: Any) -> bool:
     return sa == sb
 
 
-def compare_specs(extracted: dict, ground_truth: dict) -> list[dict]:
+def compare_specs(extracted: dict, reference: dict) -> list[dict]:
     results = []
     for ext_path, gt_path in FIELDS_TO_COMPARE:
         ext_val = get_nested(extracted, ext_path)
-        gt_val = get_nested(ground_truth, gt_path)
+        gt_val = get_nested(reference, gt_path)
         results.append({
             "field": ext_path,
             "extracted": "" if ext_val is None else str(ext_val),
-            "ground_truth": "" if gt_val is None else str(gt_val),
+            "reference": "" if gt_val is None else str(gt_val),
             "match": values_match(ext_val, gt_val),
         })
     return results
@@ -117,20 +117,20 @@ def compare_specs(extracted: dict, ground_truth: dict) -> list[dict]:
 def compute_metrics(comparisons: list[dict]) -> dict:
     total = len(comparisons)
     matched = sum(1 for c in comparisons if c["match"])
-    gt_present = sum(1 for c in comparisons if c["ground_truth"])
+    reference_present = sum(1 for c in comparisons if c["reference"])
     extracted_present = sum(1 for c in comparisons if c["extracted"])
     return {
         "field_accuracy": matched / total if total else 0.0,
-        "field_coverage": extracted_present / gt_present if gt_present else 0.0,
+        "field_coverage": extracted_present / reference_present if reference_present else 0.0,
         "matched": matched,
         "total": total,
     }
 
 
-def load_ground_truth(factor_id: str) -> dict:
-    """Load a test_method_specs_human_labeled/ ground truth file, normalized to the flat MethodSpec shape.
+def load_curated_reference(factor_id: str) -> dict:
+    """Load a curated MethodSpec reference, normalized to the flat schema.
 
-    Ground truth files use the richer "curated annotation" schema (top-level
+    Reference files use the richer "curated annotation" schema (top-level
     ``timing``/``universe``/``portfolio``/``sample`` keys, value/source-wrapped
     fields). ``MethodSpec.normalize_curated_schema`` coerces that into the same
     flat shape ``SemanticExtractor.extract()`` produces, so dotted-path
@@ -205,7 +205,7 @@ def main() -> int:
 
         for fid in factor_ids:
             result = batch.get(fid)
-            ground_truth = load_ground_truth(fid)
+            reference = load_curated_reference(fid)
 
             if result is None or result.spec is None:
                 err = (result.error if result else None) or "No spec returned"
@@ -214,7 +214,7 @@ def main() -> int:
                 continue
 
             ext_dict = result.spec.model_dump(mode="json")
-            comparisons = compare_specs(ext_dict, ground_truth)
+            comparisons = compare_specs(ext_dict, reference)
             metrics = compute_metrics(comparisons)
             per_factor.append({
                 "factor_id": fid,

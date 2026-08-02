@@ -106,8 +106,8 @@ def _extract_formula_keywords(detailed_def: str) -> list[str]:
     return sorted(set(found))
 
 
-def parse_signaldoc_ground_truth(row: dict) -> dict:
-    """Convert a SignalDoc.csv row into ground truth dict for evaluation."""
+def parse_signaldoc_reference(row: dict) -> dict:
+    """Convert a SignalDoc.csv row into a post-hoc reference dictionary."""
     gt = {}
 
     if row.get("Stock Weight"):
@@ -291,17 +291,17 @@ class EvalReport:
 
 
 def build_field_details(
-    extractor: SemanticExtractor, spec: MethodSpec, ground_truth: dict,
+    extractor: SemanticExtractor, spec: MethodSpec, reference: dict,
     reasons: dict[str, str] | None = None,
 ) -> dict:
     """Build per-field comparison detail dict."""
     reasons = reasons or {}
     details = {}
-    for key, expected in ground_truth.items():
+    for key, expected in reference.items():
         if expected is None or str(expected).strip().lower() in ("", "none", "unspecified", "n/a", "nan"):
             details[key] = {
                 "expected": expected,
-                "actual": "N/A (ground truth unspecified)",
+                "actual": "N/A (reference unspecified)",
                 "match": True,
                 "reason": reasons.get(key, ""),
             }

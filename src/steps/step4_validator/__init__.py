@@ -147,9 +147,9 @@ class AdversarialSandbox:
         `main()` -- the generated template guards that call with
         `if __name__ == "__main__":` -- so no full snapshot load or full
         BacktestExecutor run happens here; only the module-level
-        `exec(compile(PLUGIN_CODE, ...))` line runs, which defines
-        `compute_signal` (and any hooks, left uncalled) in the imported
-        module's namespace. This reuses the single generated artifact directly
+        `exec(compile(PLUGIN_CODE, ...))` line runs, which defines the
+        formula-only `compute_signal` in the imported module's namespace. This
+        reuses the single generated artifact directly
         instead of re-deriving a separate "how do I exec this plugin" runner.
 
         Lenient by design (see class docstring): only a raised exception or a
