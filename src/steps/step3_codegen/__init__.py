@@ -170,12 +170,35 @@ class MetaCoder:
         if paper_formula:
             lines.append(f"Paper notation:    {paper_formula}")
 
-        data_fields = spec.data.required_fields or []
+        # Only the FORMULA's own required fields belong in the plugin prompt.
+        # `spec.data.required_fields` also carries universe/sample-membership
+        # concepts the paper-first extractor recorded (e.g. exchange listing,
+        # SIC code, listing-history seasoning) -- those are NOT formula
+        # inputs, they're consumed separately by the engine's
+        # `apply_universe_filters` step from `portfolio.universe_filters`.
+        # Including them here previously made the LLM (incorrectly, but not
+        # unreasonably given the context) implement exchange/SIC filtering
+        # INSIDE compute_signal, which then KeyErrors at runtime because the
+        # assembled signal-input table only ever contains the formula's own
+        # columns (see `signal_input_sources()`). See docs/decision-log.md
+        # 2026-08-03 entry.
+        formula_fields = set(spec.required_fields)
+        data_fields = [f for f in (spec.data.required_fields or []) if f.field in formula_fields]
         if data_fields:
             lines += ["", "## Data Fields"]
             for f in data_fields:
                 lines.append(f"  - {f.field}: {f.concept} (source: {f.source_detail})")
 
+        lines += [
+            "",
+            "## Universe / Sample Membership",
+            "Do NOT filter by exchange, SIC/industry code, or listing history inside "
+            "compute_signal -- the engine applies portfolio.universe_filters "
+            "separately, on the CRSP-only panel, after compute_signal runs. Only "
+            "apply a row filter here if it's a genuine FORMULA computability "
+            "precondition (e.g. a required input must be non-missing/non-zero to "
+            "even calculate the signal), never a sample-eligibility rule.",
+        ]
         lines += ["", "## Timing"]
         if formation:
             lines.append(f"  - Portfolio formation: end of month {formation}")
@@ -199,8 +222,25 @@ class MetaCoder:
 
         col_map = spec.data.normalized_mapping or {}
         if col_map:
+            # `normalized_mapping` values come in two forms (see
+            # `MethodSpec.resolved_sources()`/`_normalize_mapping_entry`):
+            # the richer {"source": ..., "column": ...} dict, or a legacy
+            # plain column string. Using the raw value directly here (without
+            # extracting `.column`) previously leaked the dict's Python repr
+            # into the prompt as a literal column name (e.g. `df["{'source':
+            # 'comp_funda', 'column': 'at'}"]`), which the LLM then copied
+            # verbatim into generated code -- a guaranteed runtime KeyError
+            # against the real assembled table, which only ever has the
+            # PHYSICAL column name. See docs/decision-log.md 2026-08-03 entry.
+            from src.infra.models.method_spec import _normalize_mapping_entry
+
             lines += ["", "## Column Mapping (paper field → physical DataFrame column)"]
-            for paper_field, col_name in col_map.items():
+            for paper_field, mapping_value in col_map.items():
+                if paper_field not in formula_fields:
+                    continue
+                _source, col_name = _normalize_mapping_entry(mapping_value)
+                if not col_name:
+                    continue
                 lines.append(f"  - {paper_field} → df[\"{col_name}\"]")
 
         lines += [

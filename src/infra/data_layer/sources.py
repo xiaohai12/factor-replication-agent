@@ -763,11 +763,26 @@ def signal_input_sources(spec: Any) -> dict[str, list[str]]:
     Only `spec.signal.required_fields` (falling back to `spec.data.required_fields`)
     are included — universe/weighting CRSP fields stay engine-side. Shared by
     `assemble_signal_master_table` and codegen (which bakes this map into the
-    generated standalone script so it needs no MethodSpec at run time)."""
+    generated standalone script so it needs no MethodSpec at run time).
+
+    Columns are deduplicated (order-preserving) per source: it's common for
+    several paper CONCEPTS to map to the SAME physical column at different
+    time lags (e.g. asset growth's `total_assets_t_minus_1`/
+    `total_assets_t_minus_2` both come from Compustat `at`, one year apart --
+    the plugin derives both via `.shift()` after loading, not via two
+    separate physical columns). Without dedup, the loader was asked to
+    `df[["at", "at"]]` a duplicate column, which pandas allows but then makes
+    `df.groupby("permno")["at"]` return a 2-column DataFrame instead of a
+    Series, crashing any `df["x"] = ...` assignment downstream in the
+    generated plugin with "Cannot set a DataFrame with multiple columns to a
+    single column". See docs/decision-log.md 2026-08-03 entry."""
     formula_concepts = set(spec.signal.required_fields) or {f.field for f in spec.data.required_fields}
     out: dict[str, list[str]] = {}
     for source, pairs in spec.resolved_sources().items():
-        cols = [col for concept, col in pairs if concept in formula_concepts]
+        cols: list[str] = []
+        for concept, col in pairs:
+            if concept in formula_concepts and col not in cols:
+                cols.append(col)
         if cols:
             out[source] = cols
     return out

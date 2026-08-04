@@ -26,10 +26,28 @@ Implemented and tested:
 - synthetic golden-number E2E coverage plus supported real WRDS CSV layouts;
 - basic `original_method`, `standardized_hxz`, and one-at-a-time track orchestration;
 - `MethodSpec` distinction between `unspecified` (paper silent) and `other` (paper explicit but engine-unsupported), with deterministic substitution provenance.
+- calendar-lag/as-of signal alignment for explicit annual formation months:
+	accounting data availability remains a data-layer timestamp, while the
+	engine samples the latest non-stale signal as of the reviewed formation
+	month (default max staleness 11 months, matching a 12-month C&Z-style
+	forward-fill window). Monthly/quarterly paths remain on their existing
+	lifecycle.
+- `BacktestRunner.build_script(track_name=...)`: distinct tracks/configs for
+	the same factor no longer collide on the same on-disk script/output path.
+	`DualTrackController` now threads its `track_name` through, so
+	`original_method`/`standardized_hxz`/ablation tracks each persist to their
+	own `{factor_id}__{track_name}` files instead of silently overwriting each
+	other (only the in-memory `RunRecord` was previously reliable per track).
+- `HXZ_STANDARD_CONFIG["breakpoint_quantiles"]` fixed from an invalid
+	percentile list to the engine's actual group-count contract (`10`) --
+	`standardized_hxz` was previously unrunnable (`int([...])` raised).
+	Verified with a real `DualTrackController.run_experiment()` run
+	(original_method + standardized_hxz, same frozen plugin) against real
+	`data/local` WRDS data for AssetGrowth.
 
 Not yet implemented:
 
-- unique per-execution paths and complete signal/return/intermediate artifact persistence;
+- complete signal/return/intermediate artifact persistence beyond the script/CSV/metrics files (no evidence-store hashing/provenance yet);
 - strict config-key validation and effective-diff calculation;
 - matrix-level plugin freezing and invalidation;
 - declarative `experiments/<factor_id>.experiments.yaml` authoring;
@@ -41,10 +59,18 @@ Not yet implemented:
 
 Before multi-config implementation:
 
-1. Fix `HXZ_STANDARD_CONFIG["breakpoint_quantiles"]`: it is currently a percentile list, while the engine expects an integer portfolio count. Replace it with the supported `ls_quantile`/resolved count contract and add a real-runner smoke test.
+1. ~~Fix `HXZ_STANDARD_CONFIG["breakpoint_quantiles"]`~~ — DONE (2026-08-03):
+	changed from an invalid percentile list to the resolved integer group count
+	(`10`); verified with a real `standardized_hxz` run against real WRDS data.
 2. Introduce typed config resolution. Unknown keys, invalid values, and no-op overrides must fail before execution; paper-originated `substitutions` must remain a separate provenance field.
 3. Route pre-signal config keys (for example accounting lag) into signal-input assembly rather than storing a config value that does not affect execution.
 4. Repair and freeze the plugin before a matrix starts. A track-local formula repair invalidates the whole batch; it must never create comparable runs with different code hashes.
+5. Promote signal timing policy fields from implicit config defaults to a
+	reviewed MethodSpec contract: at minimum `timing_basis` (`calendar_lag` vs.
+	`report_date`) and `signal_max_staleness_months`. The engine currently
+	implements the mainstream calendar-lag path; report-date timing should only
+	be enabled for papers that explicitly require actual announcement/filing
+	dates and after a point-in-time report-date source is registered.
 
 ## Multi-Config Implementation Sequence
 

@@ -21,7 +21,12 @@ from src.steps.step1_extractor import SemanticExtractor
 from src.steps.step2_reviewer import ReviewGate
 from src.steps.step5_backtest_runner import BacktestRunner
 from src.steps.step6_dual_track_controller import DualTrackController, ExperimentPlan
-from src.steps.step7_replication_diff import ReplicationDiff
+from src.steps.step7_replication_diff import (
+    ReplicationDiff,
+    ReplicationDiffResult,
+    safe_diff_ablation,
+)
+from src.steps.step8_diagnosis import ReplicationDiagnoser
 from src.infra.evidence import EvidenceStore, RunRegistry
 from src.infra.repair import RepairLoop
 from src.steps.step3_codegen import MetaCoder
@@ -47,6 +52,23 @@ class PipelineStatus:
     stage: str = "pending"  # extract|review|reextract|generate|validate|run|replication_diff|done|failed
     error: str = ""
     needs_manual: bool = False
+    #: Terminal OAT gap decomposition (step 7). None when the run didn't
+    #: produce both an original_method and a standardized_hxz track. Kept on
+    #: the status object so callers can actually consume it -- it used to be
+    #: computed and discarded (defect D9 in docs/multi-config-evidence-plan.md).
+    replication_diff: ReplicationDiffResult | None = None
+    #: Path to `results/<factor_id>/comparison.json` (step 5/6's
+    #: deterministic evidence bundle), when at least one track succeeded.
+    comparison_path: Path | None = None
+    #: The persisted step-8 `ReplicationDiagnosisReport`, loaded back from
+    #: `diagnosis.json` when `run_diagnosis=True` produced one (see
+    #: `Pipeline.__init__`'s `diagnoser` construction) -- was previously
+    #: written to disk but never surfaced back through the pipeline call
+    #: itself (docs/multi-config-evidence-plan.md Phase C/D: "persisted and
+    #: pipeline-returned diagnosis report"). Still `status="llm_assisted_proposal"`
+    #: on the report itself; this is read-only access to what step 8 wrote,
+    #: not a new computation.
+    diagnosis: dict | None = None
 
 
 class Pipeline:
@@ -107,6 +129,7 @@ class Pipeline:
         data_path: str = "./data",
         evidence_path: str = "./runs/evidence",
         scripts_path: str = "./runs/backtest_scripts",
+        run_diagnosis: bool = False,
     ):
         self.data_layer = DataLayer(data_path=data_path)
         self.extractor = SemanticExtractor(
@@ -123,8 +146,18 @@ class Pipeline:
         self.scripts_path = Path(scripts_path)
         self.runner = BacktestRunner(self.data_layer, self.scripts_path)
         self.repair_loop = RepairLoop(self.runner, self.sandbox, self.meta_coder)
+        # Step 8 is opt-in: the empirical artifacts are complete without it,
+        # and it costs an extra LLM call per experiment.
+        self.diagnoser = (
+            ReplicationDiagnoser(llm_client=llm_client)
+            if run_diagnosis and llm_client is not None
+            else None
+        )
         self.controller = DualTrackController(
-            runner=self.runner, meta_coder=self.meta_coder, sandbox=self.sandbox
+            runner=self.runner,
+            meta_coder=self.meta_coder,
+            sandbox=self.sandbox,
+            diagnoser=self.diagnoser,
         )
         self.evidence_store = EvidenceStore(base_path=evidence_path)
         self.run_registry = RunRegistry()
@@ -284,8 +317,23 @@ class Pipeline:
 
         # --- 7. Replication-diff analysis ---
         status.stage = "replication_diff"
-        if plan.run_original and plan.run_standardized and len(runs) >= 2:
-            self.replication_diff.diff_ablation(runs)
+        status.replication_diff = safe_diff_ablation(runs)
+
+        # Surface what step 5/6 already wrote to disk (docs/multi-config-
+        # evidence-plan.md Phase C/D: "persisted and pipeline-returned
+        # diagnosis report" -- this reads back files `run_experiment`/
+        # `_write_diagnosis` already produced; it does not compute anything
+        # new). Both are best-effort: no successful track -> no
+        # comparison.json at all; `run_diagnosis=False` (the default) -> no
+        # diagnosis.json.
+        results_dir = self.scripts_path / "results" / factor_id
+        comparison_path = results_dir / "comparison.json"
+        if comparison_path.exists():
+            status.comparison_path = comparison_path
+        diagnosis_path = results_dir / "diagnosis.json"
+        if diagnosis_path.exists():
+            import json
+            status.diagnosis = json.loads(diagnosis_path.read_text())
 
         status.stage = "done"
         return runs, status
@@ -419,13 +467,21 @@ class Pipeline:
                 spec, plugin, track, config_overrides, outcome.error
             )
             failed.repair_history = repair_history
-            self.evidence_store.save_run(failed)
+            self.evidence_store.save_run(
+                failed,
+                artifacts={"script.py": str(built["script_path"])} if built.get("script_path") else None,
+                inline_content={"plugin.py": plugin.code, "method_spec.json": spec.model_dump_json(indent=2)},
+            )
             self.run_registry.register(failed)
             raise RuntimeError(outcome.error)
 
         run = self.runner.make_run_record(spec, plugin, track, outcome.result)
         run.repair_history = repair_history
-        self.evidence_store.save_run(run)
+        self.evidence_store.save_run(
+            run,
+            artifacts={"script.py": str(built["script_path"])} if built.get("script_path") else None,
+            inline_content={"plugin.py": plugin.code, "method_spec.json": spec.model_dump_json(indent=2)},
+        )
         self.run_registry.register(run)
         return run
 

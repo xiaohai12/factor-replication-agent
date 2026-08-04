@@ -332,24 +332,52 @@ comparison 实现混在一起。）
   单纯的复现失败或成功。**跨 config 的内部对比不受影响**——替换是该因子所有
   run 的共同起点，不进入任何两个 run 之间的 diff。
 
-### Phase E —— 可选 LLM 解释（最后做）
+### Phase E —— 可选 LLM 解释（最后做）**[已实现，见 `src/steps/step8_diagnosis/`]**
 
-- **只**消费已持久化、带 hash 的诊断 report。
-- **不**新建一套平行的顶层 `DiffExplanation` 模型；把 LLM 叙述作为
-  `ReplicationDiagnosisReport` 上的**可选附属字段**。
+> 2026-08-03 更新：Phase E 已按下述契约实现（`ReplicationDiagnoser` +
+> `validate_claims` + `render.render_markdown`），先于 Phase A1–D 的完整
+> run-identity/plugin-freeze 工作落地——因为 `comparison.json`
+> （`write_comparison_summary`）已经是一个自包含、带 hash 的确定性产物，
+> 具备启动 Phase E 所需的最小前提（见下方“完成标准”一节的验证结果）。
+> 完整的 batch 级 plugin 冻结/矩阵校验仍按原计划留待 Phase 0–D。
+
+- **只**消费已持久化、带 hash 的诊断 report——具体为
+  `write_comparison_summary` 写入 `comparison.json` 的 schema v2 evidence
+  bundle（`derived`/`config_diff`/`gap_decomposition`/`evidence_keys`，见
+  `src/steps/step7_replication_diff/bundle.py`）。
+- **不**新建一套平行的顶层 `DiffExplanation` 模型；LLM 叙述就是
+  `ReplicationDiagnosisReport`（`src/infra/models/diagnosis.py`）本身，不是
+  附加在别的模型上的字段。
 - LLM 契约（替代天真的"断言不含数字"守卫）：
-  - LLM 输出**结构化 narrative fragment**；每条 claim 必须引用确定性 bundle 中的
-    `evidence_key`；
-  - 数字由**确定性 renderer** 从 bundle 插入，不由 LLM 书写；
-  - **每种 claim type 定义允许引用的 evidence schema**，而不只是检查 `evidence_key`
-    存在——例如"信号实现接近"这类 claim 必须同时具备 matched-sample signal
-    correlation、rank agreement、sign disagreement、coverage overlap 才允许，
-    组合收益接近**不**足以支撑；"显著"只能在确定性统计检验 + 阈值通过时使用；
-  - 分类标记为 `llm_assisted_proposal`，绝不作为自动 empirical 结论；人工确认后的
-    分类另存，且绝不回写 config/MethodSpec。
+  - LLM 输出**结构化 narrative fragment**（`DiagnosisClaim`）；每条 claim
+    必须引用确定性 bundle 中的 `evidence_key`；
+  - 数字由**确定性 renderer**（`step8_diagnosis/render.py`）从 bundle 插入，
+    不由 LLM 书写——`validate_claims` 会拒绝 `text` 中出现任何数字的 claim；
+  - **每种 claim type 定义允许引用的 evidence schema**
+    （`CLAIM_EVIDENCE_REQUIREMENTS`/`CLAIM_EVIDENCE_SUBSTRINGS`），而不只是
+    检查 `evidence_key` 存在——例如"显著"（`significance`）类 claim 必须引用
+    `*_significant` 键（由固定 `SIGNIFICANCE_T_THRESHOLD=1.96` 阈值算出，不
+    由 LLM 判断），`gap_attribution` 类 claim 必须引用
+    `gap_decomposition.contributions.*` 下的一个实测贡献，若未跑
+    `ablation_*` track（贡献未测得）则只能发 `evidence_limitation` claim；
+  - 分类标记为 `llm_assisted_proposal`（`ReplicationDiagnosisReport.status`
+    的唯一取值），绝不作为自动 empirical 结论；`overall_tag` verdict 由
+    `bundle.classify_overall` 确定性计算，LLM 只能引用，不能覆盖或重新判定。
 
-完成标准：确定性 report 的 hash 在 LLM 开/关时**完全相同**；LLM 仅额外增加一份
-`llm_assisted` 叙述。
+完成标准：确定性 report（`comparison.json` 的 evidence bundle 部分）的内容在
+LLM 开/关时**完全相同**；LLM 仅额外产出一份 `llm_assisted_proposal` 叙述
+（`diagnosis.json`/`diagnosis.md`）。已用真实 AssetGrowth（Cooper, Gulen &
+Schill 2008）bundle 通过 codex 验证：9/9 claim 通过校验，正确识别
+standardized track 与论文的符号不一致、两条 track 均未达到显著性、
+config 差异归因到 `breakpoint_source`/`rebalance_frequency`/
+`holding_period_months`/`universe`，且在未跑 ablation track 时正确报告
+gap 分解"不可用"而非编造归因。单元测试见 `tests/test_replication_diagnosis.py`
+（33 项，全部使用 fake LLM client，测试套件本身不产生真实 LLM 调用）。
+
+默认关闭：`Pipeline(run_diagnosis=False)` / `DualTrackController(diagnoser=None)`
+是默认值，避免测试与批量跑意外消耗 LLM；手动触发用
+`scripts/analyze_comparison.py --factor-id <id>`（`--dry-run` 只看确定性
+bundle，不调用 LLM）。
 
 ---
 

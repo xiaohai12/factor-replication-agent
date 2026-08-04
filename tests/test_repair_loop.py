@@ -28,7 +28,7 @@ class FakeRunner:
         self.execute_fail_times = execute_fail_times
         self.execute_calls = 0
 
-    def build_script(self, plugin, spec, snapshot_id, config_overrides) -> dict:
+    def build_script(self, plugin, spec, snapshot_id, config_overrides, track_name=None) -> dict:
         return {"script_text": plugin.code, "config": {}}
 
     def execute(self, built: dict) -> dict:

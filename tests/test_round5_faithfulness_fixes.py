@@ -112,10 +112,33 @@ class TestAnnualFormationMonthValidation:
         engine, signal, config = self._make(6)  # June cohort, formation_month=6
         engine.apply_signal_holding_period(signal=signal, config=config)  # no raise
 
-    def test_mismatched_cohort_raises(self):
-        engine, signal, config = self._make(3)  # March cohort, formation_month=6
-        with pytest.raises(ValueError, match="formation calendar|formation cohorts"):
-            engine.apply_signal_holding_period(signal=signal, config=config)
+    def test_mismatched_cohort_resamples_to_explicit_formation_month(self):
+        # March data availability is valid for a June annual formation under
+        # the calendar-lag/as-of convention: the engine samples the latest
+        # already-available signal as of the reviewed formation month instead
+        # of treating the raw availability month as the portfolio cohort.
+        signal = pd.DataFrame({"permno": [1, 2], "yyyymm": [200003, 200003], "signal": [1.0, 2.0]})
+        panel = pd.DataFrame({
+            "permno": [1, 2, 1, 2, 1, 2],
+            "yyyymm": [200006, 200006, 200007, 200007, 200008, 200008],
+            "ret": [0.01] * 6,
+            "me": [100.0] * 6,
+            "exchcd": [1] * 6,
+        })
+        config = {
+            "holding_period_months": 2,
+            "rebalance_frequency": "annual",
+            "formation_month": 6,
+            "formation_month_explicit": True,
+            "signal_max_staleness_months": 11,
+        }
+        engine = BacktestExecutor()
+        engine.data = panel
+        engine.apply_missing_policy(config=config)
+
+        merged = engine.apply_signal_holding_period(signal=signal, config=config)
+        assert set(merged["cohort"]) == {200006}
+        assert sorted(merged["yyyymm"].unique()) == [200007, 200008]
 
     def test_defaulted_formation_month_does_not_trigger(self):
         # formation_month present but NOT explicit -> signal cohorts are

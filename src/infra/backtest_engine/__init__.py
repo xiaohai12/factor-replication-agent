@@ -528,6 +528,7 @@ class BacktestExecutor:
         signal = self.signal if signal is None else signal
         config = self.config if config is None else config
 
+        signal = self._resample_annual_signal_asof(signal, df, config)
         self._validate_annual_formation_month(signal, config)
 
         hp = int(config.get("holding_period_months", 12))
@@ -548,6 +549,11 @@ class BacktestExecutor:
                     "signal": float(row["signal"]),
                 })
         expanded = pd.DataFrame(rows)
+        if expanded.empty:
+            self.merged = df.iloc[0:0].copy()
+            self.formation = signal.rename(columns={"yyyymm": "cohort"}).copy()
+            self.trace.append("apply_signal_holding_period")
+            return self.merged
         merged = df.merge(expanded, on=["permno", "yyyymm"], how="inner")
 
         # Formation cross-section: every (permno, cohort) with a signal
@@ -611,6 +617,71 @@ class BacktestExecutor:
         self.formation = formation
         self.trace.append("apply_signal_holding_period")
         return merged
+
+    @staticmethod
+    def _yyyymm_to_month_index(values: pd.Series) -> pd.Series:
+        values = values.astype(int)
+        return (values // 100) * 12 + (values % 100) - 1
+
+    @staticmethod
+    def _resample_annual_signal_asof(signal: pd.DataFrame, df: pd.DataFrame, config: dict) -> pd.DataFrame:
+        """Align accounting signals to an explicit annual formation month by
+        taking each stock's most recent already-available signal as of that
+        formation month.
+
+        This separates data availability (`signal.yyyymm`, produced upstream
+        from accounting lag / report availability) from the portfolio formation
+        calendar (`config["formation_month"]`). For monthly/quarterly factors,
+        or annual specs without an explicit formation month, this is a no-op.
+        For already-aligned annual signals (all cohorts already in the stated
+        month), it is also a no-op so existing golden-number paths stay on the
+        original code path.
+        """
+        if str(config.get("rebalance_frequency", "unspecified")).lower() != "annual":
+            return signal
+        if not config.get("formation_month_explicit"):
+            return signal
+        formation_month = config.get("formation_month")
+        if formation_month is None or signal is None or signal.empty or "yyyymm" not in signal.columns:
+            return signal
+
+        formation_month = int(formation_month)
+        cohort_months = {int(v) % 100 for v in signal["yyyymm"].dropna().unique()}
+        if cohort_months <= {formation_month}:
+            return signal
+
+        max_stale = int(config.get("signal_max_staleness_months", 11))
+        if max_stale < 0:
+            raise ValueError("signal_max_staleness_months must be non-negative")
+
+        formation_rows = df.loc[(df["yyyymm"].astype(int) % 100) == formation_month, ["permno", "yyyymm"]]
+        if formation_rows.empty:
+            return signal.iloc[0:0].copy()
+
+        targets = formation_rows.drop_duplicates().rename(columns={"yyyymm": "cohort"}).copy()
+        targets["permno"] = targets["permno"].astype(int)
+        targets["_target_m"] = BacktestExecutor._yyyymm_to_month_index(targets["cohort"])
+
+        source = signal[["permno", "yyyymm", "signal"]].dropna(subset=["signal"]).copy()
+        source["permno"] = source["permno"].astype(int)
+        source["_signal_m"] = BacktestExecutor._yyyymm_to_month_index(source["yyyymm"])
+
+        aligned = pd.merge_asof(
+            targets.sort_values(["_target_m", "permno"]),
+            source.sort_values(["_signal_m", "permno"]),
+            by="permno",
+            left_on="_target_m",
+            right_on="_signal_m",
+            direction="backward",
+            tolerance=max_stale,
+        )
+        aligned = aligned.dropna(subset=["signal"])
+        if aligned.empty:
+            return signal.iloc[0:0].copy()
+        out = aligned[["permno", "cohort", "signal"]].rename(columns={"cohort": "yyyymm"})
+        out["permno"] = out["permno"].astype(int)
+        out["yyyymm"] = out["yyyymm"].astype(int)
+        return out.sort_values(["permno", "yyyymm"]).reset_index(drop=True)
 
     @staticmethod
     def _validate_annual_formation_month(signal: pd.DataFrame, config: dict) -> None:
@@ -1165,12 +1236,9 @@ class BacktestExecutor:
             return {}
 
         merged = ls.merge(factors, on="yyyymm", how="inner")
-        n = len(merged)
-        if n < 3:
+        if len(merged) < 3:
             return {}
 
-        y = merged["ls_return"].to_numpy()
-        lags = min(6, n - 2)
         results: dict[str, Any] = {}
 
         factor_specs = {
@@ -1181,7 +1249,13 @@ class BacktestExecutor:
         for name, cols in factor_specs.items():
             if not all(c in merged.columns for c in cols):
                 continue
-            x = sm.add_constant(merged[cols].to_numpy())
+            sample = merged[["ls_return", *cols]].replace([np.inf, -np.inf], np.nan).dropna()
+            n = len(sample)
+            if n < 3:
+                continue
+            y = sample["ls_return"].to_numpy()
+            lags = min(6, n - 2)
+            x = sm.add_constant(sample[cols].to_numpy())
             model = sm.OLS(y, x).fit(cov_type="HAC", cov_kwds={"maxlags": lags})
             results[f"alpha_{name}"] = float(model.params[0])
             results[f"alpha_{name}_tstat"] = float(model.tvalues[0])

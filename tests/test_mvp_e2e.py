@@ -134,3 +134,32 @@ def test_mvp_chain_matches_golden_numbers(pipeline, approved_spec, generated_plu
     stored = pipeline.evidence_store.load_run(run.factor_id, run.run_id)
     assert stored is not None
     assert stored.metrics.mean_return == pytest.approx(golden["mean_monthly_return"], rel=1e-9)
+
+
+def test_mvp_chain_persists_signal_and_return_series(pipeline, approved_spec, generated_plugin):
+    """docs/multi-config-evidence-plan.md Phase A1.1/A1.2: the generated
+    script now writes the REALIZED signal series (`<track>.signal.parquet`,
+    captured right after compute_signal(), before any universe filter/
+    breakpoint/portfolio step) alongside the return series it already wrote,
+    and `RunRecord.return_series_path`/`signal_series_path` (declared on the
+    model since Phase 0 but never populated before this) now point at them.
+    """
+    import pandas as pd
+
+    run = pipeline.run_from_method_spec(
+        approved_spec, snapshot_id=SNAPSHOT_ID, plugin=generated_plugin
+    )
+
+    assert run.status == "success"
+    assert run.return_series_path
+    assert run.signal_series_path
+    assert run.data_snapshot_hash
+
+    return_path = Path(run.return_series_path)
+    signal_path = Path(run.signal_series_path)
+    assert return_path.exists()
+    assert signal_path.exists()
+
+    signal_df = pd.read_parquet(signal_path)
+    assert list(signal_df.columns) == ["permno", "yyyymm", "signal"]
+    assert len(signal_df) > 0

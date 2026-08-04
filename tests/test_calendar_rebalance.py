@@ -77,3 +77,72 @@ def test_hold_never_exceeds_holding_period_even_if_step_larger():
         {"holding_period_months": 3, "rebalance_frequency": "annual"},
     )
     assert sorted(merged["yyyymm"]) == [200007, 200008, 200009]
+
+
+def test_annual_explicit_formation_month_asof_resamples_multi_fye_signal():
+    data = pd.DataFrame(
+        {
+            "permno": [1] * 13,
+            "yyyymm": [200006 + i for i in range(7)] + [200101 + i for i in range(6)],
+            "ret": 0.01,
+            "me": 100.0,
+            "exchcd": 1,
+        }
+    )
+    signal = pd.DataFrame(
+        {
+            "permno": [1, 1],
+            # 2000-03 is a non-June availability month, but still stale enough
+            # to be the valid as-of signal at the 2000-06 formation date.
+            "yyyymm": [199903, 200003],
+            "signal": [0.2, 0.7],
+        }
+    )
+    merged = BacktestExecutor().apply_signal_holding_period(
+        data,
+        signal,
+        {
+            "holding_period_months": 12,
+            "rebalance_frequency": "annual",
+            "formation_month": 6,
+            "formation_month_explicit": True,
+            "signal_max_staleness_months": 11,
+        },
+    )
+
+    assert len(merged) == 12
+    assert set(merged["cohort"]) == {200006}
+    assert set(merged["signal"]) == {0.7}
+    assert merged["yyyymm"].min() == 200007
+    assert merged["yyyymm"].max() == 200106
+
+
+def test_annual_asof_respects_max_staleness():
+    signal = pd.DataFrame({"permno": [1], "yyyymm": [199903], "signal": [0.2]})
+    merged = BacktestExecutor().apply_signal_holding_period(
+        _msf_full_year(),
+        signal,
+        {
+            "holding_period_months": 12,
+            "rebalance_frequency": "annual",
+            "formation_month": 6,
+            "formation_month_explicit": True,
+            "signal_max_staleness_months": 11,
+        },
+    )
+    assert merged.empty
+
+
+def test_monthly_signal_not_resampled_by_annual_asof_logic():
+    signal = pd.DataFrame({"permno": [1], "yyyymm": [200003], "signal": [0.7]})
+    data = pd.DataFrame(
+        {"permno": 1, "yyyymm": [200003, 200004, 200005], "ret": 0.01, "me": 100.0, "exchcd": 1}
+    )
+    merged = BacktestExecutor().apply_signal_holding_period(
+        data,
+        signal,
+        {"holding_period_months": 12, "rebalance_frequency": "monthly"},
+    )
+
+    assert sorted(merged["yyyymm"]) == [200004]
+    assert set(merged["cohort"]) == {200003}

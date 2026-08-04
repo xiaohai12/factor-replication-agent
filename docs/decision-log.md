@@ -39,6 +39,1064 @@ when writing the paper.
 
 <!-- Add new entries below this line, newest first. -->
 
+## 2026-08-04 (fifth) — Systematically assessed C&Z bridge feasibility across the 10 test papers; only 1 of 11 factors qualifies as safely portable
+
+- **Context / problem:** Asked whether the C&Z bridge mechanism could be
+  confirmed to generalize across the project's 10 test papers
+  (`data/test_papers/`, 12 human-labeled MethodSpecs). Rather than guess
+  from paper titles, dispatched a thorough read of each factor's ACTUAL C&Z
+  predictor source file (where a plausible match existed) and classified
+  each as SIMPLE (single-source, clean formula, lag a clean multiple of 12
+  months -- portable the same way `asset_growth_from_panel`/
+  `accruals_from_panel` were) / COMPLEX (multi-source merge, rolling
+  regressions, external data) / NO_MATCH (no corresponding C&Z file at
+  all).
+- **Result:** Only 1 of 11 non-AssetGrowth factors qualified as SIMPLE:
+  `Valta_StrategicDefault_ConvertibleDebt` (`ConvDebt.py`). Verified this
+  myself by reading the source directly (not just trusting the assessment)
+  before implementing -- confirmed single `comp_funda` source
+  (`dc`/`cshrc`), a binary indicator with NO lag at all (the simplest of
+  the three ported factors). The other 10 need substantially more
+  infrastructure: daily-return rolling correlations (Betting Against Beta),
+  36-month rolling FF3 regressions (Residual Momentum), recursive SG&A
+  depreciation with FF17 industry adjustment (Organization Capital),
+  external patent/citation panels this repo doesn't have (Innovative
+  Efficiency, both variants), or OptionMetrics implied volatility data
+  (the three options-based factors) -- plus 2 factors (Valta's Secured
+  Debt and Shareholders variants) with no corresponding C&Z predictor file
+  in this repo's copy of their source at all.
+- **Decision:** Registered `ConvDebt` as the third `CZ_BRIDGE_SIGNALS`
+  entry. Explicitly did NOT attempt to port any of the 10
+  COMPLEX/NO_MATCH factors -- doing so without the missing infrastructure
+  (daily CRSP rolling-window computation, external patent/citation/options
+  data ingestion) would mean either an incomplete/wrong port or silently
+  reinventing empirical choices the paper's/C&Z's actual implementation
+  makes, both of which this project's hard constraints forbid.
+- **Empirical impact:** None -- `ConvDebt` has no existing golden-number
+  fixture in this repo (unlike AssetGrowth/Accruals) to verify against, so
+  its tests are direct unit tests on hand-built panels only (no real
+  synthetic-data integration test this time). Full suite: 386 passed, 26
+  skipped, zero regressions.
+- **Trade-offs / risks:** The bridge registry now covers 3 of ~200 C&Z
+  predictors and, within THIS project's specific 10 test papers, exactly 1
+  of 12. Genuinely expanding coverage further requires either (a) reading
+  more predictor scripts outside the test-paper set looking for more SIMPLE
+  candidates, or (b) building real infrastructure for one of the COMPLEX
+  categories (e.g. a daily-CRSP rolling-window helper would unlock Betting
+  Against Beta and likely several similar momentum/beta factors at once) --
+  neither attempted here.
+- **References:** `src/infra/reference/cz_bridge.py` (`convdebt_from_panel`,
+  `CZ_BRIDGE_SIGNALS`); `tests/test_cz_bridge.py`;
+  `data/CZ code/Signals/pyCode/Predictors/ConvDebt.py`;
+  `data/test_method_specs_human_labeled/*.methodspec.json`;
+  `data/test_papers/paper_spec_mapping.json`.
+
+## 2026-08-04 (fourth) — Merged `ExperimentPlan`/`ExperimentMatrix` into one execution path; implemented the long-dormant `factorial_switches`
+
+- **Context / problem:** `DualTrackController` had two independent ways to
+  declare a batch of tracks -- the original hardcoded-in-Python
+  `ExperimentPlan` (`run_experiment`) and the newer declarative yaml
+  `ExperimentMatrix` (`run_from_matrix`, Phase A2). They duplicated the
+  track-building/`_finalize_batch` glue, and only the yaml path derived
+  `family`/`identification_level` -- a plan-based `ablation_*` track had no
+  such classification at all. Separately, `ExperimentPlan.factorial_switches`
+  had been declared since early in the project (see docs/multi-config-
+  evidence-plan.md's explicit warning against exactly this: "implement the
+  declared-but-never-executed `factorial_switches` in the same pass, don't
+  leave two half-finished interfaces") but nothing ever read it.
+- **Decision:** Extracted `experiment_spec.build_experiment_spec` as the ONE
+  shared per-experiment resolution (resolve config, diff against baseline,
+  derive `family`/`identification_level`) that both `load_experiment_matrix`
+  (yaml) and a new `DualTrackController._plan_to_matrix` (Python
+  `ExperimentPlan`) call. `run_experiment` is now a thin adapter:
+  `_plan_to_matrix(plan, spec)` then `run_from_matrix(...)`. Implemented
+  `factorial_switches` as `_factorial_track_specs`: a real full-factorial
+  cartesian product of {baseline value, HXZ value} per given switch,
+  excluding the redundant all-baseline corner.
+- **A real bug caught while writing tests, not by luck:** the cartesian
+  product degenerates when a switch's baseline value happens to already
+  equal its own HXZ-standardized value (e.g. a paper whose own weighting is
+  already "vw", same as HXZ's default) -- `itertools.product` then yields
+  the SAME resulting override dict from more than one input position,
+  which would have produced two `RunRecord`s with an IDENTICAL track name:
+  a silent on-disk collision (second overwrites first) and a lost entry in
+  `comparison.json`'s `tracks` dict (a plain `{name: ...}` mapping loses
+  duplicates with no error). Fixed by de-duplicating by resulting track
+  name inside `_factorial_track_specs`. Caught because a test using a
+  fixture whose weighting happened to match HXZ's default failed with a
+  suspicious "2 == 3" instead of "4 == 3" -- worth remembering: a
+  cartesian-product expansion over "baseline vs standard" values is NOT
+  safe to assume produces `2^n` distinct entries without checking for
+  option-level duplicates first.
+- **Empirical impact:** None on real runs. Full suite: 372 passed, 26
+  skipped, zero regressions; existing plan-based tests (`tests/
+  test_dual_track_controller.py`, `tests/test_batch_invalidation.py`)
+  needed no changes -- their outward behavior is identical, since
+  `_plan_to_matrix` reproduces the original track set exactly (baseline
+  optional via `run_baseline`, `standardized_hxz`, `ablation_*`).
+- **Trade-offs / risks:** `_plan_to_matrix` calls `build_config` once for
+  the plan's baseline and `build_experiment_spec` calls it again per
+  experiment (and `_finalize_batch`'s `tracks_summary` recomputes it once
+  more per successful track for `comparison.json`) -- a real, minor,
+  accepted redundancy (each call is cheap in-process arithmetic, not I/O);
+  not worth a deeper refactor for this pass.
+- **References:** `src/steps/step6_dual_track_controller/__init__.py`
+  (`run_experiment`, `_plan_to_matrix`, `_factorial_track_specs`,
+  `run_from_matrix`'s new `run_baseline` param);
+  `src/steps/step6_dual_track_controller/experiment_spec.py`
+  (`build_experiment_spec`); `tests/test_experiment_plan_matrix_merge.py`;
+  `docs/multi-config-evidence-plan.md` Phase A2.
+
+## 2026-08-04 (third) — Bridge signal wired into a real executable track: `BacktestExecutor.run_with_config` already accepted a precomputed signal, so this was an orchestration addition, not a data one
+
+- **Context / problem:** The previous entry (second) built a real C&Z bridge
+  SIGNAL for AssetGrowth but explicitly stopped short of running it through
+  anything -- `compute_cz_bridge_signal()` returned a DataFrame nobody
+  consumed. The actual research question (Phase C/D's E2 "bridge
+  experiment") needs that signal run through OUR OWN engine, under the SAME
+  config as the agent's own track, so any gap is attributable to the signal
+  alone.
+- **Decision:** Added a `precomputed_signal_path` mode to
+  `generate_backtest_script`: when set, the generated script skips
+  `compute_signal()` and loads that parquet directly, then proceeds through
+  the IDENTICAL downstream lifecycle (universe filter, breakpoints,
+  portfolios, metrics, artifact persistence) as every other track. New
+  `DualTrackController._run_bridge_track` computes the bridge signal,
+  writes it to a real file, and runs the script in that mode --
+  deliberately NOT through the shared `RepairLoop` (there's no agent code
+  to repair here). `run_from_matrix` recognizes
+  `signal_input_ref: "cz_bridge"` (or `"cz_bridge:<factor_id>"`) as "run
+  this as a real bridge track" instead of the previous unconditional skip.
+- **A second design decision worth recording:** a bridge track's
+  `code_hash` is deliberately set to a descriptive, non-agent string
+  (`f"cz_bridge:{factor_id}"`), and a new `RunRecord.is_bridge_track` flag
+  excludes it from Phase 0.6's "every track ran identical code"
+  consistency check. Without this exclusion, EVERY bridge track would
+  spuriously trip `batch_invalidated=True` (its code_hash never matches the
+  frozen agent plugin's, by design), even though that's not a violation --
+  a bridge track's whole point is a different signal source, which is a
+  different comparison axis entirely from the config-only ablations that
+  check applies to.
+- **Empirical impact:** `tests/test_bridge_track_e2e.py` runs the
+  AssetGrowth bridge through the REAL `Pipeline`/`BacktestRunner`/subprocess
+  chain (not fakes) against the same synthetic snapshot the MVP
+  golden-number test uses, and gets back a real `status="success"`
+  `RunRecord` with populated metrics and a persisted signal series -- this
+  is now a genuinely executable capability, verified end-to-end, not a
+  theoretical one. Full suite: 363 passed, 26 skipped, zero regressions.
+- **Trade-offs / risks:** Still bounded to the one registered factor
+  (AssetGrowth) from the prior entry. The bridge track is not yet wired
+  into `run_experiment`'s (non-matrix) `ExperimentPlan` path -- only
+  `run_from_matrix` recognizes it, so a caller still using the older
+  hardcoded `ExperimentPlan` entry point has no way to request a bridge
+  track. `matched_comparison.matched_sample_stats` (built earlier) is still
+  not automatically invoked to compare the bridge track's realized signal
+  against the agent's own -- that comparison would need to be added to
+  `bundle.py`'s evidence bundle or run manually against the two tracks'
+  `signal.parquet` files.
+- **References:** `src/steps/step3_codegen/script_generator.py`
+  (`precomputed_signal_path`, `PRECOMPUTED_SIGNAL_PATH` template branch);
+  `src/steps/step5_backtest_runner/__init__.py` (`build_script`);
+  `src/steps/step6_dual_track_controller/__init__.py`
+  (`_run_bridge_track`, `run_from_matrix`); `src/infra/models/run_record.py`
+  (`is_bridge_track`); `tests/test_script_generator_bridge_mode.py`; `tests/
+  test_bridge_track_wiring.py`; `tests/test_bridge_track_e2e.py`;
+  `docs/multi-config-evidence-plan.md` Phase C/D.
+
+## 2026-08-04 (second) — A real C&Z bridge is feasible for AssetGrowth without adding `polars`; ported the formula instead of subprocess-executing their script
+
+- **Context / problem:** The 2026-08-03 session flatly stated no C&Z
+  firm-level signal bridge existed and that building one would require
+  "running/porting their pipeline." Investigated `data/CZ code/Signals/
+  pyCode/Predictors/AssetGrowth.py` directly and found its actual input
+  requirement is trivial: `[gvkey, permno, time_avail_m, at]` -- exactly the
+  shape our own `assemble_signal_master_table_from_sources({"comp_funda":
+  ["at"]})` already produces from real WRDS data. So a real bridge for THIS
+  factor was much closer than assumed.
+- **Options considered:** (a) subprocess-execute their actual `.py` script
+  against a `m_aCompustat.parquet` we assemble ourselves; (b) port their
+  documented formula as our own function operating on our own panel shape;
+  (c) leave it undone as previously stated.
+- **Decision:** (b). `save_standardized.py` (which their script imports)
+  itself imports `polars`, which the project doesn't depend on (see session
+  memory note on why bare `pytest` collecting `data/CZ code/**/test_*.py`
+  files fails for exactly this reason) -- adding a new runtime dependency
+  just to execute one predictor script wasn't a call to make silently.
+  Their formula is short, fully stated, and unambiguous, so porting it is
+  both cheaper and doesn't require a new dependency.
+- **A correctness catch worth recording:** the FIRST draft of the port
+  copied their literal `.shift(12)` unchanged. That would have been WRONG:
+  their `m_aCompustat.parquet` is a MONTHLY, forward-filled panel (one row
+  per firm-month), so `.shift(12)` means "12 months ago"; our own
+  `assemble_signal_master_table_from_sources` produces one row per
+  firm-FISCAL-YEAR-OBSERVATION (annual frequency, not forward-filled --
+  `_load_generic_signal_frame`). Shifting 12 ROWS on an annual panel would
+  look back 12 YEARS, not 1. Fixed to shift by 1 row, which is the correct
+  economic equivalent ("prior fiscal year's assets") on our panel's shape.
+  Caught by tracing `_load_generic_signal_frame`'s output frequency before
+  trusting the port, not by a failing test -- the synthetic-data
+  integration test (added after the fix) would NOT have caught the
+  original bug on its own without deliberately checking output row counts.
+- **Empirical impact:** `tests/test_cz_bridge.py::
+  TestRealSyntheticDataIntegration` recovers the exact per-firm growth
+  rates from the SAME synthetic Compustat fixture the MVP e2e golden-number
+  test uses, through the real (not mocked) `assemble_signal_master_table_
+  from_sources` call. This is a real, verified signal series, not a
+  placeholder.
+- **Trade-offs / risks:** Still bounded to ONE factor (AssetGrowth); most
+  C&Z predictors are more complex (multi-source joins, discretionary
+  edge-case handling, PIT nuances) and are NOT covered by this pattern
+  without individually verifying each one's own script the same careful
+  way. NOT yet wired into an actual executable `DualTrackController` bridge
+  track -- `BacktestExecutor.run_with_config()` already accepts a
+  pre-computed `signal` DataFrame directly (bypassing `compute_signal()`
+  entirely), so the remaining work is a NEW script-generation mode (or an
+  in-process engine entry point) that swaps in `compute_cz_bridge_signal()`'s
+  output instead of the agent's plugin, run under the SAME resolved config
+  as the baseline track -- not a data problem anymore, an orchestration one.
+- **References:** `src/infra/reference/cz_bridge.py`; `tests/
+  test_cz_bridge.py`; `data/CZ code/Signals/pyCode/Predictors/
+  AssetGrowth.py`; `src/infra/data_layer/sources.py`
+  (`_load_generic_signal_frame`, `assemble_signal_master_table_from_sources`);
+  `docs/multi-config-evidence-plan.md` Phase B/C&D.
+
+## 2026-08-04 — Phase 0.6 upgraded from detection-only to a real auto-converging freeze; found the mechanism makes `batch_invalidated=True` nearly unreachable via the public API
+
+- **Context / problem:** The previous Phase 0.6 pass (2026-08-03, ninth
+  entry) only DETECTED when a track-local repair broke a batch's "every
+  track ran identical code" premise -- it never corrected it, leaving a
+  human to notice `batch_invalidated=True` and manually re-run everything.
+  Asked to close that gap: auto-freeze-and-rerun instead of detect-only.
+- **Decision:** `_run_tracks_with_freeze` now runs the batch once with
+  repair allowed; if that pass produced any successful track whose code
+  diverged from the original plugin, it picks the FIRST diverging track's
+  repaired plugin as the new frozen candidate and re-runs the ENTIRE batch
+  (every track, including ones that already succeeded) against that one
+  plugin with repair explicitly DISABLED (`_NoRepairMetaCoder`, whose
+  `llm_client=None` is exactly the attribute `RepairLoop` checks to decide
+  whether it may attempt a repair at all). Bounded to `max_refreeze_attempts`
+  re-runs (default 1). A single-track batch skips this entirely (no other
+  track to be consistent with).
+- **Finding worth recording:** because the frozen re-run pass can never
+  itself change a plugin's code (no repair capability), EVERY successful
+  track in that pass trivially uses the exact `current_plugin` it was given
+  -- there is no code path by which two successful tracks in a frozen pass
+  can disagree. A track that can't run under the shared re-frozen plugin
+  doesn't "diverge", it FAILS (`status="failed"`) and drops out of the
+  comparison set entirely. Consequence: with the default of one re-freeze
+  attempt, `batch_invalidated=True` cannot occur from `run_experiment`/
+  `run_from_matrix`'s normal call path -- the batch either converges among
+  its survivors, or the non-convergible track is marked failed (itself
+  visible and honest, just not via the `batch_invalidated` flag). The flag
+  now only fires via the explicit `max_refreeze_attempts=0` escape hatch
+  (kept as a real, tested code path -- `TestZeroRefreezeAttemptsIsDetectionOnly`
+  -- for a caller that wants the OLD detect-only behavior), which
+  `run_experiment`/`run_from_matrix` never pass.
+- **Rationale:** This is a strictly better outcome than the old detect-and-
+  flag behavior, not a regression: a track that structurally cannot run
+  under the shared frozen code shouldn't produce a "successful but
+  incomparable" result at all -- marking it failed is the economically
+  correct signal (this track's config combination isn't achievable with the
+  batch's one frozen implementation), and every track that DOES succeed is
+  now provably running identical code, satisfying the batch's actual
+  purpose (valid cross-track config attribution) rather than merely
+  reporting that it was violated.
+- **Empirical impact:** None on real runs (no real WRDS run has needed a
+  track-local repair yet). Full suite: 344 passed, 26 skipped, zero
+  regressions; two existing tests in `tests/test_batch_invalidation.py`
+  were rewritten to assert the new (correct) converging behavior instead of
+  the old permanently-invalidated one, plus a new direct
+  `max_refreeze_attempts=0` test for the still-supported detect-only mode.
+- **Trade-offs / risks:** If TWO tracks each need a genuinely different,
+  mutually incompatible fix, the current design arbitrarily freezes on
+  whichever diverging track appears FIRST in `track_specs` order and lets
+  the other fail -- it does not try every diverging candidate looking for
+  one that satisfies the most tracks. Considered acceptable for now (a
+  single technical repair fixing multiple independent tracks is the common
+  case; true "irreconcilable" formula bugs should surface as a real,
+  visible per-track failure rather than being silently arbitrated away).
+- **References:** `src/steps/step6_dual_track_controller/__init__.py`
+  (`_run_tracks_with_freeze`, `_NoRepairMetaCoder`, `_run_track`);
+  `tests/test_batch_invalidation.py`; `tests/test_dual_track_controller.py`
+  (`TestRepairLoop::test_execute_failure_repairs_then_succeeds`, updated for
+  the single-track guard); `docs/multi-config-evidence-plan.md` Phase 0.6.
+
+## 2026-08-03 (tenth) — Phase A1/A2/B/C&D implemented at bounded scope; the real C&Z signal bridge is explicitly NOT one of them
+
+- **Context / problem:** Asked to complete the rest of
+  `docs/multi-config-evidence-plan.md` (Phases A1 through E) in one session.
+  Phase E (LLM diagnosis) was already done (see the seventh entry above and
+  roadmap). Phases B/C&D's actual point -- comparing our agent-generated
+  signal against C&Z's OWN firm-level signal under a matched engine config
+  -- requires either downloading C&Z's already-computed firm-level signal
+  output or running their own `Predictors/*.py`/`Portfolios/Code/*.R` source
+  (`data/CZ code/`) against real WRDS data. Neither exists as a usable
+  artifact in this repo today: `data/CZ code/` is their SOURCE CODE (needs
+  their own WRDS download pipeline run against it), not a precomputed
+  per-factor signal file.
+- **Options considered:** (a) fabricate a "bridge" using synthetic/placeholder
+  data and present it as done; (b) skip Phase B/C&D entirely; (c) implement
+  every piece that IS honestly buildable without that missing data adapter
+  (config/evidence infrastructure, comparison math, metadata parsing) and
+  state plainly what still can't be claimed done.
+- **Decision:** (c). Implemented, and verified with real tests (343 passed,
+  26 skipped, zero regressions):
+  - Phase A1 (evidence bundle): realized-signal persistence
+    (`<track>.signal.parquet`), `artifact_sha256`/`series_semantic_hash`
+    (deliberately different hash kinds -- see `src/infra/hashing.py`
+    docstring), an approximated `data_snapshot_hash`, and
+    `EvidenceStore.save_run` accepting a real artifact bundle written
+    atomically.
+  - Phase A2 (declarative matrix): `experiment_spec.load_experiment_matrix`
+    + `DualTrackController.run_from_matrix`, with `family`/
+    `identification_level` DERIVED from the actual resolved-config diff,
+    never authored in the yaml.
+  - Phase B (bounded to metadata): `load_cz_reference_profile` parses
+    C&Z's reported summary numbers from `SignalDoc.csv` -- explicitly NOT a
+    firm-level signal loader.
+  - Phase C/D (bounded to math): `matched_comparison.matched_sample_stats`
+    implements the actual correlation/sign-agreement/extreme-overlap
+    arithmetic the bridge experiment will need, consuming whatever two
+    signal series it's given -- but nothing yet supplies a REAL C&Z series
+    as one of them.
+  - `PipelineStatus.comparison_path`/`.diagnosis` now surface the
+    already-written `comparison.json`/`diagnosis.json` back through
+    `run_full_pipeline`'s return value (roadmap: "persisted and
+    pipeline-returned diagnosis report").
+- **Rationale:** Every piece implemented is independently real, tested, and
+  useful on its own merits (config/run identity integrity, evidence
+  auditability, a validated declarative experiment format) regardless of
+  whether the C&Z bridge ever gets built. None of it depends on or assumes
+  data that doesn't exist. Fabricating a "bridge" against synthetic
+  standins would produce a plausible-looking function call that answers
+  nothing about actual replication reproducibility -- worse than admitting
+  the gap, since a future reader could mistake it for a real result.
+- **Empirical impact:** None -- no real bridge run exists to report a
+  number from. Full test suite unaffected in behavior (343/26, all new
+  tests use synthetic/fake data).
+- **Trade-offs / risks:** The plan's stated "Completion Criteria" (one
+  real-data factor running a versioned experiment matrix + C&Z bridge +
+  deterministic diagnosis report, reproducible with the LLM off) is NOT met
+  by this session's work and should not be represented as met. The
+  remaining gap is squarely: (1) a real C&Z firm-level signal adapter
+  (requires running/porting their pipeline or sourcing an already-computed
+  export), (2) wiring that adapter's output through
+  `matched_comparison.py` and a real `DualTrackController` bridge track,
+  (3) an actual full run against `data/local`'s real WRDS data producing a
+  `comparison.json` that includes a bridge track. Also NOT done: full
+  batch-level plugin FREEZE (Phase 0.6 remains detection-only), engine-level
+  intermediate-artifact persistence (breakpoints/assignments/portfolio
+  returns), and Streamlit UI wiring for the new declarative matrix path.
+- **References:** `src/infra/hashing.py`, `src/infra/evidence/__init__.py`,
+  `src/steps/step6_dual_track_controller/experiment_spec.py`,
+  `src/infra/reference/__init__.py`,
+  `src/steps/step7_replication_diff/matched_comparison.py`, `src/pipeline.py`
+  (`PipelineStatus`); `tests/test_hashing.py`, `tests/test_evidence_store.py`,
+  `tests/test_experiment_matrix.py`, `tests/test_run_from_matrix.py`,
+  `tests/test_cz_reference_profile.py`, `tests/test_matched_comparison.py`,
+  `tests/test_pipeline_status_artifacts.py`; `docs/multi-config-evidence-
+  plan.md` Phases A1/A2/B/C/D.
+
+## 2026-08-03 (ninth) — Phase 0.6 batch-invalidation detects, but does not yet prevent, a track-local repair breaking the frozen-plugin guarantee
+
+- **Context / problem:** `docs/multi-config-evidence-plan.md` D5 flagged
+  that each track in `DualTrackController.run_experiment` runs its OWN
+  `RepairLoop.execute_with_repair` independently. If a track's execution
+  fails for a genuine technical reason and gets repaired, that track's
+  plugin `code_hash` silently diverges from every other track's -- so a
+  "config X differs, everything else held fixed" comparison across tracks
+  is quietly false, with no record of it happening.
+- **Options considered:** (a) the full Phase 0.6 design as scoped in the
+  plan: freeze the plugin before the matrix starts, forbid ALL track-local
+  repair during the matrix, and invalidate + re-run the entire batch from a
+  newly-frozen plugin if a technical bug is found; (b) a smaller slice:
+  keep per-track repair as-is (still needed -- a paper's own genuinely buggy
+  formula can surface on any single track first), but detect after the fact
+  when it happened and make the violation explicit and auditable instead of
+  silent; (c) do nothing until the full batch-freeze/re-run infrastructure
+  (Phase 0's `RunContext`, per-execution unique dirs) is ready.
+- **Decision:** (b), as an explicitly partial step. Every `RunRecord` in one
+  `run_experiment()` call now carries a shared `experiment_batch_id` and the
+  `frozen_plugin_hash` (the plugin's `code_hash` as passed into
+  `run_experiment`, before any track ran). After all tracks finish, any
+  successful track whose final `code_hash` differs from
+  `frozen_plugin_hash` marks `batch_invalidated=True` with a
+  `batch_invalidation_reason` naming the diverged track(s) -- on EVERY
+  record in the batch, not only the repaired one, since the whole batch's
+  cross-track attribution is compromised, not just that track's number.
+  The same flag is embedded in `comparison.json`'s new `"batch"` key so a
+  human/LLM reading that file sees it too.
+- **Rationale:** Full pre-matrix freeze-and-forbid-repair requires the
+  matrix orchestration layer (declarative experiment loading, batch-level
+  re-run-from-frozen-plugin) that Phase A2 introduces -- building it here,
+  ahead of that, would mean either blocking a real technical bug fix
+  mid-matrix (bad: a real formula crash on one track is exactly the kind of
+  thing repair should still fix) or half-implementing batch re-run without
+  the rest of the identity infrastructure it depends on. Detecting and
+  flagging the violation is strictly additive, requires no new
+  orchestration, and immediately prevents the worse failure mode: silently
+  trusting a cross-track config-attribution claim that isn't true.
+- **Empirical impact:** None on existing runs (verified: 283/26 suite, zero
+  regressions). No real experiment has yet hit this path in production (no
+  real WRDS run has needed a track-local repair), so no historical
+  `comparison.json` needs reinterpreting.
+- **Trade-offs / risks:** This does not stop the repair from happening, nor
+  does it re-run the batch from a re-frozen plugin -- a human/LLM reading a
+  `batch_invalidated=True` result must currently re-run the whole matrix
+  manually once satisfied the repair was correct. The full freeze/forbid/
+  re-run design remains Phase A2 (`docs/multi-config-evidence-plan.md`
+  §4 Phase A2, "batch semantics").
+- **References:** `src/steps/step6_dual_track_controller/__init__.py`
+  (`run_experiment`); `src/infra/models/run_record.py`
+  (`experiment_batch_id`/`frozen_plugin_hash`/`batch_invalidated`/
+  `batch_invalidation_reason`); `src/steps/step5_backtest_runner/__init__.py`
+  (`write_comparison_summary`'s `batch_info` param); `tests/
+  test_batch_invalidation.py`; `docs/multi-config-evidence-plan.md` D5,
+  Phase 0.6.
+
+## 2026-08-03 (eighth) — Config override validation is a soft warning for no-ops, not a hard reject
+
+- **Context / problem:** `docs/multi-config-evidence-plan.md` Phase 0.2
+  (D3) flagged that `build_config`'s `config.update(overrides)` silently
+  accepted anything — an unknown key, an off-menu value, or a no-op override
+  (value already equal to the resolved default) all passed through
+  identically. This makes any config-diff-based attribution unverifiable: a
+  track named `ablation_weighting_ew` could silently run on the default
+  weighting if the override key was misspelled, and the resulting "no
+  effect" finding would be a false negative caused by tooling, not economics.
+- **Options considered:** (a) reject all three cases identically as hard
+  errors; (b) reject unknown-key/off-menu-value hard, but only warn on
+  no-op; (c) leave no-op unchecked entirely.
+- **Decision:** (b). Unknown override key and off-menu value for a
+  menu-governed key both raise `ConfigOverrideError`. A no-op override only
+  emits a `UserWarning`.
+- **Rationale:** `DualTrackController`'s `HXZ_STANDARD_CONFIG` and its
+  per-switch ablation map (`_get_ablation_override`) each ship a *named,
+  intentional* config bundle applied uniformly across every factor,
+  regardless of what that particular paper's own MethodSpec already
+  resolves to. When a paper's own weighting already happens to be `vw`, the
+  `standardized_hxz`/`ablation_weighting` track coinciding with it on that
+  one key is a real, reportable empirical fact ("this paper's own choice
+  already matches the HXZ standard on this dimension") — not a caller
+  mistake to reject. Hard-rejecting the whole override dict for one
+  coincidental match would have broken every real experiment run whose
+  paper happens to agree with the standard on at least one field. Strict
+  per-experiment no-op rejection (reject *this one* declared experiment
+  because *its* declared override changed nothing) is deferred to Phase A2's
+  `ExperimentSpec.expected_diff` cross-check, which operates on a single
+  named experiment's intent rather than a shared multi-key config bundle.
+- **Empirical impact:** None on existing runs (verified: 264/26 suite,
+  zero regressions; `test_dual_track_controller.py`'s existing test now
+  visibly emits the expected no-op warnings for `HXZ_STANDARD_CONFIG` keys
+  that coincide with its synthetic fixture's own resolved defaults).
+- **Trade-offs / risks:** A no-op override is still possible to miss if
+  warnings aren't surfaced/read; Phase A2 must still add the stricter
+  per-experiment check before declarative experiment matrices can rely on
+  "no silent no-ops" as a guarantee rather than a warning.
+- **References:** `src/steps/step3_codegen/registry.py`
+  (`_validate_overrides`, `ConfigOverrideError`); `tests/
+  test_config_override_validation.py`; `docs/multi-config-evidence-plan.md`
+  Phase 0.2, Decision 2.
+
+## 2026-08-03 (seventh) — Diagnosis claims: citation-shape validation was not claim-entailment validation
+
+- **Context / problem:** An external review of `prompts/analysis/
+  replication_diagnosis.md` (the sixth entry above) identified that the
+  validator added there only checked that a claim cited a real, whitelisted,
+  correctly-typed key — never that the claim's *text* was actually consistent
+  with that key's *value*. Concretely, a claim `{"claim_type":
+  "sign_agreement", "text": "The signs are opposite.", "evidence_keys":
+  ["...sign_agrees"]}` passed validation even when `sign_agrees` was `true`,
+  because nothing compared the prose to the cited value. The same review also
+  flagged: the OAT (`gap_decomposition.contributions`) evidence was treated as
+  sufficient for causal wording ("drives", "explains") despite being
+  one-at-a-time, not additive, and order/baseline-dependent; `confidence` was
+  an unconstrained LLM self-rating with no defined meaning, contradicting the
+  project's "conclusions must be deterministic" constraint; `stage` was
+  LLM-guessed rather than derived from the config key it actually concerned;
+  `original_method` was described in the prompt as "paper-faithful" when it
+  may embed human-resolved ambiguities the paper never specified; and
+  `config_divergence` claims could cite only one side (`track_value`) of a
+  changed key without the `baseline_value` needed to show the actual
+  divergence.
+- **Options considered:**
+  1. Patch only the prompt wording (softer causal language, drop the "six to
+     ten claims" phrasing). Cheap, but the review's own point was that prompt
+     wording is not enforcement — an LLM can still emit an unfaithful claim
+     and nothing in code would catch it.
+  2. Structure the claim's assertion as an enum (`relation`, e.g.
+     `agrees`/`disagrees`, `larger`/`smaller`/`similar`,
+     `significant`/`insignificant`) checked deterministically against the
+     value of the cited key, plus a code-level ban on causal vocabulary, plus
+     deriving `stage`/`identification_level`/`evidence_strength` from the
+     evidence rather than accepting them from the LLM.
+- **Decision:** Implemented option 2. `DiagnosisClaim`
+  (`src/infra/models/diagnosis.py`) gained `relation` (checked against the
+  claim type: `CLAIM_RELATIONS`), `subject_track` (must match the track named
+  in the claim's own cited keys), `identification_level`
+  (`controlled`/`harmonized`/`observational`/`unidentified`) and
+  `evidence_strength` (a fixed mapping from `identification_level`, not an
+  LLM opinion); `confidence` was removed entirely. `src/steps/
+  step8_diagnosis/__init__.py`'s validator now: (a) compares the asserted
+  `relation` against the actual cited value for `sign_agreement`
+  (`sign_agrees`), `significance` (`track_significant`), and `magnitude_gap`
+  (`abs_spread_ratio` vs. `CLOSE_REPLICATION_RATIO_BAND`); (b) requires
+  `config_divergence` to cite both `.baseline_value` and `.track_value` of
+  the same key; (c) rejects a `subject_track` that doesn't match the track in
+  the claim's own citations; (d) rejects causal vocabulary
+  (`CAUSAL_TERM_RE`: drives/explains/caused by/due to/...) in claim text
+  outright, since nothing in this pipeline produces a controlled/factorial
+  design; (e) derives `stage` from the cited `config_diff`/
+  `gap_decomposition` key's own stage rather than trusting the model; (f)
+  narrows `evidence_limitation` to citing an availability/reason key or a
+  null value, rather than any `derived.tracks.*`/`gap_decomposition.*` key.
+  `src/steps/step7_replication_diff/bundle.py`'s `config_diff` and
+  `gap_decomposition` sections now carry their own `identification_level`
+  (`observational` and `harmonized`/`unidentified` respectively) plus an
+  explicit `interaction_caveat` string on the OAT decomposition. The prompt
+  was rewritten to describe `original_method` as "the approved (reviewed)
+  interpretation of the paper" rather than "paper-faithful," and the "six to
+  ten claims" language was replaced with "at most ten, no minimum implied."
+  `render.py` now generates the claim's displayed sentence deterministically
+  from `(claim_type, relation, subject_track)` — the LLM's own `text` is
+  shown only as a secondary, explicitly unauthoritative aside. Schema bumped
+  to v2 (was already v1→v2 in the prior entry's `comparison.json`; this is
+  `ReplicationDiagnosisReport.schema_version` specifically).
+- **Rationale:** The review's core point stands: a citation-whitelist check
+  proves a key exists and is well-typed, never that the sentence built around
+  it is true. Structuring the assertion as an enum makes the sentence itself
+  a deterministic function of validated inputs, so "real key, wrong sentence"
+  becomes structurally impossible rather than merely discouraged in a prompt.
+  Banning causal vocabulary in code (not just prompt instruction) matches the
+  actual epistemic status of the evidence this pipeline can produce: a config
+  diff is observational, and even a full OAT decomposition is one-at-a-time
+  and non-additive, so no claim type reachable today can honestly claim
+  `identification_level == "controlled"` — that value exists in the schema so
+  a future factorial/Shapley-decomposition addition has somewhere to report
+  itself, but every currently-emittable claim is `harmonized` at best.
+- **Empirical impact:** None on any backtest number. `stage`/
+  `identification_level`/`evidence_strength` change what a diagnosis *report*
+  displays for claims about the same underlying evidence, not any metric.
+- **Trade-offs / risks:** The remaining gap the review raised but this pass
+  did not close: `original_method`'s MethodSpec may contain human-resolved
+  ambiguities that are invisible to `config_diff` (which only diffs
+  *resolved* configs, not which fields were paper-stated vs. reviewer-filled).
+  Making that visible would require surfacing MethodSpec resolution
+  provenance as its own evidence-bundle section — deferred, not yet scoped in
+  `docs/multi-config-evidence-plan.md`.
+- **References:** `src/infra/models/diagnosis.py`,
+  `src/steps/step8_diagnosis/__init__.py`, `src/steps/step8_diagnosis/
+  render.py`, `src/steps/step7_replication_diff/bundle.py`, `prompts/
+  analysis/replication_diagnosis.md`, `tests/test_replication_diagnosis.py`,
+  CHANGELOG.md.
+
+## 2026-08-03 (sixth) — LLM replication-diagnosis layer: evidence-key citation over free-text narrative
+
+- **Context / problem:** After `comparison.json` gained per-track config +
+  metrics + the paper's own reported results, the natural next step was to
+  let an LLM turn those numbers into a readable diagnosis. The obvious naive
+  approach — hand the whole file to an LLM and ask for a markdown summary —
+  would let the model restate, round, or silently miscompute any of those
+  numbers (a spread delta, a t-stat gap, a significance call), and would let
+  it invent a cause for a gap that was never actually measured. That directly
+  violates the project's hard constraint (AGENTS.md, `docs/
+  replication-diagnosis-design.md` §1.1): "every core numerical conclusion
+  must be reproducible with the LLM switched off," and the LLM must never
+  produce a number or threshold that enters a conclusion.
+- **Options considered:**
+  1. Free-text narrative: give the LLM `comparison.json`, ask for prose. Cheap
+     to build, but auditable-only by re-reading the whole prose against the
+     source numbers by hand, and nothing stops a hallucinated figure or an
+     unfounded causal claim from reading as authoritative.
+  2. Full Phase E discipline (as scoped in `docs/multi-config-evidence-plan.md`
+     since before this entry, just not yet implemented): a deterministic
+     evidence bundle with a flat citable-key whitelist; the LLM outputs only
+     structured claims (`claim_type` + prose + cited keys), never numbers; a
+     validator enforces per-claim-type evidence requirements and rejects any
+     digit in the prose or any unlisted key; a deterministic renderer
+     re-inserts every number from the bundle.
+- **Decision:** Implemented option 2 in full, not a lighter version of it.
+  Added `src/steps/step7_replication_diff/bundle.py`
+  (`build_evidence_bundle`/`build_track_vs_paper`/`build_config_diff`/
+  `build_gap_decomposition`/`flatten` → `evidence_keys`),
+  `src/infra/models/diagnosis.py` (`DiagnosisClaim`/
+  `ReplicationDiagnosisReport`, `CLAIM_EVIDENCE_REQUIREMENTS`/
+  `CLAIM_EVIDENCE_SUBSTRINGS`), `src/steps/step8_diagnosis/`
+  (`ReplicationDiagnoser` + `validate_claims` + `render.py`), and
+  `prompts/analysis/replication_diagnosis.md`. `comparison.json` bumped to
+  schema v2 to carry the bundle. Wired as strictly opt-in
+  (`Pipeline(run_diagnosis=False)` default, `DualTrackController(diagnoser=
+  None)` default) plus a standalone `scripts/analyze_comparison.py`.
+- **Rationale:** The project's whole premise is that empirical conclusions
+  must be auditable and reproducible without the LLM. A narrative layer that
+  can write its own numbers or invent causation undermines that premise at
+  the very last step of the pipeline, right where a reader is most likely to
+  just trust the prose. Citation-only claims plus a validator plus a
+  deterministic renderer make the failure mode "claim gets rejected and shows
+  up in `rejected_claims` for a human to see" instead of "wrong number ships
+  silently in a polished-looking report." The one-time cost (an evidence-key
+  whitelist, a per-claim-type requirements table, ~150 extra lines) is small
+  next to what it buys for the paper's reproducibility argument.
+- **Empirical impact:** None on any backtest number — this layer only
+  explains numbers that already exist. Verified on the real AssetGrowth
+  (Cooper, Gulen & Schill 2008) bundle via codex: correctly reported the
+  standardized track's spread-sign mismatch against the paper, both tracks'
+  loss of statistical significance (|t| < 1.96), attributed the
+  standardized-vs-original divergence to `breakpoint_source`/
+  `rebalance_frequency`/`holding_period_months`/`universe`, and — because no
+  `ablation_*` tracks had been run — correctly reported the OAT gap
+  decomposition as unavailable rather than fabricating an attribution. 9/9
+  claims passed validation on that run.
+- **Trade-offs / risks:** The evidence-key whitelist is the full bundle
+  flattened, which grows with the number of tracks/ablations; if that ever
+  gets too large for a single LLM call, the fix is to shard by pipeline stage
+  rather than relaxing the whitelist. The significance threshold (|t|≥1.96)
+  and the "close replication" ratio band are fixed constants chosen for
+  reasonableness, not fit to any dataset — worth re-examining if the project
+  starts reporting Bonferroni-corrected or one-sided tests. Sequence-level
+  evidence (return-series correlation, drawdown comparison) is deliberately
+  out of scope for this bundle; it would need each track's `<track>.csv`, not
+  just `comparison.json`, and is left for a later Phase C addition.
+- **References:** `src/steps/step7_replication_diff/bundle.py`,
+  `src/steps/step8_diagnosis/__init__.py`, `src/steps/step8_diagnosis/
+  render.py`, `src/infra/models/diagnosis.py`, `prompts/analysis/
+  replication_diagnosis.md`, `scripts/analyze_comparison.py`,
+  `tests/test_replication_diagnosis.py`, `docs/multi-config-evidence-plan.md`
+  §Phase E, CHANGELOG.md.
+
+## 2026-08-03 (fifth) — Fixed two long-known multi-track bugs while running a real original-vs-HXZ comparison
+
+- **Context / problem:** After manually running a 3-config smoke test for
+  AssetGrowth (VW/full_sample, EW/full_sample, VW/NYSE) by giving each track a
+  different `factor_id` as a workaround, the user asked why the actual
+  `standardized_hxz`/C&Z tracks hadn't been run through the real
+  `DualTrackController`. Attempting that surfaced two real, previously-known
+  bugs that had never been exercised end-to-end before:
+  1. `BacktestRunner.build_script()` names its output script/CSV/metrics files
+     using `spec.factor_id` ALONE. `DualTrackController.run_experiment()`
+     calls `build_script()` once per track (`original_method`,
+     `standardized_hxz`, `ablation_*`) for the SAME factor, so every track
+     after the first silently overwrote the previous track's on-disk file.
+     Only the in-memory `RunRecord.metrics` per track was ever correct; no
+     test caught this because `test_dual_track_controller.py` uses a
+     `FakeRunner` that never touches the filesystem.
+  2. `HXZ_STANDARD_CONFIG["breakpoint_quantiles"]` was `[10, 20, ..., 90]` (a
+     percentile-cutpoint list) while `BacktestExecutor.compute_breakpoints`
+     does `int(config.get("breakpoint_quantiles", 10))` — `int()` on a list
+     raises `TypeError`. This was already documented (2026-08-02 entry,
+     `docs/roadmap.md` Immediate Correctness Work #1) but never actually
+     fixed, so the `standardized_hxz` track has never been runnable against
+     real data until now.
+- **Decision:** Fixed both, since they directly blocked the real ask (run the
+  actual HXZ track, not a hand-rolled `factor_id` workaround):
+  1. Added an optional `track_name: str | None = None` parameter to
+     `BacktestRunner.build_script()`. When supplied, the script/output file
+     stem becomes `{factor_id}__{track_name}` instead of just `{factor_id}`;
+     omitted (`None`), it's the original single-track filename (backward
+     compatible with every other caller — `Pipeline.run_from_method_spec`,
+     `backend/routers/*`, `RepairLoop`'s own single-track use). Threaded
+     `track_name` through `RepairLoop.build_validate_repair`/
+     `execute_with_repair` (both call `build_script()` on every rebuild
+     attempt, including mid-repair) and `DualTrackController._run_track`
+     (which already has `track_name` available, just wasn't passing it
+     anywhere).
+  2. Changed `HXZ_STANDARD_CONFIG["breakpoint_quantiles"]` to the integer `10`
+     (a decile sort — the percentile list's 9 cutpoints implied 10 groups
+     anyway), matching the engine's real contract.
+- **Empirical impact:** Ran the real `DualTrackController.run_experiment()`
+  (not manual overrides) for AssetGrowth against real `data/local` WRDS data,
+  `ExperimentPlan(run_original=True, run_standardized=True)`, one frozen/
+  validated plugin shared by both tracks:
+  - `original_method`: mean_return=0.4199%, t_stat=2.594 (VW, full_sample
+    breakpoints, annual June formation, as-of-aligned per the fourth entry
+    above).
+  - `standardized_hxz`: mean_return=0.3141%, t_stat=1.023 (VW, NYSE
+    breakpoints, monthly rebalance).
+  Both tracks completed successfully and wrote to distinct files
+  (`asset_growth_us_equity_vw__original_method.*` /
+  `asset_growth_us_equity_vw__standardized_hxz.*`), confirming the file
+  collision is fixed. Full suite: 213 passed, 26 skipped (unchanged; added a
+  targeted assertion in `test_dual_track_controller.py`'s existing multi-track
+  test that each `build_script` call carries the matching `track_name`).
+- **Trade-offs / risks:** This does not yet implement the fuller Phase 0
+  run-identity design (unique `execution_id`/content hashes/full evidence
+  persistence) from the 2026-08-02 entry — it's the minimal fix that makes
+  today's `DualTrackController` usable without artifact collisions, not the
+  final run-identity system. `{factor_id}__{track_name}` filenames are
+  human-readable but not guaranteed unique across concurrent/overlapping
+  ablation runs with the same track name; that's still Phase 0 scope.
+- **References:** `src/steps/step5_backtest_runner/__init__.py`
+  (`build_script`), `src/infra/repair.py` (`build_validate_repair`,
+  `execute_with_repair`), `src/steps/step6_dual_track_controller/__init__.py`
+  (`_run_track`, `HXZ_STANDARD_CONFIG`), `tests/test_dual_track_controller.py`,
+  `tests/test_repair_loop.py`, `docs/roadmap.md`, CHANGELOG.md [Unreleased].
+
+## 2026-08-03 (fourth) — Generalize annual accounting factors with calendar-lag/as-of signal alignment, not report-date timing by default
+
+- **Context / problem:** The first real full-WRDS `AssetGrowth` run reached
+  `BacktestExecutor.run_with_config()` and failed the annual formation-month
+  validation: the MethodSpec declared June formation, but the raw signal's
+  `yyyymm` cohorts appeared in all calendar months because real Compustat has
+  many fiscal-year-end months. Data availability (`datadate + accounting_lag`)
+  and portfolio formation calendar (e.g. every June) were coupled: the engine
+  treated each signal row's availability month as the portfolio cohort. The
+  user asked whether using actual report/release dates would be more general,
+  and how to avoid breaking non-accounting factors.
+- **Options considered:**
+  1. **Report-date / filing-date timing** (Compustat RDQ, EDGAR filing dates,
+     PIT data). This is the most precise for announcement-sensitive papers
+     such as PEAD, but it is not the mainstream construction for classic
+     annual accounting factors, has weak historical coverage for early
+     samples, requires new PIT data sources, and would intentionally deviate
+     from papers/C&Z implementations that use calendar lags.
+  2. **C&Z-style data-layer monthly forward-fill**. `data/CZ code/Signals/
+     pyCode/DataDownloads/CompustatAnnual.py` does `time_avail_m = datadate +
+     6 months`, expands each annual record 12 times, and then predictors such
+     as `AssetGrowth.py` use `.shift(12)`. This matches C&Z's intermediate
+     representation, but changing our shared data loader this way would alter
+     the shape of every Compustat-backed signal input, require prompt/plugin
+     convention changes (`shift(1)` annual logic would become `shift(12)`),
+     and force broad golden-number revalidation.
+  3. **Engine-level calendar-lag/as-of alignment**. Keep the data layer as
+     "one row when a signal becomes available", but before holding-period
+     expansion, sample each stock's latest already-available, non-stale signal
+     as of the reviewed rebalance grid (e.g. every June). This is equivalent
+     to C&Z's forward-fill for the formation-month sample, but leaves existing
+     plugin/data-loader contracts mostly intact.
+- **Decision:** Chose (3) for the current engine generalization. Added
+  `BacktestExecutor._resample_annual_signal_asof`, invoked only for
+  `rebalance_frequency="annual"` when `formation_month` was explicit. It is a
+  no-op for monthly/quarterly strategies and for already-aligned annual
+  signals (all cohorts already in the reviewed formation month), preserving
+  existing code paths/golden tests. It samples the latest signal as of each
+  `(permno, formation_month)` row in the returns panel, bounded by
+  `signal_max_staleness_months` (default 11, i.e. C&Z's 12-month fill window
+  offsets 0..11). Added `signal_max_staleness_months` to resolved config.
+  Kept report-date timing as a future explicit `timing_basis="report_date"`
+  capability, not a default.
+- **Rationale:** This separates two concepts the old lifecycle conflated:
+  data availability (`time_avail_m`, owned by the data layer and accounting
+  lag policy) and portfolio formation schedule (owned by the backtest config).
+  The chosen implementation has small blast radius: monthly price signals
+  physically bypass the new code, existing December-FYE synthetic golden paths
+  are no-ops, and the fragile point-in-time universe-filter/formation-attribute
+  logic in `apply_signal_holding_period` remains untouched after receiving an
+  already-aligned signal. At the same time it follows the mainstream
+  Fama-French/C&Z calendar-lag convention rather than introducing actual
+  report-date timing that most classic annual accounting papers did not use.
+- **Empirical impact:** This unblocked the real `AssetGrowth` execution past
+  the formation-month error. The full real WRDS run completed through metrics:
+  mean monthly return 0.4199%, annualized return 5.04%, Newey-West t-stat 2.59,
+  882 months, CAPM alpha 0.573% (t=3.13), FF3 alpha 0.288% (t=1.99), FF5 alpha
+  0.170% (t=1.24). These are not yet a final replication claim: the run uses a
+  manually resolved spec/config and still needs the planned evidence bundle and
+  C&Z bridge before interpreting the gap.
+- **Trade-offs / risks:** Engine-level as-of alignment is not identical to
+  adopting C&Z's monthly forward-filled intermediate table everywhere. That is
+  intentional for compatibility, but it means future bridge diagnostics should
+  record this representation choice. `signal_max_staleness_months` is still a
+  config default rather than a reviewed MethodSpec field; roadmap now tracks
+  promoting `timing_basis` and max-staleness into the paper-first review
+  contract. Actual report-date timing remains unsupported until a point-in-time
+  announcement/filing-date source is registered.
+- **References:** `src/infra/backtest_engine/__init__.py`
+  (`_resample_annual_signal_asof`, `compute_factor_alphas` NaN/inf cleanup),
+  `src/steps/step3_codegen/registry.py` (`signal_max_staleness_months`),
+  `tests/test_calendar_rebalance.py`, `tests/test_round5_faithfulness_fixes.py`,
+  `tests/test_factor_alphas.py`, `docs/roadmap.md`, C&Z
+  `Signals/pyCode/DataDownloads/CompustatAnnual.py` and
+  `Signals/pyCode/Predictors/AssetGrowth.py`.
+
+## 2026-08-03 (third) — First real end-to-end run against full WRDS data (AssetGrowth) surfaced 4 codegen/data-layer bugs + 1 genuine methodology gap
+
+- **Context / problem:** After the review-loop fix (see the entry below),
+  continued the same `AssetGrowth` (Cooper, Gulen & Schill 2008) dry run
+  through codegen, sandbox validation, and actual script execution against
+  the real `data/local` WRDS CSV export — the first time in this project's
+  history any run reached real script execution against the FULL real
+  dataset (not a small `data/local/samples/` fixture or synthetic data).
+  Four distinct crashes surfaced in sequence, each fixed and re-verified
+  before the next appeared:
+  1. `pick_signal_input_mode()` raised "Cannot determine the signal input
+     source": `data.normalized_mapping` was empty. Traced to
+     `DataDictionary.normalize_fields()` never being called anywhere in the
+     live pipeline (`Pipeline.run_full_pipeline`, the CLI scripts) — only
+     ever referenced in comments and 4 old hand-populated fixtures. Worse,
+     `ReviewGate._check_source_mapping_resolved` (via
+     `MethodSpec.unresolved_source_fields()`) treats an EMPTY mapping as
+     "nothing unresolved" (its own docstring says so), so this sailed
+     through review with no warning.
+  2. After auto-populating the mapping, the generated plugin had
+     `at_col = "{'source': 'comp_funda', 'column': 'at'}"` — MetaCoder had
+     copied the literal Python repr of the richer mapping-value dict as a
+     column name, because `MetaCoder._build_prompt()` interpolated the raw
+     dict into an f-string without extracting `.column`.
+  3. After that fix, the plugin instead crashed on `KeyError: 'exchcd'`
+     inside `compute_signal` — MetaCoder had ALSO baked exchange/SIC
+     universe filtering into the plugin (violating its own "no universe
+     filters" hard rule), because `_build_prompt()`'s "Data Fields"/"Column
+     Mapping" sections listed ALL of `spec.data.required_fields` (including
+     universe-membership concepts), not just the formula's own inputs.
+  4. After restricting the prompt to formula fields only, hit
+     `KeyError: 'at'` in a *different* place — `assemble_signal_master_
+     table_from_sources()` returned zero rows/columns entirely. Traced to a
+     directory-convention mismatch: the snapshot's `storage_path` was
+     registered as `data/local` (the raw-CSV directory itself), but
+     `_load_link_tables()`/`_load_generic_signal_frame()` hardcode
+     `d / "local" / <raw_file>` (expecting `d` = the PARENT of `local/`).
+     Confirmed against `test_real_wrds_samples_e2e.py`'s own fixture (passes
+     the parent, not the `local/` dir) as the actually-correct, tested
+     convention. Fixed the snapshot registration to use the parent — which
+     then exposed a SECOND instance of the same confusion already baked
+     into the generated script itself: `main()`'s multi_source branch (and
+     my own earlier same-day fix to `load_msf()`'s CIZ fallback) called
+     `build_crsp_monthly_panel_ciz(SIGNAL_DATA_DIR)` directly, but that
+     function wants the ACTUAL csv directory, not the parent-of-`local`
+     `SIGNAL_DATA_DIR` convention every other call site uses.
+  5. After fixing the directory convention, hit `ValueError: Cannot set a
+     DataFrame with multiple columns to the single column
+     total_assets_t_minus_2` — `signal_input_sources()` returned
+     `{"comp_funda": ["at", "at"]}` (duplicate), because two paper concepts
+     (`total_assets_t_minus_1`/`total_assets_t_minus_2`) legitimately share
+     one physical column at different lags, and nothing deduplicated the
+     column list before asking the loader to select it.
+  6. After deduplicating, the ENGINE (not codegen) raised "Universe filter
+     references field 'exchange_listing', which the loaded returns panel
+     does not have" — the resolved spec's own `portfolio.universe_filters`
+     used paper-concept field names (`exchange_listing`,
+     `industry_classification`, and even signal-side concepts like
+     `total_assets_t_minus_1`) instead of the physical CRSP columns
+     (`exchcd`, `siccd`) `BacktestExecutor.apply_universe_filters` requires.
+     This one is confirmed WORKING AS DESIGNED, not a bug: that function's
+     own docstring explains column-availability can only be checked at
+     runtime (different returns universes have different columns), so it
+     fails loud there deliberately. Fixed by correcting the SPEC's field
+     names directly (a content fix, not a code fix) and dropping two
+     filters that were genuinely misplaced signal-computability
+     preconditions already handled correctly inside `compute_signal()`
+     itself, plus one (`compustat_listing_history_years`) the engine
+     architecturally cannot express via the CRSP-panel filter DSL at all.
+  7. After that, the signal computed successfully (285k observations,
+     24.7k firms, 1951–2026) and reached `BacktestExecutor.
+     run_with_config()`, which then raised (correctly) on
+     `_validate_annual_formation_month`: cohort months spanned all of
+     1–12, not just the declared `formation_month=6`. Root cause: a flat
+     `signal.timing.accounting_lag` (6 months) only produces a uniform
+     June formation for December-fiscal-year-end firms; real Compustat has
+     firms with every fiscal year-end month, and `_load_generic_signal_
+     frame` computes `time_avail_m` per-row from EACH firm's own fiscal
+     year-end + the flat lag. This is a genuine, NOT-yet-fixed
+     methodological gap (see below) — every prior golden-number test in
+     this repo used synthetic/small-sample data that happened to have
+     uniform December fiscal year-ends, so this was never exercised until
+     this run.
+- **Decision:** Fixed bugs 1–5 in code (all generalize to every future
+  paper/factor, not just this one): `SemanticExtractor._populate_normalized_
+  mapping` (auto-populate + new ReviewGate backstop block), `MetaCoder.
+  _build_prompt` (restrict to formula fields, extract `.column`, forbid
+  universe filtering in-plugin), `signal_input_sources()` (dedupe columns),
+  `script_generator.py` (fix the `SIGNAL_DATA_DIR` directory convention in
+  both `load_msf()`'s CIZ fallback and `main()`'s multi_source branch).
+  Fixed #6 as spec content (this factor's own `universe_filters`), not code
+  — the engine's runtime-only column check is an intentional design choice
+  (documented in `apply_universe_filters`'s own docstring) that correctly
+  caught a genuine extraction-quality issue; no code change was warranted.
+  Left #7 (the fiscal-year-end/formation-month gap) UNFIXED and explicitly
+  documented rather than attempting a same-session engine/schema redesign:
+  properly supporting non-uniform fiscal year-ends needs either an explicit
+  December-FYE universe restriction (a per-paper MethodSpec decision) or a
+  genuinely per-firm variable accounting lag (a new engine capability, since
+  the schema only has one flat `accounting_lag: int` today) — both are
+  real, scoped follow-up work, not a quick fix.
+- **Empirical impact:** None yet for AssetGrowth's actual replicated numbers
+  (blocked on #7); the value here is entirely in the 5 generalizable pipeline
+  fixes (bugs 1–5), each verified by re-running the exact same failing step
+  and confirming the NEXT distinct error appeared (i.e. each fix genuinely
+  unblocked forward progress, not just papered over the symptom). Full test
+  suite re-run after every single fix: 209 passed, 26 skipped throughout,
+  zero regressions.
+- **Trade-offs / risks:** This was the first time ANY of this project's
+  automated steps (extraction, review, codegen, sandbox validation) were
+  exercised against the full real dataset end-to-end rather than curated
+  fixtures/small samples/synthetic data — expect more gaps of this exact
+  shape (works on golden-number fixtures, breaks on real heterogeneous data)
+  to surface the next time a NEW paper is run through fully, especially for
+  "multi_source" mode (never exercised at all yet) and any signal touching
+  fiscal-year-end timing.
+- **References:** `src/steps/step1_extractor/__init__.py`
+  (`_populate_normalized_mapping`), `src/steps/step2_reviewer/__init__.py`
+  (`_check_source_mapping_resolved`'s new empty-mapping block),
+  `src/steps/step3_codegen/__init__.py` (`_build_prompt`),
+  `src/infra/data_layer/sources.py` (`signal_input_sources`),
+  `src/steps/step3_codegen/script_generator.py` (`load_msf`, `main()`),
+  `src/infra/backtest_engine/__init__.py`
+  (`apply_universe_filters`/`_validate_annual_formation_month`),
+  `runs/method_specs/resolved/AssetGrowth.resolved.methodspec.json`,
+  CHANGELOG.md [Unreleased].
+
+## 2026-08-03 (second) — Review Gate must treat `resolution_log` as authoritative, or paper-silent fields can never leave `blocked_fields`
+
+- **Context / problem:** Continuing the same end-to-end dry run (this time
+  against `AssetGrowth` / Cooper, Gulen & Schill 2008, a paper whose main
+  strategy IS a supported `characteristic_sort`), Review Gate blocked 3
+  genuinely paper-silent, high-impact fields (`portfolio.weighting` — paper
+  reports both EW and VW without designating a main target;
+  `portfolio.long_leg`/`portfolio.return_combination` — paper's tables show
+  a 10-minus-1 spread while the executable direction requires an explicit
+  low-minus-high convention). Resolved all 3 via
+  `resolution.apply_decisions`/`build_decision` (the exact mechanism
+  `scripts/resolve_review_blocks.py` uses), grounded in the project's own
+  `SENSIBLE_DEFAULTS` convention and the paper's own curated reference spec
+  (`tests/fixtures/method_specs/cooper_gulen_schill_2008_asset_growth.
+  resolved.methodspec.json`, which made the identical choices). Per
+  `resolve_review_blocks.py`'s own printed next-step instructions, re-ran
+  Review Gate on the resolved spec — and all 3 fields were immediately
+  re-blocked, with the SAME "paper doesn't state this" reasoning. Traced the
+  cause: `MethodSpec.resolution_log` (the only place a human's decision +
+  reasoning is recorded) was never read by either review path (`review()`
+  rule-based, or `review_with_llm()`/`_raw_to_review_result`). Since "the
+  paper is silent on this" is permanently true once established, a reviewer
+  that only asks that question loops on the field forever — no number of
+  human resolutions can ever produce an `approved` spec for a paper with any
+  genuinely silent high-impact field (which is common; EW vs VW ties are a
+  frequent example across many papers, not particular to this one).
+- **Options considered:** (1) leave review as-is and have a human bypass
+  Review Gate entirely for resolved specs (rejected — throws away the
+  review gate's other checks, e.g. schema/format/source-mapping validation,
+  for the whole spec just to unblock 3 fields); (2) make `apply_decisions`
+  set `codegen_ready=true` directly, skipping re-review altogether (rejected
+  — same problem, loses the safety net for any NEW issue introduced by the
+  resolution itself, e.g. a typo'd value); (3) teach both review paths to
+  recognize `resolution_log` as authoritative for a field whose current
+  value still matches the recorded decision, and stop re-flagging it for
+  the identical paper-silent reasoning — with one narrow override so this
+  can't become a rubber stamp: a NEW, cited paper quote that actually
+  contradicts the resolution can still re-block it.
+- **Decision:** Chose (3). Added `_resolved_by_human(spec, field_path,
+  current_value)` (`src/steps/step2_reviewer/__init__.py`): true when
+  `spec.resolution_log` has an entry for that exact field_path whose
+  `new_value` still equals the field's current value (i.e. nobody silently
+  changed it again since). Wired into all 3 deterministic blocking checks
+  (`_check_ambiguous_fields`, `_check_silent_high_impact_fields`,
+  `_check_unsupported_fields`) — a match downgrades `needs_human_
+  confirmation` to `auto_approve_with_flag` and adds a `warnings` entry
+  instead of `blocked_fields`. For the LLM path, added the same rule to
+  `_LLM_REVIEW_CONTRACT` and `prompts/review_gate/methodspec_audit.md`
+  (§1.2.1), PLUS a code-level backstop in `_raw_to_review_result` that
+  doesn't rely on the LLM obeying the prompt: any `blocked_fields` entry
+  matching `_resolved_by_human` gets downgraded UNLESS its `field_notes`
+  entry carries at least one new evidence citation (a real quote) — an
+  evidence-less re-block can only mean "still just paper-silent," which is
+  exactly the loop this closes; a re-block WITH a genuine new citation is
+  still respected (the narrow override).
+- **Empirical impact:** Re-ran `review_with_llm` on the exact same resolved
+  `AssetGrowth` spec (same paper text, same LLM) after the fix: the 3
+  previously-reblocked fields now show as `warnings`
+  ("already human-resolved in resolution_log... should not be re-blocked on
+  that basis alone") instead of `blocked_fields`; one genuinely new,
+  not-yet-resolved field (`portfolio.sort.breakpoint_source`, never
+  touched by any resolution) still correctly blocks. Full suite: 209
+  passed, 26 skipped (unchanged from baseline — pure additive logic, no
+  existing test exercised this path since no prior test constructed a
+  resolution_log-backed re-review scenario).
+- **Trade-offs / risks:** The LLM-path override (new evidence can still
+  re-block) trusts the LLM to only attach evidence for a genuine new
+  citation, not to game the override by attaching an empty-ish/irrelevant
+  evidence object — acceptable given the LLM is already trusted for every
+  other paper-evidence judgment in this pipeline, and `_resolved_by_human`
+  is a hard backstop for the (more common) empty-evidence case regardless.
+  Did not extend `resolution.ResolutionLogEntry` to carry the original
+  paper evidence that led to the human's decision (would let a future
+  reviewer judge the human's reasoning quality, not just whether the value
+  changed) — deferred as a possible future enhancement, not needed to close
+  this specific loop.
+- **References:** `src/steps/step2_reviewer/__init__.py`
+  (`_resolved_by_human`, `_check_ambiguous_fields`,
+  `_check_silent_high_impact_fields`, `_check_unsupported_fields`,
+  `_raw_to_review_result`, `_LLM_REVIEW_CONTRACT`),
+  `prompts/review_gate/methodspec_audit.md` §1.2.1,
+  `src/steps/step2_reviewer/resolution.py` (`apply_decisions`,
+  `resolution_log`), `scripts/resolve_review_blocks.py`, CHANGELOG.md
+  [Unreleased].
+
+## 2026-08-03 — Review Gate's LLM audit prompt had drifted from the real (flat) MethodSpec schema
+
+- **Context / problem:** Ran a manual, full `Pipeline.run_full_pipeline()` dry
+  run against real WRDS data (`data/local`, registered as an ad hoc
+  `local_data_v1` snapshot) for a brand-new paper/factor
+  (`AB1998_ETR`, Abarbanell & Bushee 1998's effective-tax-rate signal) to
+  exercise every step end-to-end. Extraction correctly produced a spec with an
+  empty `signal.formula.expression` (the paper's exact Table 1 formulas are
+  literally absent from the extractable PDF text — "*Insert Table 1 here*" is
+  the only trace — a genuine paper-silent case, not a bug). But
+  `ReviewGate.review_with_llm`'s blocked-field output was confusing:
+  `blocked_fields = ['signal.formula.expression', 'sample.return_sample',
+  'universe.winsorize_bounds']` and the `issues` text complained about
+  missing `paper.*`/`formula_convention.*`/`input_return.*` sections. None of
+  `sample.return_sample`, `universe.winsorize_bounds` (unaliased),
+  `formula_convention`, or `input_return` exist on the current flat
+  `MethodSpec` model (`src/infra/models/method_spec.py`) — the reviewer is
+  handed `spec.model_dump()` of that exact flat model, but its system prompt
+  (`prompts/review_gate/methodspec_audit.md`) still described the older
+  richer *curated* nested schema (`paper.*`/`sample.*`/`universe.*`/
+  `formula_convention.*`/`input_return.*`, `calculation_steps`/
+  `formula.inputs`, `robustness_or_secondary_specs`/`extensions`/
+  `annotator_notes`, `portfolio.sorts` plural) that only the *extractor*
+  prompt (`prompts/extractor/methodspec_extractor.md`) still legitimately
+  emits (and `MethodSpec.normalize_curated_schema` flattens on the way in —
+  see the 2026-07 MethodSpec schema notes). `resolve_review_blocks.py`
+  already has a `PATH_ALIASES` mechanism for exactly two known cases
+  (`universe.missing_policy.action`, `universe.winsorize_bounds`), but a
+  freshly-invented path like `sample.return_sample` has no alias and would
+  silently write into a dead nested dict a human "resolving" it would never
+  notice was discarded.
+- **Options considered:** (1) leave the prompt as-is and rely on
+  `PATH_ALIASES` to patch every future invented path reactively (rejected —
+  purely reactive, guaranteed to keep recurring per-paper since the prompt
+  itself keeps re-inventing new unaliased paths); (2) make the reviewer
+  ignore/re-derive schema shape from the JSON it's given instead of a written
+  contract (rejected — the whole point of a written parser-contract section
+  is to give the LLM a stable, auditable vocabulary; removing it weakens the
+  audit); (3) fix the prompt itself to describe the real flat schema.
+- **Decision:** Chose (3). Rewrote `prompts/review_gate/methodspec_audit.md`
+  §4.1 (paper/target scope), §4.2 (signal — no `calculation_steps`/
+  `formula.inputs`/`extensions.formula_constants`, only `signal.formula.
+  {expression,paper_expression}` + top-level `signal.required_fields[]`),
+  §4.4 (sample — flat `sample_start_year`/`sample_end_year`, no month-level
+  `return_sample`), §4.6 (universe — `portfolio.universe`/
+  `portfolio.universe_filters[]`/`signal.missing_policy.*`, not a `universe.*`
+  object), §5.1 (Required stable fields — replaced the entire invented list
+  with the real flat locations), §5.3 (formula executability — checked against
+  `signal.required_fields[]`, not phantom `calculation_steps`), plus stray
+  `portfolio.sorts` (plural, doesn't exist — it's `portfolio.sort`) and
+  `robustness_or_secondary_specs`/`extensions`/`annotator_notes`/
+  `sample_coverage_notes` mentions (none exist; the only real escape hatches
+  are `ambiguous_fields`/`unsupported_fields`).
+- **Empirical impact:** Re-ran `review_with_llm` on the exact same
+  already-extracted `AB1998_ETR` spec after the fix (no re-extraction) —
+  `blocked_fields` changed from the invented
+  `['signal.formula.expression', 'sample.return_sample',
+  'universe.winsorize_bounds']` to the correct
+  `['factor_id', 'signal.formula.expression']`, both real dotted paths on the
+  actual model. `requires_human=True` in both cases (correctly — the paper's
+  Table 1 truly isn't extractable), so this fix doesn't change the pipeline's
+  terminal disposition for THIS spec, but does change what a human resolving
+  future blocked specs would be told to look at.
+- **Trade-offs / risks:** Did not touch the extractor prompt (intentionally —
+  its curated schema is the documented, live, tested contract that
+  `normalize_curated_schema` flattens; see the MethodSpec schema notes) or add
+  new `PATH_ALIASES` entries speculatively (avoided over-engineering for
+  paths the corrected prompt should no longer produce). AB1998's 9 fundamental
+  signals (AQ/AR/CAPX/EQ/ETR/GM/INV/LF/SA) remain unbacktestable from this PDF
+  specifically because Table 1 (all 9 formulas) was never included in the
+  extractable text — a paper-data-availability gap, not something further
+  pipeline changes can fix.
+- **References:** `prompts/review_gate/methodspec_audit.md`,
+  `src/steps/step2_reviewer/__init__.py` (`review_with_llm`, `_LLM_REVIEW_CONTRACT`,
+  `HIGH_IMPACT_FIELDS`), `src/steps/step2_reviewer/resolution.py`
+  (`PATH_ALIASES`), `src/infra/models/method_spec.py`
+  (`MethodSpec.normalize_curated_schema`), CHANGELOG.md [Unreleased].
+
 ## 2026-08-02 — MethodSpec must record "paper stated but engine-unsupported" separately from "paper silent"
 
 - **Context / problem:** Investigating whether the pipeline can capture a

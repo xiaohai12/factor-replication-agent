@@ -22,6 +22,7 @@ resolution; this module never depends on the engine library.
 
 from __future__ import annotations
 
+import warnings
 from typing import Any
 
 from src.infra.models.method_spec import (
@@ -31,6 +32,85 @@ from src.infra.models.method_spec import (
     ReturnCombinationType,
     WeightingRule,
 )
+
+
+class ConfigOverrideError(ValueError):
+    """Raised by `build_config` when a caller-supplied override is invalid:
+    an unknown config key, or a value outside the menu for a menu-governed
+    key. See docs/multi-config-evidence-plan.md Phase 0.2 -- callers must
+    never have an override silently ignored or clamped away, since that
+    would make an experiment's config-diff attribution false (e.g. a track
+    named "ablation_weighting_ew" that actually ran on the default weighting
+    because the override key was misspelled).
+    """
+
+
+# The full set of keys `build_config` may produce (excluding the
+# conditionally-present `returns_table`/`returns_layout`/`substitutions`,
+# which are handled separately below). A caller override for any OTHER key
+# is almost certainly a typo and is rejected rather than silently merged in.
+KNOWN_CONFIG_KEYS: frozenset[str] = frozenset({
+    "breakpoint_source", "breakpoint_quantiles", "weighting_rule",
+    "rebalance_frequency", "holding_period_months", "accounting_lag_months",
+    "signal_max_staleness_months", "missing_action", "universe",
+    "formation_month", "formation_month_explicit", "long_leg", "short_leg",
+    "sample_start_year", "sample_end_year", "publication_year",
+    "universe_filters", "apply_delisting_returns", "return_combination_type",
+    "return_basis", "return_frequency", "estimator",
+    "returns_table", "returns_layout",
+})
+
+# Which config keys are governed by a fixed menu (see STANDARD below) --
+# an override for one of these must be a menu member, not just any string.
+_OVERRIDE_MENU: dict[str, set[str]] = {}  # populated after STANDARD is defined
+
+# Which pipeline stage each resolved-config key belongs to, so a track-vs-track
+# config diff reports *where* two runs diverge rather than just listing keys.
+# Single source of truth (moved from step7_replication_diff/bundle.py 2026-08-03,
+# which now imports it from here) -- see docs/multi-config-evidence-plan.md
+# Decision 2 (per-key stage taxonomy). Split into two families used to derive
+# identification level: "signal_input" changes the realized signal; the rest
+# (portfolio/universe/sample/estimator) only change how an already-computed
+# signal is used, never its value.
+CONFIG_KEY_STAGE: dict[str, str] = {
+    # signal_input — how the raw signal panel is built/aligned
+    "accounting_lag_months": "signal_input",
+    "signal_max_staleness_months": "signal_input",
+    "missing_action": "signal_input",
+    # portfolio — sorting, weighting, rebalancing, leg definition
+    "breakpoint_source": "portfolio",
+    "breakpoint_quantiles": "portfolio",
+    "weighting_rule": "portfolio",
+    "rebalance_frequency": "portfolio",
+    "holding_period_months": "portfolio",
+    "formation_month": "portfolio",
+    "formation_month_explicit": "portfolio",
+    "long_leg": "portfolio",
+    "short_leg": "portfolio",
+    "return_combination_type": "portfolio",
+    # universe — which firm-months are eligible, and the returns panel
+    "universe": "universe",
+    "universe_filters": "universe",
+    "apply_delisting_returns": "universe",
+    "returns_table": "universe",
+    "returns_layout": "universe",
+    # sample — the calendar window / metric split
+    "sample_start_year": "sample",
+    "sample_end_year": "sample",
+    "publication_year": "sample",
+    # estimator — how the return series is measured
+    "return_basis": "estimator",
+    "return_frequency": "estimator",
+    "estimator": "estimator",
+    "substitutions": "estimator",
+}
+
+UNCLASSIFIED_STAGE = "unclassified"
+
+
+def stage_of(config_key: str) -> str:
+    """Return the pipeline stage a resolved-config key belongs to."""
+    return CONFIG_KEY_STAGE.get(config_key, UNCLASSIFIED_STAGE)
 
 
 # ---------------------------------------------------------------------------
@@ -68,6 +148,14 @@ STANDARD: dict[str, set[str]] = {
         ReturnCombinationType.UNSPECIFIED.value,
     },
 }
+
+
+_OVERRIDE_MENU.update({
+    "breakpoint_source": STANDARD["breakpoint_source"],
+    "weighting_rule": STANDARD["weighting"],
+    "missing_action": STANDARD["missing_action"],
+    "return_combination_type": STANDARD["return_combination"],
+})
 
 
 def ev(v: Any) -> str:
@@ -132,6 +220,50 @@ def _resolve_ls_quantile(ls_quantile: float | None) -> int:
     return 10
 
 
+def _validate_overrides(resolved_config: dict, overrides: dict) -> None:
+    """Reject an override before it's merged into the resolved config.
+
+    Two hard failures (raise `ConfigOverrideError`), matching
+    docs/multi-config-evidence-plan.md Phase 0.2:
+
+    - an override key that isn't one `build_config` actually produces (a
+      typo, or a key the engine has no menu for at all) -- would otherwise
+      be silently merged in and read by nothing;
+    - an override value for a menu-governed key (breakpoint_source,
+      weighting_rule, missing_action, return_combination_type) that isn't a
+      menu member -- would otherwise be silently clamped away by whatever
+      *reads* the config later, making the override a no-op without saying so.
+
+    One soft warning (via `warnings.warn`, not raised): an override whose
+    value is identical to what the MethodSpec already resolved to. This is
+    not rejected outright -- a named track like `standardized_hxz` legitimately
+    ships a whole bundle of settings as one package, and one of them
+    coinciding with the paper's own choice is a meaningful, reportable fact
+    (not a caller mistake) rather than an error. Strict no-op rejection for a
+    single declared experiment is Phase A2's job (`ExperimentSpec.expected_diff`
+    cross-check), not this general-purpose resolver's.
+    """
+    for key, value in overrides.items():
+        if key not in KNOWN_CONFIG_KEYS:
+            raise ConfigOverrideError(
+                f"Unknown config override key {key!r}. Valid keys: "
+                f"{sorted(KNOWN_CONFIG_KEYS)}"
+            )
+        menu = _OVERRIDE_MENU.get(key)
+        normalized = ev(value) if menu is not None else value
+        if menu is not None and normalized not in menu:
+            raise ConfigOverrideError(
+                f"Invalid override value {value!r} for {key!r}: "
+                f"must be one of {sorted(menu)}"
+            )
+        if key in resolved_config and resolved_config[key] == normalized:
+            warnings.warn(
+                f"Config override {key!r}={value!r} is a no-op: the "
+                "MethodSpec already resolves to this value.",
+                stacklevel=3,
+            )
+
+
 def build_config(spec: MethodSpec, overrides: dict | None) -> dict:
     """Build run config entirely from resolved MethodSpec fields."""
 
@@ -144,6 +276,7 @@ def build_config(spec: MethodSpec, overrides: dict | None) -> dict:
         "rebalance_frequency":  ev(spec.rebalance_frequency),
         "holding_period_months": spec.holding_period_months or 12,
         "accounting_lag_months": spec.accounting_lag_months or 6,
+        "signal_max_staleness_months": 11,
         "missing_action":       _clamp(spec.missing_action, STANDARD["missing_action"], "drop"),
         "universe":             spec.universe_description,
         "formation_month":      spec.formation_month or 6,
@@ -218,6 +351,7 @@ def build_config(spec: MethodSpec, overrides: dict | None) -> dict:
         config["substitutions"] = substitutions
 
     if overrides:
+        _validate_overrides(config, overrides)
         config.update(overrides)
     return config
 

@@ -95,6 +95,20 @@ class TestComputeFactorAlphasEdgeCases:
         ls = pd.DataFrame({"yyyymm": [200001, 200002], "ls_return": [0.01, 0.02]})
         assert BacktestExecutor().compute_factor_alphas(ls, factors, config={}) == {}
 
+    def test_factor_nan_inf_rows_are_dropped_per_model(self):
+        factors = _factors()
+        true_alpha, true_beta = 0.004, 1.1
+        ls = pd.DataFrame({
+            "yyyymm": factors["yyyymm"],
+            "ls_return": true_alpha + true_beta * factors["mktrf"],
+        })
+        factors.loc[0, "mktrf"] = np.nan
+        factors.loc[1, "mktrf"] = np.inf
+
+        result = BacktestExecutor().compute_factor_alphas(ls, factors, config={})
+        assert result["alpha_capm"] == pytest.approx(true_alpha, abs=1e-9)
+        assert result["beta_capm_mktrf"] == pytest.approx(true_beta, abs=1e-9)
+
 
 class TestComputeMetricsSharpeRatio:
     def test_sharpe_ratio_present_and_correct(self):

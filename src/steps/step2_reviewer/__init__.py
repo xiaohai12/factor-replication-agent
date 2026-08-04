@@ -66,6 +66,18 @@ Rules:
 - approved must be true iff disposition is approved.
 - codegen_ready must be false for blocked or revision_required outputs.
 - If a field is paper-silent but high-impact, mark status needs_human_confirmation.
+- The MethodSpec JSON's `resolution_log` records fields a human has ALREADY
+  reviewed and decided (via a prior blocked-field resolution). For any field
+  with a `resolution_log` entry whose `new_value` matches that field's
+  CURRENT value: do NOT mark it needs_human_confirmation again for the same
+  paper-silent/high-impact reasoning that produced the original block --
+  "the paper doesn't state this" was already true when the human decided,
+  and repeating it would block the field forever. Use auto_approve_with_flag
+  instead, and mention it in warnings. The ONLY valid reason to re-flag such
+  a field as needs_human_confirmation is a SPECIFIC, NEW paper quote that
+  directly contradicts the human's recorded value (cite it in evidence) --
+  never re-flag it merely because the paper is silent, since the human
+  already knew that.
 - Respond with JSON only.
 """.strip()
 
@@ -220,6 +232,32 @@ def classify_disposition(
     return matrix[(evidence, impact)]
 
 
+def _resolved_by_human(spec: MethodSpec, field_path: str, current_value: Any) -> bool:
+    """True when `field_path` was already decided by a human via
+    `resolution.apply_decisions` (recorded in `spec.resolution_log`) and its
+    current value still matches that decision -- i.e. nobody silently
+    changed it again since.
+
+    Both review paths (rule-based `review()` and `review_with_llm()`/
+    `_raw_to_review_result`) treat a match as already-confirmed instead of
+    re-blocking it on the same paper-silent/high-impact reasoning that
+    produced the original block. Without this, ANY genuinely paper-silent
+    empirical field could never leave `blocked_fields`, no matter how many
+    times a human resolves it via `scripts/resolve_review_blocks.py` --
+    "the paper doesn't state this" remains true forever, so a reviewer that
+    only asks "did the paper state this?" loops on it indefinitely. See
+    docs/decision-log.md 2026-08-03 entry.
+    """
+    for entry in spec.resolution_log:
+        path = entry.field_path if hasattr(entry, "field_path") else entry.get("field_path")
+        if path != field_path:
+            continue
+        new_value = entry.new_value if hasattr(entry, "new_value") else entry.get("new_value")
+        if new_value == current_value:
+            return True
+    return False
+
+
 class ReviewGate:
     """Validates MethodSpec for completeness, consistency, and correctness.
 
@@ -320,15 +358,38 @@ class ReviewGate:
         (a per-source, reusable-forever step) before approval, rather than
         letting the loader improvise per paper.
 
-        Hard-blocks two cases, so no signal input ever silently defaults to a
-        source the paper didn't state:
+        Hard-blocks three cases, so no signal input ever silently defaults to a
+        source the paper didn't state, and codegen never discovers a missing
+        mapping for the first time (see docs/decision-log.md 2026-08-03 entry):
           1. UNRESOLVED source: a plain-column mapping whose physical column no
              registered catalog source declares (source==""). The source must
              come from the reviewed spec / catalog, never a silent guess.
           2. UNKNOWN source: a mapping that names a source with no registered
              join in `SIGNAL_SOURCES` (data catalog).
+          3. EMPTY mapping while formula fields are required: `data.
+             normalized_mapping` is empty but `signal.required_fields`/
+             `data.required_fields` is not -- `resolved_sources()` on an empty
+             mapping returns no groups at all, which `unresolved_source_fields()`
+             (case 1) can't distinguish from "nothing to resolve". Left
+             unblocked, this sails through review only to fail much later, at
+             `script_generator.pick_signal_input_mode()`, with no field-level
+             warning a human could have acted on first.
         """
         from src.infra.data_layer import SIGNAL_SOURCES
+
+        if spec.required_fields and not spec.data.normalized_mapping and not _resolved_by_human(
+            spec, "data.normalized_mapping[empty]", spec.data.normalized_mapping
+        ):
+            result.blocked_fields.append("data.normalized_mapping[empty]")
+            result.issues.append(
+                "data.normalized_mapping is empty but the spec has "
+                f"required_fields {spec.required_fields!r} -- codegen cannot "
+                "determine the signal input source (compustat/crsp_only/"
+                "multi_source) from an empty mapping. Populate it via "
+                "DataDictionary.normalize_fields(spec.data.required_fields) "
+                "(automatic in SemanticExtractor.extract(); populate it "
+                "manually for a hand-built/legacy spec) before approval."
+            )
 
         unresolved = spec.unresolved_source_fields()
         if unresolved:
@@ -453,19 +514,32 @@ class ReviewGate:
                 else EmpiricalImpact.LOW
             )
             disposition = classify_disposition(amb.source, impact)
+            current_value = self._get_field_value(spec, amb.field)
+
+            resolved = False
+            if disposition == Disposition.NEEDS_HUMAN_CONFIRMATION and _resolved_by_human(
+                spec, amb.field, current_value
+            ):
+                disposition = Disposition.AUTO_APPROVE_WITH_FLAG
+                resolved = True
 
             note = FieldReviewNote(
                 field=amb.field,
                 status=disposition,
                 reason=amb.reason,
-                current_value=self._get_field_value(spec, amb.field),
+                current_value=current_value,
                 candidate_value=amb.candidate_value,
                 empirical_impact=impact.value,
                 evidence=amb.evidence,
             )
             result.field_notes.append(note)
 
-            if disposition == Disposition.NEEDS_HUMAN_CONFIRMATION:
+            if resolved:
+                result.warnings.append(
+                    f"Field '{amb.field}' already confirmed by a human resolution "
+                    "(resolution_log); not re-blocking on the same paper-silent reasoning."
+                )
+            elif disposition == Disposition.NEEDS_HUMAN_CONFIRMATION:
                 result.blocked_fields.append(amb.field)
             elif disposition == Disposition.NEEDS_LLM_REVIEW:
                 result.warnings.append(
@@ -524,6 +598,13 @@ class ReviewGate:
         for field_path, is_silent in silent_checks:
             if not is_silent or field_path in already_flagged:
                 continue
+            current_value = self._get_field_value(spec, field_path)
+            if _resolved_by_human(spec, field_path, current_value):
+                result.warnings.append(
+                    f"Field '{field_path}' already confirmed by a human resolution "
+                    "(resolution_log); not re-blocking on the same paper-silent reasoning."
+                )
+                continue
             result.blocked_fields.append(field_path)
             result.field_notes.append(FieldReviewNote(
                 field=field_path,
@@ -536,7 +617,7 @@ class ReviewGate:
                     "is genuinely silent and the standard default is acceptable) "
                     "before this spec can be approved."
                 ),
-                current_value=self._get_field_value(spec, field_path),
+                current_value=current_value,
                 empirical_impact=EmpiricalImpact.HIGH.value,
             ))
 
@@ -558,6 +639,12 @@ class ReviewGate:
         already_flagged = {amb.field for amb in spec.ambiguous_fields}
         for uf in spec.unsupported_fields:
             if uf.field in already_flagged:
+                continue
+            if _resolved_by_human(spec, uf.field, uf.paper_value):
+                result.warnings.append(
+                    f"Field '{uf.field}' already confirmed by a human resolution "
+                    "(resolution_log); not re-blocking on the same unsupported-value reasoning."
+                )
                 continue
             result.blocked_fields.append(uf.field)
             impact = uf.empirical_impact.value if hasattr(uf.empirical_impact, "value") else str(uf.empirical_impact)
@@ -665,6 +752,46 @@ class ReviewGate:
                     for e in note.get("evidence", [])
                 ],
             ))
+
+        # Deterministic backstop: a field the LLM re-blocked as
+        # needs_human_confirmation may already have been decided by a human
+        # (recorded in spec.resolution_log by resolve_review_blocks.py /
+        # apply_decisions) with a still-current value -- the prompt asks the
+        # LLM to respect that, but this doesn't rely on it complying. Without
+        # this, a genuinely paper-silent field ("the paper doesn't state
+        # this") would stay blocked forever no matter how many times a human
+        # resolves it, since that reasoning never stops being true.
+        #
+        # The one allowed override is a field_note carrying at least one NEW
+        # evidence citation -- a real paper quote the LLM found that
+        # contradicts the human's decision. A field_note with no evidence at
+        # all can only mean "the paper is (still) silent", which is exactly
+        # the reasoning this backstop exists to stop re-litigating. See
+        # docs/decision-log.md 2026-08-03 entry.
+        notes_by_field = {note.field: note for note in result.field_notes}
+        still_blocked = []
+        for field_path in result.blocked_fields:
+            current_value = self._get_field_value(spec, field_path)
+            note = notes_by_field.get(field_path)
+            has_new_evidence = bool(note and note.evidence)
+            if _resolved_by_human(spec, field_path, current_value) and not has_new_evidence:
+                if note is not None:
+                    note.status = Disposition.AUTO_APPROVE_WITH_FLAG
+                result.warnings.append(
+                    f"Field '{field_path}' already confirmed by a human resolution "
+                    "(resolution_log); not re-blocking without new contradicting paper evidence."
+                )
+            else:
+                still_blocked.append(field_path)
+        if len(still_blocked) != len(result.blocked_fields):
+            result.blocked_fields = still_blocked
+            result.requires_human = bool(still_blocked)
+            if not still_blocked and result.disposition == "blocked":
+                result.disposition = "revision_required" if result.issues else "approved"
+                result.approved = result.disposition == "approved"
+                result.codegen_ready = result.approved
+                result.paper_faithful = result.approved or result.paper_faithful
+
         return result
 
     def _get_field_value(self, spec: MethodSpec, field_path: str):

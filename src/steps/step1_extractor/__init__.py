@@ -457,6 +457,36 @@ class SemanticExtractor:
     def _build_method_spec_from_llm(
         self, factor_id: str, raw: dict
     ) -> MethodSpec:
+        """Convert raw LLM JSON output to a validated MethodSpec, then
+        populate `data.normalized_mapping` if the data dictionary can resolve
+        it (see `_populate_normalized_mapping`)."""
+        spec = self._build_method_spec_from_llm_raw(factor_id, raw)
+        self._populate_normalized_mapping(spec)
+        return spec
+
+    def _populate_normalized_mapping(self, spec: MethodSpec) -> None:
+        """Populate `data.normalized_mapping` from `data.required_fields` via
+        `DataDictionary.normalize_fields()`, if available and not already set.
+
+        Without this, `data.normalized_mapping` stays permanently EMPTY for
+        every freshly-extracted spec -- nothing else in the live pipeline
+        (`Pipeline.run_full_pipeline`, the CLI scripts) ever calls
+        `DataDictionary.normalize_fields()`. Worse, `ReviewGate.
+        _check_source_mapping_resolved` (via `MethodSpec.
+        unresolved_source_fields()`) treats an EMPTY mapping as "nothing
+        unresolved" -- NOT a block -- so the spec sails through review only
+        to fail much later, mid-codegen, at `script_generator.
+        pick_signal_input_mode()` with "Cannot determine the signal input
+        source". A human resolving review's OTHER blocked fields would never
+        see this coming. See docs/decision-log.md 2026-08-03 entry.
+        """
+        if spec.data.normalized_mapping or not spec.data.required_fields or not self.data_dictionary:
+            return
+        spec.data.normalized_mapping = self.data_dictionary.normalize_fields(spec.data.required_fields)
+
+    def _build_method_spec_from_llm_raw(
+        self, factor_id: str, raw: dict
+    ) -> MethodSpec:
         """Convert raw LLM JSON output to a validated MethodSpec.
 
         Tries the rich schema path first (MethodSpec.model_validate on the raw dict,

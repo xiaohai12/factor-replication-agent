@@ -42,9 +42,11 @@ class FakeRunner:
         self.build_calls: list[dict] = []
         self.execute_calls = 0
         self._attempts_by_track: dict[str, int] = {}
+        self.comparison_calls: list[dict] = []
+        self.comparison_path = None
 
-    def build_script(self, plugin, spec, snapshot_id, config_overrides) -> dict:
-        self.build_calls.append({"snapshot_id": snapshot_id, "config_overrides": dict(config_overrides or {})})
+    def build_script(self, plugin, spec, snapshot_id, config_overrides, track_name=None) -> dict:
+        self.build_calls.append({"snapshot_id": snapshot_id, "config_overrides": dict(config_overrides or {}), "track_name": track_name})
         return {"config": dict(config_overrides or {}), "config_overrides": config_overrides, "script_text": plugin.code}
 
     def execute(self, built: dict) -> dict:
@@ -77,6 +79,18 @@ class FakeRunner:
             status="failed",
             logs=[log],
         )
+
+    def write_comparison_summary(self, spec, tracks, snapshot_id=None, diff_result=None, batch_info=None):
+        self.comparison_calls.append(
+            {
+                "factor_id": spec.factor_id,
+                "tracks": tracks,
+                "snapshot_id": snapshot_id,
+                "diff_result": diff_result,
+                "batch_info": batch_info,
+            }
+        )
+        return self.comparison_path
 
 
 class FakeMetaCoder:
@@ -128,6 +142,20 @@ class TestRunExperiment:
         assert all(r.status == "success" for r in runs)
         # 3 distinct config_overrides were used to build 3 distinct scripts
         assert len(runner.build_calls) == 3
+        # Each track's build_script call carries its own track_name (used to
+        # disambiguate the on-disk script/output filenames -- see
+        # BacktestRunner.build_script's file_stem) matching the track it
+        # belongs to, not a shared/blank name that would collide on disk.
+        assert [c["track_name"] for c in runner.build_calls] == tracks
+        # run_experiment writes one aggregate comparison.json (via
+        # BacktestRunner.write_comparison_summary) covering every successful
+        # track after all tracks finish -- each entry includes both the
+        # resolved config actually used AND the metrics, so the file is
+        # self-contained enough to hand to an LLM without the config.
+        assert len(runner.comparison_calls) == 1
+        summary_tracks = runner.comparison_calls[0]["tracks"]
+        assert set(summary_tracks) == set(tracks)
+        assert all({"config", "metrics"} <= set(v) for v in summary_tracks.values())
 
 
 class TestRepairLoop:

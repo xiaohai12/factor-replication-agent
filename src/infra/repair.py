@@ -82,6 +82,7 @@ class RepairLoop:
         snapshot_id: str,
         config_overrides: dict | None,
         data=None,
+        track_name: str | None = None,
     ) -> ValidateOutcome:
         """Build the ONE standalone script and validate it, repairing on a
         technical failure, up to `max_retries` times.
@@ -93,13 +94,17 @@ class RepairLoop:
         `data`, when supplied, is a small real-data slice passed through to the
         sandbox's compute_signal execution smoke test.
 
+        `track_name`, when supplied, is forwarded to `BacktestRunner.
+        build_script()` so multi-track callers (`DualTrackController`) never
+        collide on the same on-disk script/output filename.
+
         Raises RuntimeError if the plugin still fails after `max_retries`
         repairs.
         """
         history: list[RepairAttempt] = []
         built: dict = {}
         for attempt in range(self.max_retries + 1):
-            built = self.runner.build_script(plugin, spec, snapshot_id, config_overrides)
+            built = self.runner.build_script(plugin, spec, snapshot_id, config_overrides, track_name)
             report = self.sandbox.validate(
                 plugin, spec, script_text=built["script_text"], data=data
             )
@@ -135,6 +140,7 @@ class RepairLoop:
         snapshot_id: str,
         config_overrides: dict | None,
         data=None,
+        track_name: str | None = None,
     ) -> ExecuteOutcome:
         """Execute the already-built script, repairing on a technical run
         failure, up to `max_retries` times.
@@ -178,7 +184,7 @@ class RepairLoop:
                     )
                 )
                 revalidated = self.build_validate_repair(
-                    plugin, spec, snapshot_id, config_overrides, data
+                    plugin, spec, snapshot_id, config_overrides, data, track_name
                 )
                 plugin, built = revalidated.plugin, revalidated.built
                 history.extend(revalidated.history)

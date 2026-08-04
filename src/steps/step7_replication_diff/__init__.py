@@ -104,3 +104,20 @@ class ReplicationDiff:
             lines.append(f"Residual (interactions): {result.residual:+.3f}")
 
         return "\n".join(lines)
+
+
+def safe_diff_ablation(runs: list[RunRecord]) -> ReplicationDiffResult | None:
+    """`ReplicationDiff.diff_ablation` that returns None instead of raising
+    when the required tracks are absent.
+
+    Callers that want the decomposition as *optional* evidence (the
+    comparison.json bundle, the pipeline's terminal reporting step) must be
+    able to run a single-track experiment without an exception, and must be
+    able to tell "not measured" apart from "measured as zero" -- hence None
+    rather than an empty result.
+    """
+    try:
+        return ReplicationDiff().diff_ablation(runs)
+    except ValueError:
+        return None
+

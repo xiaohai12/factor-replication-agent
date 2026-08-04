@@ -90,6 +90,8 @@ def generate_backtest_script(
     config_overrides: dict[str, Any] | None = None,
     ff_factors_path: str | None = None,
     signal_data_dir: str = "",
+    resolved_config: dict[str, Any] | None = None,
+    precomputed_signal_path: str | None = None,
 ) -> str:
     """Generate a standalone backtest script from a MethodSpec and plugin code.
 
@@ -117,6 +119,25 @@ def generate_backtest_script(
         signal_data_dir: Directory of raw WRDS-shaped source tables
             (crsp_msf/comp_funda/ibes_*/optionm_*/... + link tables);
             required for "multi_source" mode, ignored otherwise.
+        resolved_config: If the caller already resolved the config via
+            `codegen_registry.build_config(spec, config_overrides)` (e.g.
+            `BacktestRunner.build_script`, which needs it pre-execution for
+            `config_hash`/`execution_id`), pass it here to reuse that exact
+            dict instead of resolving a second, independent copy -- avoids
+            computing `build_config` twice per script (and, since an invalid/
+            no-op override now warns, emitting the same warning twice).
+        precomputed_signal_path: If given, the generated script SKIPS calling
+            `compute_signal()` entirely and instead reads this parquet path
+            (`[permno, yyyymm, signal]`) directly as the signal fed into
+            `BacktestExecutor.run_with_config()`. Used for a C&Z signal
+            BRIDGE track (docs/multi-config-evidence-plan.md Phase C/D --
+            see `src.infra.reference.cz_bridge`): the SAME resolved config
+            runs against a DIFFERENT (externally supplied) signal, isolating
+            signal-implementation differences from portfolio-construction
+            differences. `plugin_code` is still embedded/exec'd for parity
+            with every other generated script (harmless -- its
+            `compute_signal` is simply never called), so the script stays
+            structurally identical either way.
 
     Returns:
         Complete Python script as a string.
@@ -126,7 +147,7 @@ def generate_backtest_script(
     # Build config from MethodSpec — the SAME resolved config BacktestExecutor.run()
     # would build in-process, embedded here so the script doesn't need to
     # reconstruct/re-parse the full MethodSpec at run time.
-    config = codegen_registry.build_config(spec, config_overrides)
+    config = resolved_config if resolved_config is not None else codegen_registry.build_config(spec, config_overrides)
 
     # Format config as a Python dict literal
     config_lines = _format_config(config)
@@ -167,7 +188,6 @@ def generate_backtest_script(
         paper_ref=spec.paper_ref or "",
         data_path=data_path,
         compustat_requirements=compustat_requirements,
-        accounting_lag_months=spec.accounting_lag_months or 6,
         signal_input_mode=signal_input_mode,
         signal_data_dir=signal_data_dir,
         signal_sources_map=repr(signal_sources_map),
@@ -175,6 +195,7 @@ def generate_backtest_script(
         config_dict=config_lines,
         plugin_code_literal=repr(plugin_code),
         ff_factors_path=ff_factors_path or "",
+        precomputed_signal_path=precomputed_signal_path or "",
     )
 
     return script
@@ -219,7 +240,6 @@ Requirements:
 """
 
 import json
-import sys
 from pathlib import Path
 
 import pandas as pd
@@ -238,12 +258,19 @@ CONFIG = {{
 
 FACTOR_ID = "{factor_id}"
 DATA_PATH = "{data_path}"
-ACCOUNTING_LAG_MONTHS = {accounting_lag_months}
+# Read from CONFIG (not a separately-baked constant) so a
+# config_overrides={{"accounting_lag_months": ...}} experiment actually takes
+# effect here -- this used to be an independently-templated
+# `spec.accounting_lag_months or 6` that silently ignored any override to the
+# CONFIG key of the same name (see docs/multi-config-evidence-plan.md D4 /
+# docs/decision-log.md 2026-08-03).
+ACCOUNTING_LAG_MONTHS = CONFIG["accounting_lag_months"]
 SIGNAL_INPUT_MODE = "{signal_input_mode}"  # "compustat" | "crsp_only" | "multi_source"
 SIGNAL_DATA_DIR = "{signal_data_dir}"  # multi_source only: dir of raw WRDS-shaped tables
 SIGNAL_INPUT_SOURCES = {signal_sources_map}  # multi_source only: {{source: [columns]}}
 OUTPUT_PATH = "{output_path}"
 FF_FACTORS_PATH = "{ff_factors_path}"  # optional; empty string if not supplied
+PRECOMPUTED_SIGNAL_PATH = "{precomputed_signal_path}"  # optional; when set, skip compute_signal() (C&Z bridge track)
 
 
 # ===========================================================================
@@ -259,11 +286,23 @@ exec(compile(PLUGIN_CODE, "<plugin:{factor_id}>", "exec"), globals())
 
 
 def load_msf(path: str) -> pd.DataFrame:
-    """Load CRSP monthly stock file."""
+    """Load CRSP monthly stock file: the legacy pre-flattened parquet at
+    `path` if it exists (kept for existing synthetic-data/golden-number
+    fixtures that still ship one), otherwise assembled from the real WRDS
+    "new CIZ" raw-table export directory (SIGNAL_DATA_DIR) the same way
+    "multi_source" mode's `main()` branch does. Without this fallback, a
+    "compustat"/"crsp_only" mode factor run against a real-data-only snapshot
+    (data/local/*.csv, no crsp_msf.parquet) fails here with a misleading
+    "Data file not found" even though the real data IS present, just not in
+    the legacy pre-flattened format."""
     p = Path(path)
     if not p.exists():
-        print(f"ERROR: Data file not found: {{p}}")
-        sys.exit(1)
+        # SIGNAL_DATA_DIR is the PARENT of the raw-CSV "local" folder (the
+        # same convention `assemble_signal_master_table_from_sources()` uses
+        # -- it appends "/local" itself); `build_crsp_monthly_panel_ciz()`
+        # wants the actual CSV directory, so append it here too.
+        from src.infra.data_layer import build_crsp_monthly_panel_ciz
+        return build_crsp_monthly_panel_ciz(Path(SIGNAL_DATA_DIR) / "local")
     df = pd.read_parquet(p)
     df.columns = [c.lower() for c in df.columns]
     if "date" in df.columns and "yyyymm" not in df.columns:
@@ -311,20 +350,48 @@ def main():
 
     if SIGNAL_INPUT_MODE == "multi_source":
         # Returns panel + signal inputs both come from the real WRDS "new
-        # CIZ" export in SIGNAL_DATA_DIR (CRSP_STOCK_MONTH.csv +
+        # CIZ" export under SIGNAL_DATA_DIR/local/ (CRSP_STOCK_MONTH.csv +
         # CRSP_DELISTING.csv assembled into the flat panel; other sources
-        # joined by the master-table builder). The legacy 3-table
-        # crsp_msf/msenames/msedelist assembler was removed 2026-07-31.
+        # joined by the master-table builder). SIGNAL_DATA_DIR itself is the
+        # PARENT of the raw-CSV "local" folder -- the SAME convention
+        # `assemble_signal_master_table_from_sources()` uses below (it
+        # appends "/local" internally for every raw-CSV source, including
+        # CRSP-as-signal-source); `build_crsp_monthly_panel_ciz()` itself
+        # wants the actual CSV directory, so it must be appended here too.
+        # The legacy 3-table crsp_msf/msenames/msedelist assembler was
+        # removed 2026-07-31.
         from src.infra.data_layer import build_crsp_monthly_panel_ciz
-        msf = build_crsp_monthly_panel_ciz(SIGNAL_DATA_DIR)
+        msf = build_crsp_monthly_panel_ciz(Path(SIGNAL_DATA_DIR) / "local")
     else:
         msf = load_msf(DATA_PATH)
 
-    signal_input = build_signal_input(msf)
-    print("Computing signal...")
-    signal = compute_signal(signal_input)
+    if PRECOMPUTED_SIGNAL_PATH:
+        # C&Z bridge track (docs/multi-config-evidence-plan.md Phase C/D):
+        # the SAME resolved CONFIG below runs against a signal computed
+        # OUTSIDE this script (see src.infra.reference.cz_bridge) instead of
+        # this factor's own compute_signal() -- isolating signal-
+        # implementation differences from portfolio-construction
+        # differences. compute_signal() is never called in this branch.
+        print(f"Loading precomputed (bridge) signal from: {{PRECOMPUTED_SIGNAL_PATH}}")
+        signal = pd.read_parquet(PRECOMPUTED_SIGNAL_PATH)
+    else:
+        signal_input = build_signal_input(msf)
+        print("Computing signal...")
+        signal = compute_signal(signal_input)
     print(f"  Signal: {{len(signal):,}} observations, {{signal['permno'].nunique():,}} unique firms")
     print(f"  Date range: {{signal['yyyymm'].min()}} - {{signal['yyyymm'].max()}}")
+
+    # Persist the REALIZED signal series (docs/multi-config-evidence-plan.md
+    # Phase A1.1). Captured HERE -- compute_signal's own output (or the
+    # bridge signal, loaded as-is above), before any universe filter /
+    # breakpoint / portfolio step -- so a "controlled" post-signal config
+    # comparison (e.g. weighting_rule only) can assert this file is
+    # unchanged across tracks, and a "controlled" pre-signal comparison
+    # (e.g. accounting_lag_months) can confirm it DID change.
+    signal_path = Path(OUTPUT_PATH).with_name(Path(OUTPUT_PATH).stem + ".signal.parquet")
+    signal_path.parent.mkdir(parents=True, exist_ok=True)
+    signal[["permno", "yyyymm", "signal"]].to_parquet(signal_path, index=False)
+    print(f"  Signal series saved to: {{signal_path}}")
 
     plugin = PluginRecord(plugin_id=f"{{FACTOR_ID}}_script", factor_id=FACTOR_ID, code=PLUGIN_CODE)
     factors = load_factors()

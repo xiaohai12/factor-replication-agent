@@ -55,6 +55,41 @@ class RunRecord(BaseModel):
     data_snapshot_hash: str = Field(default="")
     config_hash: str = Field(default="")
 
+    # Best-effort runtime provenance (docs/multi-config-evidence-plan.md
+    # Phase 0.5) -- see src.infra.provenance.collect_runtime_provenance.
+    # `lifecycle_commit` above is kept as the single-string git commit for
+    # quick display/back-compat; this dict is the fuller record (dirty
+    # worktree flag, engine source hash, interpreter/dependency versions,
+    # external FF-factor file hash) needed to tell "same script bytes" apart
+    # from "same execution logic".
+    runtime_provenance: dict = Field(default_factory=dict)
+
+    # Matrix/batch identity (docs/multi-config-evidence-plan.md Phase 0.6):
+    # every RunRecord produced by one `DualTrackController.run_experiment()`
+    # call shares one `experiment_batch_id`. The whole batch's premise --
+    # "every track ran the SAME frozen plugin code, only config differs" --
+    # is falsifiable: if any track's execution failure triggered a
+    # track-local repair that changed its code_hash away from the batch's
+    # `frozen_plugin_hash`, `batch_invalidated` is set True on every record in
+    # the batch (not just the repaired one), since the whole batch's
+    # cross-track config attribution is compromised, not only that one
+    # track's result.
+    experiment_batch_id: str = Field(default="")
+    frozen_plugin_hash: str = Field(default="")
+    batch_invalidated: bool = Field(default=False)
+    batch_invalidation_reason: str = Field(default="")
+
+    # True for a C&Z signal BRIDGE track (docs/multi-config-evidence-plan.md
+    # Phase C/D -- see src.infra.reference.cz_bridge): this track's signal
+    # came from an externally-supplied series, not this factor's own
+    # `compute_signal()`, so its `code_hash` is intentionally NOT the agent
+    # plugin's hash and must be excluded from the batch's "every track ran
+    # identical code" consistency check (`DualTrackController._finalize_batch`)
+    # -- a bridge track's whole point is a DIFFERENT signal source under the
+    # SAME config, which is a different comparison axis entirely from
+    # config-only ablations.
+    is_bridge_track: bool = Field(default=False)
+
     # Results
     metrics: Optional[RunMetrics] = None
     return_series_path: Optional[str] = None

@@ -3,9 +3,11 @@
 from __future__ import annotations
 
 import json
+import shutil
 from pathlib import Path
 from typing import Optional
 
+from src.infra.hashing import artifact_sha256
 from src.infra.models.run_record import RunRecord
 
 
@@ -24,14 +26,81 @@ class EvidenceStore:
         self.base_path = Path(base_path)
         self.base_path.mkdir(parents=True, exist_ok=True)
 
-    def save_run(self, run: RunRecord) -> None:
-        """Save a run record and its artifacts."""
-        run_dir = self.base_path / run.factor_id / run.run_id
-        run_dir.mkdir(parents=True, exist_ok=True)
+    def save_run(
+        self,
+        run: RunRecord,
+        artifacts: dict[str, str] | None = None,
+        inline_content: dict[str, str] | None = None,
+    ) -> None:
+        """Save a run record and (optionally) its file artifacts.
 
-        # Save metadata
-        with open(run_dir / "metadata.json", "w") as f:
+        `artifacts`, when given, is `{filename: source_path}` for whatever
+        else the caller wants persisted alongside the metadata (e.g.
+        `{"script.py": ...}` -- a file that already exists on disk); missing
+        source files are silently skipped (a failed run may not have every
+        artifact). `inline_content` is `{filename: text}` for content the
+        caller only has in memory (e.g. the plugin code string, or a
+        `json.dumps(...)` of the resolved config/MethodSpec) -- written
+        directly, no source file needed. The run's own
+        `return_series_path`/`signal_series_path` -- already written to a
+        transient `scripts_path` by `BacktestRunner` -- are copied in too
+        when the files still exist, and the persisted `RunRecord`'s path
+        fields are rewritten to point at these evidence-root-local copies
+        (plus their `artifact_sha256`, appended into `run.logs` as a plain
+        audit line) so a `load_run()` later doesn't depend on that transient
+        directory still existing.
+
+        Written atomically: everything is staged in a sibling `.staging`
+        directory first, then the whole directory is swapped into place with
+        one `rename()` -- a crash or exception mid-copy never leaves a
+        `metadata.json` claiming artifacts exist that don't (docs/
+        multi-config-evidence-plan.md Phase A1.6).
+        """
+        run_dir = self.base_path / run.factor_id / run.run_id
+        staging_dir = run_dir.parent / f"{run_dir.name}.staging"
+        if staging_dir.exists():
+            shutil.rmtree(staging_dir)
+        staging_dir.mkdir(parents=True)
+
+        run = run.model_copy(deep=True)
+        artifact_hashes: dict[str, str] = {}
+
+        for filename, source_path in (artifacts or {}).items():
+            src = Path(source_path)
+            if not src.exists():
+                continue
+            dest = staging_dir / filename
+            shutil.copy2(src, dest)
+            artifact_hashes[filename] = artifact_sha256(dest)
+
+        for filename, content in (inline_content or {}).items():
+            dest = staging_dir / filename
+            dest.write_text(content)
+            artifact_hashes[filename] = artifact_sha256(dest)
+
+        for attr, filename in (
+            ("return_series_path", "return_series.csv"),
+            ("signal_series_path", "signal_series.parquet"),
+        ):
+            src_path = getattr(run, attr)
+            if not src_path or not Path(src_path).exists():
+                continue
+            dest = staging_dir / filename
+            shutil.copy2(src_path, dest)
+            artifact_hashes[filename] = artifact_sha256(dest)
+            setattr(run, attr, str(run_dir / filename))
+
+        if artifact_hashes:
+            run.logs = list(run.logs) + [
+                f"artifact_sha256: {json.dumps(artifact_hashes, sort_keys=True)}"
+            ]
+
+        with open(staging_dir / "metadata.json", "w") as f:
             json.dump(run.model_dump(mode="json"), f, indent=2, default=str)
+
+        if run_dir.exists():
+            shutil.rmtree(run_dir)
+        staging_dir.rename(run_dir)
 
     def load_run(self, factor_id: str, run_id: str) -> Optional[RunRecord]:
         """Load a run record by IDs."""
