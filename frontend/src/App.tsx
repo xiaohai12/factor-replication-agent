@@ -5,6 +5,8 @@ import { LlmProvider } from "@/lib/llmContext"
 import { PipelineE2EPage } from "@/pages/PipelineE2EPage"
 import { BacktestExperimentsPage } from "@/pages/BacktestExperimentsPage"
 import { TraceLogsPage } from "@/pages/TraceLogsPage"
+import { SessionsPage } from "@/pages/SessionsPage"
+import { SessionDetailPage } from "@/pages/SessionDetailPage"
 
 const queryClient = new QueryClient()
 
@@ -19,6 +21,8 @@ function App() {
               <Route path="/pipeline" element={<PipelineE2EPage />} />
               <Route path="/backtest" element={<BacktestExperimentsPage />} />
               <Route path="/trace" element={<TraceLogsPage />} />
+              <Route path="/sessions" element={<SessionsPage />} />
+              <Route path="/sessions/:sessionId/steps/:step" element={<SessionDetailPage />} />
             </Route>
           </Routes>
         </BrowserRouter>

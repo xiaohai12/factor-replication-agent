@@ -149,6 +149,42 @@
   - Still not done: all frontend work (Phase 4) -- see
     `/memories/session/plan.md`.
 
+- Session-centric UI redesign, Phase 4 (minimal frontend vertical slice --
+  `STEP_REGISTRY`/typed API layer/session routing/plain stepper, per the
+  plan's D1-D4 scope; the 8 deep per-step visualization panels in Phase E
+  remain future work).
+  - `frontend/src/lib/types.ts`: TypeScript types mirroring
+    `src/infra/models/session.py` (`SessionManifest`, `StepRecord`,
+    `StepAttempt`, `StepDiagnostics`, `SessionEvent`) -- one typed surface
+    instead of each page re-declaring its own shape (the pre-existing
+    pattern in `PipelineE2EPage`/`BacktestExperimentsPage`).
+  - `frontend/src/lib/steps.ts`: `STEP_REGISTRY`, the single source of truth
+    for the 8 steps' labels/endpoints/job-vs-sync nature/request-body
+    templates, mirroring the backend's `STEP_IO_CONTRACT`.
+  - `frontend/src/lib/sessionApi.ts`: typed wrapper over the session
+    endpoints (create/list/get/getStep/getEvents/getDiagnostics/archive/
+    getStepArtifact/getComparison/runStep).
+  - `frontend/src/components/StepStepper.tsx`: 8-node stepper driven by the
+    session's own recorded attempt status + diagnostics readiness --
+    clicking any node is always allowed (no disabled/locked state), per
+    Phase 1's "every step can run standalone" requirement.
+  - New pages: `SessionsPage` (list/create, session id lands in the URL on
+    creation) and `SessionDetailPage` (`/sessions/:sessionId/steps/:step` --
+    stepper + a generic request-body JSON editor pre-filled from
+    `STEP_REGISTRY`'s template + a result panel that either streams a job
+    via the existing `useJobStream` hook or shows a sync response, plus the
+    step's recorded diagnostics/flags and a polled session event log).
+    Existing Pipeline/Backtest/Trace pages and routes are untouched
+    (additive only); `AppLayout`'s nav gained a "Sessions" entry.
+  - Manually verified end-to-end against the real backend + a real created
+    session (browser smoke test): session creation redirects into the URL,
+    the stepper reflects live step status, the step2 request panel
+    correctly reports `missing_input_refs`, and an invalid request (an
+    empty `spec`) surfaces the backend's error message in the UI rather
+    than failing silently.
+  - `npm run build` (tsc -b + vite build) and `npm run lint` (oxlint) both
+    clean on the new files (pre-existing warnings in untouched files only).
+
 ### Changed
 
 - Fixed a stale doc: `AGENTS.md`'s module map still described
