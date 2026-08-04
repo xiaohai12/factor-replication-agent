@@ -4,6 +4,7 @@ import { JsonTree } from "@/components/JsonTree"
 import { CodeView } from "@/components/CodeView"
 import { DiffView } from "@/components/DiffView"
 import { GapWaterfallChart } from "@/components/GapWaterfallChart"
+import { MethodSpecBoard } from "@/components/MethodSpecBoard"
 import { MultiTrackChart, type TrackSeries } from "@/components/MultiTrackChart"
 import { ReturnChart, type ReturnRow } from "@/components/ReturnChart"
 import { api } from "@/lib/api"
@@ -111,7 +112,7 @@ export function StepOutputView({
   })
 
   if (step === 1 && step1Artifact.data) {
-    return <JsonTree name="MethodSpec" data={JSON.parse(step1Artifact.data.content)} />
+    return <MethodSpecBoard spec={JSON.parse(step1Artifact.data.content)} />
   }
 
   if (step === 3 && (step3Plugin.data || step3Script.data)) {

@@ -4,6 +4,42 @@
 
 ### Added
 
+- User-testing follow-up on the legacy `PipelineE2EPage` review step:
+  (1) the "why is review rule-based, not LLM" question surfaced that
+  `ReviewGate.review_with_llm` (LLM-backed review) was already implemented
+  and exposed at `POST /api/methodspecs/review/llm`, just never wired into
+  this page's UI -- added a second "Run LLM-backed review" button next to
+  the existing rules-based one (both produce the same `ReviewResult` shape
+  and share the same resolution UI below); (2) new
+  `src/steps/step2_reviewer/field_help.py` + `GET /api/methodspecs/
+  field-help` gives each resolvable field a one-line plain-language
+  description (what it controls) and, where the engine has a real fixed
+  menu (`RebalanceFrequency`/`BreakpointSource`/`WeightingRule`/
+  `ReturnCombinationType` enums, sourced directly from
+  `src/infra/models/method_spec.py` so the options never drift from what
+  `registry.build_config` actually accepts), a selectable options list with
+  an explicit "Other (type my own)" escape hatch that reveals a free-text
+  input -- fields with no natural enum (accounting lag, universe
+  description, etc.) still fall back to plain text, unchanged; (3)
+  confirmed and documented that citing the paper when resolving a blocked
+  field is NOT required today (`ResolveRequest`/`apply_decisions` accept an
+  empty/default reason) -- relabeled the reason input "(optional)" rather
+  than silently implying it's mandatory. New test
+  `test_field_help_is_not_shadowed_by_the_stage_catch_all` (the `/field-help`
+  route had to be registered BEFORE the existing `/{stage}` catch-all or
+  it would 404). Full suite now 471 passed, 26 skipped (zero regressions).
+
+- New `frontend/src/components/MethodSpecBoard.tsx`: a structured,
+  human-readable "board" view of a MethodSpec (label/value/citation rows
+  grouped into Signal/Portfolio/Reported Results/Data/Ambiguous
+  Fields/Resolution Log sections) replacing the raw `JSON.stringify` dump
+  previously shown in both the legacy `PipelineE2EPage` and the session
+  step1 output panel (`StepOutputView`). Each value's paper citation
+  (location/quote/interpretation), where the extractor recorded one, is
+  collapsed behind a small "cite paper (N)" toggle rather than always
+  shown inline. The old raw-JSON `MethodSpecViewer` is kept alongside as a
+  "View raw MethodSpec JSON" fallback for debugging, not removed.
+
 - Legacy `PipelineE2EPage` (the non-session `/pipeline` route) gained PDF
   upload for stage 1, matching the session step1 upload added earlier the
   same day. New `POST /api/methodspecs/extract-pdf` (multipart) mirrors

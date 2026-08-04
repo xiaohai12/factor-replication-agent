@@ -53,6 +53,23 @@ def test_health():
         assert resp.json() == {"status": "ok"}
 
 
+def test_field_help_is_not_shadowed_by_the_stage_catch_all():
+    """`/api/methodspecs/field-help` must resolve to the dedicated route,
+    NOT `GET /{stage}` with stage='field-help' (which would 404 since
+    'field-help' isn't a real stage directory)."""
+    with TestClient(app) as client:
+        resp = client.get("/api/methodspecs/field-help")
+        assert resp.status_code == 200
+        body = resp.json()
+        assert "portfolio.sort.breakpoint_source" in body
+        entry = body["portfolio.sort.breakpoint_source"]
+        assert entry["description"]
+        assert "nyse" in entry["options"]
+        assert "full_sample" in entry["options"]
+        # A numeric/free-text field (no engine enum) has no options list.
+        assert body["signal.timing.accounting_lag"]["options"] == []
+
+
 def test_extract_from_pdf_uses_extracted_text_and_pdf_bytes(monkeypatch):
     """No real LLM call -- monkeypatches `build_extractor` (same pattern as
     tests/test_session_api.py's TestStep1PdfUpload) so this only exercises

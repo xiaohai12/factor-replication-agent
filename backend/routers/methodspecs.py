@@ -26,6 +26,7 @@ from backend.state import (
     pipeline,
 )
 from src.infra.models.method_spec import MethodSpec
+from src.steps.step2_reviewer.field_help import all_field_help
 from src.steps.step2_reviewer.resolution import apply_decisions
 
 router = APIRouter(prefix="/api/methodspecs", tags=["methodspecs"])
@@ -90,6 +91,19 @@ async def extract_from_pdf(
     paper_text = extract_text_from_pdf_bytes(pdf_bytes)
     job_id = job_manager.create_job(_extract_job(factor_id, paper_text, llm_provider, llm_model, pdf_bytes=pdf_bytes))
     return {"job_id": job_id}
+
+
+@router.get("/field-help")
+def field_help() -> dict:
+    """Human-facing help for the fields review can block: what each one
+    controls, and (where the engine has a fixed menu) which values are
+    actually selectable -- see src/steps/step2_reviewer/field_help.py.
+
+    Registered BEFORE the `/{stage}` catch-all below -- otherwise
+    `GET /api/methodspecs/field-help` would match `stage="field-help"`
+    instead (FastAPI/Starlette match routes in registration order).
+    """
+    return all_field_help()
 
 
 @router.get("/{stage}")

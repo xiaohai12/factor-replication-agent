@@ -15,6 +15,7 @@ import {
 } from "@/components/ui/select"
 import { JobLogPanel } from "@/components/JobLogPanel"
 import { MethodSpecViewer } from "@/components/MethodSpecViewer"
+import { MethodSpecBoard } from "@/components/MethodSpecBoard"
 import { MetricsTable } from "@/components/MetricsTable"
 import { ReturnChart, type ReturnRow } from "@/components/ReturnChart"
 import { api } from "@/lib/api"
@@ -91,6 +92,20 @@ export function PipelineE2EPage() {
   const [reviewResult, setReviewResult] = useState<ReviewResult | null>(null)
   const [resolutionValues, setResolutionValues] = useState<Record<string, string>>({})
   const [resolutionReasons, setResolutionReasons] = useState<Record<string, string>>({})
+  const [useOtherFor, setUseOtherFor] = useState<Record<string, boolean>>({})
+  const [reviewLlmJobId, setReviewLlmJobId] = useState<string | null>(null)
+  const reviewLlmJob = useJobStream<{ review_result: ReviewResult; raw_llm_output: unknown }>(reviewLlmJobId)
+
+  useEffect(() => {
+    if (reviewLlmJob.status === "completed" && reviewLlmJob.result?.review_result) {
+      setReviewResult(reviewLlmJob.result.review_result)
+    }
+  }, [reviewLlmJob.status, reviewLlmJob.result])
+
+  const { data: fieldHelp } = useQuery({
+    queryKey: ["field-help"],
+    queryFn: () => api.get<Record<string, { description: string; options: string[] }>>("/api/methodspecs/field-help"),
+  })
 
   // Stage 3: codegen
   const [codegenJobId, setCodegenJobId] = useState<string | null>(null)
@@ -168,6 +183,26 @@ export function PipelineE2EPage() {
     try {
       const result = await api.post<ReviewResult>("/api/methodspecs/review", { spec })
       setReviewResult(result)
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err))
+    }
+  }
+
+  async function handleReviewLlm() {
+    if (!spec) return
+    setError(null)
+    if (!paperText.trim()) {
+      setError("LLM-backed review needs the source paper text (paste it in stage 1, even if you extracted from a PDF).")
+      return
+    }
+    try {
+      const { job_id } = await api.post<{ job_id: string }>("/api/methodspecs/review/llm", {
+        spec,
+        paper_text: paperText,
+        llm_provider: provider,
+        llm_model: model,
+      })
+      setReviewLlmJobId(job_id)
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err))
     }
@@ -302,7 +337,8 @@ export function PipelineE2EPage() {
             </Button>
           </div>
           <JobLogPanel job={extractJob} title="Extraction job" />
-          {spec && <MethodSpecViewer spec={spec} title="Extracted MethodSpec" />}
+          {spec && <MethodSpecBoard spec={spec} />}
+          {spec && <MethodSpecViewer spec={spec} title="View raw MethodSpec JSON" />}
         </CardContent>
       </Card>
 
@@ -313,9 +349,21 @@ export function PipelineE2EPage() {
             <CardTitle className="text-base">2. Review</CardTitle>
           </CardHeader>
           <CardContent className="flex flex-col gap-3">
-            <Button onClick={handleReview} disabled={!canReview}>
-              Run rules-based review
-            </Button>
+            <div className="flex gap-2">
+              <Button onClick={handleReview} disabled={!canReview} variant="outline">
+                Run rules-based review
+              </Button>
+              <Button onClick={handleReviewLlm} disabled={!canReview || reviewLlmJob.status === "running"}>
+                {reviewLlmJob.status === "running" ? "Reviewing…" : "Run LLM-backed review"}
+              </Button>
+            </div>
+            <p className="text-xs text-muted-foreground">
+              Rules-based review only checks deterministic gaps (missing/ambiguous fields, evidence
+              presence). LLM-backed review additionally re-reads the source paper text to catch
+              subtler mismatches -- both write the same `ReviewResult` shape and can resolve blocked
+              fields the same way below.
+            </p>
+            <JobLogPanel job={reviewLlmJob} title="LLM review job" />
             {reviewResult && (
               <div className="flex flex-col gap-2">
                 <Badge variant={isApproved ? "default" : isBlocked ? "destructive" : "secondary"}>
@@ -331,26 +379,71 @@ export function PipelineE2EPage() {
                     <p className="text-sm font-medium">Resolve blocked fields</p>
                     {reviewResult.field_notes
                       .filter((n) => reviewResult.blocked_fields.includes(n.field))
-                      .map((note) => (
-                        <div key={note.field} className="flex flex-col gap-1">
-                          <Label>{note.field}</Label>
-                          <p className="text-xs text-muted-foreground">{note.reason}</p>
-                          <Input
-                            placeholder="New value"
-                            value={resolutionValues[note.field] ?? ""}
-                            onChange={(e) =>
-                              setResolutionValues((prev) => ({ ...prev, [note.field]: e.target.value }))
-                            }
-                          />
-                          <Input
-                            placeholder="Reason (cite the paper)"
-                            value={resolutionReasons[note.field] ?? ""}
-                            onChange={(e) =>
-                              setResolutionReasons((prev) => ({ ...prev, [note.field]: e.target.value }))
-                            }
-                          />
-                        </div>
-                      ))}
+                      .map((note) => {
+                        const help = fieldHelp?.[note.field]
+                        const hasOptions = !!help?.options?.length
+                        const usingOther = useOtherFor[note.field] ?? false
+                        return (
+                          <div key={note.field} className="flex flex-col gap-1">
+                            <Label>{note.field}</Label>
+                            {help?.description && (
+                              <p className="text-xs text-muted-foreground">ℹ {help.description}</p>
+                            )}
+                            <p className="text-xs text-muted-foreground">Why it's blocked: {note.reason}</p>
+                            {hasOptions && !usingOther ? (
+                              <Select
+                                value={resolutionValues[note.field] ?? ""}
+                                onValueChange={(v) => {
+                                  if (v === "__other__") {
+                                    setUseOtherFor((prev) => ({ ...prev, [note.field]: true }))
+                                    setResolutionValues((prev) => ({ ...prev, [note.field]: "" }))
+                                  } else {
+                                    setResolutionValues((prev) => ({ ...prev, [note.field]: v }))
+                                  }
+                                }}
+                              >
+                                <SelectTrigger className="w-full">
+                                  <SelectValue placeholder="Select a value" />
+                                </SelectTrigger>
+                                <SelectContent>
+                                  {help!.options.map((opt) => (
+                                    <SelectItem key={opt} value={opt}>
+                                      {opt}
+                                    </SelectItem>
+                                  ))}
+                                  <SelectItem value="__other__">Other (type my own)</SelectItem>
+                                </SelectContent>
+                              </Select>
+                            ) : (
+                              <div className="flex flex-col gap-1">
+                                <Input
+                                  placeholder="New value"
+                                  value={resolutionValues[note.field] ?? ""}
+                                  onChange={(e) =>
+                                    setResolutionValues((prev) => ({ ...prev, [note.field]: e.target.value }))
+                                  }
+                                />
+                                {hasOptions && (
+                                  <button
+                                    type="button"
+                                    className="text-left text-xs text-muted-foreground underline"
+                                    onClick={() => setUseOtherFor((prev) => ({ ...prev, [note.field]: false }))}
+                                  >
+                                    Choose from the list instead
+                                  </button>
+                                )}
+                              </div>
+                            )}
+                            <Input
+                              placeholder="Reason (optional -- cite the paper if you have a quote)"
+                              value={resolutionReasons[note.field] ?? ""}
+                              onChange={(e) =>
+                                setResolutionReasons((prev) => ({ ...prev, [note.field]: e.target.value }))
+                              }
+                            />
+                          </div>
+                        )
+                      })}
                     <Button onClick={handleResolve}>Submit resolution</Button>
                   </div>
                 )}
