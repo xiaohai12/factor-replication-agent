@@ -4,6 +4,17 @@
 
 ### Added
 
+- Legacy `PipelineE2EPage` (the non-session `/pipeline` route) gained PDF
+  upload for stage 1, matching the session step1 upload added earlier the
+  same day. New `POST /api/methodspecs/extract-pdf` (multipart) mirrors
+  `backend/routers/sessions.py`'s `extract_step1_from_pdf`: extracts text via
+  the shared `extract_text_from_pdf_bytes` helper and threads the raw PDF
+  bytes through to `SemanticExtractor.extract(..., pdf_bytes=...)`. The
+  pasted-text option (`POST /api/methodspecs/extract`) is kept side by side
+  as an alternative, not removed. 2 new tests in `tests/test_backend_api.py`
+  (fake-extractor, no real LLM call). Full suite now 470 passed, 26 skipped
+  (zero regressions). `npm run build`/`npm run lint` clean.
+
 - Session-centric UI redesign, Phase 0 + Phase 1 (implements the plan from
   docs/decision-log.md's 2026-08-04 "Session-centric web UI redesign" entry):
   a new workflow-control-plane `Session` concept, separate from

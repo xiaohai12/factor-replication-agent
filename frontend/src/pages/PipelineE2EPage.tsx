@@ -139,6 +139,29 @@ export function PipelineE2EPage() {
     }
   }
 
+  const [pdfFile, setPdfFile] = useState<File | null>(null)
+
+  async function handleExtractFromPdf() {
+    setError(null)
+    if (!factorId.trim() || !pdfFile) {
+      setError("Enter a factor id and choose a PDF file.")
+      return
+    }
+    try {
+      const form = new FormData()
+      form.append("factor_id", factorId)
+      form.append("llm_provider", provider)
+      if (model) form.append("llm_model", model)
+      form.append("file", pdfFile)
+      const res = await fetch("/api/methodspecs/extract-pdf", { method: "POST", body: form })
+      if (!res.ok) throw new Error(await res.text())
+      const { job_id } = (await res.json()) as { job_id: string }
+      setExtractJobId(job_id)
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err))
+    }
+  }
+
   async function handleReview() {
     if (!spec) return
     setError(null)
@@ -251,17 +274,33 @@ export function PipelineE2EPage() {
             <Input value={factorId} onChange={(e) => setFactorId(e.target.value)} placeholder="e.g. BM" />
           </div>
           <div className="flex flex-col gap-1.5">
-            <Label>Paper text</Label>
+            <Label>Upload paper PDF</Label>
+            <input
+              type="file"
+              accept="application/pdf"
+              onChange={(e) => setPdfFile(e.target.files?.[0] ?? null)}
+              className="text-xs"
+            />
+            <Button
+              onClick={handleExtractFromPdf}
+              disabled={extractJob.status === "running" || !pdfFile}
+              variant="default"
+            >
+              {extractJob.status === "running" ? "Extracting…" : "Extract from PDF"}
+            </Button>
+          </div>
+          <div className="flex flex-col gap-1.5">
+            <Label>Or paste paper text instead</Label>
             <Textarea
               className="min-h-32 text-xs"
               value={paperText}
               onChange={(e) => setPaperText(e.target.value)}
               placeholder="Paste the paper's relevant text here…"
             />
+            <Button onClick={handleExtract} disabled={extractJob.status === "running"} variant="outline">
+              {extractJob.status === "running" ? "Extracting…" : "Extract from pasted text"}
+            </Button>
           </div>
-          <Button onClick={handleExtract} disabled={extractJob.status === "running"}>
-            {extractJob.status === "running" ? "Extracting…" : "Extract"}
-          </Button>
           <JobLogPanel job={extractJob} title="Extraction job" />
           {spec && <MethodSpecViewer spec={spec} title="Extracted MethodSpec" />}
         </CardContent>

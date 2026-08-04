@@ -53,6 +53,60 @@ def test_health():
         assert resp.json() == {"status": "ok"}
 
 
+def test_extract_from_pdf_uses_extracted_text_and_pdf_bytes(monkeypatch):
+    """No real LLM call -- monkeypatches `build_extractor` (same pattern as
+    tests/test_session_api.py's TestStep1PdfUpload) so this only exercises
+    PDF text extraction + job wiring for the non-session
+    `/api/methodspecs/extract-pdf` endpoint."""
+    import backend.routers.methodspecs as methodspecs_module
+    from src.infra.models.method_spec import MethodSpec, SignalSpec
+    from src.steps.step1_extractor import ExtractionResult
+
+    captured: dict = {}
+
+    class _FakeExtractor:
+        def extract(self, factor_id, paper_text, pdf_bytes=None, reextract_feedback=None):
+            captured["paper_text"] = paper_text
+            captured["pdf_bytes"] = pdf_bytes
+            return ExtractionResult(
+                sources_used=["paper"],
+                spec=MethodSpec(factor_id=factor_id, factor_name="Test", signal=SignalSpec()),
+            )
+
+    monkeypatch.setattr(methodspecs_module, "build_extractor", lambda client: _FakeExtractor())
+
+    import pymupdf
+
+    doc = pymupdf.open()
+    page = doc.new_page()
+    page.insert_text((72, 72), "Hello from a test PDF")
+    pdf_bytes = doc.tobytes()
+    doc.close()
+
+    with TestClient(app) as client:
+        resp = client.post(
+            "/api/methodspecs/extract-pdf",
+            data={"factor_id": "factor_a", "llm_provider": "codex"},
+            files={"file": ("paper.pdf", pdf_bytes, "application/pdf")},
+        )
+        assert resp.status_code == 200, resp.text
+        snapshot = _poll_job(client, resp.json()["job_id"])
+        assert snapshot["status"] == "completed", snapshot.get("error")
+
+    assert "Hello from a test PDF" in captured["paper_text"]
+    assert captured["pdf_bytes"] is not None
+
+
+def test_extract_from_pdf_rejects_empty_file():
+    with TestClient(app) as client:
+        resp = client.post(
+            "/api/methodspecs/extract-pdf",
+            data={"factor_id": "factor_a"},
+            files={"file": ("empty.pdf", b"", "application/pdf")},
+        )
+        assert resp.status_code == 400
+
+
 def test_review_endpoint_rules_based():
     spec = _load_fixture_spec()
     with TestClient(app) as client:
