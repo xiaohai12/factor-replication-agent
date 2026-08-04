@@ -4,9 +4,9 @@
 
 ### Added
 
-- Session-centric UI redesign, Phase 0 + Phase 1 (see docs/decision-log.md
-  2026-08-04 "Session-centric web UI redesign" and its Phase 0/1 follow-up
-  entry): a new workflow-control-plane `Session` concept, separate from
+- Session-centric UI redesign, Phase 0 + Phase 1 (implements the plan from
+  docs/decision-log.md's 2026-08-04 "Session-centric web UI redesign" entry):
+  a new workflow-control-plane `Session` concept, separate from
   `EvidenceStore`/`RunRecord`/`comparison.json` (which remain the sole
   authority for empirical artifacts).
   - `src/infra/models/session.py`: `SessionState` state machine +
