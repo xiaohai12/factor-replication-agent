@@ -156,9 +156,9 @@ class CodexCLIClient:
     Set stream_callback to receive incremental agent_message text as it arrives.
     """
 
-    SUPPORTED_MODELS = ["gpt-5.4", "gpt-5.5"]
+    SUPPORTED_MODELS = ["gpt-5.5", "gpt-5.4"]
 
-    def __init__(self, model: str = "gpt-5.4"):
+    def __init__(self, model: str = "gpt-5.5"):
         self.chat = _ChatNamespace(self)
         self.default_model = model
         self._bin = _find_codex_bin()
@@ -667,7 +667,7 @@ def create_llm_client(
         Client with OpenAI-compatible .chat.completions.create() interface
     """
     if provider == "codex":
-        return CodexCLIClient(model=model or "gpt-5.4")
+        return CodexCLIClient(model=model or "gpt-5.5")
     elif provider == "copilot":
         return CopilotCLIClient(model=model or "claude-opus-4-6")
     elif provider == "claude":
