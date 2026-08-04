@@ -4,6 +4,16 @@
 
 ### Changed
 
+- Fixed a stale doc: `AGENTS.md`'s module map still described
+  `src/steps/step6_dual_track_controller/` as having "basic" orchestration
+  with repair-detection-only freeze/invalidation. The real auto-freeze
+  (`_run_tracks_with_freeze`, bounded re-run under repair-disabled plugin),
+  the merged `run_experiment`/`run_from_matrix` entry points, and bridge-track
+  support (`is_bridge_track`) had already landed in prior sessions but were
+  never reflected in the module map. Updated the row to match the current
+  implementation. No code change; this is a pre-work checkpoint ahead of the
+  session-centric web UI redesign (see `docs/decision-log.md`).
+
 - Ran the real `scripts/run_real_asset_growth_experiment.py` matrix (7 tracks:
   original, standardized_hxz, 4 single-switch ablations, 1 factorial) against
   actual `data/local` WRDS CSVs end-to-end, then ran Step 8 (`analyze_comparison.py`,

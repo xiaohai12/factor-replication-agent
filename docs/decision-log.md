@@ -3692,3 +3692,82 @@ when writing the paper.
   (`normalize_curated_schema` lift, `PortfolioSpec`, before-validator coercions),
   `src/steps/step3_codegen/registry.py`, `src/steps/step2_reviewer/__init__.py`,
   `CHANGELOG.md`.
+
+## 2026-08-04 — Session-centric web UI redesign: contract-first plan, checkpoint before starting
+
+- **Context / problem:** The React/FastAPI site (2026-07-24 decision) only covers
+  step1-5 and holds all workflow state in per-page `useState` (lost on reload).
+  User wants full step1-8 coverage, every step independently runnable from a
+  stored upstream artifact, a persisted structured trace, and a per-step
+  "readiness to move on" signal to identify pipeline bottlenecks. A first draft
+  plan bundled persisted-workflow-state, missing-endpoint, evaluation, and
+  frontend work into one change; user review (external, thorough) scored it
+  7/10 and flagged the Session data model and step3-7 artifact boundary as the
+  most likely rework sources.
+- **Decision:** Split the redesign into a **workflow control plane** (a new
+  `Session` = state machine + artifact *references*, owned by the new backend
+  session store) and the existing **research evidence plane** (`EvidenceStore`,
+  `RunRecord`, `comparison.json` stay the sole authority for empirical
+  artifacts). Concretely:
+  - `SessionManifest` stores references + hashes only
+    (`methodspec_ref, plugin_ref, script_ref(+sha256), execution_ids[],
+    experiment_batch_id, comparison_ref, diagnosis_ref`); only step1-4's small
+    artifacts (spec/review report/resolution/plugin/script/validation) live
+    physically under the session directory; step5 onward is reference-only.
+  - Formal session state machine (`created -> ... -> diagnosis_complete`, plus
+    `blocked/failed/interrupted/cancelled/archived`) with rerun = new
+    append-only `attempts[]`, never in-place overwrite; staleness propagates
+    from upstream hash changes.
+  - `run-all` replaced by `advance`/`resume` (run-until-blocked): a backend job
+    cannot reliably pause across a process restart, so the "waits for human
+    review" step is a return value + resumable call, not a long-lived thread.
+    On backend startup, any `running` job/session is reconciled to
+    `interrupted`; the UI always reads final state from the session, never
+    from a stale job id; SSE is a notification channel only.
+  - step3->4->5 chained by **artifact identity**, not by passing script text or
+    paths over HTTP: step3 returns `{artifact_id, sha256}`, step4 validates
+    that id, step5's execute endpoint accepts only an artifact_id whose sha256
+    matches a passed validation record. Prevents the execute endpoint from
+    becoming an arbitrary-code-execution surface.
+  - step7's new endpoint accepts only `experiment_batch_id` /
+    `execution_id`s (never client-supplied runs/config/metrics); the backend
+    loads `RunRecord`s itself and checks same-batch, not-invalidated, hash
+    completeness before building the comparison (reusing
+    `write_comparison_summary`'s existing bundle build, not a second one).
+  - Renamed "Scorecard" (a unified 0-100 per-step quality score) to
+    `StepDiagnostics` + a separate `readiness` gate: several of the originally
+    proposed "quality" signals do not actually indicate quality (fewer
+    blocked fields != a more accurate MethodSpec; fewer repairs != a correct
+    formula; `ValidationReport.executes_ok` defaults `True` and stays `True`
+    when the check is skipped, so it must render tri-state, not a green
+    check). A true `evaluation score` is computed only where an independent
+    reference exists (today: step1 only, against SignalDoc/human labels).
+  - Extraction evaluation is exposed as its own opt-in
+    `POST /api/evaluations/extraction` action, isolated from normal sessions,
+    so a normal session's extractor call can never be handed `SignalDoc.csv`
+    or the human-labeled fixtures (existing hard constraint).
+- **Rationale:** Confirmed before committing to the plan that
+  `EvidenceStore.save_run` is a whole-directory `rmtree`+`rename` swap by a
+  single writer (`src/infra/evidence/__init__.py`), not a general transactional
+  store — a session manifest needs its own lock + revision/CAS write, not a
+  copy of that method. Also confirmed the in-flight step6 auto-freeze/
+  invalidation work (see CHANGELOG "Fixed a stale doc" entry same date) had
+  already landed, meaning the original plan's "current state" section was
+  stale against the actual worktree — reinforcing the need to freeze a
+  checkpoint before defining the Session API contract against it.
+- **Process:** Before any Session/UI code is written: (1) confirm the in-flight
+  multi-config/evidence/step6-8 work is stable (`pytest tests/` green: 388
+  passed/26 skipped, matching the last recorded baseline — no regression); (2)
+  fix the stale `AGENTS.md` step6 description (done, this changelog entry);
+  (3) this decision-log entry serves as the checkpoint marker; Session API
+  schemas and state-transition tests are written next, before any endpoint
+  handler body (Phase 0 of the revised plan).
+- **Trade-offs / risks:** More upfront design work before any visible UI
+  change; deliberately deferred a unified quality score the user might have
+  wanted for an at-a-glance "which step is bad" answer — mitigated by still
+  shipping per-step diagnostics and an explicit `readiness` gate, just not a
+  single misleading number.
+- **References:** `docs/multi-config-evidence-plan.md`, `AGENTS.md` (module
+  map), `backend/jobs.py`, `backend/routers/*`, `src/infra/evidence/__init__.py`,
+  `src/infra/models/plugin.py` (`ValidationReport.executes_ok`),
+  `src/steps/step6_dual_track_controller/__init__.py`, `CHANGELOG.md`.
