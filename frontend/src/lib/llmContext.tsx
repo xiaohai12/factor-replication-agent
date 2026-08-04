@@ -1,7 +1,7 @@
 import { createContext, useContext, useMemo, useState, type ReactNode } from "react"
 
 export const PROVIDER_MODELS: Record<string, string[]> = {
-  codex: ["gpt-5.5", "gpt-5.4"],
+  codex: ["gpt-5.4", "gpt-5.5"],
   copilot: ["claude-sonnet-5", "claude-opus-4-6", "claude-sonnet-4-6", "gpt-5.4"],
   claude: ["claude-sonnet-5", "claude-sonnet-4-6", "claude-opus-4-8", "claude-haiku-4-5-20251001"],
   openrouter: ["openai/gpt-4o", "anthropic/claude-sonnet-4", "openai/gpt-5.4"],
