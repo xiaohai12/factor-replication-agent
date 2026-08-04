@@ -14,7 +14,8 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from backend.routers import backtest, codegen, evidence, jobs, methodspecs, papers
+from backend.routers import backtest, codegen, evidence, jobs, methodspecs, papers, sessions
+from backend.sessions import session_store
 from backend.state import pipeline
 
 
@@ -40,6 +41,11 @@ def _sync_run_registry_from_evidence() -> None:
 @asynccontextmanager
 async def lifespan(_app: FastAPI):
     _sync_run_registry_from_evidence()
+    # A `Session`'s per-step attempt left `running` means the backend died
+    # mid-step (the in-memory JobManager can't know it was restarted --
+    # see backend/jobs.py). Reconcile on every startup, never leave a
+    # session claiming a step is still in progress after a restart.
+    session_store.reconcile_orphaned_running()
     yield
 
 
@@ -59,6 +65,7 @@ app.include_router(codegen.router)
 app.include_router(backtest.router)
 app.include_router(evidence.router)
 app.include_router(jobs.router)
+app.include_router(sessions.router)
 
 
 @app.get("/api/health")

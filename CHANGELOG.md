@@ -2,6 +2,57 @@
 
 ## [Unreleased]
 
+### Added
+
+- Session-centric UI redesign, Phase 0 + Phase 1 (see docs/decision-log.md
+  2026-08-04 "Session-centric web UI redesign" and its Phase 0/1 follow-up
+  entry): a new workflow-control-plane `Session` concept, separate from
+  `EvidenceStore`/`RunRecord`/`comparison.json` (which remain the sole
+  authority for empirical artifacts).
+  - `src/infra/models/session.py`: `SessionState` state machine +
+    `validate_transition` (illegal transitions raise
+    `IllegalTransitionError`), `StepStatus`/`StepAttempt`/`StepRecord`
+    (append-only attempts -- rerun never overwrites), `SessionManifest`
+    (`schema_version` + `revision`, refs/hashes only), and the Phase 0.4
+    `STEP_IO_CONTRACT` + `missing_input_refs()` per-step input/output ref
+    table.
+  - `src/infra/session_store.py`: `SessionStore` -- `fcntl.flock` per-session
+    lock + compare-and-set `revision` write + atomic tempfile+`os.replace`
+    manifest persistence (deliberately NOT `EvidenceStore.save_run`'s
+    rmtree+rename pattern, which is single-writer-only).
+    `SESSION_OWNED_STEPS = {1,2,3,4}`; step5+ is reference-only, enforced at
+    the API (`step_dir()` raises for step >= 5). `reconcile_orphaned_running()`
+    turns any attempt left `running` into `interrupted` on backend restart.
+  - `backend/sessions.py` + `backend/routers/sessions.py`: session
+    CRUD/archive/events endpoints, a session-scoped append-only structured
+    event journal (`events.jsonl`, `since_seq` incremental reads), and the
+    step3->4->5 **artifact-identity chain**: `POST .../steps/3/script`
+    returns only `{artifact_id, sha256}` (never raw script text);
+    `POST .../steps/4/validate` validates that exact artifact and records its
+    sha256 only if validation passed; `POST .../steps/5/execute` accepts
+    *only* a `script_sha256` matching a step4 SUCCESS record's
+    `validated_script_sha256`, re-reads and re-hashes the stored artifact
+    before running it, and rejects raw text/path input, hash mismatches, and
+    tampered on-disk artifacts outright (closes the "execute becomes an
+    arbitrary-code-execution endpoint" risk flagged in review).
+  - `backend/jobs.py` / `backend/routers/jobs.py`: jobs may now be tagged
+    with `session_id`/`step`/`stage` (existing untagged call sites
+    unaffected); a tagged job's `log()` also appends a structured event into
+    the session journal; SSE stream gained a 15s heartbeat comment frame so
+    idle long-LLM-call connections don't time out; `JobManager` gained a
+    TTL-based eviction sweep (`JOB_TTL_SECONDS`) so the in-process job dict
+    doesn't grow unbounded; `backend/main.py`'s startup now calls
+    `session_store.reconcile_orphaned_running()`.
+  - New tests: `tests/test_session_store.py` (27), `tests/test_session_api.py`
+    (11, including the artifact-identity-chain end-to-end run against the
+    real synthetic golden numbers and 3 dedicated attack-scenario tests),
+    `tests/test_jobs_manager.py` (4). Full suite now 430 passed, 26 skipped
+    (was 388/26 before this session's work started -- zero regressions).
+  - Deliberately NOT done yet (Phase 2+ of the plan): step6/7/8 endpoints
+    (experiments/replication/diagnosis), `StepDiagnostics`/evaluation
+    endpoints, and all frontend work -- see `/memories/session/plan.md` (agent
+    session memory) for the full phased plan.
+
 ### Changed
 
 - Fixed a stale doc: `AGENTS.md`'s module map still described
