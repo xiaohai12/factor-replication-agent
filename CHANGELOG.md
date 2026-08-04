@@ -53,6 +53,50 @@
     endpoints, and all frontend work -- see `/memories/session/plan.md` (agent
     session memory) for the full phased plan.
 
+- Session-centric UI redesign, Phase 2 (step6/7/8 session endpoints): still
+  no empirical logic changes, only new HTTP surface + one small
+  `RunRegistry.get_by_id()` addition.
+  - `backend/routers/experiments.py`: `POST /api/sessions/{sid}/steps/6/
+    experiment` wraps `DualTrackController.run_experiment` as a job (an
+    `ExperimentPlan` built from the request), persists every resulting
+    `RunRecord` via `EvidenceStore`/`RunRegistry` (same as the existing
+    `/api/backtest/run` route), and records `experiment_batch_id` +
+    `execution_ids` on the session -- surfacing `batch_invalidated` honestly
+    rather than hiding it.
+  - `backend/routers/replication.py`: `POST /api/sessions/{sid}/steps/7/
+    comparison` accepts *only* `experiment_batch_id` or a list of
+    `execution_id`s (never client-supplied runs/config/metrics) -- looks the
+    records up itself via the new `RunRegistry.get_by_id()`, rejects a batch
+    spanning more than one factor/batch, rejects an invalidated batch, and
+    -- since `comparison.json` is overwritten per-factor rather than
+    versioned per-batch -- rejects the request outright (409) if the
+    on-disk bundle's own recorded `batch.experiment_batch_id` no longer
+    matches what was asked for, instead of silently serving a newer batch's
+    numbers under an old batch's name. Never rebuilds the evidence bundle;
+    only reads what `write_comparison_summary`/`build_evidence_bundle`
+    already wrote. `GET .../steps/7/comparison` reads back the session's own
+    recorded reference.
+  - `backend/routers/diagnosis.py`: `POST /api/sessions/{sid}/steps/8/
+    diagnosis` is opt-in (a separate job, never invoked by step6/7), requires
+    step7's `comparison_ref` to already be recorded on the session, and a
+    diagnosis failure is confirmed (by test) to never touch step7's recorded
+    success status.
+  - New tests: `tests/test_experiment_replication_diagnosis_api.py` (8),
+    including a caught real architectural fact worth knowing: `RunRecord.
+    run_id`/`execution_id` is deterministic from `(factor_id, track,
+    code_hash, config_hash)` alone (`BacktestRunner.build_script`), so two
+    experiment batches for the SAME factor/track/plugin/config collide on
+    the same `run_id` and the second run's `RunRecord` silently overwrites
+    the first in `RunRegistry` -- not a regression introduced here, just an
+    existing property the new step7 endpoint's tests had to account for
+    (see the test file's `_run_baseline_only_experiment(factor_id_suffix=...)`
+    helper and the `test_stale_comparison_on_disk_is_rejected...` test's use
+    of a differently-configured second batch to actually exercise the
+    intended "comparison.json overwritten, RunRegistry entry NOT overwritten"
+    case). Full suite now 438 passed, 26 skipped (zero regressions).
+  - Still not done: `StepDiagnostics`/evaluation endpoints (Phase 3) and all
+    frontend work (Phase 4) -- see `/memories/session/plan.md`.
+
 ### Changed
 
 - Fixed a stale doc: `AGENTS.md`'s module map still described

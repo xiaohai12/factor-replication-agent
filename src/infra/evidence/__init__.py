@@ -122,6 +122,14 @@ class RunRegistry:
         """Register a new run."""
         self._runs[run.run_id] = run
 
+    def get_by_id(self, run_id: str) -> Optional[RunRecord]:
+        """Look up one run by its `run_id`. Used by the session control
+        plane's step7 endpoint to resolve caller-supplied `execution_id`s
+        against the in-memory registry WITHOUT trusting any run/config/
+        metrics payload the caller might otherwise try to supply directly
+        (see docs/decision-log.md 2026-08-04 review, point 5)."""
+        return self._runs.get(run_id)
+
     def update_status(self, run_id: str, status: str) -> None:
         """Update run status."""
         if run_id in self._runs:

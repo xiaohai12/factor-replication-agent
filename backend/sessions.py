@@ -17,6 +17,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Optional
 
+from src.infra.models.session import ConcurrentModificationError, StepStatus
 from src.infra.session_store import SessionStore
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
@@ -81,3 +82,33 @@ def read_events(session_id: str, since_seq: int = -1) -> list[dict]:
             if record["seq"] > since_seq:
                 out.append(record)
     return out
+
+
+def complete_attempt_with_retry(
+    session_id: str,
+    step: int,
+    status: StepStatus,
+    output_refs: Optional[dict] = None,
+    error: Optional[str] = None,
+    max_attempts: int = 5,
+):
+    """Like `SessionStore.complete_attempt`, but for callers that don't know
+    the manifest's CURRENT revision at the moment a background job finishes
+    (the request handler that called `start_attempt` returned long ago).
+    Re-reads the manifest and retries on `ConcurrentModificationError` --
+    safe here because nothing else is expected to be racing to complete THIS
+    SAME step's in-progress attempt; a genuine collision (e.g. two jobs for
+    the same step) should still eventually surface as an error once
+    `max_attempts` is exhausted rather than looping forever.
+    """
+    last_exc: Optional[ConcurrentModificationError] = None
+    for _ in range(max_attempts):
+        current = session_store.get(session_id)
+        try:
+            return session_store.complete_attempt(
+                session_id, current.revision, step=step, status=status,
+                output_refs=output_refs, error=error,
+            )
+        except ConcurrentModificationError as exc:
+            last_exc = exc
+    raise last_exc  # pragma: no cover -- only reachable under genuine concurrent writers

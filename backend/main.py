@@ -14,7 +14,18 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from backend.routers import backtest, codegen, evidence, jobs, methodspecs, papers, sessions
+from backend.routers import (
+    backtest,
+    codegen,
+    diagnosis,
+    evidence,
+    experiments,
+    jobs,
+    methodspecs,
+    papers,
+    replication,
+    sessions,
+)
 from backend.sessions import session_store
 from backend.state import pipeline
 
@@ -66,6 +77,9 @@ app.include_router(backtest.router)
 app.include_router(evidence.router)
 app.include_router(jobs.router)
 app.include_router(sessions.router)
+app.include_router(experiments.router)
+app.include_router(replication.router)
+app.include_router(diagnosis.router)
 
 
 @app.get("/api/health")
