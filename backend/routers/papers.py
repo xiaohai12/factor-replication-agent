@@ -22,7 +22,7 @@ class PaperUploadResponse(BaseModel):
     text_length: int
 
 
-def _extract_text_from_pdf_bytes(pdf_bytes: bytes) -> str:
+def extract_text_from_pdf_bytes(pdf_bytes: bytes) -> str:
     import pymupdf
 
     doc = pymupdf.open(stream=pdf_bytes, filetype="pdf")
@@ -37,7 +37,7 @@ async def upload_paper(file: UploadFile) -> PaperUploadResponse:
     pdf_bytes = await file.read()
     if not pdf_bytes:
         raise HTTPException(status_code=400, detail="Uploaded file is empty")
-    paper_text = _extract_text_from_pdf_bytes(pdf_bytes)
+    paper_text = extract_text_from_pdf_bytes(pdf_bytes)
     paper_id = Path(file.filename or "uploaded_paper.pdf").stem
     cache_path = PAPER_TEXT_CACHE_DIR / f"{paper_id}.txt"
     cache_path.write_text(paper_text, encoding="utf-8")

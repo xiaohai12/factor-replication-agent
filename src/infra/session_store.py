@@ -23,6 +23,7 @@ from __future__ import annotations
 import fcntl
 import json
 import os
+import shutil
 import tempfile
 from collections.abc import Callable, Iterator
 from contextlib import contextmanager
@@ -289,3 +290,36 @@ class SessionStore:
         """Soft delete: mark ARCHIVED. Never deletes the session directory or
         any evidence artifact -- see module docstring / decision-log."""
         return self.transition(session_id, expected_revision, SessionState.ARCHIVED, reason="archived")
+
+    def hard_delete(self, session_id: str, expected_revision: int) -> None:
+        """Physically deletes this session's OWN directory (its step1-4
+        artifacts, event journal, session.json) -- NEVER touches
+        `EvidenceStore`/`comparison.json`/`diagnosis.json`, which this
+        session only ever held references to (see module docstring). A
+        tombstone record is written to a SEPARATE directory first (not
+        inside the session dir being deleted) so "this session_id existed
+        and was deleted" remains auditable even after the directory is gone.
+
+        Requires the caller to already know `expected_revision` (the same
+        CAS discipline as every other mutation) -- this raises
+        `ConcurrentModificationError` if the manifest changed since the
+        caller last read it, same as `update()`.
+        """
+        with self._locked(session_id):
+            current = self.get(session_id)
+            if current.revision != expected_revision:
+                raise ConcurrentModificationError(
+                    f"session {session_id!r}: expected revision {expected_revision}, "
+                    f"found {current.revision}"
+                )
+            tombstones_dir = self.base_path / "_tombstones"
+            tombstones_dir.mkdir(parents=True, exist_ok=True)
+            tombstone = {
+                "session_id": session_id,
+                "factor_id": current.factor_id,
+                "last_revision": current.revision,
+                "last_state": current.state.value,
+                "deleted_at": datetime.now().isoformat(),
+            }
+            (tombstones_dir / f"{session_id}.json").write_text(json.dumps(tombstone, indent=2))
+            shutil.rmtree(self._session_dir(session_id))

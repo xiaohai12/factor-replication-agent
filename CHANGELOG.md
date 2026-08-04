@@ -238,7 +238,47 @@
     `undefined | null` `left`/`right` instead of crashing on `Object.keys`.
   - `npm run build`/`npm run lint` clean; backend suite 463 passed,
     26 skipped (zero regressions).
-
+- Session-centric UI: user-testing follow-up (session hard delete, PDF
+  upload for step1, MethodSpec/snapshot pickers). No empirical logic
+  changes.
+  - `SessionStore.hard_delete()` + `DELETE /api/sessions/{sid}` (requires an
+    explicit `confirm: true`, not just the HTTP verb -- a session hard
+    delete is otherwise a single click away from irreversible): writes a
+    tombstone record to a SEPARATE `_tombstones/` directory first (`session
+    existed and was deleted` stays auditable after the directory is gone),
+    then `shutil.rmtree`s only the session's OWN directory. Never touches
+    `EvidenceStore`/`comparison.json`/`diagnosis.json` -- verified by a
+    dedicated test that a hard-deleted session's step5 execution remains
+    fully readable via `GET /api/evidence/...` afterward.
+  - `POST /api/sessions/{sid}/steps/1/extract-pdf`: session step1 can now
+    take a PDF upload directly instead of requiring pasted text first.
+    Extracts text via the same pymupdf helper `POST /api/papers/upload`
+    already used (promoted `_extract_text_from_pdf_bytes` to a public
+    `extract_text_from_pdf_bytes` so both routes share one implementation),
+    AND threads the raw PDF bytes through to `SemanticExtractor.extract(...,
+    pdf_bytes=...)` -- if the built LLM client supports native PDF
+    attachments, the model reads the original document directly (preserving
+    formulas/tables) rather than the plain-text extraction, which remains
+    the required fallback for clients that don't support that.
+  - Frontend: `SessionsPage`/`SessionDetailPage` gained Archive/Delete
+    (with a native confirm on Delete); step1's request panel is now a file
+    upload + LLM-provider picker instead of a JSON textarea (`PdfExtractPanel`);
+    step3 gained a `MethodSpecPicker` that lists the existing
+    `/api/methodspecs/resolved` MethodSpecs and generates a plugin for the
+    selected one on the spot via the existing `/api/codegen` job, filling
+    both the `spec` and `plugin` fields automatically; any step whose
+    request template needs a `snapshot_id` gained a `SnapshotPicker`
+    dropdown (reuses the existing `/api/backtest/snapshots` endpoint,
+    same one `BacktestExperimentsPage` already calls) instead of typing the
+    id by hand.
+  - New backend tests: 3 for hard-delete (confirm-required, directory
+    removed + tombstone written, evidence left intact) and 2 for the PDF
+    upload endpoint (text extracted + job completes; empty file rejected) in
+    `tests/test_session_api.py`. Full suite now 468 passed, 26 skipped (zero
+    regressions). `npm run build`/`npm run lint` clean; manually verified
+    live in a real browser (Archive/Delete buttons, PDF upload widget,
+    MethodSpec picker, and snapshot dropdown all render and wire correctly
+    against the real backend).
 ### Changed
 
 - Fixed a stale doc: `AGENTS.md`'s module map still described

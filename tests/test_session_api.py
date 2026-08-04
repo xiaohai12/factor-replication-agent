@@ -96,6 +96,155 @@ def test_archive_is_soft_and_final():
         assert (SESSIONS_DIR / sid / "session.json").exists()
 
 
+class TestHardDelete:
+    def test_hard_delete_requires_explicit_confirm(self):
+        with TestClient(app) as client:
+            sid = client.post("/api/sessions", json={"factor_id": "factor_a"}).json()["session_id"]
+            resp = client.request(
+                "DELETE", f"/api/sessions/{sid}", json={"expected_revision": 0, "confirm": False}
+            )
+            assert resp.status_code == 400
+
+            from backend.sessions import SESSIONS_DIR
+
+            assert (SESSIONS_DIR / sid / "session.json").exists()
+
+    def test_hard_delete_removes_the_session_directory_and_writes_a_tombstone(self):
+        with TestClient(app) as client:
+            sid = client.post("/api/sessions", json={"factor_id": "factor_a"}).json()["session_id"]
+            resp = client.request(
+                "DELETE", f"/api/sessions/{sid}", json={"expected_revision": 0, "confirm": True}
+            )
+            assert resp.status_code == 200, resp.text
+            assert resp.json()["deleted"] is True
+
+            from backend.sessions import SESSIONS_DIR
+
+            assert not (SESSIONS_DIR / sid).exists()
+            tombstone_path = SESSIONS_DIR / "_tombstones" / f"{sid}.json"
+            assert tombstone_path.exists()
+            tombstone = json.loads(tombstone_path.read_text())
+            assert tombstone["session_id"] == sid
+            assert tombstone["factor_id"] == "factor_a"
+
+            # The session is gone -- a normal GET now 404s.
+            assert client.get(f"/api/sessions/{sid}").status_code == 404
+
+    def test_hard_delete_never_touches_evidence(self):
+        """A hard-deleted session's step5 execution_ids reference RunRecords
+        that must remain fully intact in EvidenceStore/RunRegistry -- the
+        session only ever held a reference to them."""
+        with TestClient(app) as client:
+            sid, spec, plugin = self._new_session_with_snapshot(client)
+            built = client.post(
+                f"/api/sessions/{sid}/steps/3/script",
+                json={"expected_revision": 0, "spec": spec, "plugin": plugin, "snapshot_id": "synthetic_demo_v1"},
+            ).json()
+            sha, rev = built["sha256"], built["revision"]
+            rev = client.post(
+                f"/api/sessions/{sid}/steps/4/validate",
+                json={"expected_revision": rev, "spec": spec, "plugin": plugin, "script_sha256": sha},
+            ).json()["revision"]
+            executed = client.post(
+                f"/api/sessions/{sid}/steps/5/execute",
+                json={
+                    "expected_revision": rev, "spec": spec, "plugin": plugin,
+                    "snapshot_id": "synthetic_demo_v1", "script_sha256": sha,
+                },
+            ).json()
+            run_id = executed["run_record"]["run_id"]
+            factor_id = spec["factor_id"]
+
+            manifest = client.get(f"/api/sessions/{sid}").json()
+            resp = client.request(
+                "DELETE", f"/api/sessions/{sid}", json={"expected_revision": manifest["revision"], "confirm": True}
+            )
+            assert resp.status_code == 200
+
+            evidence_resp = client.get(f"/api/evidence/{factor_id}/{run_id}")
+            assert evidence_resp.status_code == 200
+            assert "metadata.json" in evidence_resp.json()["files"]
+
+    def _new_session_with_snapshot(self, client: TestClient) -> tuple[str, dict, dict]:
+        client.get("/api/backtest/snapshots")
+        spec = _load_fixture_spec()
+        plugin = _load_fixture_plugin(spec)
+        sid = client.post("/api/sessions", json={"factor_id": spec["factor_id"]}).json()["session_id"]
+        return sid, spec, plugin
+
+
+class TestStep1PdfUpload:
+    """No real LLM call -- monkeypatches `build_extractor` with a fake whose
+    `.extract()` returns a canned result, so this only exercises the PDF
+    text extraction + job/session wiring, not the LLM prompt itself."""
+
+    def _fake_build_extractor(self, monkeypatch, captured: dict):
+        import backend.routers.sessions as sessions_module
+        from src.infra.models.method_spec import MethodSpec, SignalSpec
+        from src.steps.step1_extractor import ExtractionResult
+
+        class _FakeExtractor:
+            def extract(self, factor_id, paper_text, pdf_bytes=None, reextract_feedback=None):
+                captured["paper_text"] = paper_text
+                captured["pdf_bytes"] = pdf_bytes
+                return ExtractionResult(
+                    sources_used=["paper"],
+                    spec=MethodSpec(factor_id=factor_id, factor_name="Test", signal=SignalSpec()),
+                )
+
+        monkeypatch.setattr(sessions_module, "build_extractor", lambda client: _FakeExtractor())
+
+    def _minimal_pdf_bytes(self) -> bytes:
+        import pymupdf
+
+        doc = pymupdf.open()
+        page = doc.new_page()
+        page.insert_text((72, 72), "Hello from a test PDF")
+        data = doc.tobytes()
+        doc.close()
+        return data
+
+    def test_upload_extracts_text_and_completes_the_job(self, monkeypatch):
+        captured: dict = {}
+        self._fake_build_extractor(monkeypatch, captured)
+        with TestClient(app) as client:
+            sid = client.post("/api/sessions", json={"factor_id": "factor_a"}).json()["session_id"]
+            resp = client.post(
+                f"/api/sessions/{sid}/steps/1/extract-pdf",
+                data={"expected_revision": "0", "llm_provider": "codex"},
+                files={"file": ("paper.pdf", self._minimal_pdf_bytes(), "application/pdf")},
+            )
+            assert resp.status_code == 200, resp.text
+            job_id = resp.json()["job_id"]
+
+            import time
+
+            deadline = time.time() + 10
+            while time.time() < deadline:
+                snapshot = client.get(f"/api/jobs/{job_id}").json()
+                if snapshot["status"] in ("completed", "failed"):
+                    break
+                time.sleep(0.05)
+            assert snapshot["status"] == "completed", snapshot.get("error")
+
+            assert "Hello from a test PDF" in captured["paper_text"]
+            assert captured["pdf_bytes"] is not None
+
+            manifest = client.get(f"/api/sessions/{sid}").json()
+            assert manifest["steps"]["1"]["attempts"][-1]["status"] == "success"
+
+    def test_empty_file_is_rejected(self, monkeypatch):
+        self._fake_build_extractor(monkeypatch, {})
+        with TestClient(app) as client:
+            sid = client.post("/api/sessions", json={"factor_id": "factor_a"}).json()["session_id"]
+            resp = client.post(
+                f"/api/sessions/{sid}/steps/1/extract-pdf",
+                data={"expected_revision": "0"},
+                files={"file": ("empty.pdf", b"", "application/pdf")},
+            )
+            assert resp.status_code == 400
+
+
 def test_artifact_read_rejects_path_traversal():
     with TestClient(app) as client:
         sid = client.post("/api/sessions", json={"factor_id": "factor_a"}).json()["session_id"]

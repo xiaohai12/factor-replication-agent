@@ -14,10 +14,11 @@ import hashlib
 import json
 from typing import Optional
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, File, Form, HTTPException, UploadFile
 from pydantic import BaseModel
 
 from backend.jobs import job_manager
+from backend.routers.papers import extract_text_from_pdf_bytes
 from backend.serialization import to_jsonable
 from backend.sessions import append_event, complete_attempt_with_retry, read_events, session_store
 from backend.state import build_extractor, build_llm_client, pipeline
@@ -122,6 +123,31 @@ def archive_session(session_id: str, req: ArchiveRequest) -> dict:
     return to_jsonable(manifest)
 
 
+class HardDeleteRequest(BaseModel):
+    expected_revision: int
+    # Explicit second confirmation, not just the HTTP verb -- a session
+    # delete is otherwise a single click/request away from being
+    # irreversible for the session's OWN step1-4 artifacts (never for
+    # EvidenceStore, which this never touches).
+    confirm: bool = False
+
+
+@router.delete("/{session_id}")
+def hard_delete_session(session_id: str, req: HardDeleteRequest) -> dict:
+    """Physically deletes the session's own directory (writes a tombstone
+    record first -- see `SessionStore.hard_delete`). Never deletes
+    `EvidenceStore`/`comparison.json`/`diagnosis.json`, which this session
+    only ever referenced."""
+    _get_or_404(session_id)
+    if not req.confirm:
+        raise HTTPException(
+            status_code=400,
+            detail="Hard delete requires confirm=true -- this is irreversible for this session's own artifacts",
+        )
+    _concurrent_or_409(lambda: session_store.hard_delete(session_id, req.expected_revision))
+    return {"session_id": session_id, "deleted": True}
+
+
 # ---------------------------------------------------------------------------
 # Step1-4 artifact read (traversal-guarded; only SESSION_OWNED_STEPS)
 # ---------------------------------------------------------------------------
@@ -154,18 +180,23 @@ class ExtractRequest(BaseModel):
     llm_model: Optional[str] = None
 
 
-@router.post("/{session_id}/steps/1/extract")
-async def extract_step1(session_id: str, req: ExtractRequest) -> dict:
-    manifest = _get_or_404(session_id)
-    factor_id = manifest.factor_id
-    _concurrent_or_409(lambda: session_store.start_attempt(session_id, req.expected_revision, step=1))
+def _run_extraction(
+    session_id: str, factor_id: str, paper_text: str, llm_provider: str,
+    llm_model: Optional[str], pdf_bytes: Optional[bytes] = None,
+):
+    """Shared step1 job body for both the pasted-text and PDF-upload
+    endpoints. `pdf_bytes`, when given, is threaded straight through to
+    `SemanticExtractor.extract()` -- if the built LLM client supports native
+    PDF attachments (`_create_with_pdf`/`_pdf_to_text`), the model reads the
+    PDF directly rather than the extracted `paper_text`; `paper_text` is
+    still required as the fallback for clients that don't."""
 
     def run(log):
-        log(f"Building {req.llm_provider} LLM client...")
-        client = build_llm_client(req.llm_provider, req.llm_model)
+        log(f"Building {llm_provider} LLM client...")
+        client = build_llm_client(llm_provider, llm_model)
         extractor = build_extractor(client)
         log(f"Extracting MethodSpec for '{factor_id}'...")
-        result = extractor.extract(factor_id, req.paper_text)
+        result = extractor.extract(factor_id, paper_text, pdf_bytes=pdf_bytes)
         if result.spec is None:
             complete_attempt_with_retry(session_id, step=1, status=StepStatus.FAILED, error=result.error or "extraction failed")
             append_event(session_id, step=1, stage="extract", event="failed", detail=result.error or "", level="error")
@@ -174,6 +205,8 @@ async def extract_step1(session_id: str, req: ExtractRequest) -> dict:
         step_dir = session_store.step_dir(session_id, 1)
         spec_filename = "methodspec.json"
         (step_dir / spec_filename).write_text(json.dumps(result.spec.model_dump(mode="json"), indent=2, default=str))
+        if pdf_bytes:
+            (step_dir / "paper.pdf").write_bytes(pdf_bytes)
 
         diagnostics = step_diagnostics.step1_diagnostics(result.spec)
         complete_attempt_with_retry(
@@ -183,6 +216,43 @@ async def extract_step1(session_id: str, req: ExtractRequest) -> dict:
         append_event(session_id, step=1, stage="extract", event="extracted", detail=spec_filename)
         return {"spec": to_jsonable(result.spec), "diagnostics": diagnostics}
 
+    return run
+
+
+@router.post("/{session_id}/steps/1/extract")
+async def extract_step1(session_id: str, req: ExtractRequest) -> dict:
+    manifest = _get_or_404(session_id)
+    factor_id = manifest.factor_id
+    _concurrent_or_409(lambda: session_store.start_attempt(session_id, req.expected_revision, step=1))
+
+    run = _run_extraction(session_id, factor_id, req.paper_text, req.llm_provider, req.llm_model)
+    job_id = job_manager.create_job(run, session_id=session_id, step=1, stage="extract")
+    return {"job_id": job_id}
+
+
+@router.post("/{session_id}/steps/1/extract-pdf")
+async def extract_step1_from_pdf(
+    session_id: str,
+    expected_revision: int = Form(...),
+    llm_provider: str = Form("codex"),
+    llm_model: Optional[str] = Form(None),
+    file: UploadFile = File(...),  # noqa: B008 - FastAPI's own required idiom for file-upload params
+) -> dict:
+    """Same extraction job as `extract_step1`, but takes a PDF upload
+    directly instead of requiring pasted text first -- extracts text via
+    the same pymupdf helper `POST /api/papers/upload` uses, AND passes the
+    raw PDF bytes through so an LLM client with native PDF support reads the
+    original document (preserving formulas/tables) rather than the
+    plain-text extraction."""
+    manifest = _get_or_404(session_id)
+    factor_id = manifest.factor_id
+    pdf_bytes = await file.read()
+    if not pdf_bytes:
+        raise HTTPException(status_code=400, detail="Uploaded file is empty")
+    paper_text = extract_text_from_pdf_bytes(pdf_bytes)
+
+    _concurrent_or_409(lambda: session_store.start_attempt(session_id, expected_revision, step=1))
+    run = _run_extraction(session_id, factor_id, paper_text, llm_provider, llm_model, pdf_bytes=pdf_bytes)
     job_id = job_manager.create_job(run, session_id=session_id, step=1, stage="extract")
     return {"job_id": job_id}
 

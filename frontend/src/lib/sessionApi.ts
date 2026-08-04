@@ -37,6 +37,20 @@ export const sessionApi = {
   archive: (sessionId: string, expected_revision: number) =>
     api.post<SessionManifest>(`/api/sessions/${sessionId}/archive`, { expected_revision }),
 
+  /** Physically deletes the session's own directory (writes a tombstone
+   * first); never touches EvidenceStore/comparison.json/diagnosis.json. */
+  hardDelete: (sessionId: string, expected_revision: number) =>
+    api.del<{ session_id: string; deleted: boolean }>(`/api/sessions/${sessionId}`, {
+      expected_revision,
+      confirm: true,
+    }),
+
+  extractFromPdf: (sessionId: string, file: File, expectedRevision: number, llmProvider: string) =>
+    api.postForm<{ job_id: string }>(`/api/sessions/${sessionId}/steps/1/extract-pdf`, file, {
+      expected_revision: String(expectedRevision),
+      llm_provider: llmProvider,
+    }),
+
   getStepArtifact: (sessionId: string, step: number, filename: string) =>
     api.get<{ filename: string; content: string }>(
       `/api/sessions/${sessionId}/steps/${step}/artifact/${encodeURIComponent(filename)}`,
@@ -50,4 +64,16 @@ export const sessionApi = {
    * untyped on the request side; the response is either `{job_id}` (job
    * steps) or the step's own sync result (non-job steps). */
   runStep: (endpoint: string, body: unknown) => api.post<{ job_id?: string } & Record<string, unknown>>(endpoint, body),
+
+  // -- helpers for step3's "pick an existing MethodSpec, then codegen"
+  // shortcut, reusing the EXISTING (non-session) endpoints rather than
+  // duplicating them.
+  listResolvedMethodSpecs: () => api.get<string[]>("/api/methodspecs/resolved"),
+  getResolvedMethodSpec: (factorId: string) =>
+    api.get<Record<string, unknown>>(`/api/methodspecs/resolved/${factorId}`),
+  generatePlugin: (spec: Record<string, unknown>, llmProvider: string) =>
+    api.post<{ job_id: string }>("/api/codegen", { spec, llm_provider: llmProvider }),
+
+  listSnapshots: () => api.get<{ snapshot_id: string }[]>("/api/backtest/snapshots"),
 }
+

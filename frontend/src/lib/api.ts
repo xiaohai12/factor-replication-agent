@@ -28,6 +28,8 @@ export const api = {
   get: <T>(path: string) => request<T>(path),
   post: <T>(path: string, body?: unknown) =>
     request<T>(path, { method: "POST", body: body === undefined ? undefined : JSON.stringify(body) }),
+  del: <T>(path: string, body?: unknown) =>
+    request<T>(path, { method: "DELETE", body: body === undefined ? undefined : JSON.stringify(body) }),
   /** Plain-text GET (e.g. an evidence file download) -- bypasses the JSON
    * content-type branch in `request()` since these responses are CSV/text. */
   getText: async (path: string): Promise<string> => {
@@ -41,6 +43,20 @@ export const api = {
   upload: async <T>(path: string, file: File): Promise<T> => {
     const form = new FormData()
     form.append("file", file)
+    const res = await fetch(`${API_BASE}${path}`, { method: "POST", body: form })
+    if (!res.ok) {
+      const text = await res.text().catch(() => res.statusText)
+      throw new ApiError(res.status, text)
+    }
+    return res.json() as Promise<T>
+  },
+  /** Multipart POST with extra form fields alongside the file (e.g. the
+   * session step1 PDF-upload endpoint, which also needs expected_revision/
+   * llm_provider as form fields). */
+  postForm: async <T>(path: string, file: File, fields: Record<string, string>): Promise<T> => {
+    const form = new FormData()
+    form.append("file", file)
+    Object.entries(fields).forEach(([k, v]) => form.append(k, v))
     const res = await fetch(`${API_BASE}${path}`, { method: "POST", body: form })
     if (!res.ok) {
       const text = await res.text().catch(() => res.statusText)
