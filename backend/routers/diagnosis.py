@@ -17,6 +17,7 @@ from backend.jobs import job_manager
 from backend.serialization import to_jsonable
 from backend.sessions import append_event, complete_attempt_with_retry, session_store
 from backend.state import build_llm_client
+from src.evaluation import diagnostics as step_diagnostics
 from src.infra.models.session import ConcurrentModificationError, StepStatus
 from src.infra.session_store import SessionNotFoundError
 from src.steps.step8_diagnosis import ReplicationDiagnoser
@@ -70,6 +71,7 @@ async def run_step8_diagnosis(session_id: str, req: DiagnosisRequest) -> dict:
         complete_attempt_with_retry(
             session_id, step=8, status=StepStatus.SUCCESS,
             output_refs={"diagnosis_ref": str(json_path)},
+            diagnostics=step_diagnostics.step8_diagnostics(report),
         )
         append_event(
             session_id, step=8, stage="diagnosis", event="diagnosed",

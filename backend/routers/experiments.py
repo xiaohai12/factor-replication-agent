@@ -14,6 +14,7 @@ from backend.jobs import job_manager
 from backend.serialization import to_jsonable
 from backend.sessions import append_event, complete_attempt_with_retry, session_store
 from backend.state import pipeline
+from src.evaluation import diagnostics as step_diagnostics
 from src.infra.models.method_spec import MethodSpec
 from src.infra.models.plugin import PluginRecord
 from src.infra.models.session import ConcurrentModificationError, StepStatus
@@ -82,6 +83,7 @@ async def run_step6_experiment(session_id: str, req: ExperimentRequest) -> dict:
                 "experiment_batch_id": batch_id,
                 "execution_ids": json.dumps([r.run_id for r in runs]),
             },
+            diagnostics=step_diagnostics.step6_diagnostics(runs),
         )
         append_event(
             session_id, step=6, stage="experiment", event="batch_complete",

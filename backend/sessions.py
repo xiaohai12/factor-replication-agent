@@ -90,6 +90,7 @@ def complete_attempt_with_retry(
     status: StepStatus,
     output_refs: Optional[dict] = None,
     error: Optional[str] = None,
+    diagnostics: Optional[dict] = None,
     max_attempts: int = 5,
 ):
     """Like `SessionStore.complete_attempt`, but for callers that don't know
@@ -107,7 +108,7 @@ def complete_attempt_with_retry(
         try:
             return session_store.complete_attempt(
                 session_id, current.revision, step=step, status=status,
-                output_refs=output_refs, error=error,
+                output_refs=output_refs, error=error, diagnostics=diagnostics,
             )
         except ConcurrentModificationError as exc:
             last_exc = exc

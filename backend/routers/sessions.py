@@ -17,9 +17,11 @@ from typing import Optional
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
+from backend.jobs import job_manager
 from backend.serialization import to_jsonable
-from backend.sessions import append_event, read_events, session_store
-from backend.state import pipeline
+from backend.sessions import append_event, complete_attempt_with_retry, read_events, session_store
+from backend.state import build_extractor, build_llm_client, pipeline
+from src.evaluation import diagnostics as step_diagnostics
 from src.infra.models.method_spec import MethodSpec
 from src.infra.models.plugin import PluginRecord
 from src.infra.models.session import (
@@ -92,6 +94,19 @@ def get_events(session_id: str, since_seq: int = -1) -> list[dict]:
     return read_events(session_id, since_seq=since_seq)
 
 
+@router.get("/{session_id}/diagnostics")
+def get_diagnostics(session_id: str) -> dict:
+    """Aggregate the latest recorded per-step diagnostics -- readiness/
+    counters/flags ONLY, never a unified score (see
+    src/evaluation/diagnostics.py's module docstring)."""
+    manifest = _get_or_404(session_id)
+    return {
+        step: record.latest.diagnostics
+        for step, record in manifest.steps.items()
+        if record.latest and record.latest.diagnostics
+    }
+
+
 class ArchiveRequest(BaseModel):
     expected_revision: int
 
@@ -125,6 +140,80 @@ def read_step_artifact(session_id: str, step: int, filename: str) -> dict:
     if not file_path.is_relative_to(step_dir) or not file_path.is_file():
         raise HTTPException(status_code=404, detail="Artifact not found")
     return {"filename": filename, "content": file_path.read_text()}
+
+
+# ---------------------------------------------------------------------------
+# Step1 (extract) / Step2 (review) -- session-owned small artifacts
+# ---------------------------------------------------------------------------
+
+
+class ExtractRequest(BaseModel):
+    expected_revision: int
+    paper_text: str
+    llm_provider: str = "codex"
+    llm_model: Optional[str] = None
+
+
+@router.post("/{session_id}/steps/1/extract")
+async def extract_step1(session_id: str, req: ExtractRequest) -> dict:
+    manifest = _get_or_404(session_id)
+    factor_id = manifest.factor_id
+    _concurrent_or_409(lambda: session_store.start_attempt(session_id, req.expected_revision, step=1))
+
+    def run(log):
+        log(f"Building {req.llm_provider} LLM client...")
+        client = build_llm_client(req.llm_provider, req.llm_model)
+        extractor = build_extractor(client)
+        log(f"Extracting MethodSpec for '{factor_id}'...")
+        result = extractor.extract(factor_id, req.paper_text)
+        if result.spec is None:
+            complete_attempt_with_retry(session_id, step=1, status=StepStatus.FAILED, error=result.error or "extraction failed")
+            append_event(session_id, step=1, stage="extract", event="failed", detail=result.error or "", level="error")
+            raise RuntimeError(result.error or "extraction failed")
+
+        step_dir = session_store.step_dir(session_id, 1)
+        spec_filename = "methodspec.json"
+        (step_dir / spec_filename).write_text(json.dumps(result.spec.model_dump(mode="json"), indent=2, default=str))
+
+        diagnostics = step_diagnostics.step1_diagnostics(result.spec)
+        complete_attempt_with_retry(
+            session_id, step=1, status=StepStatus.SUCCESS,
+            output_refs={"methodspec_ref": spec_filename}, diagnostics=diagnostics,
+        )
+        append_event(session_id, step=1, stage="extract", event="extracted", detail=spec_filename)
+        return {"spec": to_jsonable(result.spec), "diagnostics": diagnostics}
+
+    job_id = job_manager.create_job(run, session_id=session_id, step=1, stage="extract")
+    return {"job_id": job_id}
+
+
+class ReviewRequest(BaseModel):
+    expected_revision: int
+    spec: dict
+
+
+@router.post("/{session_id}/steps/2/review")
+def review_step2(session_id: str, req: ReviewRequest) -> dict:
+    """Rules-based review only (sync, no LLM) -- matches the existing
+    `POST /api/methodspecs/review` route's cost profile; the LLM-backed
+    `review_with_llm` variant is not session-wired yet (future work)."""
+    spec = MethodSpec.model_validate(req.spec)
+    _concurrent_or_409(lambda: session_store.start_attempt(session_id, req.expected_revision, step=2))
+    manifest = session_store.get(session_id)
+
+    review = pipeline.review_gate.review(spec)
+    step_dir = session_store.step_dir(session_id, 2)
+    report_filename = "review_report.json"
+    (step_dir / report_filename).write_text(json.dumps(to_jsonable(review), indent=2, default=str))
+
+    diagnostics = step_diagnostics.step2_diagnostics(review)
+    status = StepStatus.BLOCKED if review.requires_human else StepStatus.SUCCESS
+    manifest = session_store.complete_attempt(
+        session_id, manifest.revision, step=2, status=status,
+        output_refs={"review_report_ref": report_filename}, diagnostics=diagnostics,
+    )
+    append_event(session_id, step=2, stage="review", event="reviewed", detail=review.disposition)
+    return {"review": to_jsonable(review), "diagnostics": diagnostics, "revision": manifest.revision}
 
 
 # ---------------------------------------------------------------------------
@@ -167,6 +256,7 @@ def build_step3_script(session_id: str, req: BuildScriptRequest) -> dict:
     (step_dir / f"{script_sha256}.py").write_text(built["script_text"])
     (step_dir / f"{script_sha256}.plugin.json").write_text(json.dumps(plugin.model_dump(mode="json")))
 
+    diagnostics = step_diagnostics.step3_diagnostics(plugin, built["config"])
     manifest = session_store.complete_attempt(
         session_id,
         manifest.revision,
@@ -177,6 +267,7 @@ def build_step3_script(session_id: str, req: BuildScriptRequest) -> dict:
             "script_ref": f"{script_sha256}.py",
             "script_sha256": script_sha256,
         },
+        diagnostics=diagnostics,
     )
     append_event(session_id, step=3, stage="codegen", event="script_built", detail=script_sha256)
     return {"artifact_id": script_sha256, "sha256": script_sha256, "revision": manifest.revision}
@@ -218,6 +309,11 @@ def validate_step4_artifact(session_id: str, req: ValidateArtifactRequest) -> di
     output_refs = {"validation_ref": f"{req.script_sha256}.validation.json"}
     if report.passed:
         output_refs["validated_script_sha256"] = req.script_sha256
+    # This endpoint never passes a `data` slice to `sandbox.validate`, so the
+    # execution smoke test is always SKIPPED here (not a genuine pass) --
+    # `execution_check_supplied=False` renders that honestly rather than as
+    # a green check (see src/evaluation/diagnostics.py's step4_diagnostics).
+    diagnostics = step_diagnostics.step4_diagnostics(report, execution_check_supplied=False)
     manifest = session_store.complete_attempt(
         session_id,
         manifest.revision,
@@ -225,12 +321,13 @@ def validate_step4_artifact(session_id: str, req: ValidateArtifactRequest) -> di
         status=StepStatus.SUCCESS if report.passed else StepStatus.FAILED,
         output_refs=output_refs,
         error=None if report.passed else "; ".join(report.errors),
+        diagnostics=diagnostics,
     )
     append_event(
         session_id, step=4, stage="validate", event="validated",
         detail=f"passed={report.passed}", level="info" if report.passed else "warning",
     )
-    return {"report": to_jsonable(report), "revision": manifest.revision}
+    return {"report": to_jsonable(report), "diagnostics": diagnostics, "revision": manifest.revision}
 
 
 class ExecuteArtifactRequest(BaseModel):
@@ -307,6 +404,7 @@ def execute_step5(session_id: str, req: ExecuteArtifactRequest) -> dict:
         step=5,
         status=StepStatus.SUCCESS,
         output_refs={"execution_ids": json.dumps([run_record.run_id])},
+        diagnostics=step_diagnostics.step5_diagnostics(run_record),
     )
     append_event(session_id, step=5, stage="execute", event="executed", detail=run_record.run_id)
     return {

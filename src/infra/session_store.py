@@ -227,6 +227,7 @@ class SessionStore:
         status: StepStatus,
         output_refs: Optional[dict] = None,
         error: Optional[str] = None,
+        diagnostics: Optional[dict] = None,
     ) -> SessionManifest:
         def _mutate(manifest: SessionManifest) -> None:
             record = manifest.steps[step]
@@ -237,6 +238,8 @@ class SessionStore:
             attempt.completed_at = datetime.now()
             if output_refs:
                 attempt.output_refs.update(output_refs)
+            if diagnostics:
+                attempt.diagnostics = diagnostics
             if error:
                 attempt.error = error
 

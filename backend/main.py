@@ -18,6 +18,7 @@ from backend.routers import (
     backtest,
     codegen,
     diagnosis,
+    evaluations,
     evidence,
     experiments,
     jobs,
@@ -80,6 +81,7 @@ app.include_router(sessions.router)
 app.include_router(experiments.router)
 app.include_router(replication.router)
 app.include_router(diagnosis.router)
+app.include_router(evaluations.router)
 
 
 @app.get("/api/health")

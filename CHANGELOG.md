@@ -97,6 +97,58 @@
   - Still not done: `StepDiagnostics`/evaluation endpoints (Phase 3) and all
     frontend work (Phase 4) -- see `/memories/session/plan.md`.
 
+- Session-centric UI redesign, Phase 3 (`StepDiagnostics` + isolated
+  extraction evaluation): still no empirical logic changes.
+  - `src/evaluation/diagnostics.py`: one `step{1..8}_diagnostics()` function
+    per step, each returning `{readiness, counters, flags}` -- explicitly
+    NOT a unified 0-100 quality score (rev1 of this plan proposed one;
+    external review correctly rejected it -- see the module's docstring for
+    the specific reasons several "obvious" signals don't actually mean
+    "better": fewer blocked fields isn't a more accurate MethodSpec, fewer
+    repairs isn't a correct formula, higher coverage/n_months isn't more
+    faithful to the paper, a higher step8 claim-acceptance rate is better
+    FORMAT compliance not a better explanation). `step4_diagnostics` renders
+    `ValidationReport.executes_ok` as a tri-state `pass|fail|skipped` --
+    that field defaults `True` and stays `True` when the execution smoke
+    test was never run, so a bare boolean would misrepresent a skip as a
+    pass. No new "silent clamp" instrumentation was added to
+    `registry.build_config`/`_clamp` (the plan's originally-proposed new
+    instrumentation): the genuinely reportable case -- the paper explicitly
+    stating a value the engine's menu doesn't support -- was already
+    surfaced via `config["substitutions"]` (existing
+    `MethodSpec.unsupported_fields` plumbing); the remaining silent case
+    (an unstated field falling back to its documented default) is normal,
+    expected behavior, not an anomaly worth flagging.
+  - Wired diagnostics into every session step endpoint that completes an
+    attempt (steps 3-8 from Phase 1/2, plus two BRAND NEW session endpoints
+    that Phase 1 had not actually built despite being implied:
+    `POST /api/sessions/{sid}/steps/1/extract` and
+    `POST /api/sessions/{sid}/steps/2/review`, both session-owned small
+    artifacts under `SESSION_OWNED_STEPS`). New
+    `GET /api/sessions/{sid}/diagnostics` aggregates the latest recorded
+    diagnostics per step.
+  - `StepAttempt` gained a `diagnostics: dict` field;
+    `SessionStore.complete_attempt`/`backend.sessions.
+    complete_attempt_with_retry` gained an optional `diagnostics` param.
+  - `backend/routers/evaluations.py`: `POST /api/evaluations/extraction` --
+    deliberately has NO `session_id` parameter and never touches session
+    state, so a normal session's extractor call can never be handed the
+    evaluation reference data (AGENTS.md hard constraint). Scores an
+    already-produced MethodSpec against the curated
+    `data/test_method_specs_human_labeled/` reference, reusing
+    `scripts/run_extraction_eval.py`'s comparison functions directly rather
+    than merging them with the OTHER existing scorer
+    (`src/evaluation/helpers.py`'s SignalDoc-based one) -- those two differ
+    in reference source and matching rules, not just field list, so only
+    one protocol (`human_labeled_v1`) is exposed today; `signaldoc_v1` is an
+    explicit, documented gap rather than a rushed merge.
+  - New tests: `tests/test_step_diagnostics.py` (18, against real fixture
+    MethodSpec/PluginRecord/ValidationReport/RunRecord/comparison-bundle/
+    diagnosis-report objects), `tests/test_evaluations_api.py` (6). Full
+    suite now 462 passed, 26 skipped (zero regressions).
+  - Still not done: all frontend work (Phase 4) -- see
+    `/memories/session/plan.md`.
+
 ### Changed
 
 - Fixed a stale doc: `AGENTS.md`'s module map still described

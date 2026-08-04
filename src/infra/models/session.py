@@ -267,6 +267,11 @@ class StepAttempt(BaseModel):
     # comparison.json and are never copied.
     output_refs: dict[str, str] = Field(default_factory=dict)
 
+    # Deterministic readiness/counters/flags from `src.evaluation.diagnostics`
+    # -- NEVER a unified quality score (see that module's docstring for why).
+    # Optional: not every attempt (e.g. a still-`running` one) has these yet.
+    diagnostics: dict = Field(default_factory=dict)
+
     # Hash of the upstream refs this attempt actually consumed, so staleness
     # can be detected precisely (an attempt is stale iff any upstream ref it
     # used no longer matches the session's CURRENT ref for that dependency).

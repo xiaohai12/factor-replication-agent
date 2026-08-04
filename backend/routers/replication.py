@@ -22,6 +22,7 @@ from pydantic import BaseModel
 
 from backend.sessions import append_event, session_store
 from backend.state import pipeline
+from src.evaluation import diagnostics as step_diagnostics
 from src.infra.models.session import ConcurrentModificationError, StepStatus
 from src.infra.session_store import SessionNotFoundError
 
@@ -105,6 +106,7 @@ def build_step7_comparison(session_id: str, req: ComparisonRequest) -> dict:
         step=7,
         status=StepStatus.SUCCESS,
         output_refs={"comparison_ref": str(comparison_path)},
+        diagnostics=step_diagnostics.step7_diagnostics(bundle),
     )
     append_event(session_id, step=7, stage="replication_diff", event="comparison_recorded", detail=batch_id)
     return {"bundle": bundle, "revision": manifest.revision}
