@@ -185,6 +185,60 @@
   - `npm run build` (tsc -b + vite build) and `npm run lint` (oxlint) both
     clean on the new files (pre-existing warnings in untouched files only).
 
+- Session-centric UI redesign, Phase E (deep per-step visualization panels,
+  a scope originally deferred past Phase D -- brought forward at user
+  request). Two small backend additions needed to support real
+  visualizations without recomputing anything: `execute_step5`'s response
+  now embeds `return_series` (same `to_jsonable` DataFrame-to-records
+  conversion the pre-existing `/api/backtest/run` job already relies on);
+  `GET /api/sessions/{sid}/steps/8/diagnosis` reads back the already-written
+  `diagnosis.json` (mirrors step7's existing GET pattern -- never
+  recomputes). New tests for both in `tests/test_session_api.py` /
+  `tests/test_experiment_replication_diagnosis_api.py`.
+  - New shared components: `frontend/src/components/{JsonTree,CodeView,
+    DiffView,GapWaterfallChart,MultiTrackChart}.tsx`. `GapWaterfallChart` is
+    deliberately a plain grouped bar chart, not a cumulative-offset
+    waterfall -- OAT contributions aren't guaranteed additive
+    (`src/steps/step7_replication_diff/bundle.py`), so a real waterfall
+    would visually imply an additivity guarantee the data doesn't have.
+    `ReturnChart` extended to plot the previously-computed-but-unplotted
+    `monthly_return` series on a secondary axis.
+  - `frontend/src/components/StepOutputView.tsx`: per-step dispatcher
+    wired into `SessionDetailPage`'s "Step output" card -- step1 shows a
+    `JsonTree` of the extracted MethodSpec (fetched via the existing
+    artifact-read endpoint); step3 shows the plugin code + assembled script
+    via `CodeView`; step4 shows the 5 validation booleans as badges +
+    errors; step5 shows a `ReturnChart` for its single execution (return
+    series fetched from the existing evidence-download endpoint via a new
+    minimal `lib/csv.ts` parser -- no new CSV dependency); step6 overlays
+    every track's cumulative return via `MultiTrackChart`; step7 shows the
+    `overall_tag`, `GapWaterfallChart`, and a `DiffView` of each track's
+    resolved config against the batch's baseline (reads real `bundle.tracks`
+    config dicts, not a hand-guessed shape); step8 shows accepted claims and
+    rejected claims (with reasons) from the new GET endpoint. Falls back to
+    a generic `JsonTree` of whatever the step just returned when no
+    dedicated panel applies yet.
+  - Manually verified live against a real session driven through steps
+    3-7 (script build -> validate -> execute -> 3-track experiment ->
+    comparison) with real synthetic golden-fixture data: `CodeView` renders
+    the actual plugin/script text, `ReturnChart` renders the dual-axis
+    monthly/cumulative lines, `MultiTrackChart` overlays all 3 tracks, and
+    `GapWaterfallChart`/`DiffView` render the real gap decomposition and
+    config diffs.
+  - REAL BUG CAUGHT AND FIXED during this manual verification (not by a
+    unit test): step7's `DiffView` usage crashed with `Cannot convert
+    undefined or null to object` -- the initial implementation guessed
+    `bundle.config_diff`'s shape as `{track: {baseline, track}}`; the actual
+    shape (`build_config_diff` in bundle.py) is
+    `{baseline_track, pairs: {track: {details, changed_keys, ...}}}`. Fixed
+    by reading each track's full resolved config from `bundle.tracks` and
+    diffing against `bundle.tracks[baseline_track].config` directly (the
+    generic, reusable path) instead of relying on `pairs`' already-diffed
+    shape. Also hardened `DiffView` itself to accept
+    `undefined | null` `left`/`right` instead of crashing on `Object.keys`.
+  - `npm run build`/`npm run lint` clean; backend suite 463 passed,
+    26 skipped (zero regressions).
+
 ### Changed
 
 - Fixed a stale doc: `AGENTS.md`'s module map still described

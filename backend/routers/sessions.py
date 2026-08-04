@@ -410,5 +410,10 @@ def execute_step5(session_id: str, req: ExecuteArtifactRequest) -> dict:
     return {
         "run_record": to_jsonable(run_record),
         "metrics": result["metrics"],
+        # Embedded so the frontend can chart it without a second round trip
+        # (to_jsonable converts the pandas DataFrame to list-of-records JSON,
+        # same conversion the pre-existing /api/backtest/run job already
+        # relies on for its own return_series field).
+        "return_series": to_jsonable(result["return_series"]),
         "revision": manifest.revision,
     }

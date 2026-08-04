@@ -7,6 +7,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import { StepStepper } from "@/components/StepStepper"
 import { JobLogPanel } from "@/components/JobLogPanel"
+import { StepOutputView } from "@/components/StepOutputView"
 import { sessionApi } from "@/lib/sessionApi"
 import { stepDefinition } from "@/lib/steps"
 import { useJobStream } from "@/lib/useJobStream"
@@ -148,13 +149,7 @@ export function SessionDetailPage() {
           <CardContent className="flex flex-col gap-3">
             {def.isJob ? (
               <JobLogPanel job={job} />
-            ) : (
-              syncResult != null && (
-                <pre className="h-64 overflow-auto rounded-md bg-muted p-2 text-xs">
-                  {JSON.stringify(syncResult, null, 2)}
-                </pre>
-              )
-            )}
+            ) : null}
             {latestAttempt?.diagnostics && "readiness" in latestAttempt.diagnostics && (
               <div className="flex flex-col gap-1 rounded-md border border-border p-2 text-xs">
                 <span>
@@ -171,6 +166,21 @@ export function SessionDetailPage() {
           </CardContent>
         </Card>
       </div>
+
+      <Card>
+        <CardHeader>
+          <CardTitle>Step output</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <StepOutputView
+            step={step}
+            sessionId={sessionId}
+            factorId={sessionQuery.data.factor_id}
+            attempt={latestAttempt}
+            syncResult={def.isJob ? job.result : syncResult}
+          />
+        </CardContent>
+      </Card>
 
       <Card>
         <CardHeader>

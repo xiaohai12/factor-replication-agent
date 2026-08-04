@@ -1,5 +1,6 @@
 import {
   CartesianGrid,
+  Legend,
   Line,
   LineChart,
   ResponsiveContainer,
@@ -13,6 +14,10 @@ export interface ReturnRow {
   ls_return: number
 }
 
+/** Extended (Phase E) to also plot `monthly_return` -- previously computed
+ * client-side for the tooltip but never actually rendered as its own line;
+ * shown on a secondary y-axis since monthly and cumulative returns live on
+ * very different scales. */
 export function ReturnChart({ data }: { data: ReturnRow[] }) {
   let cumulative = 1
   const rows = data.map((row) => {
@@ -30,7 +35,17 @@ export function ReturnChart({ data }: { data: ReturnRow[] }) {
         <LineChart data={rows}>
           <CartesianGrid strokeDasharray="3 3" className="stroke-border" />
           <XAxis dataKey="period" tick={{ fontSize: 11 }} interval="preserveStartEnd" />
-          <YAxis tickFormatter={(v: number) => `${(v * 100).toFixed(0)}%`} tick={{ fontSize: 11 }} />
+          <YAxis
+            yAxisId="cumulative"
+            tickFormatter={(v: number) => `${(v * 100).toFixed(0)}%`}
+            tick={{ fontSize: 11 }}
+          />
+          <YAxis
+            yAxisId="monthly"
+            orientation="right"
+            tickFormatter={(v: number) => `${(v * 100).toFixed(1)}%`}
+            tick={{ fontSize: 11 }}
+          />
           <Tooltip
             formatter={(value, name) => [
               `${(Number(value) * 100).toFixed(2)}%`,
@@ -38,7 +53,22 @@ export function ReturnChart({ data }: { data: ReturnRow[] }) {
             ]}
             labelFormatter={(label) => `Period: ${label}`}
           />
-          <Line type="monotone" dataKey="cumulative_return" stroke="var(--color-primary)" dot={false} />
+          <Legend wrapperStyle={{ fontSize: 11 }} />
+          <Line
+            yAxisId="cumulative"
+            type="monotone"
+            dataKey="cumulative_return"
+            stroke="var(--color-primary)"
+            dot={false}
+          />
+          <Line
+            yAxisId="monthly"
+            type="monotone"
+            dataKey="monthly_return"
+            stroke="#94a3b8"
+            strokeWidth={1}
+            dot={false}
+          />
         </LineChart>
       </ResponsiveContainer>
     </div>

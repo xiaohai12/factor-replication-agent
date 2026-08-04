@@ -224,6 +224,17 @@ class TestStep8Diagnosis:
             assert manifest["steps"]["8"]["attempts"][-1]["status"] == "success"
             assert Path(manifest["steps"]["8"]["attempts"][-1]["output_refs"]["diagnosis_ref"]).is_file()
 
+            # GET reads back the same persisted diagnosis.json, without recomputing.
+            got = client.get(f"/api/sessions/{sid}/steps/8/diagnosis")
+            assert got.status_code == 200
+            assert got.json()["status"] == "llm_assisted_proposal"
+
+    def test_get_diagnosis_404s_before_any_diagnosis_recorded(self):
+        with TestClient(app) as client:
+            sid, _, _ = _run_baseline_only_experiment(client)
+            resp = client.get(f"/api/sessions/{sid}/steps/8/diagnosis")
+            assert resp.status_code == 404
+
     def test_diagnosis_requires_a_recorded_comparison_first(self):
         with TestClient(app) as client:
             sid, _, _ = _run_baseline_only_experiment(client)

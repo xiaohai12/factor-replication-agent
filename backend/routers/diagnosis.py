@@ -81,3 +81,20 @@ async def run_step8_diagnosis(session_id: str, req: DiagnosisRequest) -> dict:
 
     job_id = job_manager.create_job(run, session_id=session_id, step=8, stage="diagnosis")
     return {"job_id": job_id}
+
+
+@router.get("/{session_id}/steps/8/diagnosis")
+def get_step8_diagnosis(session_id: str) -> dict:
+    """Reads back the already-recorded `diagnosis.json` for this session's
+    step8 attempt -- never recomputes it (matches step7's GET pattern in
+    backend/routers/replication.py)."""
+    try:
+        manifest = session_store.get(session_id)
+    except SessionNotFoundError:
+        raise HTTPException(status_code=404, detail=f"No session '{session_id}'")
+    step8 = manifest.steps.get(8)
+    latest8 = step8.latest if step8 else None
+    diagnosis_ref = latest8.output_refs.get("diagnosis_ref") if latest8 else None
+    if not diagnosis_ref or not Path(diagnosis_ref).is_file():
+        raise HTTPException(status_code=404, detail="No diagnosis recorded yet for this session")
+    return json.loads(Path(diagnosis_ref).read_text())

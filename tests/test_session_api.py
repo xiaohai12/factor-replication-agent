@@ -168,6 +168,11 @@ class TestArtifactIdentityChain:
                 golden["mean_monthly_return"], rel=1e-9
             )
             assert result["run_record"]["status"] == "success"
+            # Embedded for charting (Phase E) -- one row per rebalance period,
+            # with at least the `ls_return`/`yyyymm` columns ReturnChart needs.
+            assert isinstance(result["return_series"], list)
+            assert len(result["return_series"]) == golden["n_months"]
+            assert "yyyymm" in result["return_series"][0]
 
             manifest = client.get(f"/api/sessions/{sid}").json()
             assert manifest["steps"]["5"]["attempts"][-1]["status"] == "success"

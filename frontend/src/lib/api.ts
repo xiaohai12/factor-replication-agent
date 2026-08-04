@@ -28,6 +28,16 @@ export const api = {
   get: <T>(path: string) => request<T>(path),
   post: <T>(path: string, body?: unknown) =>
     request<T>(path, { method: "POST", body: body === undefined ? undefined : JSON.stringify(body) }),
+  /** Plain-text GET (e.g. an evidence file download) -- bypasses the JSON
+   * content-type branch in `request()` since these responses are CSV/text. */
+  getText: async (path: string): Promise<string> => {
+    const res = await fetch(`${API_BASE}${path}`)
+    if (!res.ok) {
+      const text = await res.text().catch(() => res.statusText)
+      throw new ApiError(res.status, text)
+    }
+    return res.text()
+  },
   upload: async <T>(path: string, file: File): Promise<T> => {
     const form = new FormData()
     form.append("file", file)
