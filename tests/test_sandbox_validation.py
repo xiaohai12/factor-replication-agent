@@ -21,14 +21,14 @@ from __future__ import annotations
 import pandas as pd
 import pytest
 
-from src.infra.models.method_spec import MethodSpec, SignalSpec
 from src.infra.models.plugin import PluginRecord
 from src.steps.step3_codegen.script_generator import generate_backtest_script
 from src.steps.step4_validator import AdversarialSandbox
+from tests._spec_test_helpers import minimal_resolved_spec
 
 
-def _spec() -> MethodSpec:
-    return MethodSpec(factor_id="t", factor_name="Test", signal=SignalSpec())
+def _spec():
+    return minimal_resolved_spec("t")
 
 
 

@@ -134,5 +134,5 @@ Claude, or Copilot. If the current model is excessive for the task, recommend sw
   never silently guessed (e.g. to Compustat). The
   *returns* panel, by contrast, defaults to CRSP monthly
   (`catalog.DEFAULT_RETURNS_UNIVERSE` = `us_equity_crsp`) when
-  `MethodSpec.returns_universe` is unset; an explicitly-set but unregistered
+  `MethodSpec.returns_source` is unset; an explicitly-set but unregistered
   returns universe is still blocked at review.

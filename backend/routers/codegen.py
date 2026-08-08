@@ -9,8 +9,8 @@ from pydantic import BaseModel
 
 from backend.jobs import job_manager
 from backend.serialization import to_jsonable
+from backend.spec_parsing import parse_spec, spec_factor_id
 from backend.state import build_llm_client, build_meta_coder, pipeline
-from src.infra.models.method_spec import MethodSpec
 from src.infra.models.plugin import PluginRecord
 
 router = APIRouter(prefix="/api", tags=["codegen"])
@@ -25,11 +25,11 @@ class CodegenRequest(BaseModel):
 @router.post("/codegen")
 async def codegen(req: CodegenRequest) -> dict:
     def run(log):
-        spec = MethodSpec.model_validate(req.spec)
+        spec = parse_spec(req.spec)
         log(f"Building {req.llm_provider} LLM client...")
         client = build_llm_client(req.llm_provider, req.llm_model)
         meta_coder = build_meta_coder(client)
-        log(f"Generating signal plugin for '{spec.factor_id}'...")
+        log(f"Generating signal plugin for '{spec_factor_id(spec)}'...")
         return meta_coder.generate_plugin(spec)
 
     job_id = job_manager.create_job(run)
@@ -45,7 +45,7 @@ class ValidateRequest(BaseModel):
 
 @router.post("/validate")
 def validate(req: ValidateRequest) -> dict:
-    spec = MethodSpec.model_validate(req.spec)
+    spec = parse_spec(req.spec)
     plugin = PluginRecord.model_validate(req.plugin)
     script_text = None
     if req.snapshot_id:

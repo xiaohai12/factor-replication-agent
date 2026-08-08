@@ -1,126 +1,52 @@
 """Main pipeline orchestrator - connects all modules in the controlled workflow.
 
-Two entry points -- see `Pipeline`'s class docstring for the full workflow
-and feedback loop:
-- `run_from_method_spec()` -- steps 3-5 only (generate -> validate -> execute).
-- `run_full_pipeline()` -- all 7 steps end-to-end.
+Entry point: `run_from_method_spec()` -- steps 3-5 (generate -> validate ->
+execute) off an already-approved `ResolvedMethodSpec`. The original 7-step
+`run_full_pipeline()` (extract -> review, via `SemanticExtractor`/
+`ReviewGate`) was retired along with `MethodSpec` itself -- extraction/
+review for the paper-first schema go through `PaperExtractor`/
+`review_paper_method_spec`/`build_implementation_resolution` directly (see
+`backend/routers/paper_methodspecs.py`), not this orchestrator.
 
 Every step is also reachable standalone via the sub-component attributes set
-in `__init__` (`self.extractor`, `self.review_gate`, `self.meta_coder`,
-`self.sandbox`, `self.runner`, `self.controller`, `self.replication_diff`) for
-step-by-step testing/debugging.
+in `__init__` (`self.meta_coder`, `self.sandbox`, `self.runner`,
+`self.controller`, `self.replication_diff`) for step-by-step testing/
+debugging.
 """
 
 from __future__ import annotations
 
-from dataclasses import dataclass
 from pathlib import Path
 
 from src.infra.data_layer import DataLayer
-from src.steps.step1_extractor import SemanticExtractor
-from src.steps.step2_reviewer import ReviewGate
 from src.steps.step5_backtest_runner import BacktestRunner
-from src.steps.step6_dual_track_controller import DualTrackController, ExperimentPlan
-from src.steps.step7_replication_diff import (
-    ReplicationDiff,
-    ReplicationDiffResult,
-    safe_diff_ablation,
-)
+from src.steps.step6_dual_track_controller import DualTrackController
+from src.steps.step7_replication_diff import ReplicationDiff
 from src.steps.step8_diagnosis import ReplicationDiagnoser
 from src.infra.evidence import EvidenceStore, RunRegistry
 from src.infra.repair import RepairLoop
 from src.steps.step3_codegen import MetaCoder
 from src.steps.step3_codegen.script_generator import pick_signal_input_mode
-from src.infra.models.method_spec import MethodSpec, RemediationMode
+from src.infra.models.paper_method_spec import ResolvedMethodSpec
 from src.infra.models.plugin import PluginRecord
 from src.infra.models.run_record import RunRecord
 from src.infra.registry import PluginRegistry
 from src.steps.step4_validator import AdversarialSandbox
 
 
-#: Bounded budget for the Review -> Extractor targeted re-extraction loop
-#: (see `Pipeline.run_full_pipeline`). After this many targeted re-extractions
-#: still fail review, the factor escalates to a human.
-MAX_REEXTRACT = 2
-
-
-@dataclass
-class PipelineStatus:
-    """Status of a `run_full_pipeline()` call for a single factor."""
-
-    factor_id: str
-    stage: str = "pending"  # extract|review|reextract|generate|validate|run|replication_diff|done|failed
-    error: str = ""
-    needs_manual: bool = False
-    #: Terminal OAT gap decomposition (step 7). None when the run didn't
-    #: produce both an original_method and a standardized_hxz track. Kept on
-    #: the status object so callers can actually consume it -- it used to be
-    #: computed and discarded (defect D9 in docs/multi-config-evidence-plan.md).
-    replication_diff: ReplicationDiffResult | None = None
-    #: Path to `results/<factor_id>/comparison.json` (step 5/6's
-    #: deterministic evidence bundle), when at least one track succeeded.
-    comparison_path: Path | None = None
-    #: The persisted step-8 `ReplicationDiagnosisReport`, loaded back from
-    #: `diagnosis.json` when `run_diagnosis=True` produced one (see
-    #: `Pipeline.__init__`'s `diagnoser` construction) -- was previously
-    #: written to disk but never surfaced back through the pipeline call
-    #: itself (docs/multi-config-evidence-plan.md Phase C/D: "persisted and
-    #: pipeline-returned diagnosis report"). Still `status="llm_assisted_proposal"`
-    #: on the report itself; this is read-only access to what step 8 wrote,
-    #: not a new computation.
-    diagnosis: dict | None = None
-
-
 class Pipeline:
-    """End-to-end factor replication pipeline.
-
-    Workflow (module numbers match AGENTS.md's Module Map by responsibility):
-    1. Extract MethodSpec from paper/reference (SemanticExtractor)
-    2. Review and approve MethodSpec (ReviewGate).
-       **Feedback loop (Review -> Extractor):** when the LLM reviewer judges a
-       high-impact field was likely MIS-extracted (in the paper but read
-       wrong -- remediation_mode == TARGETED_REEXTRACTION), the factor loops
-       back to step 1 for a bounded targeted re-extraction (≤`MAX_REEXTRACT`),
-       feeding the extractor the reviewer's paper-quote for each flagged field.
-       Empirical values are never auto-edited -- the extractor re-reads the
-       paper and the reviewer re-judges. Paper-silent fields, an exhausted
-       budget, or FULL_REGENERATION escalate to a human (needs_manual).
-    3. Generate the signal plugin code (the `compute_signal` formula only),
-       then assemble the one standalone backtest script from it (MetaCoder;
-       script assembly is exposed as `BacktestRunner.build_script()` but is
-       conceptually step3's output -- see AGENTS.md's Module Map)
-    4. Validate that built script -- static checks + a compute_signal
-       execution smoke test on the real script from step 3 (AdversarialSandbox).
-       **Feedback loop (technical repair):** on a technical failure this loops
-       back to step 3 for a bounded Meta-Coder repair (≤`MAX_REPAIR_RETRIES`
-       retries), the one shared `RepairLoop` (src/infra/repair.py) every entry
-       point uses.
-    5. Execute the backtest script via subprocess (`BacktestRunner.execute()`).
-       An execution failure loops back to step 3 the same way, via the same
-       `RepairLoop` (per track, inside `DualTrackController._run_track()` when
-       step 6 is involved).
-    6. Run controlled backtest across tracks/ablations (DualTrackController, using BacktestRunner)
-    7. Analyze the replication gap vs reference (ReplicationDiff) -- terminal
-       reporting step, not a loop trigger
-
-    Two automatic feedback loops exist, both bounded: the Review->Extractor
-    targeted re-extraction (step 2, empirical-faithfulness, human-gated on
-    exhaustion) and the technical repair loop (steps 4/5, code-only, never
-    touches empirical parameters). There is deliberately NO automatic
-    empirical backtrack from later stages (ReplicationDiff is terminal); the
-    replication gap is reported, not auto-corrected. See docs/decision-log.md.
+    """End-to-end factor replication pipeline (steps 3-6; see AGENTS.md's
+    Module Map for the full pipeline including extraction/review).
 
     `run_from_method_spec()` runs steps 3-5 only, in this order exactly:
     MetaCoder generates the plugin and BacktestRunner builds the script from
     it (3) -> AdversarialSandbox validates that exact built script, including
     the execution smoke test (4) -> only once validation passes does
-    BacktestRunner execute the script (5).
-
-    `run_full_pipeline()` runs all 7 steps in order, reusing
-    `RepairLoop.build_validate_repair()` for steps 3-4 and `self.controller`
-    for steps 5-6. It fails fast (escalating to a human via
-    `PipelineStatus.needs_manual`) at whichever stage rejects the factor once
-    its bounded loop is exhausted.
+    BacktestRunner execute the script (5). A technical failure (syntax/
+    schema/future-leak/execution crash) loops back to step 3 for a bounded
+    Meta-Coder repair via the shared `RepairLoop` (src/infra/repair.py),
+    every entry point (`run_from_method_spec`, `DualTrackController.
+    _run_track()`) uses the same one.
     """
 
     def __init__(
@@ -132,14 +58,6 @@ class Pipeline:
         run_diagnosis: bool = False,
     ):
         self.data_layer = DataLayer(data_path=data_path)
-        self.extractor = SemanticExtractor(
-            llm_client=llm_client,
-            data_dictionary=self.data_layer.dictionary,
-        )
-        self.review_gate = ReviewGate(
-            data_dictionary=self.data_layer.dictionary,
-            llm_client=llm_client,
-        )
         self.meta_coder = MetaCoder(llm_client=llm_client)
         self.sandbox = AdversarialSandbox()
         self.registry = PluginRegistry()
@@ -163,224 +81,9 @@ class Pipeline:
         self.run_registry = RunRegistry()
         self.replication_diff = ReplicationDiff()
 
-    def run_full_pipeline(
-        self,
-        factor_id: str,
-        snapshot_id: str,
-        paper_text: str,
-        plan: ExperimentPlan | None = None,
-        config_overrides: dict | None = None,
-    ) -> tuple[list[RunRecord], PipelineStatus]:
-        """Run all 7 steps end-to-end for a single factor: extract -> review
-        -> generate -> validate -> execute -> basic multi-track runs ->
-        replication-diff.
-        Fails fast: the first stage that rejects the factor stops the run and
-        is reported on the returned `PipelineStatus` (`.stage` says which
-        step failed, `.error` says why). To retry, fix the underlying issue
-        and call this again, or drive the failing stage directly for a
-        tighter debug loop (e.g. `pipeline.extractor.extract(...)` with
-        edited `paper_text`, or `pipeline.review_gate.review(spec)` on a
-        hand-patched spec).
-
-        Args:
-            factor_id: Unique factor identifier
-            snapshot_id: Data snapshot registered on self.data_layer.snapshots
-                (needed once the script is built -- see step 3 -- so
-                `BacktestRunner.build_script` can locate
-                crsp_msf.parquet/comp_funda.parquet/ccm_lnkhist.parquet
-                for every track `DualTrackController` runs).
-            paper_text: Raw paper text handed to the extractor.
-            plan: Experiment plan for steps 5-6 (defaults to original +
-                standardized, matching `ExperimentPlan`'s own defaults).
-            config_overrides: Optional BacktestExecutor config overrides
-                applied to the *original_method* track's build during
-                step 3-4 validation (steps 5-6 apply each track's own
-                overrides on top when `self.controller` builds per track).
-
-        Returns:
-            Tuple of (RunRecords produced by steps 5-6, PipelineStatus).
-            RunRecords is empty for any failure before step 5.
-        """
-        status = PipelineStatus(factor_id=factor_id)
-
-        # --- 1. Extract ---
-        status.stage = "extract"
-        extraction = self.extractor.extract(factor_id=factor_id, paper_text=paper_text)
-        spec = extraction.spec
-        if spec is None:
-            status.stage = "failed"
-            status.error = extraction.error or "Extraction produced no MethodSpec"
-            return [], status
-
-        # --- 2. Review (+ bounded Review -> Extractor targeted re-extraction) ---
-        # If the reviewer judges a high-impact field was likely MIS-extracted
-        # (in the paper but read wrong) it returns remediation_mode ==
-        # TARGETED_REEXTRACTION; we then re-extract JUST those fields with the
-        # reviewer's paper-quote feedback and re-review, bounded by
-        # MAX_REEXTRACT. We never auto-edit empirical values here -- the
-        # extractor re-reads the paper and the reviewer re-judges. Anything the
-        # loop can't resolve (paper genuinely silent, budget exhausted,
-        # FULL_REGENERATION, or blocked fields) escalates to a human.
-        status.stage = "review"
-        review_result = self._review(spec, paper_text)
-
-        while True:
-            if review_result.requires_human:
-                status.needs_manual = True
-                status.stage = "failed"
-                status.error = f"Blocked fields: {review_result.blocked_fields}"
-                return [], status
-
-            if review_result.approved:
-                break
-
-            remediation = getattr(
-                review_result.remediation_mode, "value", review_result.remediation_mode
-            )
-
-            if remediation == RemediationMode.TARGETED_REEXTRACTION.value:
-                feedback = self._build_reextract_feedback(review_result, spec)
-                # Only fields the reviewer backed with a paper quote are
-                # re-extractable (the extractor can re-read that passage). No
-                # citations -> the paper is likely silent -> a human, not a
-                # re-read, is needed.
-                if not feedback or spec.reextraction_attempts >= MAX_REEXTRACT:
-                    status.needs_manual = True
-                    status.stage = "failed"
-                    status.error = (
-                        "Targeted re-extraction exhausted or not actionable; "
-                        f"needs human review. Issues: {review_result.issues}"
-                    )
-                    return [], status
-
-                status.stage = "reextract"
-                prior_attempts = spec.reextraction_attempts
-                extraction = self.extractor.extract(
-                    factor_id=factor_id,
-                    paper_text=paper_text,
-                    reextract_feedback=feedback,
-                )
-                if extraction.spec is None:
-                    status.needs_manual = True
-                    status.stage = "failed"
-                    status.error = extraction.error or "Re-extraction produced no MethodSpec"
-                    return [], status
-                spec = extraction.spec
-                spec.reextraction_attempts = prior_attempts + 1
-
-                status.stage = "review"
-                review_result = self._review(spec, paper_text)
-                continue
-
-            # FULL_REGENERATION or RESOLVE_EXISTING_JSON with unresolved issues:
-            # not something this loop auto-fixes -> escalate to a human.
-            status.needs_manual = remediation == RemediationMode.FULL_REGENERATION.value
-            status.stage = "failed"
-            status.error = f"Review not approved ({remediation}): {review_result.issues}"
-            return [], status
-
-        spec.review_status = "approved"
-        spec.codegen_ready = review_result.codegen_ready
-        spec.paper_faithful = review_result.paper_faithful
-        spec.remediation_mode = review_result.remediation_mode
-
-        # --- 3-4. Generate plugin, then build+validate the script via the
-        # shared RepairLoop (bounded Sandbox->Meta-Coder technical repair, the
-        # same loop `run_from_method_spec` and `DualTrackController` use), so
-        # the "validated == executed" invariant holds here too ---
-        status.stage = "generate"
-        plugin = self.meta_coder.generate_plugin(spec)
-
-        status.stage = "validate"
-        try:
-            validated = self.repair_loop.build_validate_repair(
-                plugin, spec, snapshot_id, config_overrides
-            )
-            plugin = validated.plugin
-        except RuntimeError as validation_error:
-            status.stage = "failed"
-            status.error = str(validation_error)
-            return [], status
-
-        self.registry.register(plugin)
-
-        # --- 5-6. Run experiments across tracks/ablations ---
-        status.stage = "run"
-        if plan is None:
-            plan = ExperimentPlan(factor_id=factor_id)
-
-        runs = self.controller.run_experiment(plugin, spec, plan, snapshot_id)
-
-        for run in runs:
-            self.evidence_store.save_run(run)
-            self.run_registry.register(run)
-
-        # --- 7. Replication-diff analysis ---
-        status.stage = "replication_diff"
-        status.replication_diff = safe_diff_ablation(runs)
-
-        # Surface what step 5/6 already wrote to disk (docs/multi-config-
-        # evidence-plan.md Phase C/D: "persisted and pipeline-returned
-        # diagnosis report" -- this reads back files `run_experiment`/
-        # `_write_diagnosis` already produced; it does not compute anything
-        # new). Both are best-effort: no successful track -> no
-        # comparison.json at all; `run_diagnosis=False` (the default) -> no
-        # diagnosis.json.
-        results_dir = self.scripts_path / "results" / factor_id
-        comparison_path = results_dir / "comparison.json"
-        if comparison_path.exists():
-            status.comparison_path = comparison_path
-        diagnosis_path = results_dir / "diagnosis.json"
-        if diagnosis_path.exists():
-            import json
-            status.diagnosis = json.loads(diagnosis_path.read_text())
-
-        status.stage = "done"
-        return runs, status
-
-    def _review(self, spec: MethodSpec, paper_text: str):
-        """Review a spec, preferring the LLM auditor (which can call for a
-        targeted re-extraction via `remediation_mode`) when an LLM client is
-        available, falling back to the deterministic rule-based review
-        otherwise. Returns a ReviewResult.
-        """
-        if getattr(self.review_gate, "llm_client", None) is not None and paper_text:
-            review_result, _raw = self.review_gate.review_with_llm(spec, paper_text)
-            return review_result
-        return self.review_gate.review(spec)
-
-    def _build_reextract_feedback(self, review_result, spec: MethodSpec) -> list[dict]:
-        """Build targeted re-extraction feedback from a ReviewResult.
-
-        Only fields the reviewer backed with a paper QUOTE are actionable: a
-        citation means the paper states it and the extractor just misread it
-        (re-readable), whereas no citation means the paper is likely silent
-        (re-reading nothing won't help -> a human, not a re-extract). So this
-        returns one feedback item per flagged, non-approved field note that
-        carries at least one evidence citation; an empty list means "nothing
-        the extractor can act on -> escalate to human".
-        """
-        feedback: list[dict] = []
-        for note in getattr(review_result, "field_notes", []):
-            status_val = getattr(note.status, "value", note.status)
-            if status_val in ("auto_approve", "auto_approve_with_flag", "approve_with_default"):
-                continue
-            evidence = getattr(note, "evidence", []) or []
-            if not evidence:
-                continue
-            feedback.append({
-                "field": note.field,
-                "reason": note.reason,
-                "prior_value": getattr(note, "current_value", None),
-                "paper_evidence": [
-                    (e.model_dump() if hasattr(e, "model_dump") else e) for e in evidence
-                ],
-            })
-        return feedback
-
     def run_from_method_spec(
         self,
-        spec: MethodSpec,
+        spec: ResolvedMethodSpec,
         snapshot_id: str,
         plugin: PluginRecord | None = None,
         config_overrides: dict | None = None,
@@ -491,7 +194,7 @@ class Pipeline:
     #: AdversarialSandbox._check_executes).
     _VALIDATION_SLICE_PERMNOS = 40
 
-    def _build_validation_slice(self, spec: MethodSpec, snapshot_id: str):
+    def _build_validation_slice(self, spec: ResolvedMethodSpec, snapshot_id: str):
         """Best-effort small real-data slice for step4's compute_signal
         execution smoke test.
 
@@ -536,10 +239,10 @@ class Pipeline:
             def _col_name(v):
                 if isinstance(v, dict):
                     return v.get("column")
-                return v if isinstance(v, str) else None
+                return v if isinstance(v, str) else getattr(v, "column", None)
 
             required_cols = [
-                c for c in (_col_name(v) for v in (spec.data.normalized_mapping or {}).values())
+                c for c in (_col_name(v) for v in spec.resolution.concept_mapping.values())
                 if c and c in si.columns
             ]
             covered = si

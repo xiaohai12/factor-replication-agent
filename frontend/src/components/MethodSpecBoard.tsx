@@ -7,7 +7,6 @@ interface EvidenceItem {
   location?: string
   quote?: string
   interpretation?: string
-  source_type?: string
 }
 
 function fmt(value: unknown): string {
@@ -15,6 +14,16 @@ function fmt(value: unknown): string {
   if (typeof value === "boolean") return value ? "yes" : "no"
   if (typeof value === "object") return JSON.stringify(value)
   return String(value)
+}
+
+/** Mirrors `MethodSpec.holding_period_months` (src/infra/models/method_spec.py):
+ * there is no stored `signal.timing.holding_period` field anymore -- the
+ * engine assumes a "clean calendar hold" and derives the hold length
+ * entirely from `rebalance_frequency`. */
+function holdingPeriodFromFrequency(rebalanceFrequency: unknown): string {
+  const months: Record<string, number> = { annual: 12, quarterly: 3, monthly: 1 }
+  const value = months[String(rebalanceFrequency)]
+  return value !== undefined ? `${value}` : "—"
 }
 
 /** Renders one paper citation as a small blockquote -- location + the exact
@@ -123,10 +132,10 @@ export function MethodSpecBoard({ spec }: { spec: Record<string, any> }) {
           secondary={signal.formula?.paper_expression ? `Paper: ${signal.formula.paper_expression}` : null}
           evidence={signal.formula?.evidence}
         />
-        <Field label="Sign" value={signal.sign} />
+        <Field label="Sign" value={spec.sign} />
         <Field
-          label="Formation month / rebalance / holding period"
-          value={`${fmt(signal.timing?.formation_month)} / ${fmt(signal.timing?.rebalance_frequency)} / ${fmt(signal.timing?.holding_period)}mo`}
+          label="Formation month / rebalance / holding period (derived)"
+          value={`${fmt(signal.timing?.formation_month)} / ${fmt(signal.timing?.rebalance_frequency)} / ${holdingPeriodFromFrequency(signal.timing?.rebalance_frequency)}mo`}
           evidence={signal.timing?.evidence}
         />
         <Field label="Accounting lag (months)" value={signal.timing?.accounting_lag} />
@@ -138,22 +147,19 @@ export function MethodSpecBoard({ spec }: { spec: Record<string, any> }) {
       </Section>
 
       <Section title="Portfolio">
-        <Field label="Universe" value={portfolio.universe} evidence={portfolio.evidence} />
         <Field
           label="Breakpoint source / groups"
-          value={`${fmt(portfolio.sort?.breakpoint_source)} / ${fmt(portfolio.sort?.ls_quantile)}`}
+          value={`${fmt(portfolio.sort?.breakpoint_basis)} / ${fmt(portfolio.sort?.ls_quantile)}`}
           evidence={portfolio.sort?.evidence}
         />
         <Field label="Weighting" value={portfolio.weighting} />
         <Field
           label="Long leg / short leg"
           value={`${fmt(portfolio.long_leg)} / ${fmt(portfolio.short_leg)}`}
-          secondary={portfolio.implied_factor_direction?.note}
         />
       </Section>
 
       <Section title="Reported results">
-        <Field label="Return horizon" value={reported.return_horizon} />
         <Field
           label="Input return"
           value={reported.return_calculation?.input_return?.expression}

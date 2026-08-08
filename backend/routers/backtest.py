@@ -10,8 +10,14 @@ from pydantic import BaseModel
 
 from backend.jobs import job_manager
 from backend.serialization import to_jsonable
-from backend.state import ensure_local_snapshot, ensure_synthetic_snapshot, pipeline
-from src.infra.models.method_spec import MethodSpec
+from backend.spec_parsing import parse_spec, spec_factor_id
+from backend.state import (
+    ensure_local_snapshot,
+    ensure_real_wrds_snapshot,
+    ensure_synthetic_snapshot,
+    ensure_validation_sample_snapshot,
+    pipeline,
+)
 from src.infra.models.plugin import PluginRecord
 
 router = APIRouter(prefix="/api/backtest", tags=["backtest"])
@@ -21,6 +27,8 @@ router = APIRouter(prefix="/api/backtest", tags=["backtest"])
 def list_snapshots() -> list[dict]:
     ensure_synthetic_snapshot()
     ensure_local_snapshot()
+    ensure_real_wrds_snapshot()
+    ensure_validation_sample_snapshot()
     return [to_jsonable(s) for s in pipeline.data_layer.snapshots.list_snapshots()]
 
 
@@ -35,12 +43,12 @@ class BacktestRunRequest(BaseModel):
 @router.post("/run")
 async def run_backtest(req: BacktestRunRequest) -> dict:
     def run(log):
-        spec = MethodSpec.model_validate(req.spec)
+        spec = parse_spec(req.spec)
         plugin = PluginRecord.model_validate(req.plugin)
-        log(f"Building backtest script for '{spec.factor_id}' (snapshot '{req.snapshot_id}')...")
+        log(f"Building backtest script for '{spec_factor_id(spec)}' (snapshot '{req.snapshot_id}')...")
         built = pipeline.runner.build_script(plugin, spec, req.snapshot_id, req.config_overrides)
         log("Executing backtest script via subprocess...")
-        result = pipeline.runner.execute(built)
+        result = pipeline.runner.execute(built, log=log)
         log("Backtest finished; persisting RunRecord to evidence store...")
         run_record = pipeline.runner.make_run_record(spec, plugin, req.track, result)
         pipeline.evidence_store.save_run(run_record)

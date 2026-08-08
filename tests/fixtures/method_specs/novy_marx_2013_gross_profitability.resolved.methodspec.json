@@ -1,10 +1,8 @@
 {
-  "schema_version": "methodspec.v1",
-  "returns_universe": "us_equity_crsp",
+  "returns_source": "us_equity_crsp",
   "factor_id": "novy_marx_2013_gross_profitability",
   "factor_name": "Gross Profitability",
   "paper_ref": "Novy-Marx, Robert, 2013, The Other Side of Value: The Gross Profitability Premium, Journal of Financial Economics 108(1), 1-28.",
-  "version": 1,
   "economic_intuition": "More profitable firms (measured by gross profit scaled by assets) earn higher returns; gross profitability is a cleaner measure of true economic profitability than net income.",
   "detailed_definition": "Gross profit (revenues minus cost of goods sold) divided by total assets: GP/A = (REVT - COGS) / AT.",
   "cat_form": "continuous",
@@ -42,49 +40,57 @@
         "field": "revenues",
         "concept": "Total revenues (net sales) used in gross profit numerator.",
         "source_detail": "revenues (revt)",
-        "evidence": []
+        "evidence": [],
+        "is_signal_input": true
       },
       {
         "field": "cost_of_goods_sold",
         "concept": "Cost of goods sold subtracted from revenues to get gross profit.",
         "source_detail": "cost of goods sold (cogs)",
-        "evidence": []
+        "evidence": [],
+        "is_signal_input": true
       },
       {
         "field": "total_assets",
         "concept": "Total assets used as denominator for scaling.",
         "source_detail": "total assets (at)",
-        "evidence": []
+        "evidence": [],
+        "is_signal_input": true
       },
       {
         "field": "monthly_return",
         "concept": "Monthly CRSP return for portfolio returns.",
         "source_detail": "monthly stock return files",
-        "evidence": []
+        "evidence": [],
+        "is_signal_input": false
       },
       {
         "field": "market_equity",
         "concept": "Market equity for value-weighting and size controls.",
         "source_detail": "market capitalization",
-        "evidence": []
+        "evidence": [],
+        "is_signal_input": false
       },
       {
         "field": "listing_exchange",
         "concept": "Exchange code for NYSE breakpoints and universe filter.",
         "source_detail": "exchange code",
-        "evidence": []
+        "evidence": [],
+        "is_signal_input": false
       },
       {
         "field": "share_code",
         "concept": "Share code to restrict to ordinary common shares.",
         "source_detail": "share code",
-        "evidence": []
+        "evidence": [],
+        "is_signal_input": false
       },
       {
         "field": "sic_code",
         "concept": "SIC code to exclude financial firms (SIC 6000-6999).",
         "source_detail": "four-digit SIC",
-        "evidence": []
+        "evidence": [],
+        "is_signal_input": false
       }
     ],
     "normalized_mapping": {
@@ -106,12 +112,15 @@
         {
           "location": "Section I, equation (1)",
           "quote": "gross profitability, defined as revenues minus cost of goods sold scaled by assets",
-          "interpretation": "Direct formula: gross profit divided by total assets.",
-          "source_type": "paper"
+          "interpretation": "Direct formula: gross profit divided by total assets."
         }
       ]
     },
-    "required_fields": ["revenues", "cost_of_goods_sold", "total_assets"],
+    "required_fields": [
+      "revenues",
+      "cost_of_goods_sold",
+      "total_assets"
+    ],
     "field_sources": {},
     "timing": {
       "formation_month": 6,
@@ -124,30 +133,30 @@
         {
           "location": "Section I",
           "quote": "portfolios are formed annually in July",
-          "interpretation": "Annual July rebalance with 6-month accounting lag.",
-          "source_type": "paper"
+          "interpretation": "Annual July rebalance with 6-month accounting lag."
         }
       ]
     },
     "missing_policy": {
       "action": "winsorize",
       "threshold": 0.005,
-      "winsorize_bounds": [0.005, 0.995],
+      "winsorize_bounds": [
+        0.005,
+        0.995
+      ],
       "evidence": [
         {
           "location": "Section I",
           "quote": "all variables are winsorized at the 0.5% level to reduce the influence of outliers",
-          "interpretation": "Symmetric winsorization at 0.5%/99.5% each year.",
-          "source_type": "paper"
+          "interpretation": "Symmetric winsorization at 0.5%/99.5% each year."
         }
       ]
     },
     "sign": 1
   },
   "portfolio": {
-    "universe": "NYSE, Amex, and NASDAQ nonfinancial common stocks (shrcd in 10,11; exchcd in 1,2,3; SIC not 6000-6999) with positive total assets and non-missing revenues.",
     "sort": {
-      "breakpoint_source": "nyse",
+      "breakpoint_basis": "nyse",
       "ls_quantile": 10.0,
       "quantiles": [],
       "evidence": []
@@ -170,10 +179,13 @@
     "evidence": []
   },
   "reported_results": {
-    "return_horizon": "12-month post-formation",
     "return_type": "raw",
     "comparison_policy": {},
-    "return_calculation": {"input_return": {}, "portfolio_return": {}, "evidence": []},
+    "return_calculation": {
+      "input_return": {},
+      "portfolio_return": {},
+      "evidence": []
+    },
     "spreads": {
       "capped_vw_monthly_high_minus_low": {
         "value": 0.0033,
@@ -191,19 +203,10 @@
     "main_t_stat": 2.49,
     "evidence": []
   },
-  "extraction_sources": [
-    {
-      "type": "paper",
-      "ref": "The Other Side of Value: The Gross Profitability Premium",
-      "sections": ["Section I", "Table 1"]
-    }
-  ],
   "ambiguous_fields": [],
   "review_status": "approved",
   "remediation_mode": null,
   "codegen_ready": true,
-  "paper_faithful": true,
-  "review_notes": [],
   "resolution_log": [
     {
       "field_path": "portfolio.weighting",

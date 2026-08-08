@@ -16,27 +16,23 @@ from pathlib import Path
 from fastapi.testclient import TestClient
 
 from backend.main import app
+from tests._spec_test_helpers import asset_growth_resolved_spec
 from tests.test_replication_diagnosis import FakeLLM
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
-RESOLVED_SPEC_PATH = (
-    REPO_ROOT
-    / "tests"
-    / "fixtures"
-    / "method_specs"
-    / "cooper_gulen_schill_2008_asset_growth.resolved.methodspec.json"
-)
 PLUGIN_PATH = REPO_ROOT / "tests" / "fixtures" / "plugins" / "cooper_gulen_schill_2008_asset_growth.py"
 
 
-def _load_fixture_spec() -> dict:
-    return json.loads(RESOLVED_SPEC_PATH.read_text(encoding="utf-8"))
+def _load_fixture_spec(factor_id_suffix: str = "") -> dict:
+    factor_id = f"cooper_gulen_schill_2008_asset_growth{factor_id_suffix}"
+    return json.loads(asset_growth_resolved_spec(factor_id).model_dump_json())
 
 
 def _load_fixture_plugin(spec: dict) -> dict:
+    factor_id = spec["paper"]["factor_id"]
     return {
-        "plugin_id": f"{spec['factor_id']}_v1",
-        "factor_id": spec["factor_id"],
+        "plugin_id": f"{factor_id}_resolved",
+        "factor_id": factor_id,
         "code": PLUGIN_PATH.read_text(encoding="utf-8"),
         "code_hash": "synthetic",
     }
@@ -68,11 +64,9 @@ def _run_baseline_only_experiment(client: TestClient, factor_id_suffix: str = ""
     overwriting the other in `RunRegistry`).
     """
     client.get("/api/backtest/snapshots")  # ensures synthetic_demo_v1 is registered
-    spec = _load_fixture_spec()
-    if factor_id_suffix:
-        spec["factor_id"] = f"{spec['factor_id']}{factor_id_suffix}"
+    spec = _load_fixture_spec(factor_id_suffix)
     plugin = _load_fixture_plugin(spec)
-    sid = client.post("/api/sessions", json={"factor_id": spec["factor_id"]}).json()["session_id"]
+    sid = client.post("/api/sessions", json={"factor_id": spec["paper"]["factor_id"]}).json()["session_id"]
 
     resp = client.post(
         f"/api/sessions/{sid}/steps/6/experiment",
@@ -117,7 +111,7 @@ class TestStep7Comparison:
             )
             assert resp.status_code == 200, resp.text
             bundle = resp.json()["bundle"]
-            assert bundle["factor_id"] == spec["factor_id"]
+            assert bundle["factor_id"] == spec["paper"]["factor_id"]
             assert bundle["batch"]["experiment_batch_id"] == batch_id
 
             # And the convenience GET returns the same recorded bundle.

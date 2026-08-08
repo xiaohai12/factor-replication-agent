@@ -117,6 +117,124 @@ class DataDictionary:
                 mapping[field] = {"source": src, "column": col}
         return mapping
 
+    def normalize_fields_with_llm(
+        self, required_fields: list, llm_client=None
+    ) -> dict[str, dict[str, str]]:
+        """Same contract/return shape as `normalize_fields()`, plus an LLM
+        fallback for fields the deterministic exact/substring matcher above
+        couldn't resolve.
+
+        Runs `normalize_fields()` first (cheap, deterministic, tried first).
+        For any field STILL unresolved, asks an LLM to match it against the
+        full registered catalog (`catalog.DATA_CATALOG`, including the
+        `description`/`column_descriptions` text) -- but every LLM pick is
+        HARD-VALIDATED against the real catalog before being accepted (source
+        must exist in `DATA_CATALOG`, column must be one of that source's
+        registered `physical_columns`); a pick that names an unregistered
+        source/column, or a field the LLM can't confidently match, is simply
+        dropped, exactly as `normalize_fields()` already omits unresolved
+        fields. This means Review Gate's existing hard-blocks (`data.
+        normalized_mapping[empty]`/`[source=unresolved]`/`[source=<name>]`)
+        stay the real safety net either way -- an LLM mismatch just leaves a
+        field unresolved (still blocked at review) rather than being
+        silently trusted. `llm_client=None` (e.g. no LLM configured) skips
+        the fallback entirely and returns exactly `normalize_fields()`'s
+        result.
+        """
+        mapping = self.normalize_fields(required_fields)
+        if llm_client is None:
+            return mapping
+        unresolved = [
+            entry for entry in required_fields
+            if (entry.field if hasattr(entry, "field") else entry.get("field", "")) not in mapping
+        ]
+        if not unresolved:
+            return mapping
+        mapping.update(_llm_match_unresolved_fields(unresolved, llm_client))
+        return mapping
+
+
+def _catalog_menu_text() -> str:
+    """Render `catalog.DATA_CATALOG` as a human/LLM-readable "menu": every
+    registered source, its description, and every physical column it owns
+    with its description. This is the ONLY vocabulary `_llm_match_unresolved_
+    fields` is allowed to pick from."""
+    lines: list[str] = []
+    for name, entry in catalog.DATA_CATALOG.items():
+        desc = entry.get("description", "")
+        lines.append(f'- source "{name}"{f": {desc}" if desc else ""}')
+        col_desc = entry.get("column_descriptions", {})
+        for col in sorted(entry.get("physical_columns", set())):
+            d = col_desc.get(col, "")
+            lines.append(f'    - column "{col}"{f": {d}" if d else ""}')
+    return "\n".join(lines)
+
+
+def _llm_match_unresolved_fields(unresolved_fields: list, llm_client) -> dict[str, dict[str, str]]:
+    """Ask an LLM to match paper-concept fields the deterministic matcher
+    couldn't resolve against the registered catalog menu, then HARD-VALIDATE
+    every pick against the real catalog before accepting it (see
+    `normalize_fields_with_llm`'s docstring for the safety rationale). Never
+    raises -- an LLM/parsing failure just means these fields stay unresolved,
+    same as a deterministic miss."""
+    import json as _json
+
+    field_lines: list[str] = []
+    for entry in unresolved_fields:
+        field = entry.field if hasattr(entry, "field") else entry.get("field", "")
+        concept = (entry.concept if hasattr(entry, "concept") else entry.get("concept", "")) or ""
+        source_detail = (
+            entry.source_detail if hasattr(entry, "source_detail")
+            else entry.get("source_detail", "")
+        ) or ""
+        evidence = entry.evidence if hasattr(entry, "evidence") else entry.get("evidence", [])
+        quotes = "; ".join(
+            getattr(e, "quote", "") or (e.get("quote", "") if isinstance(e, dict) else "")
+            for e in (evidence or [])
+        ).strip("; ")
+        line = f'- field "{field}": concept={concept!r}, paper source_detail={source_detail!r}'
+        if quotes:
+            line += f", paper quotes: {quotes!r}"
+        field_lines.append(line)
+
+    prompt = (
+        "You are matching a finance paper's data-concept fields to the physical "
+        "columns of a REGISTERED data catalog. You must choose ONLY from the "
+        "catalog below -- never invent a source or column name that isn't "
+        "listed. If you are not confident a field matches any listed column, "
+        "OMIT it entirely from your answer (do not guess).\n\n"
+        f"## Registered data catalog\n{_catalog_menu_text()}\n\n"
+        "## Fields to match\n" + "\n".join(field_lines) + "\n\n"
+        'Return ONLY a JSON object of the form {"<field>": {"source": '
+        '"<source>", "column": "<column>"}, ...} using EXACTLY the source/'
+        "column names from the catalog above, for fields you are confident "
+        "about. Omit any field you can't match."
+    )
+    try:
+        response = llm_client.chat.completions.create(
+            model="gpt-4o",
+            messages=[{"role": "user", "content": prompt}],
+            temperature=0.0,
+            response_format={"type": "json_object"},
+        )
+        raw = _json.loads(response.choices[0].message.content)
+    except Exception:
+        return {}
+
+    validated: dict[str, dict[str, str]] = {}
+    if not isinstance(raw, dict):
+        return validated
+    for field, value in raw.items():
+        if not isinstance(value, dict):
+            continue
+        source = value.get("source", "")
+        column = value.get("column", "")
+        catalog_entry = catalog.DATA_CATALOG.get(source)
+        if catalog_entry is None or column not in catalog_entry.get("physical_columns", set()):
+            continue  # never trust a pick that isn't a real registered source/column
+        validated[field] = {"source": source, "column": column}
+    return validated
+
 
 # --- Data Snapshot ---
 
@@ -202,7 +320,7 @@ class DataLayer:
     # assembler directly.
 
     def load_returns(self, universe_name: str, returns_dir: str | Path | None = None) -> pd.DataFrame:
-        """Load the returns panel for a MethodSpec `returns_universe` alias
+        """Load the returns panel for a MethodSpec `returns_source` alias
         (e.g. "us_equity_crsp"). Resolves the alias to its registered
         `ReturnsUniverse` via the DataSource registry and loads from
         `returns_dir` (default `self.data_path`). Fails loud on an unregistered
@@ -248,7 +366,6 @@ LINK_TABLES: dict[str, dict[str, Any]] = catalog.LINK_TABLES
 
 from src.infra.data_layer.sources import (  # noqa: E402  (re-export after catalog is built)
     link_to_permno as link_to_permno,
-    signal_input_sources as signal_input_sources,
     assemble_signal_master_table as assemble_signal_master_table,
     assemble_signal_master_table_from_sources as assemble_signal_master_table_from_sources,
     _load_link_tables as _load_link_tables,

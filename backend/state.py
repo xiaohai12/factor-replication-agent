@@ -12,8 +12,7 @@ from pathlib import Path
 from src.infra.data_layer import SnapshotMetadata
 from src.infra.llm import create_llm_client
 from src.pipeline import Pipeline
-from src.steps.step1_extractor import SemanticExtractor
-from src.steps.step2_reviewer import ReviewGate
+from src.steps.step1_extractor.paper_extractor import PaperExtractor
 from src.steps.step3_codegen import MetaCoder
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
@@ -22,12 +21,21 @@ RUNS_DIR = REPO_ROOT / "runs"
 
 PAPER_TEXT_CACHE_DIR = DATA_DIR / "paper_text_cache"
 METHODSPEC_ROOT = RUNS_DIR / "method_specs"
-UNREVIEWED_DIR = METHODSPEC_ROOT / "unreviewed"
-REVIEWED_DIR = METHODSPEC_ROOT / "reviewed"
-RESOLUTIONS_DIR = METHODSPEC_ROOT / "resolutions"
-RESOLVED_DIR = METHODSPEC_ROOT / "resolved"
 
-for _dir in (PAPER_TEXT_CACHE_DIR, UNREVIEWED_DIR, REVIEWED_DIR, RESOLUTIONS_DIR, RESOLVED_DIR):
+# Paper-first (PaperMethodSpec/MethodReview/ImplementationResolution/
+# ResolvedMethodSpec) artifact dirs.
+PAPER_DRAFTS_DIR = METHODSPEC_ROOT / "paper_drafts"
+PAPER_REVIEWS_DIR = METHODSPEC_ROOT / "paper_reviews"
+PAPER_RESOLUTIONS_DIR = METHODSPEC_ROOT / "paper_resolutions"
+PAPER_RESOLVED_DIR = METHODSPEC_ROOT / "paper_resolved"
+
+for _dir in (
+    PAPER_TEXT_CACHE_DIR,
+    PAPER_DRAFTS_DIR,
+    PAPER_REVIEWS_DIR,
+    PAPER_RESOLUTIONS_DIR,
+    PAPER_RESOLVED_DIR,
+):
     _dir.mkdir(parents=True, exist_ok=True)
 
 pipeline = Pipeline(
@@ -95,17 +103,77 @@ def ensure_local_snapshot() -> None:
     )
 
 
+VALIDATION_SAMPLE_SNAPSHOT_ID = "validation_sample_v1"
+_VALIDATION_SAMPLE_DIR = DATA_DIR / "local" / "validation_sample"
+
+
+def ensure_validation_sample_snapshot() -> None:
+    """Register data/local/validation_sample/ as a snapshot -- a small (~50
+    real, long-history companies), ID-aligned real-data sample built by
+    scripts/build_real_wrds_samples.py, materialized as the SAME 3
+    pre-flattened parquet tables `ensure_local_snapshot` requires (no nested
+    `local/` raw-CSV fallback folder needed). Intended for Step4's execution
+    smoke test / RepairLoop: fast (tens of thousands of rows, not the full
+    real data/local export) but still genuinely real data, not synthetic.
+    Same never-auto-generated gating as `ensure_local_snapshot`."""
+    if pipeline.data_layer.snapshots.get_snapshot(VALIDATION_SAMPLE_SNAPSHOT_ID) is not None:
+        return
+    required = ("crsp_msf.parquet", "comp_funda.parquet", "ccm_lnkhist.parquet")
+    if not all((_VALIDATION_SAMPLE_DIR / name).exists() for name in required):
+        return
+    pipeline.data_layer.snapshots.register_snapshot(
+        SnapshotMetadata(
+            snapshot_id=VALIDATION_SAMPLE_SNAPSHOT_ID,
+            pull_date="validation_sample",
+            crsp_end_date="validation_sample",
+            compustat_end_date="validation_sample",
+            storage_path=str(_VALIDATION_SAMPLE_DIR),
+        )
+    )
+
+
+REAL_WRDS_SNAPSHOT_ID = "real_wrds_local_v1"
+
+# The DataSource registry's raw-file fallback (src/infra/data_layer/sources.py)
+# reads real WRDS-export CSVs directly out of a `local/` subfolder -- no
+# parquet conversion needed. `storage_path` must be the PARENT of that
+# `local/` folder (i.e. `data`, matching scripts/run_real_asset_growth_
+# experiment.py's convention), never `data/local` itself.
+_REAL_WRDS_REQUIRED_RAW_FILES = (
+    "CRSP_STOCK_MONTH.csv",
+    "COMPUSTAT_FUNDAMENTALS_ANNUAL.csv",
+    "CRSP_COMPUSTAT_LINK.csv",
+)
+
+
+def ensure_real_wrds_snapshot() -> None:
+    """Register data/ (parent of data/local/'s raw WRDS CSV exports) as a
+    snapshot, so the frontend's SnapshotPicker can select real data straight
+    off disk without any manual parquet-conversion step. Only registers when
+    the raw CSVs are actually present (developer-local, gitignored) --
+    never auto-generated, same gating pattern as `ensure_local_snapshot`."""
+    if pipeline.data_layer.snapshots.get_snapshot(REAL_WRDS_SNAPSHOT_ID) is not None:
+        return
+    if not all((_LOCAL_DATA_DIR / name).exists() for name in _REAL_WRDS_REQUIRED_RAW_FILES):
+        return
+    pipeline.data_layer.snapshots.register_snapshot(
+        SnapshotMetadata(
+            snapshot_id=REAL_WRDS_SNAPSHOT_ID,
+            pull_date="local_raw_wrds",
+            crsp_end_date="local_raw_wrds",
+            compustat_end_date="local_raw_wrds",
+            storage_path=str(DATA_DIR),
+        )
+    )
+
+
 def build_llm_client(provider: str, model: str | None):
     return create_llm_client(provider=provider, model=model)
 
 
-def build_extractor(llm_client) -> SemanticExtractor:
-    return SemanticExtractor(llm_client=llm_client, data_dictionary=pipeline.data_layer.dictionary)
-
-
-def build_review_gate(llm_client) -> ReviewGate:
-    return ReviewGate(data_dictionary=pipeline.data_layer.dictionary, llm_client=llm_client)
-
-
 def build_meta_coder(llm_client) -> MetaCoder:
     return MetaCoder(llm_client=llm_client)
+
+
+def build_paper_extractor(llm_client) -> PaperExtractor:
+    return PaperExtractor(llm_client=llm_client)

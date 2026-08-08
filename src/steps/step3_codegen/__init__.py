@@ -13,7 +13,7 @@ import re
 from pathlib import Path
 from typing import Optional
 
-from src.infra.models.method_spec import MethodSpec
+from src.infra.models.paper_method_spec import FieldRole, ResolvedMethodSpec
 from src.infra.models.plugin import PluginRecord
 
 
@@ -50,6 +50,41 @@ _PYTHON_START = re.compile(
     r"^(import |from |def |class |#|@|\"\"\"|\'\'\').*",
     re.MULTILINE,
 )
+
+_TEMPORAL_SYMBOL = re.compile(
+    r"\b(?P<base>[A-Za-z_][A-Za-z0-9_]*?)_(?P<clock>[tm])"
+    r"(?:(?P<direction>_minus_|_plus_)(?P<distance>\d+))?\b"
+)
+
+
+def _formula_relative_observation_guidance(expression: str) -> list[str]:
+    """Describe formula-relative row shifts without assuming a factor or cadence.
+
+    Availability dates are already handled upstream. Temporal suffixes here
+    only describe ordering among source observations used by the formula. For
+    each base symbol, anchor its most recent referenced suffix to the current
+    point-in-time row and express older references as relative row shifts.
+    """
+    symbols_by_base: dict[str, dict[str, int]] = {}
+    for match in _TEMPORAL_SYMBOL.finditer(expression):
+        distance = int(match.group("distance") or 0)
+        direction = match.group("direction")
+        offset = -distance if direction == "_minus_" else distance if direction == "_plus_" else 0
+        symbols_by_base.setdefault(match.group("base"), {})[match.group(0)] = offset
+
+    lines: list[str] = []
+    for base, symbols in sorted(symbols_by_base.items()):
+        if len(set(symbols.values())) < 2:
+            continue
+        newest_offset = max(symbols.values())
+        ordered = sorted(symbols.items(), key=lambda item: (-item[1], item[0]))
+        alignments = []
+        for symbol, offset in ordered:
+            shift = newest_offset - offset
+            alignment = "current mapped value" if shift == 0 else f"groupby(permno).shift({shift})"
+            alignments.append(f"{symbol} = {alignment}")
+        lines.append(f"  - {base}: " + "; ".join(alignments))
+    return lines
 
 
 def _strip_code_fences(text: str) -> str:
@@ -90,30 +125,22 @@ class MetaCoder:
         self.llm_client = llm_client
         self.reference_code_path = Path(reference_code_path) if reference_code_path else None
 
-    def generate_plugin(self, spec: MethodSpec) -> PluginRecord:
-        """Generate a signal construction plugin from an approved MethodSpec.
-
-        Column mapping is read from spec.data.normalized_mapping (populated by
-        DataDictionary.normalize_fields() during resolution).
-        Implementation decisions are read from resolved MethodSpec fields.
-
-        Args:
-            spec: Approved MethodSpec (codegen_ready=True, normalized_mapping populated)
+    def generate_plugin(self, spec: ResolvedMethodSpec) -> PluginRecord:
+        """Generate a signal construction plugin from an approved, ready
+        `ResolvedMethodSpec` (`spec.is_ready` gates readiness -- see
+        `ResolvedMethodSpec.is_ready`). Implementation decisions (physical
+        column mapping, timing, missing-data policy) are read from the
+        resolved paper/resolution fields via `_build_prompt_from_resolved`.
         """
-        review_status = getattr(spec.review_status, "value", spec.review_status)
-        if review_status != "approved" or not spec.codegen_ready:
-            raise ValueError("Cannot generate plugin from unapproved MethodSpec")
+        if not spec.is_ready:
+            raise ValueError("Cannot generate plugin from a ResolvedMethodSpec that isn't ready")
         if not self.llm_client:
             raise RuntimeError("llm_client required for MetaCoder.generate_plugin()")
 
-        user_prompt = self._build_prompt(spec)
+        user_prompt = self._build_prompt_from_resolved(spec)
 
         from src.infra.llm import extract_usage
 
-        # Generate compute_signal() — the pure formula function. The engine is
-        # fully standardized (no hook code): all portfolio-construction choices
-        # are selected from a fixed menu by build_config, so the LLM only
-        # produces the signal formula.
         response = self.llm_client.chat.completions.create(
             messages=[
                 {"role": "system", "content": METACODER_SYSTEM_PROMPT},
@@ -124,13 +151,12 @@ class MetaCoder:
         code = _strip_code_fences(response.choices[0].message.content or "")
         token_usage = extract_usage(response)
 
-        spec_hash = hashlib.sha256(spec.model_dump_json().encode()).hexdigest()[:16]
+        spec_hash = spec.paper.content_hash()[:16]
         code_hash = hashlib.sha256(code.encode()).hexdigest()[:16]
 
         record = PluginRecord(
-            plugin_id=f"{spec.factor_id}_v{spec.version}",
-            factor_id=spec.factor_id,
-            method_spec_version=spec.version,
+            plugin_id=spec.paper.factor_id,
+            factor_id=spec.paper.factor_id,
             method_spec_hash=spec_hash,
             code=code,
             code_hash=code_hash,
@@ -138,56 +164,46 @@ class MetaCoder:
         record.__dict__["_token_usage"] = token_usage
         return record
 
-    def _build_prompt(self, spec: MethodSpec) -> str:
-        """Build the code generation prompt from the MethodSpec."""
-        formula = spec.signal.formula
-        if hasattr(formula, "expression"):
-            formula_str = formula.expression
-            paper_formula = getattr(formula, "paper_expression", "")
-        else:
-            formula_str = str(formula)
-            paper_formula = ""
+    def _build_prompt_from_resolved(self, resolved: ResolvedMethodSpec) -> str:
+        """Reads
+        `signal.formula.steps`/`paper_expression`, `timing.*`, and physical
+        columns via `resolution.concept_mapping` instead of v1's flat
+        `formula.expression`/`normalized_mapping` fields.
+        """
+        paper = resolved.paper
+        resolution = resolved.resolution
+        formula = paper.signal.formula
 
-        timing = spec.signal.timing
-        lag = getattr(timing, "accounting_lag", None)
-        formation = getattr(timing, "formation_month", None)
-        rebalance = getattr(timing, "rebalance_frequency", None)
-        if hasattr(rebalance, "value"):
-            rebalance = rebalance.value
+        formula_str = formula.paper_expression
+        step_lines = [f"  {i}. {s.description}" + (f" ({s.expression})" if s.expression else "") for i, s in enumerate(formula.steps, start=1)]
 
-        missing = spec.signal.missing_policy
-        missing_action = getattr(missing, "action", None)
-        if hasattr(missing_action, "value"):
-            missing_action = missing_action.value
+        timing = paper.timing
+        lag_months = timing.data_availability.lag_value
+        formation_month = timing.formation_month.value if timing.formation_month else None
+        rebalance = timing.rebalance_frequency.value.value if timing.rebalance_frequency.value else None
+
+        missing_entry = next(
+            (mp for mp in paper.portfolio.missing_policies if mp.stage.value == "signal"), None
+        )
 
         lines = [
-            f"Generate a Python signal plugin for factor: {spec.factor_name}",
-            f"Factor ID: {spec.factor_id}",
+            f"Generate a Python signal plugin for factor: {paper.target_name}",
+            f"Factor ID: {paper.factor_id}",
             "",
             "## Signal Formula",
-            f"Python expression: {formula_str}",
+            f"Paper notation:    {formula_str}",
         ]
-        if paper_formula:
-            lines.append(f"Paper notation:    {paper_formula}")
+        if step_lines:
+            lines += ["", "## Calculation Steps"] + step_lines
 
-        # Only the FORMULA's own required fields belong in the plugin prompt.
-        # `spec.data.required_fields` also carries universe/sample-membership
-        # concepts the paper-first extractor recorded (e.g. exchange listing,
-        # SIC code, listing-history seasoning) -- those are NOT formula
-        # inputs, they're consumed separately by the engine's
-        # `apply_universe_filters` step from `portfolio.universe_filters`.
-        # Including them here previously made the LLM (incorrectly, but not
-        # unreasonably given the context) implement exchange/SIC filtering
-        # INSIDE compute_signal, which then KeyErrors at runtime because the
-        # assembled signal-input table only ever contains the formula's own
-        # columns (see `signal_input_sources()`). See docs/decision-log.md
-        # 2026-08-03 entry.
-        formula_fields = set(spec.required_fields)
-        data_fields = [f for f in (spec.data.required_fields or []) if f.field in formula_fields]
-        if data_fields:
+        formula_inputs = set(formula.inputs)
+        signal_input_fields = [
+            f for f in paper.data.fields if FieldRole.SIGNAL_INPUT in f.roles and f.concept_id in formula_inputs
+        ]
+        if signal_input_fields:
             lines += ["", "## Data Fields"]
-            for f in data_fields:
-                lines.append(f"  - {f.field}: {f.concept} (source: {f.source_detail})")
+            for f in signal_input_fields:
+                lines.append(f"  - {f.concept_id}: {f.paper_name} (source: {f.paper_source_hint})")
 
         lines += [
             "",
@@ -200,48 +216,40 @@ class MetaCoder:
             "even calculate the signal), never a sample-eligibility rule.",
         ]
         lines += ["", "## Timing"]
-        if formation:
-            lines.append(f"  - Portfolio formation: end of month {formation}")
+        if formation_month:
+            lines.append(f"  - Portfolio formation: end of month {formation_month}")
         if rebalance:
             lines.append(f"  - Rebalance frequency: {rebalance}")
-        if lag is not None:
+        if lag_months is not None:
             lines.append(
-                f"  - Accounting lag: {lag} months (already applied upstream — do NOT re-apply)"
+                f"  - Accounting lag: {lag_months} months (already applied upstream — do NOT re-apply)"
             )
+        relative_observation_lines = _formula_relative_observation_guidance(formula_str)
+        if relative_observation_lines:
+            lines += [
+                "  - Formula-relative observation alignment (independent of availability lag):",
+                "    Anchor each base field's most recent referenced temporal suffix to the "
+                "current point-in-time mapped value. Older suffixes use relative source-row "
+                "shifts; do not add the accounting lag again.",
+                *relative_observation_lines,
+            ]
 
-        if missing_action and missing_action not in ("unspecified", None):
-            lines += ["", f"## Missing Data\n  - Action: {missing_action}"]
-            threshold = getattr(missing, "threshold", None)
-            if threshold:
-                lines.append(f"  - Threshold: {threshold}")
-            for ev in getattr(missing, "evidence", []):
-                quote = ev.quote if hasattr(ev, "quote") else ev.get("quote", "")
-                if quote:
-                    lines.append(f"  - Paper evidence: \"{quote}\"")
+        if missing_entry is not None and missing_entry.action.value not in ("unspecified", None):
+            lines += ["", f"## Missing Data\n  - Action: {missing_entry.action.value}"]
+            if missing_entry.threshold:
+                lines.append(f"  - Threshold: {missing_entry.threshold}")
+            for ev in missing_entry.action.evidence:
+                if ev.quote:
+                    lines.append(f"  - Paper evidence: \"{ev.quote}\"")
                     break
 
-        col_map = spec.data.normalized_mapping or {}
-        if col_map:
-            # `normalized_mapping` values come in two forms (see
-            # `MethodSpec.resolved_sources()`/`_normalize_mapping_entry`):
-            # the richer {"source": ..., "column": ...} dict, or a legacy
-            # plain column string. Using the raw value directly here (without
-            # extracting `.column`) previously leaked the dict's Python repr
-            # into the prompt as a literal column name (e.g. `df["{'source':
-            # 'comp_funda', 'column': 'at'}"]`), which the LLM then copied
-            # verbatim into generated code -- a guaranteed runtime KeyError
-            # against the real assembled table, which only ever has the
-            # PHYSICAL column name. See docs/decision-log.md 2026-08-03 entry.
-            from src.infra.models.method_spec import _normalize_mapping_entry
-
+        if signal_input_fields:
             lines += ["", "## Column Mapping (paper field → physical DataFrame column)"]
-            for paper_field, mapping_value in col_map.items():
-                if paper_field not in formula_fields:
+            for f in signal_input_fields:
+                mapping = resolution.concept_mapping.get(f.concept_id)
+                if mapping is None:
                     continue
-                _source, col_name = _normalize_mapping_entry(mapping_value)
-                if not col_name:
-                    continue
-                lines.append(f"  - {paper_field} → df[\"{col_name}\"]")
+                lines.append(f"  - {f.concept_id} → df[\"{mapping.column}\"]")
 
         lines += [
             "",
@@ -285,7 +293,6 @@ class MetaCoder:
         return PluginRecord(
             plugin_id=plugin.plugin_id,
             factor_id=plugin.factor_id,
-            method_spec_version=plugin.method_spec_version,
             method_spec_hash=plugin.method_spec_hash,
             code=new_code,
             code_hash=new_hash,

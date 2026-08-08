@@ -25,12 +25,12 @@ from __future__ import annotations
 import warnings
 from typing import Any
 
-from src.infra.models.method_spec import (
-    BreakpointSource,
-    MissingAction,
-    MethodSpec,
-    ReturnCombinationType,
-    WeightingRule,
+from src.infra.models.paper_method_spec import (
+    MissingStage,
+    ResolvedMethodSpec,
+    SortMode,
+    SortRole,
+    TimeUnit,
 )
 
 
@@ -46,9 +46,10 @@ class ConfigOverrideError(ValueError):
 
 
 # The full set of keys `build_config` may produce (excluding the
-# conditionally-present `returns_table`/`returns_layout`/`substitutions`,
-# which are handled separately below). A caller override for any OTHER key
-# is almost certainly a typo and is rejected rather than silently merged in.
+# conditionally-present `returns_table`/`returns_layout`/`substitutions`/
+# `defaults_applied`, which are handled separately below). A caller override
+# for any OTHER key is almost certainly a typo and is rejected rather than
+# silently merged in.
 KNOWN_CONFIG_KEYS: frozenset[str] = frozenset({
     "breakpoint_source", "breakpoint_quantiles", "weighting_rule",
     "rebalance_frequency", "holding_period_months", "accounting_lag_months",
@@ -56,7 +57,7 @@ KNOWN_CONFIG_KEYS: frozenset[str] = frozenset({
     "formation_month", "formation_month_explicit", "long_leg", "short_leg",
     "sample_start_year", "sample_end_year", "publication_year",
     "universe_filters", "apply_delisting_returns", "return_combination_type",
-    "return_basis", "return_frequency", "estimator",
+    "return_basis", "estimator",
     "returns_table", "returns_layout",
 })
 
@@ -100,9 +101,9 @@ CONFIG_KEY_STAGE: dict[str, str] = {
     "publication_year": "sample",
     # estimator — how the return series is measured
     "return_basis": "estimator",
-    "return_frequency": "estimator",
     "estimator": "estimator",
     "substitutions": "estimator",
+    "defaults_applied": "estimator",
 }
 
 UNCLASSIFIED_STAGE = "unclassified"
@@ -115,37 +116,26 @@ def stage_of(config_key: str) -> str:
 
 # ---------------------------------------------------------------------------
 # Standard menu — the values for which the engine has a built-in
-# implementation. A MethodSpec value outside its menu is clamped to the menu
-# default by `build_config`/`_clamp` (never code-generated). Values are drawn
-# directly from the MethodSpec enums (src/infra/models/method_spec.py) so the
-# two stay in sync instead of duplicating strings.
+# implementation. A ResolvedMethodSpec value outside its menu is clamped to
+# the menu default by `build_config`/`_clamp` (never code-generated).
 # ---------------------------------------------------------------------------
 
 STANDARD: dict[str, set[str]] = {
-    "breakpoint_source": {
-        BreakpointSource.FULL_SAMPLE.value,
-        BreakpointSource.NYSE.value,
-    },
-    "weighting": {
-        WeightingRule.VALUE_WEIGHTED.value,
-        WeightingRule.EQUAL_WEIGHTED.value,
-    },
-    "missing_action": {
-        MissingAction.DROP.value,
-        MissingAction.UNSPECIFIED.value,
-    },
+    "breakpoint_source": {"full_sample", "nyse"},
+    "weighting": {"vw", "ew"},
+    "missing_action": {"drop", "unspecified"},
     "return_combination": {
-        ReturnCombinationType.EXTREME_GROUP_SPREAD.value,
-        ReturnCombinationType.SINGLE_SIGNAL_PORTFOLIO_RETURN.value,
+        "extreme_group_spread",
+        "single_signal_portfolio_return",
         # BacktestExecutor.combine_portfolio_returns implements all four
         # supported return-combination types. Note
         # average_leg_spread only *actually* averages multiple portfolios
         # per leg when config["long_portfolios"]/["short_portfolios"] are
         # explicitly given (free-text leg descriptions aren't auto-parsed);
         # without them it's numerically identical to extreme_group_spread.
-        ReturnCombinationType.AVERAGE_LEG_SPREAD.value,
-        ReturnCombinationType.FULL_PORTFOLIO_RETURN.value,
-        ReturnCombinationType.UNSPECIFIED.value,
+        "average_leg_spread",
+        "full_portfolio_return",
+        "unspecified",
     },
 }
 
@@ -164,18 +154,6 @@ def ev(v: Any) -> str:
         return v.value
     return str(v) if v is not None else "unspecified"
 
-
-# Dotted MethodSpec.unsupported_fields[].field -> the resolved config key that
-# build_config eventually clamps it to, so the substitution log (see
-# build_config) can report "paper said X, engine ran Y" for exactly those
-# fields the engine has a standard menu for.
-_UNSUPPORTED_FIELD_TO_CONFIG_KEY: dict[str, str] = {
-    "portfolio.weighting": "weighting_rule",
-    "portfolio.sort.breakpoint_source": "breakpoint_source",
-    "signal.missing_policy.action": "missing_action",
-}
-
-
 def _clamp(val: Any, allowed: set[str], default: str) -> str:
     """Resolve a MethodSpec field to a value the engine actually implements.
 
@@ -184,10 +162,18 @@ def _clamp(val: Any, allowed: set[str], default: str) -> str:
     choice is deterministically clamped to the built-in default rather than
     triggering code generation.
     """
+    return _clamp_with_provenance(val, allowed, default)[0]
+
+
+def _clamp_with_provenance(val: Any, allowed: set[str], default: str) -> tuple[str, bool]:
+    """Same resolution as `_clamp`, plus whether `default` was actually used
+    (as opposed to the MethodSpec supplying an already-valid menu value) --
+    the provenance `build_config` needs for its `defaults_applied` list.
+    """
     v = ev(val)
     if v == "unspecified" or v not in allowed:
-        return default
-    return v
+        return default, True
+    return v, False
 
 
 def _resolve_ls_quantile(ls_quantile: float | None) -> int:
@@ -264,122 +250,207 @@ def _validate_overrides(resolved_config: dict, overrides: dict) -> None:
             )
 
 
-def build_config(spec: MethodSpec, overrides: dict | None) -> dict:
-    """Build run config entirely from resolved MethodSpec fields."""
+def build_config(spec: ResolvedMethodSpec, overrides: dict | None) -> dict:
+    """Build run config from an approved `ResolvedMethodSpec` -- see
+    `_build_config_from_resolved` below for the full resolution logic.
+    """
+    return _build_config_from_resolved(spec, overrides)
 
-    n_quantiles = _resolve_ls_quantile(spec.portfolio.sort.ls_quantile)
 
-    config = {
-        "breakpoint_source":    _clamp(spec.breakpoint_source, STANDARD["breakpoint_source"], "full_sample"),
-        "breakpoint_quantiles": n_quantiles,
-        "weighting_rule":       _clamp(spec.weighting_rule, STANDARD["weighting"], "vw"),
-        "rebalance_frequency":  ev(spec.rebalance_frequency),
-        "holding_period_months": spec.holding_period_months or 12,
-        "accounting_lag_months": spec.accounting_lag_months or 6,
+# ---------------------------------------------------------------------------
+# ResolvedMethodSpec resolution. Produces the config-dict shape
+# `BacktestExecutor.run_with_config` consumes.
+# ---------------------------------------------------------------------------
+
+_REBALANCE_FREQUENCY_FROM_TIME_UNIT: dict[TimeUnit, str] = {
+    TimeUnit.YEAR: "annual",
+    TimeUnit.QUARTER: "quarterly",
+    TimeUnit.MONTH: "monthly",
+}
+
+_LAG_UNIT_TO_MONTHS: dict[TimeUnit, int] = {
+    TimeUnit.MONTH: 1,
+    TimeUnit.QUARTER: 3,
+    TimeUnit.YEAR: 12,
+}
+
+
+def _accounting_lag_months(data_availability) -> int | None:
+    if data_availability.lag_value is None:
+        return None
+    multiplier = _LAG_UNIT_TO_MONTHS.get(data_availability.lag_unit)
+    if multiplier is None:
+        return None
+    return data_availability.lag_value * multiplier
+
+
+def _resolved_column(resolution, concept_id: str) -> str:
+    """Physical column for a paper concept, via `ImplementationResolution.
+    concept_mapping` -- fails loudly (never silently guesses a column) when
+    unmapped, matching the engine's existing fail-loud conventions for a
+    missing physical field."""
+    mapping = resolution.concept_mapping.get(concept_id)
+    if mapping is None:
+        raise ValueError(
+            f"concept_id {concept_id!r} has no physical column mapping in "
+            "ImplementationResolution.concept_mapping -- register one before "
+            "building the run config."
+        )
+    return mapping.column
+
+
+def _resolve_legs(paper, sort_id: str, n_groups: int) -> tuple[list[int], list[int]]:
+    """Convert `PortfolioLeg.selector` (0-based group index; group 0 = lowest
+    bucket, per the extraction prompt's convention) into 1-based engine
+    bucket numbers (the engine labels buckets `1..n`), split by leg side.
+    """
+    long_buckets: list[int] = []
+    short_buckets: list[int] = []
+    for leg in paper.portfolio.legs:
+        if sort_id not in leg.selector:
+            continue
+        bucket = int(leg.selector[sort_id]) + 1
+        (long_buckets if leg.side == "long" else short_buckets).append(bucket)
+    return long_buckets, short_buckets
+
+
+def _build_config_from_resolved(resolved: ResolvedMethodSpec, overrides: dict | None) -> dict:
+    """`build_config`'s `ResolvedMethodSpec` branch -- see that function's
+    docstring. Supports exactly what `ResolvedMethodSpec.is_ready` already
+    requires to be true: 1 or 2 quantile-grouped sort dimensions (D4;
+    `MAX_SUPPORTED_SORT_DIMENSIONS` in `paper_method_spec.py`), a
+    characteristic-sort construction type, and a fully resolved physical
+    concept mapping.
+    """
+    paper = resolved.paper
+    resolution = resolved.resolution
+
+    defaults_applied: list[dict[str, Any]] = []
+
+    def _track_clamp(config_key: str, val: Any, allowed: set[str], default: str) -> str:
+        resolved_val, defaulted = _clamp_with_provenance(val, allowed, default)
+        if defaulted:
+            defaults_applied.append({
+                "config_key": config_key,
+                "value": resolved_val,
+                "reason": "MethodSpec field unspecified or off-menu; engine default applied",
+            })
+        return resolved_val
+
+    def _track_or(config_key: str, val: Any, default: Any) -> Any:
+        if val is None:
+            defaults_applied.append({
+                "config_key": config_key,
+                "value": default,
+                "reason": "MethodSpec field unspecified; engine default applied",
+            })
+            return default
+        return val
+
+    sorts = sorted(paper.portfolio.sorts, key=lambda s: s.order)
+    target_sort = next((s for s in sorts if s.role.value == "target"), sorts[0])
+
+    config: dict[str, Any] = {
+        "breakpoint_source": _track_clamp(
+            "breakpoint_source", target_sort.breakpoints.population.value,
+            STANDARD["breakpoint_source"], "nyse",
+        ),
+        "breakpoint_quantiles": target_sort.group_count or 10,
+        "weighting_rule": _track_clamp(
+            "weighting_rule", paper.portfolio.weighting.value, STANDARD["weighting"], "vw"
+        ),
+        "rebalance_frequency": _REBALANCE_FREQUENCY_FROM_TIME_UNIT.get(
+            paper.timing.rebalance_frequency.value, "unspecified"
+        ),
+        "holding_period_months": _track_or(
+            "holding_period_months", paper.timing.holding_period.value, 12
+        ),
+        "accounting_lag_months": _track_or(
+            "accounting_lag_months", _accounting_lag_months(paper.timing.data_availability), 6
+        ),
         "signal_max_staleness_months": 11,
-        "missing_action":       _clamp(spec.missing_action, STANDARD["missing_action"], "drop"),
-        "universe":             spec.universe_description,
-        "formation_month":      spec.formation_month or 6,
-        "formation_month_explicit": spec.formation_month is not None,
-        "long_leg":             resolve_long_leg(spec),
-        "short_leg":            resolve_short_leg(spec),
-        # Optional in-sample / post-sample / post-publication metric split in
-        # steps.compute_metrics (mirrors CZ's sumportmonth insamp/between/
-        # postpub). No-op there when all three are None.
-        "sample_start_year":    spec.sample_start_year,
-        "sample_end_year":      spec.sample_end_year,
-        "publication_year":     spec.publication_year,
-        # Deterministic ResearchDesign fields. Each has a documented canonical
-        # default and may be overridden only by an explicit run config.
+        "missing_action": _track_clamp(
+            "missing_action",
+            next(
+                (mp.action.value for mp in paper.portfolio.missing_policies if mp.stage == MissingStage.SIGNAL),
+                None,
+            ),
+            STANDARD["missing_action"], "drop",
+        ),
+        "formation_month": _track_or(
+            "formation_month",
+            paper.timing.formation_month.value if paper.timing.formation_month else None,
+            6,
+        ),
+        "formation_month_explicit": bool(
+            paper.timing.formation_month and paper.timing.formation_month.value is not None
+        ),
+        "sample_start_year": paper.sample.formation.start_year,
+        "sample_end_year": paper.sample.formation.end_year,
+        "publication_year": paper.paper.publication_year,
         "universe_filters": [
-            {"field": f.field, "op": ev(f.op), "value": f.value}
-            for f in spec.portfolio.universe_filters
+            {"field": _resolved_column(resolution, f.concept_id), "op": ev(f.op), "value": f.value}
+            for f in paper.universe.filters
         ],
         "apply_delisting_returns": True,
-        # How per-portfolio returns combine into the reported series; see
-        # steps.compute_long_short.
-        "return_combination_type": _clamp(
-            spec.portfolio.return_combination.type,
-            STANDARD["return_combination"],
-            "extreme_group_spread",
+        "return_combination_type": _track_clamp(
+            "return_combination_type", paper.portfolio.return_combination.value,
+            STANDARD["return_combination"], "extreme_group_spread",
         ),
-        # Return basis / frequency. "excess" only actually
-        # takes effect when factor data with an `rf` column is supplied to
-        # BacktestExecutor.run(factors=...) -- see BacktestExecutor.apply_excess_returns.
-        # return_frequency isn't consumed by the standard steps yet (which
-        # are frequency-agnostic given a `yyyymm`-keyed panel); it documents
-        # intent and is available for callers that load daily source data
-        # via `data_layer.load_daily_msf_ciz()` ahead of time.
         "return_basis": "excess",
-        "return_frequency": (spec.reported_results.return_horizon or "monthly"),
-        # Estimator: "portfolio_sort" is the only standard estimator (see
-        # estimators.py / docs/decision-log.md).
         "estimator": "portfolio_sort",
     }
-    # Returns universe (portfolio-construction stock-return panel) comes from
-    # the reviewed spec, never a hardcoded CRSP default. When the spec names a
-    # registered returns universe we bake its returns_table/returns_layout into
-    # the config; when unset, catalog.returns_universe_config defaults to the
-    # us_equity_crsp monthly panel (the standardized default returns table).
+
+    long_buckets, short_buckets = _resolve_legs(paper, target_sort.sort_id, config["breakpoint_quantiles"])
+    n = config["breakpoint_quantiles"]
+    config["long_leg"] = "low" if long_buckets and min(long_buckets) == 1 else "high"
+    config["short_leg"] = "high" if config["long_leg"] == "low" else "low"
+    if long_buckets:
+        config["long_portfolios"] = long_buckets
+    if short_buckets:
+        config["short_portfolios"] = short_buckets
+
+    if len(sorts) >= 2:
+        # The `target` dimension is the paper's own signal -- it always
+        # lands on the engine's literal "signal" column (set by
+        # apply_signal_holding_period from compute_signal()'s output), never
+        # a physical concept column. Only non-target (control/conditioning)
+        # dimensions -- e.g. a size sort -- come straight from the returns
+        # panel and need a real physical-column resolution.
+        config["sort_dims"] = [
+            {
+                "column": "signal" if s.role == SortRole.TARGET else _resolved_column(resolution, s.concept_id),
+                "quantiles": s.group_count or 2,
+                "source": ev(s.breakpoints.population.value),
+                "independent": s.mode == SortMode.INDEPENDENT,
+                "role": s.role.value,
+            }
+            for s in sorts
+        ]
+
     from src.infra.data_layer import catalog
 
-    returns_cfg = catalog.returns_universe_config(getattr(spec, "returns_universe", None))
+    returns_cfg = catalog.returns_universe_config(resolution.returns_source or None)
     if returns_cfg:
         config["returns_table"] = returns_cfg["returns_table"]
         config["returns_layout"] = returns_cfg["returns_layout"]
 
-    # Substitution log: MethodSpec.unsupported_fields is the authoritative
-    # record of "the paper stated this value explicitly, but it isn't an
-    # engine menu member" (see UnsupportedField / _record_unsupported in
-    # method_spec.py) -- distinct from a field the paper never addressed
-    # (`unspecified`, not logged here). build_config is the single place that
-    # decides what the engine actually ran instead, so pair each recorded
-    # paper value with the resolved config value here. Never used to make an
-    # empirical decision; purely descriptive provenance for review/reporting
-    # (e.g. Phase C/D "vs paper" comparisons must carry this as a caveat).
     substitutions = [
         {
-            "field": uf.field,
-            "paper_value": uf.paper_value,
-            "engine_value": config[config_key],
-            "reason": uf.reason,
+            "field": sub.field_path,
+            "paper_value": sub.paper_value,
+            "engine_value": sub.substituted_value,
+            "reason": sub.reason,
         }
-        for uf in spec.unsupported_fields
-        if (config_key := _UNSUPPORTED_FIELD_TO_CONFIG_KEY.get(uf.field)) is not None
+        for sub in resolution.approved_substitutions
     ]
     if substitutions:
         config["substitutions"] = substitutions
+
+    if defaults_applied:
+        config["defaults_applied"] = defaults_applied
 
     if overrides:
         _validate_overrides(config, overrides)
         config.update(overrides)
     return config
-
-
-def resolve_long_leg(spec: MethodSpec) -> str:
-    ifd = spec.portfolio.implied_factor_direction
-    raw = ifd.get("long_leg") if isinstance(ifd, dict) else None
-    raw = raw or spec.portfolio.long_leg
-    return normalize_leg(raw, default="low")
-
-
-def resolve_short_leg(spec: MethodSpec) -> str:
-    ifd = spec.portfolio.implied_factor_direction
-    raw = ifd.get("short_leg") if isinstance(ifd, dict) else None
-    raw = raw or spec.portfolio.short_leg
-    return normalize_leg(raw, default="high")
-
-
-def normalize_leg(value: Any, default: str) -> str:
-    """Map a leg descriptor to the 'low'/'high' token used by compute_long_short.
-
-    MethodSpec long_leg/short_leg fields are often free-text descriptions
-    (e.g. "lowest asset-growth decile") rather than the bare 'low'/'high'
-    tokens the engine expects, so match by substring instead of equality.
-    """
-    text = str(value or "").lower()
-    if "low" in text:
-        return "low"
-    if "high" in text:
-        return "high"
-    return default

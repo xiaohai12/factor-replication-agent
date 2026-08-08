@@ -36,62 +36,12 @@ from __future__ import annotations
 
 from typing import Any, Optional
 
-from src.infra.models.method_spec import MethodSpec
 from src.infra.models.plugin import PluginRecord, ValidationReport
 from src.infra.models.run_record import RunRecord
-from src.steps.step2_reviewer import ReviewResult
 
 
 def _diagnostics(readiness: str, counters: dict[str, Any], flags: Optional[list[str]] = None) -> dict:
     return {"readiness": readiness, "counters": counters, "flags": flags or []}
-
-
-def step1_diagnostics(spec: MethodSpec) -> dict:
-    ambiguous = len(spec.ambiguous_fields)
-    flags = []
-    if ambiguous:
-        flags.append(f"{ambiguous} ambiguous field(s) -- may need human review at step2")
-    return _diagnostics(
-        readiness="ready",  # extraction always produces SOME spec to review next
-        counters={
-            "ambiguous_field_count": ambiguous,
-            "unsupported_field_count": len(spec.unsupported_fields),
-            "reextraction_attempts": spec.reextraction_attempts,
-        },
-        flags=flags,
-    )
-
-
-def step2_diagnostics(review: ReviewResult) -> dict:
-    disposition_counts: dict[str, int] = {}
-    for note in review.field_notes:
-        key = note.status.value if hasattr(note.status, "value") else str(note.status)
-        disposition_counts[key] = disposition_counts.get(key, 0) + 1
-
-    if review.requires_human or review.disposition == "blocked":
-        readiness = "blocked"
-    elif review.disposition == "approved" or review.codegen_ready:
-        readiness = "ready"
-    else:
-        readiness = "not_ready"
-
-    flags = []
-    if review.blocked_fields:
-        flags.append(f"{len(review.blocked_fields)} field(s) blocked pending human resolution")
-    if not review.paper_faithful:
-        flags.append("review marked this spec as not paper-faithful")
-
-    return _diagnostics(
-        readiness=readiness,
-        counters={
-            "blocked_field_count": len(review.blocked_fields),
-            "issue_count": len(review.issues),
-            "warning_count": len(review.warnings),
-            "disposition_histogram": disposition_counts,
-            "requires_human": review.requires_human,
-        },
-        flags=flags,
-    )
 
 
 def step3_diagnostics(plugin: PluginRecord, config: dict) -> dict:

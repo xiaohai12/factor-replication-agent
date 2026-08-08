@@ -4,10 +4,9 @@ This is the ONLY automatic feedback loop in the pipeline: a bounded
 "build the script -> validate/execute -> on a TECHNICAL failure, ask
 MetaCoder to repair the code -> rebuild -> re-validate" cycle. It is used
 identically by:
-  - `Pipeline.run_from_method_spec` (single-track path),
-  - `Pipeline.run_full_pipeline` (steps 3-4 validate stage), and
+  - `Pipeline.run_from_method_spec` (single-track path), and
   - `DualTrackController._run_track` (per-track execute stage),
-so there is exactly one implementation instead of three near-duplicates.
+so there is exactly one implementation instead of two near-duplicates.
 
 Scope discipline (see docs/decision-log.md): this loop only ever feeds back
 "WHERE the problem is" (the raw validation errors / execution stderr) to
@@ -22,8 +21,9 @@ caller attaches the accumulated history to the RunRecord it persists.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from typing import Callable
 
-from src.infra.models.method_spec import MethodSpec
+from src.infra.models.paper_method_spec import ResolvedMethodSpec
 from src.infra.models.plugin import PluginRecord
 from src.infra.models.run_record import RepairAttempt
 
@@ -78,11 +78,12 @@ class RepairLoop:
     def build_validate_repair(
         self,
         plugin: PluginRecord,
-        spec: MethodSpec,
+        spec: ResolvedMethodSpec,
         snapshot_id: str,
         config_overrides: dict | None,
         data=None,
         track_name: str | None = None,
+        log: Callable[[str], None] | None = None,
     ) -> ValidateOutcome:
         """Build the ONE standalone script and validate it, repairing on a
         technical failure, up to `max_retries` times.
@@ -98,13 +99,25 @@ class RepairLoop:
         build_script()` so multi-track callers (`DualTrackController`) never
         collide on the same on-disk script/output filename.
 
+        `log`, when given, receives a one-line progress message per attempt
+        (build/validate start, pass/fail, repair triggered) -- callers running
+        this inside a background job (see backend/routers/sessions.py's step4
+        validate endpoint) wire this into the job's SSE log stream so a
+        multi-attempt repair loop (each attempt can involve an LLM call) shows
+        real-time progress instead of the request appearing to hang. Always
+        optional and additive.
+
         Raises RuntimeError if the plugin still fails after `max_retries`
         repairs.
         """
         history: list[RepairAttempt] = []
         built: dict = {}
         for attempt in range(self.max_retries + 1):
+            if log:
+                log(f"[validate] attempt {attempt + 1}/{self.max_retries + 1}: building script...")
             built = self.runner.build_script(plugin, spec, snapshot_id, config_overrides, track_name)
+            if log:
+                log(f"[validate] attempt {attempt + 1}/{self.max_retries + 1}: running sandbox validation...")
             report = self.sandbox.validate(
                 plugin, spec, script_text=built["script_text"], data=data
             )
@@ -113,8 +126,14 @@ class RepairLoop:
                 plugin.validation_status = "passed"
                 if history:
                     history[-1].passed = True
+                if log:
+                    log(f"[validate] attempt {attempt + 1}: passed.")
                 return ValidateOutcome(plugin=plugin, built=built, history=history)
+            if log:
+                log(f"[validate] attempt {attempt + 1}: failed ({'; '.join(report.errors)[:300]})")
             if attempt < self.max_retries:
+                if log:
+                    log(f"[validate] requesting technical repair from MetaCoder (attempt {attempt + 1})...")
                 code_before = plugin.code_hash
                 plugin = self.meta_coder.repair_plugin(plugin, report.errors)
                 history.append(
@@ -136,7 +155,7 @@ class RepairLoop:
         self,
         plugin: PluginRecord,
         built: dict,
-        spec: MethodSpec,
+        spec: ResolvedMethodSpec,
         snapshot_id: str,
         config_overrides: dict | None,
         data=None,

@@ -19,14 +19,14 @@ from __future__ import annotations
 
 import pytest
 
-from src.infra.models.method_spec import MethodSpec, SignalSpec
 from src.infra.models.plugin import PluginRecord, ValidationReport
 from src.infra.models.run_record import RunMetrics, RunRecord
 from src.steps.step6_dual_track_controller import DualTrackController, ExperimentPlan
+from tests._spec_test_helpers import minimal_resolved_spec, spec_factor_id
 
 
-def _spec() -> MethodSpec:
-    return MethodSpec(factor_id="t", factor_name="Test", signal=SignalSpec())
+def _spec():
+    return minimal_resolved_spec("t")
 
 
 def _plugin() -> PluginRecord:
@@ -61,8 +61,8 @@ class FakeRunner:
     def make_run_record(self, spec, plugin, track, result) -> RunRecord:
         metrics = result["metrics"]
         return RunRecord(
-            run_id=f"{spec.factor_id}_{track}",
-            factor_id=spec.factor_id,
+            run_id=f"{spec_factor_id(spec)}_{track}",
+            factor_id=spec_factor_id(spec),
             plugin_id=plugin.plugin_id,
             track=track,
             metrics=RunMetrics(mean_return=metrics.get("mean_monthly_return"), t_stat=metrics.get("t_stat")),
@@ -71,8 +71,8 @@ class FakeRunner:
 
     def make_failed_run_record(self, spec, plugin, track, config_overrides, log) -> RunRecord:
         return RunRecord(
-            run_id=f"{spec.factor_id}_{track}_failed",
-            factor_id=spec.factor_id,
+            run_id=f"{spec_factor_id(spec)}_{track}_failed",
+            factor_id=spec_factor_id(spec),
             plugin_id=plugin.plugin_id,
             track=track,
             metrics=RunMetrics(),
@@ -83,7 +83,7 @@ class FakeRunner:
     def write_comparison_summary(self, spec, tracks, snapshot_id=None, diff_result=None, batch_info=None):
         self.comparison_calls.append(
             {
-                "factor_id": spec.factor_id,
+                "factor_id": spec_factor_id(spec),
                 "tracks": tracks,
                 "snapshot_id": snapshot_id,
                 "diff_result": diff_result,

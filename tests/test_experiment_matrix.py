@@ -7,22 +7,15 @@ from __future__ import annotations
 
 import pytest
 
-from src.infra.models.method_spec import MethodSpec, SignalSpec
 from src.steps.step6_dual_track_controller.experiment_spec import (
     ExperimentMatrixError,
     load_experiment_matrix,
 )
+from tests._spec_test_helpers import minimal_resolved_spec
 
 
-def _spec(**portfolio_overrides) -> MethodSpec:
-    payload = {
-        "factor_id": "t",
-        "factor_name": "Test",
-        "signal": {"required_fields": ["f"], "formula": {"expression": "f"}},
-        "data": {"normalized_mapping": {"f": "ret"}},
-        "portfolio": portfolio_overrides or {"weighting": "vw"},
-    }
-    return MethodSpec.model_validate(payload)
+def _spec(weighting: str = "vw"):
+    return minimal_resolved_spec("t", weighting=weighting)
 
 
 def _write(tmp_path, text: str):
@@ -198,7 +191,7 @@ experiments:
 factor_id: t
 experiments:
   - name: x
-    config_overrides: {weighting_rule: ew, breakpoint_source: nyse}
+    config_overrides: {weighting_rule: ew, breakpoint_source: full_sample}
 """,
         )
         exp = load_experiment_matrix(path, _spec(weighting="vw")).experiments[0]

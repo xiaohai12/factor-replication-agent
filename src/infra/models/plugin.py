@@ -31,7 +31,6 @@ class PluginRecord(BaseModel):
 
     plugin_id: str = Field(..., description="Unique plugin identifier")
     factor_id: str = Field(..., description="Associated factor ID")
-    method_spec_version: int = Field(default=1)
     method_spec_hash: str = Field(default="")
 
     # Code

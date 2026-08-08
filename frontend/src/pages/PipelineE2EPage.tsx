@@ -21,6 +21,7 @@ import { ReturnChart, type ReturnRow } from "@/components/ReturnChart"
 import { api } from "@/lib/api"
 import { useJobStream } from "@/lib/useJobStream"
 import { useLlm } from "@/lib/llmContext"
+import { parseResolutionValue, splitIssuesBySeverity } from "@/lib/utils"
 
 interface ExtractionResult {
   spec: Record<string, unknown> | null
@@ -90,6 +91,7 @@ export function PipelineE2EPage() {
 
   // Stage 2: review
   const [reviewResult, setReviewResult] = useState<ReviewResult | null>(null)
+  const [reviewSource, setReviewSource] = useState<"rules" | "llm" | null>(null)
   const [resolutionValues, setResolutionValues] = useState<Record<string, string>>({})
   const [resolutionReasons, setResolutionReasons] = useState<Record<string, string>>({})
   const [useOtherFor, setUseOtherFor] = useState<Record<string, boolean>>({})
@@ -99,12 +101,16 @@ export function PipelineE2EPage() {
   useEffect(() => {
     if (reviewLlmJob.status === "completed" && reviewLlmJob.result?.review_result) {
       setReviewResult(reviewLlmJob.result.review_result)
+      setReviewSource("llm")
     }
   }, [reviewLlmJob.status, reviewLlmJob.result])
 
   const { data: fieldHelp } = useQuery({
     queryKey: ["field-help"],
-    queryFn: () => api.get<Record<string, { description: string; options: string[] }>>("/api/methodspecs/field-help"),
+    queryFn: () =>
+      api.get<Record<string, { description: string; options: string[]; example: string }>>(
+        "/api/methodspecs/field-help",
+      ),
   })
 
   // Stage 3: codegen
@@ -183,6 +189,7 @@ export function PipelineE2EPage() {
     try {
       const result = await api.post<ReviewResult>("/api/methodspecs/review", { spec })
       setReviewResult(result)
+      setReviewSource("rules")
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err))
     }
@@ -211,19 +218,29 @@ export function PipelineE2EPage() {
   async function handleResolve() {
     if (!spec || !reviewResult) return
     setError(null)
-    const decisions = reviewResult.blocked_fields.map((field) => {
-      const note = reviewResult.field_notes.find((n) => n.field === field)
-      return {
+    const decisions = reviewResult.blocked_fields
+      .map((field) => {
+        const note = reviewResult.field_notes.find((n) => n.field === field)
+        const hasTyped = field in resolutionValues
+        const value = hasTyped ? parseResolutionValue(resolutionValues[field]) : note?.candidate_value
+        return { field, note, value }
+      })
+      // Leave a field blank (untouched, no candidate default, or explicitly
+      // cleared) to skip it -- it stays blocked instead of being forced to a
+      // fabricated "unspecified" string, which used to crash MethodSpec
+      // validation for dict/list-typed fields (confirmed live: a real 422
+      // dict_type error on data.normalized_mapping).
+      .filter(({ value }) => value !== undefined && value !== null && value !== "")
+      .map(({ field, note, value }) => ({
         field_path: field,
         canonical_field_path: field,
         old_value: note?.current_value ?? null,
-        new_value: resolutionValues[field] ?? note?.candidate_value ?? "unspecified",
+        new_value: value,
         decision_type: "human_empirical_assumption",
         reason: resolutionReasons[field] || "Resolved via Pipeline E2E wizard.",
         reviewer: "human",
         paper_evidence: [],
-      }
-    })
+      }))
     try {
       const resolved = await api.post<Record<string, unknown>>("/api/methodspecs/resolve", {
         spec,
@@ -232,6 +249,7 @@ export function PipelineE2EPage() {
       })
       setSpec(resolved)
       setReviewResult(null)
+      setReviewSource(null)
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err))
     }
@@ -282,7 +300,7 @@ export function PipelineE2EPage() {
     }
   }
 
-  const canReview = !!spec && !reviewResult
+  const canReview = !!spec
   const isApproved = reviewResult?.disposition === "approved"
   const isBlocked = reviewResult?.disposition === "blocked"
   const canCodegen = !!spec && (isApproved || (!!reviewResult && !isBlocked))
@@ -310,11 +328,23 @@ export function PipelineE2EPage() {
           </div>
           <div className="flex flex-col gap-1.5">
             <Label>Upload paper PDF</Label>
+            <label
+              htmlFor="pdf-upload-input"
+              className="flex cursor-pointer flex-col items-center justify-center gap-1 rounded-md border-2 border-dashed border-border p-4 text-center transition-colors hover:border-primary hover:bg-muted/50"
+            >
+              <span className="text-sm font-medium">
+                {pdfFile ? pdfFile.name : "Click to choose a PDF, or drag one here"}
+              </span>
+              <span className="text-xs text-muted-foreground">
+                {pdfFile ? `${(pdfFile.size / 1024).toFixed(0)} KB -- click to change` : "PDF files only"}
+              </span>
+            </label>
             <input
+              id="pdf-upload-input"
               type="file"
               accept="application/pdf"
               onChange={(e) => setPdfFile(e.target.files?.[0] ?? null)}
-              className="text-xs"
+              className="hidden"
             />
             <Button
               onClick={handleExtractFromPdf}
@@ -366,19 +396,73 @@ export function PipelineE2EPage() {
             <JobLogPanel job={reviewLlmJob} title="LLM review job" />
             {reviewResult && (
               <div className="flex flex-col gap-2">
-                <Badge variant={isApproved ? "default" : isBlocked ? "destructive" : "secondary"}>
-                  {reviewResult.disposition}
-                </Badge>
-                {reviewResult.issues.map((issue, i) => (
-                  <p key={i} className="text-xs text-muted-foreground">
-                    ⚠ {issue}
-                  </p>
-                ))}
+                <div className="flex items-center gap-2">
+                  <Badge variant={isApproved ? "default" : isBlocked ? "destructive" : "secondary"}>
+                    {reviewResult.disposition}
+                  </Badge>
+                  <Badge variant="outline">
+                    {reviewSource === "llm" ? "LLM-backed review" : "Rules-based review"}
+                  </Badge>
+                </div>
+                {(() => {
+                  const { required, advisory } = splitIssuesBySeverity(reviewResult.issues)
+                  return (
+                    <>
+                      {required.length > 0 && (
+                        <div className="flex flex-col gap-1">
+                          <p className="text-xs font-medium text-destructive">Must resolve ({required.length})</p>
+                          {required.map((issue, i) => (
+                            <p key={i} className="text-xs text-destructive">
+                              ⚠ {issue}
+                            </p>
+                          ))}
+                        </div>
+                      )}
+                      {advisory.length > 0 && (
+                        <details className="text-xs text-muted-foreground">
+                          <summary className="cursor-pointer">Advisory notes ({advisory.length}) -- don't block approval</summary>
+                          {advisory.map((issue, i) => (
+                            <p key={i} className="pl-4">
+                              ℹ {issue}
+                            </p>
+                          ))}
+                        </details>
+                      )}
+                      {reviewResult.warnings.length > 0 && (
+                        <details className="text-xs text-muted-foreground">
+                          <summary className="cursor-pointer">Warnings ({reviewResult.warnings.length})</summary>
+                          {reviewResult.warnings.map((warning, i) => (
+                            <p key={i} className="pl-4">
+                              ℹ {warning}
+                            </p>
+                          ))}
+                        </details>
+                      )}
+                    </>
+                  )
+                })()}
                 {isBlocked && (
                   <div className="flex flex-col gap-3 rounded-md border border-border p-3">
                     <p className="text-sm font-medium">Resolve blocked fields</p>
-                    {reviewResult.field_notes
-                      .filter((n) => reviewResult.blocked_fields.includes(n.field))
+                    <p className="text-xs text-muted-foreground">
+                      Leave a field blank to skip it -- it stays blocked and can be resolved later.
+                    </p>
+                    {(() => {
+                      // More than one `_check_*` rule (or the LLM's own note
+                      // plus a merged deterministic precheck note) can
+                      // independently flag the SAME field -- dedupe by field
+                      // path so React never sees two list items with the same
+                      // key, and so a resolution decision isn't submitted
+                      // twice for one field.
+                      const seenBlockedFields = new Set<string>()
+                      return reviewResult.field_notes.filter((n) => {
+                        if (!reviewResult.blocked_fields.includes(n.field) || seenBlockedFields.has(n.field)) {
+                          return false
+                        }
+                        seenBlockedFields.add(n.field)
+                        return true
+                      })
+                    })()
                       .map((note) => {
                         const help = fieldHelp?.[note.field]
                         const hasOptions = !!help?.options?.length
@@ -389,10 +473,39 @@ export function PipelineE2EPage() {
                             {help?.description && (
                               <p className="text-xs text-muted-foreground">ℹ {help.description}</p>
                             )}
+                            {help?.example && (
+                              <p className="text-xs text-muted-foreground">
+                                📝 Example: <code>{help.example}</code>
+                              </p>
+                            )}
                             <p className="text-xs text-muted-foreground">Why it's blocked: {note.reason}</p>
+                            {note.candidate_value != null && (
+                              <div className="flex items-center gap-2">
+                                <p className="text-xs text-emerald-600">
+                                  💡 Suggested value: <code>{String(note.candidate_value)}</code> (pre-filled below --
+                                  review it, don't just accept it blindly)
+                                </p>
+                                <Button
+                                  type="button"
+                                  variant="outline"
+                                  size="sm"
+                                  onClick={() => {
+                                    setResolutionValues((prev) => ({ ...prev, [note.field]: String(note.candidate_value) }))
+                                    setResolutionReasons((prev) => ({
+                                      ...prev,
+                                      [note.field]:
+                                        prev[note.field] ||
+                                        "Paper does not state this; using the project's standard convention.",
+                                    }))
+                                  }}
+                                >
+                                  Use suggested value
+                                </Button>
+                              </div>
+                            )}
                             {hasOptions && !usingOther ? (
                               <Select
-                                value={resolutionValues[note.field] ?? ""}
+                                value={resolutionValues[note.field] ?? (note.candidate_value != null ? String(note.candidate_value) : "")}
                                 onValueChange={(v) => {
                                   if (v === "__other__") {
                                     setUseOtherFor((prev) => ({ ...prev, [note.field]: true }))
@@ -417,8 +530,8 @@ export function PipelineE2EPage() {
                             ) : (
                               <div className="flex flex-col gap-1">
                                 <Input
-                                  placeholder="New value"
-                                  value={resolutionValues[note.field] ?? ""}
+                                  placeholder={help?.example ? `e.g. ${help.example} (leave blank to skip)` : "New value (leave blank to skip)"}
+                                  value={resolutionValues[note.field] ?? (note.candidate_value != null ? String(note.candidate_value) : "")}
                                   onChange={(e) =>
                                     setResolutionValues((prev) => ({ ...prev, [note.field]: e.target.value }))
                                   }

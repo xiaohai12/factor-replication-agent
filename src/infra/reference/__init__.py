@@ -13,17 +13,31 @@ to consume a real firm-level C&Z signal series WHEN one is loaded by some
 future adapter; this module only supplies the reported summary numbers that
 are already available today without that adapter.
 
-Reuses `src.evaluation.helpers.load_signaldoc` (the existing SignalDoc.csv
-reader used for extraction-accuracy evaluation) rather than re-parsing the
-CSV a second way -- this module's `CZReferenceProfile` is a DIFFERENT
-normalized shape for a different purpose (replication-gap comparison, not
-MethodSpec field-by-field accuracy scoring), but reads the identical rows.
+Reads `SignalDoc.csv` directly via `load_signaldoc` below (moved here from
+the retired v1 extraction-eval helpers module) -- this module's
+`CZReferenceProfile` is a DIFFERENT normalized shape for a different purpose
+(replication-gap comparison, not MethodSpec field-by-field accuracy
+scoring), but reads the identical rows.
 """
 
 from __future__ import annotations
 
+import csv
 from dataclasses import dataclass
 from pathlib import Path
+
+_SIGNALDOC_PATH = Path(__file__).resolve().parents[3] / "data" / "osap" / "SignalDoc.csv"
+
+
+def load_signaldoc(signaldoc_path: Path | None = None) -> dict[str, dict]:
+    """Load SignalDoc.csv into {Acronym: row_dict}."""
+    path = signaldoc_path or _SIGNALDOC_PATH
+    rows = {}
+    with open(path, newline="", encoding="utf-8") as f:
+        reader = csv.DictReader(f)
+        for row in reader:
+            rows[row["Acronym"]] = row
+    return rows
 
 
 @dataclass
@@ -70,8 +84,6 @@ def load_cz_reference_profile(
     `Acronym`. Returns None if the acronym isn't found or the file isn't
     available (e.g. `data/osap/SignalDoc.csv` not downloaded --
     `scripts/download_osap.py`)."""
-    from src.evaluation.helpers import load_signaldoc
-
     path = Path(signaldoc_path) if signaldoc_path else None
     try:
         rows = load_signaldoc(path) if path else load_signaldoc()

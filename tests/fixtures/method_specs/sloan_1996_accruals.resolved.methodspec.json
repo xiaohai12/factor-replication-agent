@@ -1,10 +1,8 @@
 {
-  "schema_version": "methodspec.v1",
-  "returns_universe": "us_equity_crsp",
+  "returns_source": "us_equity_crsp",
   "factor_id": "sloan_1996_accruals",
   "factor_name": "Accruals",
   "paper_ref": "Sloan, Richard G., 1996, Do Stock Prices Fully Reflect Information in Accruals and Cash Flows about Future Earnings?, The Accounting Review 71(3), 289-315.",
-  "version": 1,
   "economic_intuition": "Firms with high accruals (earnings driven by accounting adjustments rather than cash) have lower future returns.",
   "detailed_definition": "Accruals scaled by average total assets. Accruals = change in non-cash current assets minus change in non-debt current liabilities minus depreciation.",
   "cat_form": "continuous",
@@ -29,7 +27,10 @@
       },
       {
         "name": "CRSP",
-        "source_details": ["monthly stock return files", "market equity"],
+        "source_details": [
+          "monthly stock return files",
+          "market equity"
+        ],
         "evidence": []
       }
     ],
@@ -38,61 +39,71 @@
         "field": "current_assets",
         "concept": "Total current assets used in accruals numerator.",
         "source_detail": "current assets (act)",
-        "evidence": []
+        "evidence": [],
+        "is_signal_input": true
       },
       {
         "field": "current_liabilities",
         "concept": "Total current liabilities used in accruals numerator.",
         "source_detail": "current liabilities (lct)",
-        "evidence": []
+        "evidence": [],
+        "is_signal_input": true
       },
       {
         "field": "cash",
         "concept": "Cash and short-term investments subtracted from current assets.",
         "source_detail": "cash and short-term investments (che)",
-        "evidence": []
+        "evidence": [],
+        "is_signal_input": true
       },
       {
         "field": "short_term_debt",
         "concept": "Debt in current liabilities subtracted from current liabilities.",
         "source_detail": "debt in current liabilities (dlc)",
-        "evidence": []
+        "evidence": [],
+        "is_signal_input": true
       },
       {
         "field": "depreciation",
         "concept": "Depreciation and amortization subtracted from accruals.",
         "source_detail": "depreciation and amortization (dp)",
-        "evidence": []
+        "evidence": [],
+        "is_signal_input": true
       },
       {
         "field": "total_assets",
         "concept": "Total assets used in denominator (average of t and t-1).",
         "source_detail": "total assets (at)",
-        "evidence": []
+        "evidence": [],
+        "is_signal_input": true
       },
       {
         "field": "monthly_return",
         "concept": "Monthly CRSP return for post-formation portfolio returns.",
         "source_detail": "monthly stock return files",
-        "evidence": []
+        "evidence": [],
+        "is_signal_input": false
       },
       {
         "field": "market_equity",
         "concept": "Market equity for value-weighting.",
         "source_detail": "market capitalization",
-        "evidence": []
+        "evidence": [],
+        "is_signal_input": false
       },
       {
         "field": "listing_exchange",
         "concept": "Exchange code for universe construction.",
         "source_detail": "exchange code",
-        "evidence": []
+        "evidence": [],
+        "is_signal_input": false
       },
       {
         "field": "sic_code",
         "concept": "SIC code to exclude financial firms.",
         "source_detail": "four-digit SIC",
-        "evidence": []
+        "evidence": [],
+        "is_signal_input": false
       }
     ],
     "normalized_mapping": {
@@ -116,12 +127,18 @@
         {
           "location": "Section II, equation",
           "quote": "accruals = (change in current assets excluding cash) minus (change in current liabilities excluding short-term debt and taxes payable) minus depreciation",
-          "interpretation": "Balance-sheet accruals formula scaled by average total assets.",
-          "source_type": "paper"
+          "interpretation": "Balance-sheet accruals formula scaled by average total assets."
         }
       ]
     },
-    "required_fields": ["current_assets", "current_liabilities", "cash", "short_term_debt", "depreciation", "total_assets"],
+    "required_fields": [
+      "current_assets",
+      "current_liabilities",
+      "cash",
+      "short_term_debt",
+      "depreciation",
+      "total_assets"
+    ],
     "field_sources": {},
     "timing": {
       "formation_month": 6,
@@ -134,30 +151,30 @@
         {
           "location": "Section II",
           "quote": "portfolios are formed annually in July",
-          "interpretation": "Annual rebalance in July using fiscal-year data with 6-month lag.",
-          "source_type": "paper"
+          "interpretation": "Annual rebalance in July using fiscal-year data with 6-month lag."
         }
       ]
     },
     "missing_policy": {
       "action": "winsorize",
       "threshold": 0.01,
-      "winsorize_bounds": [0.01, 0.99],
+      "winsorize_bounds": [
+        0.01,
+        0.99
+      ],
       "evidence": [
         {
           "location": "Section II",
           "quote": "variables are winsorized at the 1st and 99th percentiles to mitigate the influence of extreme observations",
-          "interpretation": "Cross-sectional winsorization at 1%/99% each year before sorting.",
-          "source_type": "paper"
+          "interpretation": "Cross-sectional winsorization at 1%/99% each year before sorting."
         }
       ]
     },
     "sign": -1
   },
   "portfolio": {
-    "universe": "NYSE, Amex, and NASDAQ nonfinancial firms with positive total assets in both years.",
     "sort": {
-      "breakpoint_source": "full_sample",
+      "breakpoint_basis": "full_sample",
       "ls_quantile": 10.0,
       "quantiles": [],
       "evidence": []
@@ -180,10 +197,13 @@
     "evidence": []
   },
   "reported_results": {
-    "return_horizon": "12-month post-formation",
     "return_type": "raw",
     "comparison_policy": {},
-    "return_calculation": {"input_return": {}, "portfolio_return": {}, "evidence": []},
+    "return_calculation": {
+      "input_return": {},
+      "portfolio_return": {},
+      "evidence": []
+    },
     "spreads": {
       "vw_monthly_low_minus_high_accruals": {
         "value": 0.0055,
@@ -201,19 +221,10 @@
     "main_t_stat": 2.71,
     "evidence": []
   },
-  "extraction_sources": [
-    {
-      "type": "paper",
-      "ref": "Do Stock Prices Fully Reflect Information in Accruals and Cash Flows",
-      "sections": ["Section II", "Table 1"]
-    }
-  ],
   "ambiguous_fields": [],
   "review_status": "approved",
   "remediation_mode": null,
   "codegen_ready": true,
-  "paper_faithful": true,
-  "review_notes": [],
   "resolution_log": [
     {
       "field_path": "signal.missing_policy.action",

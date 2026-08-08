@@ -123,6 +123,19 @@ class SourceSpec:
     #: the loader, not here.
     raw_filters: dict[str, Any] = field(default_factory=dict)
 
+    #: One-line human description of the SOURCE itself (e.g. "CRSP Monthly
+    #: Stock File"). Purely descriptive -- surfaced in `catalog.DATA_CATALOG`
+    #: for the field-help UI and fed to an LLM concept-matching prompt (see
+    #: `DataDictionary.normalize_fields`); never used by any loading/join
+    #: logic, so leaving it blank never changes runtime behavior.
+    description: str = ""
+    #: {physical_column: one-line WRDS definition}, e.g. {"at": "Total Assets
+    #: (Compustat annual item AT) -- total balance sheet assets"}. Same
+    #: purely-descriptive status as `description` above -- disambiguates
+    #: near-synonym columns (e.g. comp_funda's "sale" vs "revt") that a bare
+    #: column name or single concept alias can't distinguish on its own.
+    column_descriptions: dict[str, str] = field(default_factory=dict)
+
     # NOTE: `snapshot_table` and `frequency` are intentionally omitted until a
     # consumer needs them (`frequency` would feed a future reviewer
     # frequency-mismatch check).
@@ -210,7 +223,7 @@ class ReturnsUniverse(DataSource):
     the catalog's RETURNS_UNIVERSES view is derived from.
     """
 
-    #: MethodSpec.returns_universe values that select this universe.
+    #: MethodSpec.returns_source values that select this universe.
     universe_aliases: tuple[str, ...] = ()
     #: Engine-config tags the catalog's RETURNS_UNIVERSES view is derived from.
     returns_layout: Optional[str] = None
@@ -273,7 +286,7 @@ def clear_registry() -> None:
 
 # ---------------------------------------------------------------------------
 # Returns-universe sub-registry: a ReturnsUniverse is addressed BOTH by its
-# `universe_aliases` (the MethodSpec.returns_universe values / the catalog
+# `universe_aliases` (the MethodSpec.returns_source values / the catalog
 # RETURNS_UNIVERSES keys, e.g. "us_equity_crsp") AND, for the engine's config
 # path, by its `returns_layout` tag (e.g. "crsp_ciz"). `catalog.RETURNS_UNIVERSES`
 # is DERIVED from these.
@@ -293,7 +306,7 @@ def register_returns_universe(universe: "ReturnsUniverse") -> "ReturnsUniverse":
 
 
 def get_returns_universe(alias: str) -> "ReturnsUniverse":
-    """Return the returns universe for a MethodSpec `returns_universe` alias
+    """Return the returns universe for a MethodSpec `returns_source` alias
     (e.g. "us_equity_crsp"), or fail loud (never guess a default panel)."""
     try:
         return _RETURNS_UNIVERSES[alias]
@@ -485,7 +498,7 @@ class CrspReturnsUniverse(ReturnsUniverse):
     """CRSP monthly returns backbone from the real WRDS "new CIZ" export.
 
     `load(data_dir)` -> [permno, yyyymm, ret, me, exchcd, shrcd, siccd, dlret].
-    Addressed by alias "us_equity_crsp" (MethodSpec.returns_universe) and by
+    Addressed by alias "us_equity_crsp" (MethodSpec.returns_source) and by
     the engine-config layout tag "crsp_ciz".
     """
 
@@ -757,37 +770,6 @@ def _load_source_frame(
     )
 
 
-def signal_input_sources(spec: Any) -> dict[str, list[str]]:
-    """Group the SIGNAL-FORMULA fields by physical source: {source: [columns]}.
-
-    Only `spec.signal.required_fields` (falling back to `spec.data.required_fields`)
-    are included — universe/weighting CRSP fields stay engine-side. Shared by
-    `assemble_signal_master_table` and codegen (which bakes this map into the
-    generated standalone script so it needs no MethodSpec at run time).
-
-    Columns are deduplicated (order-preserving) per source: it's common for
-    several paper CONCEPTS to map to the SAME physical column at different
-    time lags (e.g. asset growth's `total_assets_t_minus_1`/
-    `total_assets_t_minus_2` both come from Compustat `at`, one year apart --
-    the plugin derives both via `.shift()` after loading, not via two
-    separate physical columns). Without dedup, the loader was asked to
-    `df[["at", "at"]]` a duplicate column, which pandas allows but then makes
-    `df.groupby("permno")["at"]` return a 2-column DataFrame instead of a
-    Series, crashing any `df["x"] = ...` assignment downstream in the
-    generated plugin with "Cannot set a DataFrame with multiple columns to a
-    single column". See docs/decision-log.md 2026-08-03 entry."""
-    formula_concepts = set(spec.signal.required_fields) or {f.field for f in spec.data.required_fields}
-    out: dict[str, list[str]] = {}
-    for source, pairs in spec.resolved_sources().items():
-        cols: list[str] = []
-        for concept, col in pairs:
-            if concept in formula_concepts and col not in cols:
-                cols.append(col)
-        if cols:
-            out[source] = cols
-    return out
-
-
 def assemble_signal_master_table_from_sources(
     data_dir: str | Path,
     by_source: dict[str, list[str]],
@@ -813,17 +795,22 @@ def assemble_signal_master_table_from_sources(
 
 def assemble_signal_master_table(spec: Any, data_dir: str | Path) -> pd.DataFrame:
     """Assemble the signal-formula input table keyed [permno, time_avail_m]
-    from however many sources the spec's fields span. Only the SIGNAL-FORMULA
-    fields are pulled; each is resolved to its (source, physical column) via
-    `spec.resolved_sources()`.
+    from however many sources the spec's fields span.
 
-    v1 limitation: cross-source alignment is an exact [permno, time_avail_m]
-    outer merge, not an as-of join — fine for single-source and same-frequency
+    Fields are sourced via `ImplementationResolution.concept_mapping` (see
+    `script_generator.signal_input_sources_from_resolved`) and the
+    accounting lag via the already-resolved config (`registry.build_config`).
+
+    Cross-source alignment is an exact [permno, time_avail_m] outer merge,
+    not an as-of join -- fine for single-source and same-frequency
     multi-source signals; mixing annual+monthly in one formula needs an as-of
     join (future)."""
-    return assemble_signal_master_table_from_sources(
-        data_dir, signal_input_sources(spec), spec.accounting_lag_months or 6
-    )
+    from src.steps.step3_codegen.registry import build_config
+    from src.steps.step3_codegen.script_generator import signal_input_sources_from_resolved
+
+    by_source = signal_input_sources_from_resolved(spec)
+    lag_months = build_config(spec, None).get("accounting_lag_months") or 6
+    return assemble_signal_master_table_from_sources(data_dir, by_source, lag_months)
 
 
 class CrspSignalSource(DataSource):
@@ -874,6 +861,23 @@ register(CrspSignalSource(SourceSpec(
     },
     source_key="permno", observation_date=None, lag=0,
     crsp_link=CrspLinkSpec(native_key="permno", link_table=None),
+    description=(
+        "CRSP Monthly Stock File (MSF) -- the monthly return/price/shares "
+        "backbone for the US common-stock universe. Also the returns panel "
+        "portfolio construction runs on (see catalog.RETURNS_UNIVERSES)."
+    ),
+    column_descriptions={
+        "permno": "CRSP permanent security identifier (the one identity every other source links to).",
+        "yyyymm": "Observation year-month (int, e.g. 199201) of this row's data.",
+        "date": "Calendar trading date of the observation (daily file only; monthly rows use yyyymm).",
+        "ret": "Holding-period monthly total return (incl. dividends/distributions), decimal (0.05 = 5%).",
+        "me": "Market equity = |prc| * shrout (shares in thousands), i.e. market capitalization.",
+        "prc": "Month-end closing price; negative value means CRSP used the bid-ask midpoint (no trade).",
+        "shrout": "Shares outstanding, in thousands.",
+        "shrcd": "CRSP share code (10/11 = ordinary common shares; used to filter the eligible universe).",
+        "exchcd": "CRSP listing exchange code (1=NYSE, 2=AMEX, 3=NASDAQ).",
+        "siccd": "4-digit Standard Industrial Classification code (used for industry exclusions, e.g. financials/utilities).",
+    },
 )))
 
 register(SignalSource(SourceSpec(
@@ -915,6 +919,41 @@ register(SignalSource(SourceSpec(
     source_key="gvkey", observation_date="datadate", lag="accounting_lag_months",
     crsp_link=CrspLinkSpec(native_key="gvkey", link_table="ccm"),
     raw_filters={"indfmt": "INDL"},
+    description=(
+        "Compustat Fundamentals Annual (industrial format, INDL) -- yearly "
+        "firm-level balance sheet / income statement items, keyed on gvkey, "
+        "linked to permno via the CCM link table (see LINK_TABLES['ccm'])."
+    ),
+    column_descriptions={
+        "gvkey": "Compustat/CCM firm identifier (native key; linked to permno via 'ccm').",
+        "datadate": "Fiscal year-end date of this annual record (accounting_lag_months is applied on top before the data becomes 'available').",
+        "at": "Total Assets (Compustat annual item AT) -- total balance sheet assets.",
+        "ceq": "Total Common/Ordinary Equity (item CEQ) -- book value of common equity.",
+        "sale": "Net Sales / Turnover (item SALE) -- top-line revenue net of returns/discounts.",
+        "revt": "Total Revenue (item REVT) -- broader revenue measure than SALE, includes non-operating revenue.",
+        "ib": "Income Before Extraordinary Items (item IB) -- net income before extraordinary items/discontinued ops.",
+        "dltt": "Long-Term Debt Total (item DLTT) -- debt due beyond one year.",
+        "dlc": "Debt in Current Liabilities (item DLC) -- short-term/current portion of debt.",
+        "act": "Current Assets Total (item ACT).",
+        "lct": "Current Liabilities Total (item LCT).",
+        "che": "Cash and Short-Term Investments (item CHE).",
+        "dp": "Depreciation and Amortization (item DP), income-statement flow measure.",
+        "capx": "Capital Expenditures (item CAPX).",
+        "cogs": "Cost of Goods Sold (item COGS).",
+        "xint": "Interest and Related Expense Total (item XINT).",
+        "txditc": "Deferred Taxes and Investment Tax Credit (item TXDITC).",
+        "pstkl": "Preferred Stock Liquidating Value (item PSTKL).",
+        "pstk": "Preferred/Preference Stock, Total Par Value (item PSTK).",
+        "xsga": "Selling, General and Administrative Expense (item XSGA).",
+        "xrd": "Research and Development Expense (item XRD).",
+        "rect": "Receivables Total (item RECT).",
+        "invt": "Inventories Total (item INVT).",
+        "xpp": "Prepaid Expenses (item XPP).",
+        "drc": "Deferred Revenue, Current (item DRC).",
+        "drlt": "Deferred Revenue, Long-Term (item DRLT).",
+        "ap": "Accounts Payable Trade (item AP).",
+        "xacc": "Accrued Expenses (item XACC).",
+    },
 )))
 
 register(SignalSource(SourceSpec(
@@ -929,6 +968,19 @@ register(SignalSource(SourceSpec(
     source_key="gvkey", observation_date="datadate", lag="accounting_lag_months",
     crsp_link=CrspLinkSpec(native_key="gvkey", link_table="ccm"),
     raw_filters={"indfmt": "INDL"},
+    description=(
+        "Compustat Fundamentals Quarterly (industrial format, INDL) -- "
+        "quarterly firm-level balance sheet / income statement items, same "
+        "gvkey/CCM linkage as comp_funda but on a quarterly reporting cadence."
+    ),
+    column_descriptions={
+        "gvkey": "Compustat/CCM firm identifier (native key; linked to permno via 'ccm').",
+        "datadate": "Fiscal quarter-end date of this record.",
+        "atq": "Total Assets, quarterly (item ATQ).",
+        "ceqq": "Total Common/Ordinary Equity, quarterly (item CEQQ).",
+        "saleq": "Net Sales/Turnover, quarterly (item SALEQ).",
+        "ibq": "Income Before Extraordinary Items, quarterly (item IBQ).",
+    },
 )))
 
 register(SignalSource(SourceSpec(
@@ -943,6 +995,20 @@ register(SignalSource(SourceSpec(
     source_key="ticker", observation_date="statpers", lag=0,
     crsp_link=CrspLinkSpec(native_key="ticker", link_table="ibes_crsp_link"),
     raw_filters={"measure": "EPS", "fiscalp": "ANN", "fpi": "1"},
+    description=(
+        "IBES Unadjusted Summary Statistics (annual EPS forecast consensus, "
+        "1-year-ahead) -- analyst estimate dispersion/consensus fields, keyed "
+        "on IBES ticker, linked to permno via 'ibes_crsp_link'. Pre-filtered "
+        "to measure=EPS, fiscalp=ANN, fpi=1 (annual, 1-year-ahead) at load time."
+    ),
+    column_descriptions={
+        "ticker": "IBES ticker (native key; linked to permno via 'ibes_crsp_link').",
+        "statpers": "Statistical period (summary file's as-of date for this consensus snapshot).",
+        "meanest": "Mean analyst EPS estimate across contributing analysts.",
+        "medest": "Median analyst EPS estimate across contributing analysts.",
+        "numest": "Number of analysts contributing to this consensus estimate.",
+        "stdev": "Standard deviation of analyst EPS estimates (forecast dispersion).",
+    },
 )))
 
 
@@ -973,8 +1039,8 @@ def signal_sources_view() -> dict[str, dict[str, Any]]:
 
 
 def data_catalog_view() -> dict[str, dict[str, Any]]:
-    """{name: {join, physical_columns, columns}} for each signal source
-    (the `DATA_CATALOG` dict shape)."""
+    """{name: {join, physical_columns, columns, description, column_descriptions}}
+    for each signal source (the `DATA_CATALOG` dict shape)."""
     out: dict[str, dict[str, Any]] = {}
     for s in _signal_sources():
         sp = s.spec
@@ -987,6 +1053,8 @@ def data_catalog_view() -> dict[str, dict[str, Any]]:
             },
             "physical_columns": set(sp.physical_columns),
             "columns": dict(sp.concept_columns),
+            "description": sp.description,
+            "column_descriptions": dict(sp.column_descriptions),
         }
     return out
 

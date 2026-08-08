@@ -7,15 +7,15 @@ pattern from tests/test_dual_track_controller.py.
 
 from __future__ import annotations
 
-from src.infra.models.method_spec import MethodSpec, SignalSpec
 from src.infra.models.plugin import PluginRecord, ValidationReport
 from src.infra.models.run_record import RunMetrics, RunRecord
 from src.steps.step6_dual_track_controller import DualTrackController
 from src.steps.step6_dual_track_controller.experiment_spec import load_experiment_matrix
+from tests._spec_test_helpers import minimal_resolved_spec, spec_factor_id
 
 
-def _spec() -> MethodSpec:
-    return MethodSpec(factor_id="t", factor_name="Test", signal=SignalSpec())
+def _spec():
+    return minimal_resolved_spec("t")
 
 
 def _plugin() -> PluginRecord:
@@ -38,8 +38,8 @@ class FakeRunner:
     def make_run_record(self, spec, plugin, track, result) -> RunRecord:
         metrics = result["metrics"]
         return RunRecord(
-            run_id=f"{spec.factor_id}_{track}",
-            factor_id=spec.factor_id,
+            run_id=f"{spec_factor_id(spec)}_{track}",
+            factor_id=spec_factor_id(spec),
             plugin_id=plugin.plugin_id,
             track=track,
             code_hash=plugin.code_hash,
@@ -49,7 +49,7 @@ class FakeRunner:
 
     def make_failed_run_record(self, spec, plugin, track, config_overrides, log) -> RunRecord:
         return RunRecord(
-            run_id=f"{spec.factor_id}_{track}_failed", factor_id=spec.factor_id,
+            run_id=f"{spec_factor_id(spec)}_{track}_failed", factor_id=spec_factor_id(spec),
             plugin_id=plugin.plugin_id, track=track, metrics=RunMetrics(), status="failed", logs=[log],
         )
 
@@ -83,8 +83,8 @@ factor_id: t
 experiments:
   - name: ablation_weighting_ew
     config_overrides: {weighting_rule: ew}
-  - name: ablation_breakpoint_nyse
-    config_overrides: {breakpoint_source: nyse}
+  - name: ablation_breakpoint_full_sample
+    config_overrides: {breakpoint_source: full_sample}
 """,
         )
         matrix = load_experiment_matrix(path, _spec())
@@ -94,7 +94,7 @@ experiments:
         runs = controller.run_from_matrix(_plugin(), _spec(), matrix, snapshot_id="snap1")
 
         tracks = [r.track for r in runs]
-        assert tracks == ["original_method", "ablation_weighting_ew", "ablation_breakpoint_nyse"]
+        assert tracks == ["original_method", "ablation_weighting_ew", "ablation_breakpoint_full_sample"]
         assert all(r.status == "success" for r in runs)
         assert all(r.experiment_batch_id for r in runs)
         assert all(r.experiment_batch_id == runs[0].experiment_batch_id for r in runs)

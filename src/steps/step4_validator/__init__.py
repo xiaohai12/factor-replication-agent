@@ -9,7 +9,7 @@ import sys
 import tempfile
 from pathlib import Path
 
-from src.infra.models.method_spec import MethodSpec
+from src.infra.models.paper_method_spec import ResolvedMethodSpec
 from src.infra.models.plugin import PluginRecord, ValidationReport
 
 
@@ -54,7 +54,7 @@ class AdversarialSandbox:
     def validate(
         self,
         plugin: PluginRecord,
-        spec: MethodSpec,
+        spec: ResolvedMethodSpec,
         script_text: str | None = None,
         data=None,
     ) -> ValidationReport:
@@ -62,7 +62,12 @@ class AdversarialSandbox:
 
         Args:
             plugin:      the generated plugin (the compute_signal function).
-            spec:        the resolved MethodSpec the plugin was generated from.
+            spec:        the resolved MethodSpec the plugin was generated from
+                         (accepted for API/provenance parity with `MetaCoder.
+                         generate_plugin`/`script_generator.
+                         generate_backtest_script` -- every check below reads
+                         only `plugin`/`script_text`/`data`, so `spec` itself
+                         is never inspected here).
             script_text: the ONE complete standalone backtest script built from
                          this exact plugin (see `Pipeline._build_script`) --
                          the same text Step5 will execute. When None, the

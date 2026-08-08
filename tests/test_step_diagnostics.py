@@ -1,94 +1,39 @@
-"""Tests for src/evaluation/diagnostics.py -- deterministic per-step
-diagnostics (readiness/counters/flags), NOT a unified quality score. Feeds
-real fixture/domain objects (not fakes) into each builder, and asserts no
-LLM client is ever constructed by this module (it's pure post-hoc analysis
-over objects the caller already computed).
+"""Tests for `src/evaluation/diagnostics.py` -- deterministic per-step
+diagnostics (readiness/counters/flags), NOT a unified quality score. Step1/
+step2 diagnostics have no coverage here: those concepts (paper-extraction
+ambiguity, rules-based review) only existed on the retired v1 flat
+`MethodSpec`/`ReviewGate`; the paper-first schema's equivalent (`MethodReview.
+findings`) is structurally different, not a mechanical port.
 """
 
 from __future__ import annotations
 
-import json
 from pathlib import Path
 
 from src.evaluation import diagnostics as diag
-from src.infra.models.method_spec import MethodSpec
 from src.infra.models.plugin import PluginRecord, ValidationReport
 from src.infra.models.run_record import RunMetrics, RunRecord
-from src.steps.step2_reviewer import Disposition, FieldReviewNote, ReviewGate, ReviewResult
 from src.steps.step3_codegen.registry import build_config
 from src.steps.step4_validator import AdversarialSandbox
+from tests._spec_test_helpers import asset_growth_resolved_spec
 from tests.test_replication_diagnosis import FakeLLM, _bundle
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
-RESOLVED_SPEC_PATH = (
-    REPO_ROOT
-    / "tests"
-    / "fixtures"
-    / "method_specs"
-    / "cooper_gulen_schill_2008_asset_growth.resolved.methodspec.json"
-)
 PLUGIN_PATH = REPO_ROOT / "tests" / "fixtures" / "plugins" / "cooper_gulen_schill_2008_asset_growth.py"
 
 
-def _load_spec() -> MethodSpec:
-    return MethodSpec.model_validate(json.loads(RESOLVED_SPEC_PATH.read_text()))
-
-
-def _load_plugin(spec: MethodSpec) -> PluginRecord:
+def _load_plugin(spec) -> PluginRecord:
     return PluginRecord(
-        plugin_id=f"{spec.factor_id}_v1",
-        factor_id=spec.factor_id,
+        plugin_id=f"{spec.paper.factor_id}_resolved",
+        factor_id=spec.paper.factor_id,
         code=PLUGIN_PATH.read_text(),
         code_hash="synthetic",
     )
 
 
-class TestStep1Diagnostics:
-    def test_real_fixture_spec_produces_counters_no_llm(self):
-        spec = _load_spec()
-        result = diag.step1_diagnostics(spec)
-        assert result["readiness"] == "ready"
-        assert result["counters"]["ambiguous_field_count"] == len(spec.ambiguous_fields)
-        assert result["counters"]["reextraction_attempts"] == spec.reextraction_attempts
-
-
-class TestStep2Diagnostics:
-    def test_rules_based_review_of_real_fixture(self):
-        spec = _load_spec()
-        gate = ReviewGate(data_dictionary=None, llm_client=None)
-        review = gate.review(spec)
-        result = diag.step2_diagnostics(review)
-        assert result["readiness"] in ("ready", "not_ready", "blocked")
-        assert result["counters"]["blocked_field_count"] == len(review.blocked_fields)
-
-    def test_blocked_disposition_forces_blocked_readiness(self):
-        review = ReviewResult(
-            disposition="blocked",
-            requires_human=True,
-            blocked_fields=["portfolio.sort.ls_quantile"],
-            field_notes=[
-                FieldReviewNote(field="a", status=Disposition.NEEDS_HUMAN_CONFIRMATION),
-                FieldReviewNote(field="b", status=Disposition.AUTO_APPROVE),
-            ],
-        )
-        result = diag.step2_diagnostics(review)
-        assert result["readiness"] == "blocked"
-        assert result["counters"]["disposition_histogram"] == {
-            "needs_human_confirmation": 1,
-            "auto_approve": 1,
-        }
-        assert any("blocked" in f for f in result["flags"])
-
-    def test_approved_disposition_is_ready(self):
-        review = ReviewResult(disposition="approved", codegen_ready=True, paper_faithful=True)
-        result = diag.step2_diagnostics(review)
-        assert result["readiness"] == "ready"
-        assert result["flags"] == []
-
-
 class TestStep3Diagnostics:
     def test_real_fixture_plugin_and_config(self):
-        spec = _load_spec()
+        spec = asset_growth_resolved_spec()
         plugin = _load_plugin(spec)
         config = build_config(spec, None)
         result = diag.step3_diagnostics(plugin, config)
@@ -96,7 +41,7 @@ class TestStep3Diagnostics:
         assert isinstance(result["counters"]["substitution_count"], int)
 
     def test_repair_attempts_surface_as_a_flag(self):
-        spec = _load_spec()
+        spec = asset_growth_resolved_spec()
         plugin = _load_plugin(spec)
         plugin.repair_trace = ["attempt 1: fixed a syntax error"]
         config = build_config(spec, None)
@@ -107,7 +52,7 @@ class TestStep3Diagnostics:
 
 class TestStep4Diagnostics:
     def test_real_fixture_validation_without_execution_check(self):
-        spec = _load_spec()
+        spec = asset_growth_resolved_spec()
         plugin = _load_plugin(spec)
         report = AdversarialSandbox().validate(plugin, spec, script_text=None)
         result = diag.step4_diagnostics(report, execution_check_supplied=False)

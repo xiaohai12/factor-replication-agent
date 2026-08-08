@@ -15,14 +15,14 @@ default auto-reconverging behavior.
 
 from __future__ import annotations
 
-from src.infra.models.method_spec import MethodSpec, SignalSpec
 from src.infra.models.plugin import PluginRecord, ValidationReport
 from src.infra.models.run_record import RunMetrics, RunRecord
 from src.steps.step6_dual_track_controller import DualTrackController, ExperimentPlan
+from tests._spec_test_helpers import minimal_resolved_spec, spec_factor_id
 
 
-def _spec() -> MethodSpec:
-    return MethodSpec(factor_id="t", factor_name="Test", signal=SignalSpec())
+def _spec():
+    return minimal_resolved_spec("t")
 
 
 def _plugin() -> PluginRecord:
@@ -62,8 +62,8 @@ class FakeRunnerWithCodeHash:
     def make_run_record(self, spec, plugin, track, result) -> RunRecord:
         metrics = result["metrics"]
         return RunRecord(
-            run_id=f"{spec.factor_id}_{track}_{plugin.code_hash}",
-            factor_id=spec.factor_id,
+            run_id=f"{spec_factor_id(spec)}_{track}_{plugin.code_hash}",
+            factor_id=spec_factor_id(spec),
             plugin_id=plugin.plugin_id,
             track=track,
             code_hash=plugin.code_hash,
@@ -73,8 +73,8 @@ class FakeRunnerWithCodeHash:
 
     def make_failed_run_record(self, spec, plugin, track, config_overrides, log) -> RunRecord:
         return RunRecord(
-            run_id=f"{spec.factor_id}_{track}_failed",
-            factor_id=spec.factor_id,
+            run_id=f"{spec_factor_id(spec)}_{track}_failed",
+            factor_id=spec_factor_id(spec),
             plugin_id=plugin.plugin_id,
             track=track,
             code_hash=plugin.code_hash,

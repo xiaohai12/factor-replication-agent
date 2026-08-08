@@ -29,7 +29,7 @@ from __future__ import annotations
 from typing import Any
 
 from src.steps.step3_codegen import registry as codegen_registry
-from src.infra.models.method_spec import MethodSpec
+from src.infra.models.paper_method_spec import FieldRole, ResolvedMethodSpec
 
 
 # Sources the legacy binary crsp_only/compustat generated-script path handles.
@@ -38,40 +38,48 @@ from src.infra.models.method_spec import MethodSpec
 _BINARY_SIGNAL_SOURCES = {"crsp_msf", "comp_funda"}
 
 
-def pick_signal_input_mode(spec: MethodSpec) -> str:
-    """Choose the generated script's signal-input mode from the spec's SOURCE
-    SET, fully driven by the reviewed MethodSpec's
-    `data.normalized_mapping` — never a hardcoded data-source default:
+def signal_input_sources_from_resolved(resolved: ResolvedMethodSpec) -> dict[str, list[str]]:
+    """`signal_input_sources`'s `ResolvedMethodSpec` counterpart (Phase D):
+    groups `paper.data.fields`'s SIGNAL_INPUT concepts by physical source via
+    `resolution.concept_mapping`, instead of v1's `resolved_sources()`/
+    `data.normalized_mapping`. Same order-preserving per-source dedup (a
+    concept at two different lags can share one physical column).
+    """
+    out: dict[str, list[str]] = {}
+    for f in resolved.paper.data.fields:
+        if FieldRole.SIGNAL_INPUT not in f.roles:
+            continue
+        mapping = resolved.resolution.concept_mapping.get(f.concept_id)
+        if mapping is None:
+            continue
+        cols = out.setdefault(mapping.source, [])
+        if mapping.column not in cols:
+            cols.append(mapping.column)
+    return out
 
-      - raises when the source is UNKNOWN: an empty mapping (no source at all)
-        or a column no registered catalog source declares (source==""). The
-        signal source must come from the reviewed spec; the pipeline never
-        silently defaults to Compustat/CRSP. (The reviewer hard-blocks these
-        before codegen — this is the belt-and-suspenders net.)
+
+def pick_signal_input_mode(spec: ResolvedMethodSpec) -> str:
+    """Choose the generated script's signal-input mode from the spec's
+    resolved source set (`ImplementationResolution.concept_mapping`), never
+    a hardcoded data-source default:
+
+      - raises when the source is UNKNOWN: no signal_input concept resolves
+        to a physical column. The signal source must come from the
+        resolution artifact; the pipeline never silently defaults to
+        Compustat/CRSP. (Review hard-blocks these before codegen -- this is
+        the belt-and-suspenders net.)
       - "multi_source": the formula fields span a source beyond CRSP +
         Compustat (e.g. IBES/OptionMetrics) -> declarative multi-source loader.
       - "crsp_only": every field comes from CRSP monthly.
-      - "compustat": Compustat is involved (optionally alongside CRSP) — the
-        legacy binary case, kept so golden numbers don't move.
+      - "compustat": Compustat is involved (optionally alongside CRSP) --
+        the legacy binary case, kept so golden numbers don't move.
     """
-    from src.infra.data_layer import signal_input_sources
-
-    sources = set(signal_input_sources(spec))
+    sources = set(signal_input_sources_from_resolved(spec))
     if not sources:
         raise ValueError(
-            f"Cannot determine the signal input source for factor {spec.factor_id!r}: "
-            "data.normalized_mapping is empty / resolves to no registered source. "
-            "The signal source must come from the reviewed MethodSpec — map each "
-            "formula field to an explicit {source, column} (or a catalog-registered "
-            "column). The pipeline never defaults to a data source."
-        )
-    if "" in sources:
-        unresolved = sorted({col for _c, col in spec.unresolved_source_fields()})
-        raise ValueError(
-            f"Signal input for factor {spec.factor_id!r} has columns with no "
-            f"registered data source: {unresolved}. Register them in the data "
-            "catalog (src/infra/data_layer/catalog.py) or map them to an explicit "
-            "{source, column}; the pipeline never guesses a source."
+            f"Cannot determine the signal input source for factor {spec.paper.factor_id!r}: "
+            "no ImplementationResolution.concept_mapping entry resolves a signal_input "
+            "concept. The signal source must come from the resolution artifact."
         )
     if sources - _BINARY_SIGNAL_SOURCES:
         return "multi_source"
@@ -82,7 +90,7 @@ def pick_signal_input_mode(spec: MethodSpec) -> str:
 
 
 def generate_backtest_script(
-    spec: MethodSpec,
+    spec: ResolvedMethodSpec,
     plugin_code: str,
     data_path: str = "data/local/msf.parquet",
     signal_input_mode: str | None = None,
@@ -93,7 +101,7 @@ def generate_backtest_script(
     resolved_config: dict[str, Any] | None = None,
     precomputed_signal_path: str | None = None,
 ) -> str:
-    """Generate a standalone backtest script from a MethodSpec and plugin code.
+    """Generate a standalone backtest script from a ResolvedMethodSpec and plugin code.
 
     Args:
         spec: Resolved MethodSpec with all empirical decisions finalized.
@@ -142,11 +150,9 @@ def generate_backtest_script(
     Returns:
         Complete Python script as a string.
     """
-    from src.infra.data_layer import signal_input_sources
-
-    # Build config from MethodSpec — the SAME resolved config BacktestExecutor.run()
-    # would build in-process, embedded here so the script doesn't need to
-    # reconstruct/re-parse the full MethodSpec at run time.
+    # Build config from the ResolvedMethodSpec — the SAME resolved config
+    # BacktestExecutor.run() would build in-process, embedded here so the
+    # script doesn't need to reconstruct/re-parse the full spec at run time.
     config = resolved_config if resolved_config is not None else codegen_registry.build_config(spec, config_overrides)
 
     # Format config as a Python dict literal
@@ -158,16 +164,15 @@ def generate_backtest_script(
         raise ValueError("signal_input_mode must be 'compustat', 'crsp_only', or 'multi_source'")
 
     # Baked {source: [columns]} map for the source-driven modes (empty for
-    # crsp_only) so the standalone script needs no MethodSpec at run time.
+    # crsp_only) so the standalone script needs no spec object at run time.
     # "compustat" and "multi_source" share ONE declarative loader
     # (assemble_signal_master_table_from_sources); the mode names remain only as
     # the spec classification (see pick_signal_input_mode) + the returns-loading
     # choice in the generated `main()`.
-    signal_sources_map = (
-        signal_input_sources(spec)
-        if signal_input_mode in ("compustat", "multi_source")
-        else {}
-    )
+    if signal_input_mode not in ("compustat", "multi_source"):
+        signal_sources_map: dict[str, list[str]] = {}
+    else:
+        signal_sources_map = signal_input_sources_from_resolved(spec)
 
     if signal_input_mode in ("compustat", "multi_source"):
         compustat_requirements = (
@@ -177,15 +182,18 @@ def generate_backtest_script(
     else:
         compustat_requirements = ""
 
-    # Determine output filename
-    factor_id = spec.factor_id or "factor"
+    # Determine output filename + template metadata (identity/citation
+    # fields live under `.paper`).
+    factor_id = spec.paper.factor_id or "factor"
+    factor_name = spec.paper.target_name
+    paper_ref = spec.paper.paper.citation or ""
     if output_path is None:
         output_path = f"results/{factor_id}_backtest_results.csv"
 
     script = _TEMPLATE.format(
         factor_id=factor_id,
-        factor_name=spec.factor_name,
-        paper_ref=spec.paper_ref or "",
+        factor_name=factor_name,
+        paper_ref=paper_ref,
         data_path=data_path,
         compustat_requirements=compustat_requirements,
         signal_input_mode=signal_input_mode,
@@ -240,6 +248,7 @@ Requirements:
 """
 
 import json
+import os
 from pathlib import Path
 
 import pandas as pd
@@ -257,7 +266,15 @@ CONFIG = {{
 }}
 
 FACTOR_ID = "{factor_id}"
-DATA_PATH = "{data_path}"
+# DATA_PATH/SIGNAL_DATA_DIR are runtime-overridable via env vars (falling
+# back to the value baked in at generation time) -- this lets the EXACT SAME
+# validated script (identical code, identical sha256) run against a
+# DIFFERENT data source at execution time (e.g. Step4 validates against a
+# small real-data sample, Step5 executes against the full real data/local
+# export) without needing to rebuild/re-validate a byte-different script.
+# Only the data SOURCE changes this way -- the compute_signal code itself,
+# which is what step4's validation actually checks, is untouched.
+DATA_PATH = os.environ.get("BACKTEST_DATA_PATH", "{data_path}")
 # Read from CONFIG (not a separately-baked constant) so a
 # config_overrides={{"accounting_lag_months": ...}} experiment actually takes
 # effect here -- this used to be an independently-templated
@@ -266,7 +283,7 @@ DATA_PATH = "{data_path}"
 # docs/decision-log.md 2026-08-03).
 ACCOUNTING_LAG_MONTHS = CONFIG["accounting_lag_months"]
 SIGNAL_INPUT_MODE = "{signal_input_mode}"  # "compustat" | "crsp_only" | "multi_source"
-SIGNAL_DATA_DIR = "{signal_data_dir}"  # multi_source only: dir of raw WRDS-shaped tables
+SIGNAL_DATA_DIR = os.environ.get("BACKTEST_SIGNAL_DATA_DIR", "{signal_data_dir}")  # multi_source only: dir of raw WRDS-shaped tables
 SIGNAL_INPUT_SOURCES = {signal_sources_map}  # multi_source only: {{source: [columns]}}
 OUTPUT_PATH = "{output_path}"
 FF_FACTORS_PATH = "{ff_factors_path}"  # optional; empty string if not supplied

@@ -43,7 +43,7 @@ from src.steps.step3_codegen import MetaCoder
 from src.steps.step3_codegen.registry import build_config
 from src.steps.step4_validator import AdversarialSandbox
 from src.steps.step7_replication_diff import safe_diff_ablation
-from src.infra.models.method_spec import MethodSpec
+from src.infra.models.paper_method_spec import ResolvedMethodSpec
 from src.infra.models.plugin import PluginRecord
 from src.infra.models.run_record import RunRecord
 from src.infra.repair import RepairLoop
@@ -51,6 +51,10 @@ from src.infra.repair import RepairLoop
 if TYPE_CHECKING:
     from src.steps.step6_dual_track_controller.experiment_spec import ExperimentMatrix
     from src.steps.step8_diagnosis import ReplicationDiagnoser
+
+
+def _spec_factor_id(spec: ResolvedMethodSpec) -> str:
+    return spec.paper.factor_id
 
 
 class _NoRepairMetaCoder:
@@ -185,7 +189,7 @@ class DualTrackController:
     def run_experiment(
         self,
         plugin: PluginRecord,
-        spec: MethodSpec,
+        spec: ResolvedMethodSpec,
         plan: ExperimentPlan,
         snapshot_id: str,
     ) -> list[RunRecord]:
@@ -214,7 +218,7 @@ class DualTrackController:
             plugin, spec, matrix, snapshot_id, run_baseline=plan.run_original
         )
 
-    def _plan_to_matrix(self, plan: ExperimentPlan, spec: MethodSpec) -> "ExperimentMatrix":
+    def _plan_to_matrix(self, plan: ExperimentPlan, spec: ResolvedMethodSpec) -> "ExperimentMatrix":
         """Convert a legacy `ExperimentPlan` into an
         `experiment_spec.ExperimentMatrix` with the exact same
         `family`/`identification_level` derivation the declarative yaml path
@@ -266,7 +270,7 @@ class DualTrackController:
         experiment_spec_hash = hashlib.sha256(plan_repr.encode("utf-8")).hexdigest()
 
         return ExperimentMatrix(
-            factor_id=spec.factor_id,
+            factor_id=_spec_factor_id(spec),
             baseline="original_method",
             experiments=specs,
             experiment_spec_hash=experiment_spec_hash,
@@ -325,7 +329,7 @@ class DualTrackController:
     def run_from_matrix(
         self,
         plugin: PluginRecord,
-        spec: MethodSpec,
+        spec: ResolvedMethodSpec,
         matrix: "ExperimentMatrix",
         snapshot_id: str,
         run_baseline: bool = True,
@@ -374,7 +378,7 @@ class DualTrackController:
                     cz_factor_id = (
                         exp.signal_input_ref.split(":", 1)[1]
                         if ":" in exp.signal_input_ref
-                        else spec.factor_id
+                        else _spec_factor_id(spec)
                     )
                     bridge_run = self._run_bridge_track(
                         plugin, spec, snapshot_id, exp.name, cz_factor_id, exp.config_overrides
@@ -420,7 +424,7 @@ class DualTrackController:
     def _finalize_batch(
         self,
         plugin: PluginRecord,
-        spec: MethodSpec,
+        spec: ResolvedMethodSpec,
         snapshot_id: str,
         runs: list[RunRecord],
         track_overrides: dict[str, dict[str, Any]],
@@ -506,7 +510,7 @@ class DualTrackController:
     def _run_bridge_track(
         self,
         plugin: PluginRecord,
-        spec: MethodSpec,
+        spec: ResolvedMethodSpec,
         snapshot_id: str,
         track_name: str,
         cz_signal_factor_id: str,
@@ -552,7 +556,7 @@ class DualTrackController:
 
         # Persist the bridge signal to a real file the generated script can
         # load directly (see build_script's precomputed_signal_path param).
-        bridge_dir = self.runner.scripts_path / "results" / spec.factor_id
+        bridge_dir = self.runner.scripts_path / "results" / _spec_factor_id(spec)
         bridge_dir.mkdir(parents=True, exist_ok=True)
         bridge_signal_path = bridge_dir / f"{track_name}.cz_bridge_input.parquet"
         cz_signal.to_parquet(bridge_signal_path, index=False)
@@ -579,7 +583,7 @@ class DualTrackController:
     def _run_track(
         self,
         plugin: PluginRecord,
-        spec: MethodSpec,
+        spec: ResolvedMethodSpec,
         snapshot_id: str,
         track_name: str,
         config_overrides: dict[str, Any],
@@ -623,7 +627,7 @@ class DualTrackController:
     def _run_tracks_with_freeze(
         self,
         plugin: PluginRecord,
-        spec: MethodSpec,
+        spec: ResolvedMethodSpec,
         snapshot_id: str,
         track_specs: list[tuple[str, dict[str, Any]]],
         max_refreeze_attempts: int = 1,
@@ -694,7 +698,7 @@ class DualTrackController:
             attempt += 1
             current_plugin = divergent[0][1]
 
-    def _get_ablation_override(self, switch: str, spec: MethodSpec) -> dict[str, Any]:
+    def _get_ablation_override(self, switch: str, spec: ResolvedMethodSpec) -> dict[str, Any]:
         """Get config override for a single ablation switch."""
         # Flip one setting from original to standardized (or vice versa)
         key = _ABLATION_SWITCH_TO_CONFIG_KEY.get(switch)

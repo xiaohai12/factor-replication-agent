@@ -21,15 +21,17 @@ The engine is fully standardized: there is no LLM-generated hook code —
 every portfolio-construction choice is *selected* from a fixed menu of
 built-in implementations by `build_config` (`src/steps/step3_codegen/registry.py`),
 and an out-of-menu value is deterministically clamped to the menu default.
-This engine intentionally covers only the single vanilla path — one
-non-overlapping, single-dimension, continuous quantile sort with a
-portfolio-sort estimator (see docs/decision-log.md for what was removed and
-why: overlapping-cohort holding, multi-dimensional sorts, the
-discrete/categorical sort form, the Fama-MacBeth estimator, microcap
-exclusion).
+This engine intentionally covers only one vanilla path plus one deliberately
+re-added extension — non-overlapping holding, a continuous quantile sort
+(single-dimension, or an independent/sequential double sort when
+`config["sort_dims"]` has 2 entries -- see `form_portfolios`/
+`compute_breakpoints_multi`), with a portfolio-sort estimator (see
+docs/decision-log.md for what else was removed and why: overlapping-cohort
+holding, the discrete/categorical sort form, the Fama-MacBeth estimator,
+microcap exclusion -- none of those are back).
 
 The generation-time decision layer (how a MethodSpec resolves into a run
-config: `build_config`, `resolve_long_leg`/`resolve_short_leg`/`normalize_leg`)
+config: `build_config`, `resolve_long_leg`/`resolve_short_leg`)
 lives in `src/steps/step3_codegen/registry.py`. The engine calls that single
 implementation when its convenience `run()` entry receives a MethodSpec.
 
@@ -50,7 +52,7 @@ from typing import Any
 import numpy as np
 import pandas as pd
 
-from src.infra.models.method_spec import MethodSpec
+from src.infra.models.paper_method_spec import ResolvedMethodSpec
 from src.steps.step3_codegen import registry as codegen_registry
 
 from src.infra.data_layer import DataLayer
@@ -147,7 +149,7 @@ class BacktestExecutor:
     def run(
         self,
         signal: pd.DataFrame,
-        spec: MethodSpec,
+        spec: ResolvedMethodSpec,
         config_overrides: dict[str, Any] | None = None,
         plugin=None,
         data: pd.DataFrame | None = None,
@@ -236,7 +238,7 @@ class BacktestExecutor:
         The returns universe (which stock-return panel to load) is NOT defaulted
         here — it must come from the reviewed spec via
         `config["returns_table"]`/`config["returns_layout"]`, which
-        `build_config` fills in from `MethodSpec.returns_universe` (a
+        `build_config` fills in from `MethodSpec.returns_source` (a
         `catalog.RETURNS_UNIVERSES` entry). If neither is present we fail loud
         rather than silently assuming CRSP.
 
@@ -275,7 +277,7 @@ class BacktestExecutor:
         raise ValueError(
             "No returns universe specified: config has no returns_layout='crsp_ciz'. "
             "The stock-return panel must come from the reviewed "
-            "MethodSpec.returns_universe (a registered catalog.RETURNS_UNIVERSES "
+            "MethodSpec.returns_source (a registered catalog.RETURNS_UNIVERSES "
             "entry, e.g. 'us_equity_crsp') — the pipeline never defaults to a "
             "CRSP returns panel."
         )
@@ -747,10 +749,12 @@ class BacktestExecutor:
     def form_portfolios(self, df: pd.DataFrame | None = None, config: dict | None = None) -> pd.DataFrame:
         """Step 7: form portfolios from the merged signal panel -- computes
         breakpoints and assigns each stock to a group. Single-dimension
-        continuous quantile sort only (the vanilla Fama-French-style decile
-        sort) -- multi-dimensional sorts and the discrete/categorical sort
-        form were removed to keep the engine to one standard path (see
-        docs/decision-log.md).
+        continuous quantile sort (the vanilla Fama-French-style decile
+        sort) by default; dispatches to the double-sort path instead when
+        `config["sort_dims"]` has 2 entries (see `compute_breakpoints_multi`/
+        `assign_portfolios_multi`) -- the discrete/categorical sort form,
+        3+ dimensions, and the Fama-MacBeth estimator remain out of scope
+        (see docs/decision-log.md).
 
         Breakpoints are computed from `self.formation` (the formation
         cross-section built by `apply_signal_holding_period`), NOT from `df`
@@ -766,8 +770,13 @@ class BacktestExecutor:
         df = self.merged if df is None else df
         config = self.config if config is None else config
         formation = self.formation if self.formation is not None else df
-        breakpoints = self.compute_breakpoints(formation, config)
-        portfolios = self.assign_portfolios(df, breakpoints, config)
+
+        if len(config.get("sort_dims") or []) >= 2:
+            breakpoints = self.compute_breakpoints_multi(formation, config)
+            portfolios = self.assign_portfolios_multi(df, breakpoints, config)
+        else:
+            breakpoints = self.compute_breakpoints(formation, config)
+            portfolios = self.assign_portfolios(df, breakpoints, config)
         self.portfolios = portfolios
         self.trace.append("form_portfolios")
         return portfolios
@@ -888,6 +897,169 @@ class BacktestExecutor:
         return out
 
     # ------------------------------------------------------------------
+    # Step 7b: double sort (re-added -- see docs/decision-log.md 2026-07-24
+    # for the original removal, and the D4 entry for why it came back:
+    # Hirshleifer/Hsu/Li 2012's independent size x innovation-index sort
+    # needs it. Deliberately narrow: independent or sequential (dependent-
+    # on-dimension-0) sort, exactly 2 dimensions, quantile grouping only.
+    # ------------------------------------------------------------------
+
+    @staticmethod
+    def _dimension_breakpoints(bp_df: pd.DataFrame, column: str, quantiles: int) -> pd.Series:
+        """One cohort's breakpoint cutoffs for one sort dimension."""
+        qs = np.linspace(0, 1, quantiles + 1)
+        return bp_df[column].quantile(qs)
+
+    @staticmethod
+    def _assign_bucket(values: pd.Series, breakpoints: pd.Series, quantiles: int) -> pd.Series:
+        bins = list(breakpoints.values)
+        bins[0] = -np.inf
+        bins[-1] = np.inf
+        return pd.cut(values, bins=bins, labels=range(1, quantiles + 1), include_lowest=True)
+
+    def compute_breakpoints_multi(self, df: pd.DataFrame | None = None, config: dict | None = None) -> list[dict]:
+        """Multi-dim counterpart of `compute_breakpoints`.
+
+        Dependent (`independent=False`) dimensions need breakpoints computed
+        *within* dimension 0's bucket, which requires per-row assignment
+        data this split doesn't have yet -- so this just returns
+        `config["sort_dims"]` unchanged, and `assign_portfolios_multi` does
+        the real per-dimension breakpoint + assignment work together. This
+        still satisfies the `compute_breakpoints(df, config) -> breakpoints`
+        / `assign_portfolios(df, breakpoints, config) -> df` contract shape
+        without duplicating logic between the two methods.
+        """
+        config = self.config if config is None else config
+        dims = config.get("sort_dims") or []
+        self.breakpoints = dims
+        return dims
+
+    def assign_portfolios_multi(
+        self,
+        df: pd.DataFrame | None = None,
+        breakpoints: list[dict] | None = None,
+        config: dict | None = None,
+    ) -> pd.DataFrame:
+        """N-dimensional (currently: 2) sort assignment, formation-locked.
+
+        Unlike the original (removed) `assign_portfolios_multi`, this derives
+        breakpoints from `self.formation` (not from `df`/`self.merged`) --
+        same reasoning as the single-dim `compute_breakpoints`: `self.merged`
+        has already been inner-joined against future held-month returns, so
+        computing cutoffs from it would leak future-return-availability into
+        the formation-time breakpoint population. `self.formation` is used
+        ONLY to derive each cohort's cutoffs; the actual bucket assignment
+        (via those cutoffs) is then applied to `df` (`self.merged`), the
+        population that actually gets sorted/traded -- matching the
+        single-dim path's formation-locked-breakpoints fix (see
+        docs/decision-log.md; the original double-sort removal's own
+        trade-offs note flagged this as needed if double sorts ever came
+        back).
+
+        `breakpoints` is the resolved `sort_dims` list from
+        `compute_breakpoints_multi` (each: {column, quantiles, source,
+        independent}), in the paper's specified dimension order -- dimension
+        0's cutoffs are always computed on its own configured universe
+        (nyse/full_sample); dimension i>0 is either independent (its own
+        cutoffs on its own universe) or dependent (cutoffs computed
+        separately within each dimension-0 formation bucket -- the standard
+        convention for e.g. a size-then-value sequential double sort).
+        Deliberately scoped to condition only on dimension 0 (not the
+        running intersection of all prior dimensions), which covers the
+        common 2-way double sort.
+
+        Output columns: `portfolio_0`, `portfolio_1` (plus the original
+        columns). No combined string label is produced;
+        `compute_portfolio_returns_multi`/`combine_portfolio_returns_multi`
+        group on the `portfolio_i` columns directly.
+        """
+        df = self.merged if df is None else df
+        dims = self.breakpoints if breakpoints is None else breakpoints
+        config = self.config if config is None else config
+        formation = self.formation if self.formation is not None else df
+
+        if not dims:
+            self.portfolios = pd.DataFrame()
+            return self.portfolios
+
+        chunks: list[pd.DataFrame] = []
+        for cohort, cohort_df in df.groupby("cohort"):
+            cohort_df = cohort_df.copy()
+            if cohort not in formation["cohort"].values:
+                continue
+            formation_cohort = formation[formation["cohort"] == cohort]
+
+            dim0 = dims[0]
+            bp_universe0 = (
+                formation_cohort[formation_cohort["exchcd"] == 1]
+                if dim0.get("source") == "nyse" else formation_cohort
+            )
+            bp_universe0 = bp_universe0.dropna(subset=[dim0["column"]])
+            if bp_universe0.empty:
+                continue
+            bp0 = self._dimension_breakpoints(bp_universe0, dim0["column"], dim0["quantiles"])
+            if len(set(bp0.values)) != len(bp0.values):
+                # Degenerate cohort for dimension 0 (too few distinct values
+                # to cut into the requested groups) -- skip, same policy as
+                # the single-dim path's degenerate-cohort handling.
+                continue
+            cohort_df["portfolio_0"] = self._assign_bucket(cohort_df[dim0["column"]], bp0, dim0["quantiles"])
+            formation_cohort = formation_cohort.copy()
+            formation_cohort["portfolio_0"] = self._assign_bucket(
+                formation_cohort[dim0["column"]], bp0, dim0["quantiles"]
+            )
+
+            for i, dim in enumerate(dims[1:], start=1):
+                col = dim["column"]
+                nq = dim["quantiles"]
+                src = dim.get("source", "full_sample")
+                independent = dim.get("independent", True)
+
+                if independent:
+                    bp_universe_i = (
+                        formation_cohort[formation_cohort["exchcd"] == 1]
+                        if src == "nyse" else formation_cohort
+                    )
+                    bp_universe_i = bp_universe_i.dropna(subset=[col])
+                    if bp_universe_i.empty:
+                        cohort_df[f"portfolio_{i}"] = np.nan
+                        continue
+                    bp_i = self._dimension_breakpoints(bp_universe_i, col, nq)
+                    cohort_df[f"portfolio_{i}"] = self._assign_bucket(cohort_df[col], bp_i, nq)
+                else:
+                    # Dependent on dimension 0: compute this dimension's
+                    # cutoffs separately within each of formation's own
+                    # dimension-0 buckets, then apply the matching bucket's
+                    # cutoffs to `cohort_df` rows sharing that same bucket.
+                    assigned = pd.Series(index=cohort_df.index, dtype="float64")
+                    for bucket, bucket_formation in formation_cohort.groupby("portfolio_0", observed=True):
+                        bp_universe_i = (
+                            bucket_formation[bucket_formation["exchcd"] == 1]
+                            if src == "nyse" else bucket_formation
+                        )
+                        bp_universe_i = bp_universe_i.dropna(subset=[col])
+                        if bp_universe_i.empty:
+                            continue
+                        bp_i = self._dimension_breakpoints(bp_universe_i, col, nq)
+                        bucket_rows = cohort_df["portfolio_0"] == bucket
+                        assigned.loc[bucket_rows] = self._assign_bucket(
+                            cohort_df.loc[bucket_rows, col], bp_i, nq
+                        ).astype(float)
+                    cohort_df[f"portfolio_{i}"] = assigned
+
+            chunks.append(cohort_df)
+
+        if not chunks:
+            self.portfolios = pd.DataFrame()
+            return self.portfolios
+
+        out = pd.concat(chunks)
+        portfolio_cols = [f"portfolio_{i}" for i in range(len(dims))]
+        out = out.dropna(subset=portfolio_cols).copy()
+        self.portfolios = out
+        return out
+
+    # ------------------------------------------------------------------
     # Step 8: compute_portfolio_returns
     # ------------------------------------------------------------------
 
@@ -896,6 +1068,10 @@ class BacktestExecutor:
         a single reported series -- that's `combine_portfolio_returns`,
         Step 9) -- value-weighted (by PRIOR-month `me`) or equal-weighted,
         selected by `config["weighting_rule"]` (vw/ew).
+
+        Dispatches to `compute_portfolio_returns_multi` when `self.portfolios`
+        carries `portfolio_0`/`portfolio_1` columns (the double-sort path;
+        see `form_portfolios`) instead of the single `portfolio` column.
 
         Value-weighting uses each stock's market equity as of the PRIOR
         month-end (`me_{t-1}`), not the same month `t` whose return is being
@@ -909,6 +1085,9 @@ class BacktestExecutor:
         """
         df = self.portfolios if df is None else df
         config = self.config if config is None else config
+
+        if "portfolio_0" in df.columns:
+            return self.compute_portfolio_returns_multi(df, config)
 
         wt = config.get("weighting_rule", "vw")
         df = df.copy()
@@ -954,6 +1133,49 @@ class BacktestExecutor:
                 .mean()
                 .reset_index()
             )
+
+        self.returns = rets
+        self.trace.append("compute_portfolio_returns")
+        return rets
+
+    def compute_portfolio_returns_multi(self, df: pd.DataFrame | None = None, config: dict | None = None) -> pd.DataFrame:
+        """Multi-dim counterpart of `compute_portfolio_returns`: VW (via the
+        same prior-month-lagged `me` as the single-dim path -- see
+        `_attach_lagged_me`) or EW return for each joint
+        (yyyymm, portfolio_0, portfolio_1) cell.
+        """
+        df = self.portfolios if df is None else df
+        config = self.config if config is None else config
+
+        wt = config.get("weighting_rule", "vw")
+        df = df.copy()
+        portfolio_cols = [c for c in df.columns if c.startswith("portfolio_")]
+        for c in portfolio_cols:
+            df[c] = df[c].astype(int)
+        group_cols = ["yyyymm"] + portfolio_cols
+
+        if wt == "vw" and "me" not in df.columns:
+            raise ValueError(
+                "config['weighting_rule'] == 'vw' requires an 'me' (market equity) "
+                "column for value-weighting but the loaded returns panel has none."
+            )
+        if wt == "vw":
+            df = self._attach_lagged_me(df)
+            self._vw_lag_me_missing_frac = float(df["me_lag"].isna().mean()) if len(df) else 0.0
+
+            def _vw(g: pd.DataFrame) -> float:
+                me_lag = g["me_lag"]
+                valid = me_lag.notna() & (me_lag > 0)
+                if not valid.any():
+                    return float("nan")
+                w = me_lag[valid]
+                r = g["ret"][valid]
+                return float((r * w).sum() / w.sum())
+
+            rets = df.groupby(group_cols).apply(_vw).reset_index(name="ret")
+        else:
+            self._vw_lag_me_missing_frac = None
+            rets = df.groupby(group_cols)["ret"].mean().reset_index()
 
         self.returns = rets
         self.trace.append("compute_portfolio_returns")
@@ -1016,9 +1238,15 @@ class BacktestExecutor:
           - `full_portfolio_return`: report every portfolio's return untouched,
             no combination -- NOT long-short; consumed differently by
             `compute_metrics` (no single `ls_return`/t-stat; see there).
+
+        Dispatches to `combine_portfolio_returns_multi` when `rets` carries
+        `portfolio_0`/`portfolio_1` columns (the double-sort path).
         """
         rets = self.returns if rets is None else rets
         config = self.config if config is None else config
+
+        if "portfolio_0" in rets.columns:
+            return self.combine_portfolio_returns_multi(rets, config)
 
         combo = config.get("return_combination_type", "extreme_group_spread")
         n = int(config.get("breakpoint_quantiles", 10))
@@ -1056,6 +1284,60 @@ class BacktestExecutor:
                     })
             out = pd.DataFrame(rows)
 
+        self.long_short = out
+        self.trace.append("combine_portfolio_returns")
+        return out
+
+    def combine_portfolio_returns_multi(self, rets: pd.DataFrame | None = None, config: dict | None = None) -> pd.DataFrame:
+        """Multi-dim counterpart of `combine_portfolio_returns`: the standard
+        "average across control-dimension groups" double-sort convention.
+
+        Finds whichever `config["sort_dims"]` entry has `role == "target"`
+        (the paper's own characteristic being studied -- see
+        `SortDimension.role` in `paper_method_spec.py`), computes its
+        extreme-decile spread separately within every combination of the
+        OTHER ("control"/"conditioning") dimensions, then averages those
+        spreads -- e.g. for a characteristic x size sort, this is "average
+        the characteristic spread across size groups", the standard
+        construction in the literature (Fama-French SMB/HML, Hirshleifer et
+        al 2012's innovation-efficiency factor, etc.).
+
+        Output shape matches the single-dim path's (`yyyymm`, `ls_return`),
+        so `compute_metrics` needs no changes to consume either path.
+        """
+        rets = self.returns if rets is None else rets
+        config = self.config if config is None else config
+
+        dims = config.get("sort_dims") or []
+        if not dims:
+            self.long_short = pd.DataFrame()
+            return self.long_short
+
+        signal_idx = next((i for i, d in enumerate(dims) if d.get("role") == "target"), 0)
+        signal_col = f"portfolio_{signal_idx}"
+        n_signal = dims[signal_idx]["quantiles"]
+        other_cols = [f"portfolio_{i}" for i in range(len(dims)) if i != signal_idx]
+
+        long_leg = config.get("long_leg", "low")
+        long_bucket  = 1 if long_leg == "low" else n_signal
+        short_bucket = n_signal if long_leg == "low" else 1
+
+        rows: list[dict] = []
+        for yyyymm, g in rets.groupby("yyyymm"):
+            spreads: list[float] = []
+            if other_cols:
+                for _, sub in g.groupby(other_cols):
+                    port_map = dict(zip(sub[signal_col], sub["ret"]))
+                    if long_bucket in port_map and short_bucket in port_map:
+                        spreads.append(port_map[long_bucket] - port_map[short_bucket])
+            else:
+                port_map = dict(zip(g[signal_col], g["ret"]))
+                if long_bucket in port_map and short_bucket in port_map:
+                    spreads.append(port_map[long_bucket] - port_map[short_bucket])
+            if spreads:
+                rows.append({"yyyymm": yyyymm, "ls_return": float(np.mean(spreads))})
+
+        out = pd.DataFrame(rows)
         self.long_short = out
         self.trace.append("combine_portfolio_returns")
         return out

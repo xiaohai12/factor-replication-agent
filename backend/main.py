@@ -16,13 +16,13 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from backend.routers import (
     backtest,
+    catalog,
     codegen,
     diagnosis,
-    evaluations,
     evidence,
     experiments,
     jobs,
-    methodspecs,
+    paper_methodspecs,
     papers,
     replication,
     sessions,
@@ -72,7 +72,8 @@ app.add_middleware(
 )
 
 app.include_router(papers.router)
-app.include_router(methodspecs.router)
+app.include_router(paper_methodspecs.router)
+app.include_router(catalog.router)
 app.include_router(codegen.router)
 app.include_router(backtest.router)
 app.include_router(evidence.router)
@@ -81,7 +82,6 @@ app.include_router(sessions.router)
 app.include_router(experiments.router)
 app.include_router(replication.router)
 app.include_router(diagnosis.router)
-app.include_router(evaluations.router)
 
 
 @app.get("/api/health")

@@ -45,10 +45,11 @@ export const sessionApi = {
       confirm: true,
     }),
 
-  extractFromPdf: (sessionId: string, file: File, expectedRevision: number, llmProvider: string) =>
+  extractFromPdf: (sessionId: string, file: File, expectedRevision: number, llmProvider: string, llmModel?: string) =>
     api.postForm<{ job_id: string }>(`/api/sessions/${sessionId}/steps/1/extract-pdf`, file, {
       expected_revision: String(expectedRevision),
       llm_provider: llmProvider,
+      ...(llmModel ? { llm_model: llmModel } : {}),
     }),
 
   getStepArtifact: (sessionId: string, step: number, filename: string) =>
@@ -58,6 +59,21 @@ export const sessionApi = {
 
   getComparison: (sessionId: string) =>
     api.get<Record<string, unknown>>(`/api/sessions/${sessionId}/steps/7/comparison`),
+
+  /** Applies human resolution decisions for step2's blocked fields --
+   * returns the resolved MethodSpec (becomes step3's input). */
+  resolveStep2: (sessionId: string, expected_revision: number, spec: Record<string, unknown>, decisions: unknown[]) =>
+    api.post<{ spec: Record<string, unknown>; revision: number }>(
+      `/api/sessions/${sessionId}/steps/2/resolve`,
+      { expected_revision, spec, decisions },
+    ),
+
+  /** Shared with the legacy PipelineE2EPage -- human-facing description +
+   * enum options for each resolvable MethodSpec field. */
+  getFieldHelp: () =>
+    api.get<Record<string, { description: string; options: string[]; example: string }>>(
+      "/api/methodspecs/field-help",
+    ),
 
   /** Generic "run this step's action" call -- every step's request body
    * shape differs (see lib/steps.ts's requestTemplate), so this stays

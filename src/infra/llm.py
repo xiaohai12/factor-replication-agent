@@ -97,7 +97,8 @@ def extract_json_object_text(text: str) -> str:
 
     start = stripped.find("{")
     if start == -1:
-        raise ValueError("no JSON object start found")
+        preview = stripped[:300].replace("\n", " ")
+        raise ValueError(f"no JSON object start found in response: {preview!r}")
 
     depth = 0
     in_string = False
@@ -124,7 +125,8 @@ def extract_json_object_text(text: str) -> str:
                 json.loads(candidate)
                 return candidate
 
-    raise ValueError("no complete JSON object found")
+    preview = stripped[:300].replace("\n", " ")
+    raise ValueError(f"no complete JSON object found in response: {preview!r}")
 
 
 def _find_codex_bin() -> str:
@@ -244,7 +246,7 @@ class CodexCLIClient:
 
         if not content:
             raise RuntimeError(
-                f"codex exec returned no agent message. stderr: {stderr_out[:300]}"
+                f"codex exec returned no agent message. stderr: {stderr_out[-2000:]}"
             )
 
         if response_format and response_format.get("type") == "json_object":
@@ -258,27 +260,33 @@ class CodexCLIClient:
 
 
 class CopilotCLIClient:
-    """LLM client using the Copilot CLI binary bundled with VS Code's GitHub Copilot extension.
+    """LLM client using the official GitHub Copilot CLI (`@github/copilot` npm package).
 
-    Binary location (macOS):
-      /Applications/Visual Studio Code.app/Contents/Resources/app/extensions/copilot/dist/cli.js
-    Invoked via ELECTRON_RUN_AS_NODE with the VS Code helper binary.
+    Binary location (macOS, installed via VS Code's Copilot Chat extension shim):
+      ~/Library/Application Support/Code/User/globalStorage/github.copilot-chat/copilotCli/copilot
+    This shim forwards to the real `copilot` binary (installed separately via
+    `npm install -g @github/copilot`) and authenticates via GitHub OAuth --
+    e.g. `gh auth login`, or COPILOT_GITHUB_TOKEN/GH_TOKEN/GITHUB_TOKEN env vars.
+
+    NOTE: an EARLIER version of this class invoked
+    `extensions/copilot/dist/cli.js` directly (the internal, vendored Anthropic
+    "Claude Code" CLI) -- that binary requires its OWN separate Anthropic
+    account login (`claude auth login`), unrelated to your GitHub Copilot
+    subscription, and can hang indefinitely if that Anthropic sign-in is
+    blocked by an org Conditional Access policy. This class now uses the real
+    GitHub-authenticated `copilot` CLI instead, which reuses your existing
+    GitHub Copilot entitlement.
 
     Two modes:
       - LLM mode (default): disables all tools for pure text completion
       - Agent mode: enables all tools for full coding agent capabilities
 
-    Uses your GitHub Copilot subscription. Auth is handled by VS Code OAuth.
-    Set COPILOT_CLI_JS env var to override the cli.js path.
-    Set COPILOT_CLI_NODE env var to override the node binary path.
+    Set COPILOT_CLI_BIN env var to override the binary path.
     """
 
-    _DEFAULT_CLI_JS = (
-        "/Applications/Visual Studio Code.app/Contents/Resources/app/extensions/copilot/dist/cli.js"
-    )
-    _DEFAULT_NODE_BIN = (
-        "/Applications/Visual Studio Code.app/Contents/Frameworks/"
-        "Code Helper (Plugin).app/Contents/MacOS/Code Helper (Plugin)"
+    _DEFAULT_BIN = os.path.expanduser(
+        "~/Library/Application Support/Code/User/globalStorage/"
+        "github.copilot-chat/copilotCli/copilot"
     )
 
     SUPPORTED_MODELS = ["claude-sonnet-5", "claude-opus-4-6", "claude-sonnet-4-6", "gpt-5.4"]
@@ -287,84 +295,79 @@ class CopilotCLIClient:
         self.chat = _ChatNamespace(self)
         self.default_model = model
         self._agent_mode = agent_mode
-        self._cli_js = os.environ.get("COPILOT_CLI_JS", self._DEFAULT_CLI_JS)
-        self._node_bin = os.environ.get("COPILOT_CLI_NODE", self._DEFAULT_NODE_BIN)
+        self._bin = os.environ.get("COPILOT_CLI_BIN", self._DEFAULT_BIN)
         self.stream_callback: Optional[callable] = None
 
-    def _build_base_env(self) -> dict:
-        env = os.environ.copy()
-        env["ELECTRON_RUN_AS_NODE"] = "1"
-        return env
+    def _run_with_popen(self, cmd: list, work_dir: str | None = None) -> str:
+        """Run a copilot CLI command via Popen, parsing JSONL events from stdout.
 
-    def _run_with_popen(self, cmd: list, prompt: str, work_dir: str | None = None) -> str:
-        """Run a copilot CLI command via Popen, streaming raw stdout to stream_callback."""
-        raw_chunks: list[str] = []
+        Streams the growing assistant message text to stream_callback as
+        `assistant.message_delta` events arrive, and returns the final
+        `assistant.message` content once the run completes.
+        """
+        raw_lines: list[str] = []
+        content = ""
         with subprocess.Popen(
             cmd,
-            stdin=subprocess.PIPE,
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
             text=True,
-            env=self._build_base_env(),
             cwd=work_dir,
         ) as proc:
-            proc.stdin.write(prompt)
-            proc.stdin.close()
-
-            for chunk in iter(lambda: proc.stdout.read(64), ""):
-                raw_chunks.append(chunk)
-                if self.stream_callback:
-                    self.stream_callback("".join(raw_chunks))
+            for line in proc.stdout:
+                line = line.strip()
+                if not line:
+                    continue
+                raw_lines.append(line)
+                try:
+                    event = json.loads(line)
+                except json.JSONDecodeError:
+                    continue
+                if event.get("type") == "assistant.message":
+                    content = event.get("data", {}).get("content", "") or content
+                    if self.stream_callback and content:
+                        self.stream_callback(content)
 
             proc.wait()
             stderr_out = proc.stderr.read() if proc.stderr else ""
-            if proc.returncode != 0:
+            if proc.returncode != 0 and not content:
+                # Not truncated to a tiny prefix -- a benign Node ESM/CommonJS
+                # interop warning is often the FIRST line of stderr, and a
+                # short truncation used to hide the actual failure reason
+                # that follows it, making failures undiagnosable from the UI.
                 raise RuntimeError(
-                    f"copilot CLI exited with code {proc.returncode}: {stderr_out[:500]}"
+                    f"copilot CLI exited with code {proc.returncode}: {stderr_out[-2000:]}"
                 )
 
-        raw = "".join(raw_chunks).strip()
-        try:
-            output = json.loads(raw)
-            return output.get("result", "")
-        except json.JSONDecodeError:
-            for line in raw.split("\n"):
-                if not line.strip():
-                    continue
-                try:
-                    event = json.loads(line)
-                    if event.get("type") == "result":
-                        return event.get("result", "")
-                except json.JSONDecodeError:
-                    continue
-            return raw
+        return content
 
     def _run_prompt(self, prompt: str, model: str) -> str:
         """Run in LLM mode: pure text completion with all tools disabled."""
         cmd = [
-            self._node_bin, self._cli_js,
-            "-p", "-",
-            "--output-format", "json",
+            self._bin,
+            "-p", prompt,
             "--model", model,
-            "--disallowed-tools", "Read", "Write", "Bash", "Edit",
-            "--disable-slash-commands",
-            "--no-session-persistence",
+            "--output-format", "json",
+            "--log-level", "none",
+            "--no-color",
+            "--available-tools=",
         ]
-        return self._run_with_popen(cmd, prompt)
+        return self._run_with_popen(cmd)
 
     def _run_agent_sync(self, prompt: str, model: str, work_dir: str | None = None) -> str:
         """Run in agent mode: full coding agent with tools enabled."""
         cmd = [
-            self._node_bin, self._cli_js,
-            "-p", "-",
-            "--output-format", "json",
+            self._bin,
+            "-p", prompt,
             "--model", model,
-            "--dangerously-skip-permissions",
-            "--no-session-persistence",
+            "--output-format", "json",
+            "--log-level", "none",
+            "--no-color",
+            "--allow-all-tools",
         ]
         if work_dir:
             cmd.extend(["--add-dir", work_dir])
-        return self._run_with_popen(cmd, prompt, work_dir=work_dir)
+        return self._run_with_popen(cmd, work_dir=work_dir)
 
     def _create(
         self,
@@ -580,8 +583,10 @@ class ClaudeCodeCLIClient:
                 proc.wait()
                 stderr_out = proc.stderr.read() if proc.stderr else ""
                 if proc.returncode != 0 and not content:
+                    # See CopilotCLIClient's identical fix: don't truncate to
+                    # a tiny prefix that may only capture a benign warning.
                     raise RuntimeError(
-                        f"claude CLI exited with code {proc.returncode}: {stderr_out[:500]}"
+                        f"claude CLI exited with code {proc.returncode}: {stderr_out[-2000:]}"
                     )
 
             if not content:

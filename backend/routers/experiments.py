@@ -13,9 +13,9 @@ from pydantic import BaseModel
 from backend.jobs import job_manager
 from backend.serialization import to_jsonable
 from backend.sessions import append_event, complete_attempt_with_retry, session_store
+from backend.spec_parsing import parse_spec, spec_factor_id
 from backend.state import pipeline
 from src.evaluation import diagnostics as step_diagnostics
-from src.infra.models.method_spec import MethodSpec
 from src.infra.models.plugin import PluginRecord
 from src.infra.models.session import ConcurrentModificationError, StepStatus
 from src.infra.session_store import SessionNotFoundError
@@ -48,16 +48,16 @@ async def run_step6_experiment(session_id: str, req: ExperimentRequest) -> dict:
         raise HTTPException(status_code=409, detail=str(exc))
 
     def run(log):
-        spec = MethodSpec.model_validate(req.spec)
+        spec = parse_spec(req.spec)
         plugin = PluginRecord.model_validate(req.plugin)
         plan = ExperimentPlan(
-            factor_id=spec.factor_id,
+            factor_id=spec_factor_id(spec),
             run_original=req.run_original,
             run_standardized=req.run_standardized,
             ablation_switches=req.ablation_switches,
             factorial_switches=req.factorial_switches,
         )
-        log(f"Running experiment batch for '{spec.factor_id}' ({req.snapshot_id})...")
+        log(f"Running experiment batch for '{spec_factor_id(spec)}' ({req.snapshot_id})...")
         try:
             runs = pipeline.controller.run_experiment(plugin, spec, plan, req.snapshot_id)
         except Exception as exc:

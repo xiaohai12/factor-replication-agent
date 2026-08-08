@@ -1,10 +1,8 @@
 {
-  "schema_version": "methodspec.v1",
-  "returns_universe": "us_equity_crsp",
+  "returns_source": "us_equity_crsp",
   "factor_id": "cooper_gulen_schill_2008_asset_growth",
   "factor_name": "Asset Growth and the Cross Section of Stock Returns",
   "paper_ref": "Cooper, Michael J., Huseyin Gulen, and Michael J. Schill, 2008, Asset Growth and the Cross-Section of Stock Returns, The Journal of Finance 63(4), 1609-1651.",
-  "version": 1,
   "economic_intuition": "Higher firm asset growth predicts lower subsequent stock returns; the paper interprets this pattern as most consistent with investor overextrapolation of past growth.",
   "detailed_definition": "Annual percentage change in total assets from the fiscal year ending in calendar year t-2 to the fiscal year ending in calendar year t-1.",
   "cat_form": "continuous",
@@ -36,37 +34,43 @@
         "field": "total_assets",
         "concept": "Total assets used to compute ASSETG.",
         "source_detail": "Compustat data item 6",
-        "evidence": []
+        "evidence": [],
+        "is_signal_input": true
       },
       {
         "field": "monthly_return",
         "concept": "Monthly stock return used for post-formation portfolio returns from July of year t to June of year t+1.",
         "source_detail": "monthly stock return files",
-        "evidence": []
+        "evidence": [],
+        "is_signal_input": false
       },
       {
         "field": "market_equity_june",
         "concept": "June market value used for value-weighting and size controls.",
         "source_detail": "market value of the firm's equity from CRSP at the end of June of year t",
-        "evidence": []
+        "evidence": [],
+        "is_signal_input": false
       },
       {
         "field": "listing_exchange",
         "concept": "Exchange membership used to restrict the universe to NYSE, Amex, and NASDAQ firms.",
         "source_detail": "all NYSE, Amex, and NASDAQ nonfinancial firms",
-        "evidence": []
+        "evidence": [],
+        "is_signal_input": false
       },
       {
         "field": "sic_code",
         "concept": "Four-digit SIC code used to exclude financial firms.",
         "source_detail": "excluding firms with four-digit SIC codes between 6000 and 6999",
-        "evidence": []
+        "evidence": [],
+        "is_signal_input": false
       },
       {
         "field": "compustat_listing_history_years",
         "concept": "Years listed on Compustat, used for the two-year seasoning rule.",
         "source_detail": "a firm must be listed on Compustat for 2 years",
-        "evidence": []
+        "evidence": [],
+        "is_signal_input": false
       }
     ],
     "normalized_mapping": {
@@ -84,9 +88,8 @@
       "evidence": [
         {
           "location": "I. Data, equation (1)",
-          "quote": "ASSETG(t) = Data6(t\u22121) \u2212 Data6(t\u22122) / Data6(t\u22122)",
-          "interpretation": "Equation (1) gives the executable signal formula and timing.",
-          "source_type": "paper"
+          "quote": "ASSETG(t) = Data6(t−1) − Data6(t−2) / Data6(t−2)",
+          "interpretation": "Equation (1) gives the executable signal formula and timing."
         }
       ]
     },
@@ -105,8 +108,7 @@
         {
           "location": "I. Data",
           "quote": "At the end of June of each year t",
-          "interpretation": "The paper forms and updates the signal annually at June and holds the resulting portfolios for the next 12 months.",
-          "source_type": "paper"
+          "interpretation": "The paper forms and updates the signal annually at June and holds the resulting portfolios for the next 12 months."
         }
       ]
     },
@@ -118,17 +120,15 @@
         {
           "location": "I. Data",
           "quote": "a firm must have nonzero total assets in both years",
-          "interpretation": "The paper gives an explicit computability requirement for the signal; firms failing it are not assigned a valid ASSETG value.",
-          "source_type": "paper"
+          "interpretation": "The paper gives an explicit computability requirement for the signal; firms failing it are not assigned a valid ASSETG value."
         }
       ]
     },
     "sign": -1
   },
   "portfolio": {
-    "universe": "U.S. nonfinancial firms listed on NYSE, Amex, or NASDAQ that appear in CRSP monthly returns and Compustat annual industrial files, with a two-year Compustat listing seasoning rule.",
     "sort": {
-      "breakpoint_source": "full_sample",
+      "breakpoint_basis": "full_sample",
       "ls_quantile": 10.0,
       "quantiles": [],
       "evidence": []
@@ -153,7 +153,6 @@
     "evidence": []
   },
   "reported_results": {
-    "return_horizon": "12-month holding period after June formation, with monthly portfolio returns aggregated over July of year t to June of year t+1",
     "return_type": "raw",
     "comparison_policy": {
       "preserve_paper_direction": true,
@@ -182,10 +181,9 @@
         "weighting": "[ \"equal_weight\", \"value_weight\" ]",
         "return_combination": {
           "type": "extreme_group_spread",
-          "expression": "return(decile_1_low_asset_growth) - return(decile_10_high_asset_growth)",
           "long_leg": "decile_1_low_asset_growth",
           "short_leg": "decile_10_high_asset_growth",
-          "note": "The paper tabulates 10-1 spreads, but the economic long-short direction implied by the prose is low minus high."
+          "note": "return(decile_1_low_asset_growth) - return(decile_10_high_asset_growth); The paper tabulates 10-1 spreads, but the economic long-short direction implied by the prose is low minus high."
         },
         "regression": null,
         "reported_frequency": "monthly",
@@ -205,7 +203,7 @@
         "units": "monthly return spread",
         "source": {
           "location": "Table II, Panel B.2, Year 1",
-          "quote": "0.0148 ... 0.0043 ... \u22120.0105",
+          "quote": "0.0148 ... 0.0043 ... −0.0105",
           "interpretation": "The table reports decile 1 and decile 10 value-weighted monthly returns and the 10-1 spread. Since the paper's narrative emphasizes low growth outperforming high growth, the executable long-short direction is low minus high = +0.0105 per month."
         }
       },
@@ -215,7 +213,7 @@
         "units": "monthly alpha spread",
         "source": {
           "location": "Table II, Panel C.2, All Firms",
-          "quote": "\u22120.007",
+          "quote": "−0.007",
           "interpretation": "Panel C.2 reports the 10-1 alpha. Reversing to the paper's low-minus-high direction yields +0.0070 per month."
         }
       },
@@ -225,7 +223,7 @@
         "units": "monthly alpha spread",
         "source": {
           "location": "Table II, Panel C.1, All Firms",
-          "quote": "\u22120.0163",
+          "quote": "−0.0163",
           "interpretation": "Panel C.1 reports the 10-1 alpha. Reversing to low-minus-high gives +0.0163 per month."
         }
       }
@@ -235,20 +233,9 @@
     "main_t_stat": null,
     "evidence": []
   },
-  "extraction_sources": [
-    {
-      "type": "paper",
-      "ref": "Asset Growth and the Cross-Section of Stock Returns",
-      "sections": [
-        "I. Data",
-        "II.A. Cross-Sectional Tests",
-        "Appendix"
-      ]
-    }
-  ],
   "ambiguous_fields": [
     {
-      "field": "portfolio.sort.breakpoint_source",
+      "field": "portfolio.sort.breakpoint_basis",
       "reason": "",
       "source": "clear",
       "confidence": "high",
@@ -258,8 +245,7 @@
         {
           "location": "I. Data; Table II caption",
           "quote": "stocks are allocated into deciles based on annual asset growth rates",
-          "interpretation": "The sorting rule is stated, but the breakpoint universe for the main deciles is not.",
-          "source_type": "paper"
+          "interpretation": "The sorting rule is stated, but the breakpoint universe for the main deciles is not."
         }
       ]
     },
@@ -274,8 +260,7 @@
         {
           "location": "Abstract; II.A. Cross-Sectional Tests",
           "quote": "we report EW portfolio returns ... we report VW",
-          "interpretation": "The paper treats both weighting schemes as important; this MethodSpec selects value-weighted as the main target and records equal-weighted as secondary.",
-          "source_type": "paper"
+          "interpretation": "The paper treats both weighting schemes as important; this MethodSpec selects value-weighted as the main target and records equal-weighted as secondary."
         }
       ]
     },
@@ -290,8 +275,7 @@
         {
           "location": "I. Data",
           "quote": "we form all of our accounting variables at the end of June in year t",
-          "interpretation": "The annual June convention is explicit, but a single universal month-lag integer is not directly stated.",
-          "source_type": "paper"
+          "interpretation": "The annual June convention is explicit, but a single universal month-lag integer is not directly stated."
         }
       ]
     },
@@ -306,8 +290,7 @@
         {
           "location": "I. Data",
           "quote": "Some of the variables we examine require 5 years of accounting data",
-          "interpretation": "The start date is explicit, but its rationale partly reflects broader analyses beyond the simplest one-way ASSETG portfolio.",
-          "source_type": "paper"
+          "interpretation": "The start date is explicit, but its rationale partly reflects broader analyses beyond the simplest one-way ASSETG portfolio."
         }
       ]
     }
@@ -315,8 +298,6 @@
   "review_status": "approved",
   "remediation_mode": null,
   "codegen_ready": true,
-  "paper_faithful": true,
-  "review_notes": [],
   "resolution_log": [
     {
       "field_path": "signal.timing.accounting_lag",
@@ -329,8 +310,8 @@
       "paper_evidence": []
     },
     {
-      "field_path": "portfolio.sort.breakpoint_source",
-      "canonical_field_path": "portfolio.sort.breakpoint_source",
+      "field_path": "portfolio.sort.breakpoint_basis",
+      "canonical_field_path": "portfolio.sort.breakpoint_basis",
       "old_value": "unspecified",
       "new_value": "unspecified",
       "decision_type": "human_empirical_assumption",
@@ -354,12 +335,12 @@
       "paper_evidence": []
     },
     {
-      "field_path": "portfolio.sort.breakpoint_source",
-      "canonical_field_path": "portfolio.sort.breakpoint_source",
+      "field_path": "portfolio.sort.breakpoint_basis",
+      "canonical_field_path": "portfolio.sort.breakpoint_basis",
       "old_value": "unspecified",
       "new_value": "full_sample",
       "decision_type": "human_empirical_assumption",
-      "reason": "Human decision \u2014 paper does not specify breakpoint universe; full_sample selected as default.",
+      "reason": "Human decision — paper does not specify breakpoint universe; full_sample selected as default.",
       "reviewer": "human",
       "paper_evidence": []
     },
@@ -369,7 +350,7 @@
       "old_value": "unspecified",
       "new_value": "vw",
       "decision_type": "human_empirical_assumption",
-      "reason": "Human decision \u2014 paper reports both VW and EW; VW selected as primary.",
+      "reason": "Human decision — paper reports both VW and EW; VW selected as primary.",
       "reviewer": "human",
       "paper_evidence": []
     },
@@ -379,7 +360,7 @@
       "old_value": "unspecified",
       "new_value": "drop",
       "decision_type": "human_empirical_assumption",
-      "reason": "Human decision \u2014 paper requires nonzero total assets; drop rows where signal is NA.",
+      "reason": "Human decision — paper requires nonzero total assets; drop rows where signal is NA.",
       "reviewer": "human",
       "paper_evidence": []
     },
@@ -395,7 +376,7 @@
         "sic_code": "siccd"
       },
       "decision_type": "data_dictionary_lookup",
-      "reason": "Auto-resolved by DataDictionary.normalize_fields() \u2014 paper concept names mapped to physical parquet column names.",
+      "reason": "Auto-resolved by DataDictionary.normalize_fields() — paper concept names mapped to physical parquet column names.",
       "reviewer": "data_layer",
       "paper_evidence": []
     }

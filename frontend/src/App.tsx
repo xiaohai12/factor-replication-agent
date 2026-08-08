@@ -7,6 +7,8 @@ import { BacktestExperimentsPage } from "@/pages/BacktestExperimentsPage"
 import { TraceLogsPage } from "@/pages/TraceLogsPage"
 import { SessionsPage } from "@/pages/SessionsPage"
 import { SessionDetailPage } from "@/pages/SessionDetailPage"
+import { SchemaReferencePage } from "@/pages/SchemaReferencePage"
+import { DataCatalogPage } from "@/pages/DataCatalogPage"
 
 const queryClient = new QueryClient()
 
@@ -23,6 +25,8 @@ function App() {
               <Route path="/trace" element={<TraceLogsPage />} />
               <Route path="/sessions" element={<SessionsPage />} />
               <Route path="/sessions/:sessionId/steps/:step" element={<SessionDetailPage />} />
+              <Route path="/schema" element={<SchemaReferencePage />} />
+              <Route path="/data-catalog" element={<DataCatalogPage />} />
             </Route>
           </Routes>
         </BrowserRouter>

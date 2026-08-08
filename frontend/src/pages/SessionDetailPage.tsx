@@ -13,6 +13,93 @@ import { sessionApi } from "@/lib/sessionApi"
 import { stepDefinition } from "@/lib/steps"
 import { useJobStream } from "@/lib/useJobStream"
 import { ApiError } from "@/lib/api"
+import { PROVIDER_MODELS, useLlm } from "@/lib/llmContext"
+import type { SessionManifest } from "@/lib/types"
+
+/** Auto-fills a step's request body from whatever this SAME session has
+ * already recorded upstream, so the user never has to hand-copy a spec/
+ * plugin/script hash between steps (the friction that caused a real 422 in
+ * testing: step2's `spec` field was left as the empty template default).
+ * Best-effort only -- any fetch failure just leaves the template default in
+ * place, since every step can still be run standalone by pasting JSON. */
+async function buildAutoFilledRequest(
+  sessionId: string,
+  step: number,
+  manifest: SessionManifest,
+  template: Record<string, unknown>,
+): Promise<Record<string, unknown>> {
+  const body: Record<string, unknown> = { ...template, expected_revision: manifest.revision }
+
+  const latestSuccess = (n: number) => {
+    const attempts = manifest.steps[String(n)]?.attempts ?? []
+    return [...attempts].reverse().find((a) => a.status === "success")
+  }
+
+  async function fetchArtifactJson(atStep: number, filename: string): Promise<unknown> {
+    const artifact = await sessionApi.getStepArtifact(sessionId, atStep, filename)
+    return JSON.parse(artifact.content)
+  }
+
+  const step1 = latestSuccess(1)
+  const step3 = latestSuccess(3)
+  const step4 = latestSuccess(4)
+
+  if ("spec" in body && step1?.output_refs.methodspec_ref) {
+    try {
+      body.spec = await fetchArtifactJson(1, step1.output_refs.methodspec_ref)
+    } catch {
+      // leave the template default; the user can still paste it manually.
+    }
+  } else if ("spec" in body && step3?.output_refs.spec_ref) {
+    // Sessions that skip step1/2 (e.g. loaded an already-resolved MethodSpec
+    // straight into step3 via MethodSpecPicker) have no step1 methodspec_ref
+    // for step4/5's spec to be auto-filled from -- fall back to the spec
+    // step3 itself persisted alongside its plugin/script artifacts.
+    try {
+      body.spec = await fetchArtifactJson(3, step3.output_refs.spec_ref)
+    } catch {
+      // same fallback as above.
+    }
+  }
+  let pluginFilled = false
+  if ("plugin" in body && step === 5 && step4?.output_refs.plugin_ref) {
+    // Step4's technical RepairLoop (src/infra/repair.py) may have changed
+    // the plugin's code to fix a validation/execution failure -- when it
+    // did, step4 records its OWN plugin_ref (the repaired plugin, which is
+    // what was actually validated) and that must win over step3's original
+    // (possibly-buggy) plugin for step5's execute call.
+    try {
+      body.plugin = await fetchArtifactJson(4, step4.output_refs.plugin_ref)
+      pluginFilled = true
+    } catch {
+      // fall through to step3's plugin below.
+    }
+  }
+  if ("plugin" in body && !pluginFilled && step3?.output_refs.plugin_ref) {
+    try {
+      body.plugin = await fetchArtifactJson(3, step3.output_refs.plugin_ref)
+    } catch {
+      // same fallback as above.
+    }
+  }
+  // step4 validates step3's freshly-built (not-yet-validated) script hash;
+  // step5 execute requires step4's ALREADY-validated hash specifically --
+  // both templates happen to share the same `script_sha256` key, so this
+  // must branch on the step number, not just key presence.
+  if (step === 4 && step3?.output_refs.script_sha256) {
+    body.script_sha256 = step3.output_refs.script_sha256
+  }
+  if (step === 5 && step4?.output_refs.validated_script_sha256) {
+    body.script_sha256 = step4.output_refs.validated_script_sha256
+  }
+  if (step === 7) {
+    const step6 = latestSuccess(6)
+    if (step6?.output_refs.experiment_batch_id) {
+      body.experiment_batch_id = step6.output_refs.experiment_batch_id
+    }
+  }
+  return body
+}
 
 /** Session-scoped step detail page: stepper + a generic request/response
  * JSON panel for whichever step is selected (Phase 4's D1-D4 scope --
@@ -46,15 +133,54 @@ export function SessionDetailPage() {
   const [requestError, setRequestError] = useState<string | null>(null)
   const [jobId, setJobId] = useState<string | null>(null)
   const [syncResult, setSyncResult] = useState<unknown>(null)
+  const { provider: llmProvider, model: llmModel } = useLlm()
+
+  // Any step whose request template carries an `llm_provider` key (steps 1/2,
+  // the only two that actually call an LLM) tracks the SAME sidebar-selected
+  // provider/model everywhere else in the app -- there is deliberately only
+  // ONE provider/model picker in this app, not a per-step one.
+  const withLlmSelection = (body: Record<string, unknown>): Record<string, unknown> =>
+    "llm_provider" in body ? { ...body, llm_provider: llmProvider, llm_model: llmModel } : body
 
   useEffect(() => {
-    const revision = sessionQuery.data?.revision ?? 0
-    setRequestText(JSON.stringify({ ...def.requestTemplate, expected_revision: revision }, null, 2))
+    let cancelled = false
+    setRequestText(JSON.stringify(withLlmSelection(def.requestTemplate), null, 2))
     setJobId(null)
     setSyncResult(null)
     setRequestError(null)
+    ;(async () => {
+      try {
+        const manifest = await sessionApi.get(sessionId)
+        const body = await buildAutoFilledRequest(sessionId, step, manifest, def.requestTemplate)
+        if (!cancelled) setRequestText(JSON.stringify(withLlmSelection(body), null, 2))
+      } catch {
+        // Session not found yet, or an artifact fetch failed -- the plain
+        // template (already set above) is still a usable starting point.
+      }
+    })()
+    return () => {
+      cancelled = true
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [step, sessionId])
+
+  // If the user changes the sidebar provider/model WHILE already looking at
+  // a step's request editor, keep the JSON in sync rather than silently
+  // going stale (only touches the two llm_provider/llm_model keys, never
+  // clobbers spec/plugin/etc. the user may have hand-edited).
+  useEffect(() => {
+    setRequestText((prev) => {
+      if (!prev) return prev
+      try {
+        const parsed = JSON.parse(prev)
+        if (!("llm_provider" in parsed)) return prev
+        return JSON.stringify({ ...parsed, llm_provider: llmProvider, llm_model: llmModel }, null, 2)
+      } catch {
+        return prev
+      }
+    })
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [llmProvider, llmModel])
 
   const job = useJobStream(jobId)
 
@@ -167,6 +293,12 @@ export function SessionDetailPage() {
               />
             ) : (
               <>
+                {"llm_provider" in def.requestTemplate && (
+                  <p className="text-xs text-muted-foreground">
+                    Uses the LLM Provider / Model picked in the sidebar (bottom-left) -- change it there, not
+                    just in this JSON, or it'll be overwritten on your next edit.
+                  </p>
+                )}
                 {step === 3 && (
                   <MethodSpecPicker
                     onSpecPluginReady={(spec, plugin) => {
@@ -233,6 +365,35 @@ export function SessionDetailPage() {
             factorId={sessionQuery.data.factor_id}
             attempt={latestAttempt}
             syncResult={def.isJob ? job.result : syncResult}
+            sessionRevision={sessionQuery.data.revision}
+            onResolved={async () => {
+              queryClient.invalidateQueries({ queryKey: ["session", sessionId] })
+              queryClient.invalidateQueries({ queryKey: ["session-step", sessionId, step] })
+              queryClient.invalidateQueries({ queryKey: ["session-events", sessionId] })
+              // Resolving step2's blocked fields always resets review_status/
+              // codegen_ready to pending (src/steps/step2_reviewer/resolution.py),
+              // so the resolved spec must go back through Review Gate before
+              // codegen is allowed. Auto-fire that re-review instead of making
+              // the user click "Run" again with a manifest revision that's now
+              // stale (the resolve call already bumped it).
+              if (step === 2) {
+                try {
+                  const manifest = await sessionApi.get(sessionId)
+                  const body = await buildAutoFilledRequest(sessionId, step, manifest, def.requestTemplate)
+                  const response = await sessionApi.runStep(def.endpoint(sessionId), withLlmSelection(body))
+                  if (typeof response.job_id === "string") {
+                    setJobId(response.job_id)
+                  } else {
+                    setSyncResult(response)
+                    queryClient.invalidateQueries({ queryKey: ["session", sessionId] })
+                    queryClient.invalidateQueries({ queryKey: ["session-step", sessionId, step] })
+                    queryClient.invalidateQueries({ queryKey: ["session-events", sessionId] })
+                  }
+                } catch (err) {
+                  setRequestError(err instanceof ApiError ? `${err.status}: ${err.message}` : String(err))
+                }
+              }
+            }}
           />
         </CardContent>
       </Card>
@@ -274,10 +435,10 @@ function PdfExtractPanel({
   onError: (message: string | null) => void
 }) {
   const [file, setFile] = useState<File | null>(null)
-  const [provider, setProvider] = useState("codex")
+  const { provider, model, setProvider, setModel } = useLlm()
 
   const mutation = useMutation({
-    mutationFn: () => sessionApi.extractFromPdf(sessionId, file!, expectedRevision, provider),
+    mutationFn: () => sessionApi.extractFromPdf(sessionId, file!, expectedRevision, provider, model),
     onSuccess: (res) => {
       onError(null)
       onJobStarted(res.job_id)
@@ -287,23 +448,53 @@ function PdfExtractPanel({
 
   return (
     <div className="flex flex-col gap-3">
+      <label
+        htmlFor="session-pdf-upload-input"
+        className="flex cursor-pointer flex-col items-center justify-center gap-1 rounded-md border-2 border-dashed border-border p-4 text-center transition-colors hover:border-primary hover:bg-muted/50"
+      >
+        <span className="text-sm font-medium">
+          {file ? file.name : "Click to choose a PDF, or drag one here"}
+        </span>
+        <span className="text-xs text-muted-foreground">
+          {file ? `${(file.size / 1024).toFixed(0)} KB -- click to change` : "PDF files only"}
+        </span>
+      </label>
       <input
+        id="session-pdf-upload-input"
         type="file"
         accept="application/pdf"
         onChange={(e) => setFile(e.target.files?.[0] ?? null)}
-        className="text-xs"
+        className="hidden"
       />
-      <Select value={provider} onValueChange={setProvider}>
-        <SelectTrigger className="w-48">
-          <SelectValue />
-        </SelectTrigger>
-        <SelectContent>
-          <SelectItem value="codex">codex</SelectItem>
-          <SelectItem value="copilot">copilot</SelectItem>
-          <SelectItem value="claude">claude</SelectItem>
-          <SelectItem value="openrouter">openrouter</SelectItem>
-        </SelectContent>
-      </Select>
+      <div className="flex gap-2">
+        <Select value={provider} onValueChange={setProvider}>
+          <SelectTrigger className="w-32">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            {Object.keys(PROVIDER_MODELS).map((p) => (
+              <SelectItem key={p} value={p}>
+                {p}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+        <Select value={model} onValueChange={setModel}>
+          <SelectTrigger className="w-56">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            {(PROVIDER_MODELS[provider] ?? []).map((m) => (
+              <SelectItem key={m} value={m}>
+                {m}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+      </div>
+      <p className="text-xs text-muted-foreground">
+        Same Provider/Model picker as the sidebar (bottom-left) -- shared everywhere, not just here.
+      </p>
       <Button disabled={!file || mutation.isPending} onClick={() => mutation.mutate()}>
         Extract MethodSpec from PDF
       </Button>

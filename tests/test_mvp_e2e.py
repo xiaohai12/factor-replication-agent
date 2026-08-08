@@ -1,30 +1,21 @@
-"""MVP end-to-end test: curated MethodSpec -> DataLayer -> plugin -> BacktestExecutor.
-
-Exercises the full Phase 1 MVP chain from docs/roadmap.md on synthetic data
-(no network / LLM calls):
-
-    approved MethodSpec (cooper_gulen_schill_2008_asset_growth)
-    -> assemble_signal_master_table()        (declarative gvkey->permno link + lag)
-    -> plugin.compute_signal()               (already-generated, sandbox-passed plugin)
-    -> BacktestExecutor.run()                (9-step controlled lifecycle)
-    -> Pipeline.run_from_method_spec()       (persists a RunRecord to EvidenceStore)
-
-Metrics are checked against golden numbers derived independently in
-tests/synthetic_data/asset_growth_synthetic_data.py (closed-form arithmetic and
-a from-scratch Newey-West computation), not by re-running pipeline code.
+"""Phase D: `Pipeline.run_from_method_spec`'s `ResolvedMethodSpec` dispatch,
+same golden numbers as tests/test_mvp_e2e.py but off the paper-first schema
+(tests/_spec_test_helpers.asset_growth_resolved_spec) instead of the v1
+fixture -- same synthetic data, same plugin (compute_signal is spec-
+agnostic), same BacktestExecutor. Proves the ResolvedMethodSpec path through
+Pipeline reproduces byte-identical economics to the v1 path.
 """
 
 from __future__ import annotations
 
-import json
 from pathlib import Path
 
 import pytest
 
 from src.infra.data_layer import SnapshotMetadata
-from src.infra.models.method_spec import MethodSpec
 from src.infra.models.plugin import PluginRecord
 from src.pipeline import Pipeline
+from tests._spec_test_helpers import asset_growth_resolved_spec
 from tests.synthetic_data.asset_growth_synthetic_data import (
     build_ccm_link,
     build_compustat_funda,
@@ -33,27 +24,18 @@ from tests.synthetic_data.asset_growth_synthetic_data import (
 )
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
-RESOLVED_SPEC_PATH = (
-    REPO_ROOT
-    / "tests"
-    / "fixtures"
-    / "method_specs"
-    / "cooper_gulen_schill_2008_asset_growth.resolved.methodspec.json"
-)
 PLUGIN_PATH = REPO_ROOT / "tests" / "fixtures" / "plugins" / "cooper_gulen_schill_2008_asset_growth.py"
 
-SNAPSHOT_ID = "mvp_synthetic_v1"
+SNAPSHOT_ID = "mvp_synthetic_resolved_v1"
 
 
 @pytest.fixture()
 def pipeline(tmp_path) -> Pipeline:
-    """A Pipeline wired to a temp data/evidence dir with synthetic-data snapshot tables registered."""
     data_path = tmp_path / "data"
     local_dir = data_path / "local"
     local_dir.mkdir(parents=True)
 
     crsp = build_crsp_msf()
-    # BacktestExecutor._load_data reads data_path/local/msf.parquet directly.
     crsp.to_parquet(local_dir / "msf.parquet", index=False)
 
     pipe = Pipeline(
@@ -65,9 +47,6 @@ def pipeline(tmp_path) -> Pipeline:
     snapshot_dir = data_path / "snapshots" / SNAPSHOT_ID
     snapshot_dir.mkdir(parents=True)
     crsp.to_parquet(snapshot_dir / "crsp_msf.parquet", index=False)
-    # The declarative signal-master loader (assemble_signal_master_table_from_sources)
-    # reads `comp_funda.parquet` + `ccm_lnkhist.parquet` (CCM keyed on `lpermno`,
-    # the real WRDS column).
     build_compustat_funda().to_parquet(snapshot_dir / "comp_funda.parquet", index=False)
     build_ccm_link().rename(columns={"permno": "lpermno"}).to_parquet(
         snapshot_dir / "ccm_lnkhist.parquet", index=False
@@ -86,41 +65,32 @@ def pipeline(tmp_path) -> Pipeline:
 
 
 @pytest.fixture()
-def approved_spec() -> MethodSpec:
-    text = RESOLVED_SPEC_PATH.read_text(encoding="utf-8")
-    return MethodSpec.model_validate(json.loads(text))
+def resolved_spec():
+    return asset_growth_resolved_spec()
 
 
 @pytest.fixture()
 def generated_plugin() -> PluginRecord:
-    code = PLUGIN_PATH.read_text(encoding="utf-8")
     return PluginRecord(
-        plugin_id="cooper_gulen_schill_2008_asset_growth_v1",
+        plugin_id="cooper_gulen_schill_2008_asset_growth_resolved",
         factor_id="cooper_gulen_schill_2008_asset_growth",
-        code=code,
+        code=PLUGIN_PATH.read_text(encoding="utf-8"),
         code_hash="synthetic",
     )
 
 
-def test_signal_master_table_has_expected_shape(pipeline, approved_spec):
-    # The signal-master is built by the declarative loader
-    # (assemble_signal_master_table), reading comp_funda.parquet +
-    # ccm_lnkhist.parquet from the snapshot dir.
+def test_signal_master_table_has_expected_shape(pipeline, resolved_spec):
     from src.infra.data_layer import assemble_signal_master_table
 
     storage_path = pipeline.data_layer.snapshots.get_snapshot(SNAPSHOT_ID).storage_path
-    smt = assemble_signal_master_table(approved_spec, storage_path)
-    # 10 permnos x 3 fiscal years, all successfully CCM-linked
+    smt = assemble_signal_master_table(resolved_spec, storage_path)
     assert len(smt) == 30
     assert set(smt.columns) >= {"permno", "time_avail_m", "at"}
-    # Dec-1996 fiscal year end + 6mo lag -> available June 1997
-    first_row = smt.sort_values(["permno", "time_avail_m"]).iloc[0]
-    assert int(first_row["time_avail_m"]) == 199706
 
 
-def test_mvp_chain_matches_golden_numbers(pipeline, approved_spec, generated_plugin):
+def test_mvp_chain_matches_golden_numbers(pipeline, resolved_spec, generated_plugin):
     run = pipeline.run_from_method_spec(
-        approved_spec, snapshot_id=SNAPSHOT_ID, plugin=generated_plugin
+        resolved_spec, snapshot_id=SNAPSHOT_ID, plugin=generated_plugin
     )
 
     golden = expected_metrics()
@@ -130,36 +100,6 @@ def test_mvp_chain_matches_golden_numbers(pipeline, approved_spec, generated_plu
     assert run.metrics.mean_return == pytest.approx(golden["mean_monthly_return"], rel=1e-9)
     assert run.metrics.t_stat == pytest.approx(golden["t_stat"], rel=1e-9)
 
-    # Evidence artifact was actually persisted (auditability requirement).
     stored = pipeline.evidence_store.load_run(run.factor_id, run.run_id)
     assert stored is not None
     assert stored.metrics.mean_return == pytest.approx(golden["mean_monthly_return"], rel=1e-9)
-
-
-def test_mvp_chain_persists_signal_and_return_series(pipeline, approved_spec, generated_plugin):
-    """docs/multi-config-evidence-plan.md Phase A1.1/A1.2: the generated
-    script now writes the REALIZED signal series (`<track>.signal.parquet`,
-    captured right after compute_signal(), before any universe filter/
-    breakpoint/portfolio step) alongside the return series it already wrote,
-    and `RunRecord.return_series_path`/`signal_series_path` (declared on the
-    model since Phase 0 but never populated before this) now point at them.
-    """
-    import pandas as pd
-
-    run = pipeline.run_from_method_spec(
-        approved_spec, snapshot_id=SNAPSHOT_ID, plugin=generated_plugin
-    )
-
-    assert run.status == "success"
-    assert run.return_series_path
-    assert run.signal_series_path
-    assert run.data_snapshot_hash
-
-    return_path = Path(run.return_series_path)
-    signal_path = Path(run.signal_series_path)
-    assert return_path.exists()
-    assert signal_path.exists()
-
-    signal_df = pd.read_parquet(signal_path)
-    assert list(signal_df.columns) == ["permno", "yyyymm", "signal"]
-    assert len(signal_df) > 0

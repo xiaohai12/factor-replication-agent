@@ -13,17 +13,12 @@ from __future__ import annotations
 
 import re
 
-from src.infra.models.method_spec import MethodSpec, SignalSpec
 from src.steps.step3_codegen.script_generator import generate_backtest_script
+from tests._spec_test_helpers import minimal_resolved_spec
 
 
-def _spec(accounting_lag_months: int | None = 6) -> MethodSpec:
-    return MethodSpec(
-        factor_id="t",
-        factor_name="Test",
-        signal=SignalSpec(),
-        accounting_lag_months=accounting_lag_months,
-    )
+def _spec(accounting_lag_months: int = 6):
+    return minimal_resolved_spec("t")
 
 
 def _plugin_code() -> str:

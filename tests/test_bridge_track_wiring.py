@@ -6,15 +6,15 @@ under the same resolved config as every other track.
 
 from __future__ import annotations
 
-from src.infra.models.method_spec import MethodSpec, SignalSpec
 from src.infra.models.plugin import PluginRecord, ValidationReport
 from src.infra.models.run_record import RunMetrics, RunRecord
 from src.steps.step6_dual_track_controller import DualTrackController
 from src.steps.step6_dual_track_controller.experiment_spec import load_experiment_matrix
+from tests._spec_test_helpers import minimal_resolved_spec, spec_factor_id
 
 
-def _spec(factor_id: str = "cooper_gulen_schill_2008_asset_growth") -> MethodSpec:
-    return MethodSpec(factor_id=factor_id, factor_name="Test", signal=SignalSpec())
+def _spec(factor_id: str = "cooper_gulen_schill_2008_asset_growth"):
+    return minimal_resolved_spec(factor_id)
 
 
 def _plugin() -> PluginRecord:
@@ -59,7 +59,7 @@ class FakeRunner:
     def make_run_record(self, spec, plugin, track, result):
         metrics = result["metrics"]
         return RunRecord(
-            run_id=f"{spec.factor_id}_{track}", factor_id=spec.factor_id,
+            run_id=f"{spec_factor_id(spec)}_{track}", factor_id=spec_factor_id(spec),
             plugin_id=plugin.plugin_id, track=track, code_hash=plugin.code_hash,
             metrics=RunMetrics(mean_return=metrics.get("mean_monthly_return"), t_stat=metrics.get("t_stat")),
             status="success",
@@ -67,7 +67,7 @@ class FakeRunner:
 
     def make_failed_run_record(self, spec, plugin, track, config_overrides, log):
         return RunRecord(
-            run_id=f"{spec.factor_id}_{track}_failed", factor_id=spec.factor_id,
+            run_id=f"{spec_factor_id(spec)}_{track}_failed", factor_id=spec_factor_id(spec),
             plugin_id=plugin.plugin_id, track=track, metrics=RunMetrics(), status="failed", logs=[log],
         )
 

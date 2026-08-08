@@ -1,10 +1,8 @@
 {
-  "schema_version": "methodspec.v1",
-  "returns_universe": "us_equity_crsp",
+  "returns_source": "us_equity_crsp",
   "factor_id": "fama_french_1992_book_to_market",
   "factor_name": "Book-to-Market Equity",
   "paper_ref": "Fama, Eugene F., and Kenneth R. French, 1992, The Cross-Section of Expected Stock Returns, The Journal of Finance 47(2), 427-465.",
-  "version": 1,
   "economic_intuition": "High book-to-market (value) firms earn higher returns than low book-to-market (growth) firms.",
   "detailed_definition": "Ratio of book equity to market equity, where book equity is Compustat common equity (ceq) and market equity is December CRSP price times shares outstanding.",
   "cat_form": "continuous",
@@ -16,12 +14,18 @@
     "sources": [
       {
         "name": "Compustat",
-        "source_details": ["annual industrial files", "common equity (ceq)"],
+        "source_details": [
+          "annual industrial files",
+          "common equity (ceq)"
+        ],
         "evidence": []
       },
       {
         "name": "CRSP",
-        "source_details": ["monthly stock files", "price and shares outstanding"],
+        "source_details": [
+          "monthly stock files",
+          "price and shares outstanding"
+        ],
         "evidence": []
       }
     ],
@@ -30,31 +34,36 @@
         "field": "book_equity",
         "concept": "Common equity from Compustat balance sheet.",
         "source_detail": "Compustat common equity (ceq)",
-        "evidence": []
+        "evidence": [],
+        "is_signal_input": true
       },
       {
         "field": "monthly_return",
         "concept": "Monthly CRSP stock return.",
         "source_detail": "monthly stock return files",
-        "evidence": []
+        "evidence": [],
+        "is_signal_input": false
       },
       {
         "field": "market_equity",
         "concept": "Market value of equity (price times shares outstanding).",
         "source_detail": "market capitalization",
-        "evidence": []
+        "evidence": [],
+        "is_signal_input": true
       },
       {
         "field": "listing_exchange",
         "concept": "Exchange code for NYSE breakpoints.",
         "source_detail": "exchange code",
-        "evidence": []
+        "evidence": [],
+        "is_signal_input": false
       },
       {
         "field": "sic_code",
         "concept": "SIC code to exclude financial firms.",
         "source_detail": "four-digit SIC",
-        "evidence": []
+        "evidence": [],
+        "is_signal_input": false
       }
     ],
     "normalized_mapping": {
@@ -73,12 +82,14 @@
         {
           "location": "Section II",
           "quote": "book-to-market equity (BE/ME), the ratio of the book value of a firm's common equity to its market value",
-          "interpretation": "Direct formula definition.",
-          "source_type": "paper"
+          "interpretation": "Direct formula definition."
         }
       ]
     },
-    "required_fields": ["book_equity", "market_equity"],
+    "required_fields": [
+      "book_equity",
+      "market_equity"
+    ],
     "field_sources": {},
     "timing": {
       "formation_month": 6,
@@ -91,8 +102,7 @@
         {
           "location": "Section II",
           "quote": "At the end of June of each year t",
-          "interpretation": "Annual rebalance at June end using December t-1 book equity.",
-          "source_type": "paper"
+          "interpretation": "Annual rebalance at June end using December t-1 book equity."
         }
       ]
     },
@@ -105,9 +115,8 @@
     "sign": 1
   },
   "portfolio": {
-    "universe": "NYSE, Amex, and NASDAQ nonfinancial firms with positive book equity.",
     "sort": {
-      "breakpoint_source": "nyse",
+      "breakpoint_basis": "nyse",
       "ls_quantile": 10.0,
       "quantiles": [],
       "evidence": []
@@ -130,16 +139,23 @@
     "evidence": []
   },
   "reported_results": {
-    "return_horizon": "monthly",
     "return_type": "raw",
     "comparison_policy": {},
-    "return_calculation": {"input_return": {}, "portfolio_return": {}, "evidence": []},
+    "return_calculation": {
+      "input_return": {},
+      "portfolio_return": {},
+      "evidence": []
+    },
     "spreads": {
       "vw_monthly_high_minus_low": {
         "value": 0.005,
         "t_stat": 3.17,
         "units": "monthly return spread",
-        "source": {"location": "Table VI", "quote": "0.50% per month", "interpretation": ""}
+        "source": {
+          "location": "Table VI",
+          "quote": "0.50% per month",
+          "interpretation": ""
+        }
       }
     },
     "t_stats": [],
@@ -147,23 +163,14 @@
     "main_t_stat": 3.17,
     "evidence": []
   },
-  "extraction_sources": [
-    {
-      "type": "paper",
-      "ref": "The Cross-Section of Expected Stock Returns",
-      "sections": ["Section II", "Table VI"]
-    }
-  ],
   "ambiguous_fields": [],
   "review_status": "approved",
   "remediation_mode": null,
   "codegen_ready": true,
-  "paper_faithful": true,
-  "review_notes": [],
   "resolution_log": [
     {
-      "field_path": "portfolio.sort.breakpoint_source",
-      "canonical_field_path": "portfolio.sort.breakpoint_source",
+      "field_path": "portfolio.sort.breakpoint_basis",
+      "canonical_field_path": "portfolio.sort.breakpoint_basis",
       "old_value": "unspecified",
       "new_value": "nyse",
       "decision_type": "human_empirical_assumption",

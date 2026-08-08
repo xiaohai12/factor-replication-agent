@@ -14,6 +14,8 @@ const NAV_ITEMS = [
   { to: "/pipeline", label: "Pipeline — End to End" },
   { to: "/backtest", label: "Backtest & Experiments" },
   { to: "/trace", label: "Trace & Logs" },
+  { to: "/schema", label: "Schema Reference" },
+  { to: "/data-catalog", label: "Data Catalog" },
 ]
 
 const COMING_SOON = ["Extractor", "Review & Resolve", "MetaCoder", "Replication Diagnosis"]

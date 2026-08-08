@@ -1,9 +1,7 @@
-"""End-to-end test: the AssetGrowth C&Z bridge track ACTUALLY EXECUTES via
-real subprocess, using the exact same synthetic snapshot the MVP golden-
-number e2e test uses (tests/test_mvp_e2e.py). This is the capstone proof
-that `src.infra.reference.cz_bridge` + `DualTrackController._run_bridge_track`
-+ `script_generator`'s `precomputed_signal_path` mode all actually work
-together end-to-end, not just against fakes.
+"""Phase D: `DualTrackController._run_bridge_track` off the paper-first
+`ResolvedMethodSpec` schema, mirrors tests/test_bridge_track_e2e.py (which
+covers the v1 path) -- proves the C&Z bridge track executes via real
+subprocess for a ResolvedMethodSpec too.
 """
 
 from __future__ import annotations
@@ -15,6 +13,7 @@ import pytest
 from src.infra.data_layer import SnapshotMetadata
 from src.infra.models.plugin import PluginRecord
 from src.pipeline import Pipeline
+from tests._spec_test_helpers import asset_growth_resolved_spec
 from tests.synthetic_data.asset_growth_synthetic_data import (
     build_ccm_link,
     build_compustat_funda,
@@ -23,7 +22,7 @@ from tests.synthetic_data.asset_growth_synthetic_data import (
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 PLUGIN_PATH = REPO_ROOT / "tests" / "fixtures" / "plugins" / "cooper_gulen_schill_2008_asset_growth.py"
-SNAPSHOT_ID = "bridge_e2e_v1"
+SNAPSHOT_ID = "bridge_e2e_resolved_v1"
 FACTOR_ID = "cooper_gulen_schill_2008_asset_growth"
 
 
@@ -63,14 +62,9 @@ def pipeline_with_bridge_data(tmp_path) -> Pipeline:
 
 
 def test_asset_growth_bridge_track_executes_via_real_subprocess(pipeline_with_bridge_data):
-    import json as json_module
-
-    from tests.test_mvp_e2e import RESOLVED_SPEC_PATH
-    from src.infra.models.method_spec import MethodSpec
-
-    spec = MethodSpec.model_validate(json_module.loads(RESOLVED_SPEC_PATH.read_text(encoding="utf-8")))
+    spec = asset_growth_resolved_spec()
     plugin = PluginRecord(
-        plugin_id=f"{FACTOR_ID}_v1", factor_id=FACTOR_ID,
+        plugin_id=f"{FACTOR_ID}_resolved", factor_id=FACTOR_ID,
         code=PLUGIN_PATH.read_text(encoding="utf-8"), code_hash="synthetic",
     )
 

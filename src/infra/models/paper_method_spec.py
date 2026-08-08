@@ -1,0 +1,777 @@
+"""Paper-first MethodSpec models (Phase A -- contract freeze, no pipeline
+consumers yet).
+
+Implements the four-artifact boundary from docs/methodspec-v2-plan.md section 5:
+
+    PaperMethodSpec          Step 1, immutable paper-first facts only.
+    MethodReview              Step 2 findings, bound to a paper_spec_hash.
+    ImplementationResolution  Physical mappings + human decisions, append-only.
+    ResolvedMethodSpec        Rebuilt-on-read aggregate (D1); never persisted as input.
+
+None of this is wired into src/steps/* yet. See plan section 9 (migration
+phases) -- Phase A only freezes the contract and adds round-trip tests.
+
+Naming/semantics follow the plan's section 6 decisions (D1-D8); see
+docs/decision-log.md for the approval record.
+"""
+
+from __future__ import annotations
+
+import hashlib
+import json
+from datetime import datetime
+from enum import Enum
+from typing import Any, Generic, Literal, Optional, TypeVar
+
+from pydantic import BaseModel, ConfigDict, Field, model_validator
+
+T = TypeVar("T")
+
+
+# --- 6.0 Shared building blocks -------------------------------------------
+
+
+class EvidenceStatus(str, Enum):
+    CLEAR = "clear"  # Prose states it; quote is auto-verifiable via substring search.
+    TABLE_ONLY = "table_only"  # Number comes from a table cell; no prose quote (the common case).
+    INFERRED = "inferred"  # LLM inferred from domain convention; paper doesn't say.
+    CONFLICTING = "conflicting"  # Paper contradicts itself.
+    UNSPECIFIED = "unspecified"  # Paper doesn't address this at all.
+
+
+class TableRef(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    table: str
+    row: str = ""
+    column: str = ""
+
+
+class EvidenceCitation(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    location: str = ""
+    quote: str = ""
+    table_ref: Optional[TableRef] = None
+    interpretation: str = ""
+
+    @model_validator(mode="after")
+    def _quote_xor_table_ref_for_clear_vs_table_only(self) -> "EvidenceCitation":
+        # Not a hard error here -- EvidenceStatus is what actually branches
+        # verification behavior (Step2 automation vs human review path).
+        # This citation shape only records what evidence looks like.
+        return self
+
+
+class SourcedValue(BaseModel, Generic[T]):
+    """Wraps a scalar/text value extracted from the paper with its evidence."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    value: Optional[T] = None
+    evidence: list[EvidenceCitation] = Field(default_factory=list)
+    status: EvidenceStatus = EvidenceStatus.UNSPECIFIED
+
+
+# --- 6.1 Top-level identity ------------------------------------------------
+
+
+class PaperRef(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    document_id: str
+    title: str = ""
+    citation: str = ""
+    publication_year: Optional[int] = None
+
+
+# --- 6.2 Signal & formula ---------------------------------------------------
+
+
+class SignalCategory(str, Enum):
+    CONTINUOUS = "continuous"
+    CATEGORICAL = "categorical"
+    INDICATOR = "indicator"
+    ESTIMATED = "estimated"
+
+
+class SignalDirection(str, Enum):
+    POSITIVE = "positive"
+    NEGATIVE = "negative"
+    NON_MONOTONIC = "non_monotonic"
+    UNSPECIFIED = "unspecified"
+
+
+class CalculationStep(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    step_id: str
+    description: str
+    expression: str = ""
+    status: EvidenceStatus = EvidenceStatus.UNSPECIFIED
+    evidence: list[EvidenceCitation] = Field(default_factory=list)
+
+
+class FormulaSpec(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    paper_expression: str = ""
+    steps: list[CalculationStep] = Field(default_factory=list)
+    inputs: list[str] = Field(default_factory=list)  # concept_id refs into DataSpec.fields
+    constants: dict[str, float] = Field(default_factory=dict)
+    output_concept: str = ""
+    evidence: list[EvidenceCitation] = Field(default_factory=list)
+
+    @model_validator(mode="after")
+    def _step_ids_unique(self) -> "FormulaSpec":
+        ids = [s.step_id for s in self.steps]
+        if len(ids) != len(set(ids)):
+            raise ValueError(f"FormulaSpec.steps has duplicate step_id values: {ids}")
+        return self
+
+
+# --- 6.3 Estimation & windows -----------------------------------------------
+
+
+class TimeUnit(str, Enum):
+    DAY = "day"
+    MONTH = "month"
+    QUARTER = "quarter"
+    YEAR = "year"
+
+
+class WindowAnchor(str, Enum):
+    FORMATION_DATE = "formation_date"
+    FISCAL_PERIOD_END = "fiscal_period_end"
+    REPORT_DATE = "report_date"
+    OBSERVATION_DATE = "observation_date"
+
+
+class WindowSpec(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    start_offset: int
+    end_offset: int
+    unit: TimeUnit
+    anchor: WindowAnchor
+    is_expanding: bool = False
+
+
+class EstimationMethod(str, Enum):
+    TIME_SERIES_REGRESSION = "time_series_regression"
+    CROSS_SECTIONAL_REGRESSION = "cross_sectional_regression"
+    ROLLING_STATISTIC = "rolling_statistic"
+    RESIDUALIZATION = "residualization"
+    OTHER = "other"
+
+
+class EstimationSpec(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    method: EstimationMethod
+    model_expression: str = ""
+    estimation_window: WindowSpec
+    measurement_window: Optional[WindowSpec] = None
+    minimum_observations: Optional[int] = None
+    residual_definition: str = ""
+    evidence: list[EvidenceCitation] = Field(default_factory=list)
+
+
+class SignalSpec(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    definition: SourcedValue[str]
+    economic_intuition: SourcedValue[str]
+    direction: SourcedValue[SignalDirection]
+    category: SignalCategory = SignalCategory.CONTINUOUS
+    formula: FormulaSpec
+    estimation: Optional[EstimationSpec] = None
+
+    @model_validator(mode="after")
+    def _estimated_category_requires_estimation(self) -> "SignalSpec":
+        if self.category == SignalCategory.ESTIMATED and self.estimation is None:
+            raise ValueError("signal.category == 'estimated' requires signal.estimation to be set")
+        return self
+
+
+# --- 6.4 Data requirements ---------------------------------------------------
+
+
+class FieldRole(str, Enum):
+    SIGNAL_INPUT = "signal_input"
+    UNIVERSE_FILTER = "universe_filter"
+    WEIGHTING_INPUT = "weighting_input"
+    BENCHMARK_INPUT = "benchmark_input"
+    ESTIMATION_INPUT = "estimation_input"
+
+
+class RequiredField(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    concept_id: str
+    paper_name: str
+    description: str = ""
+    paper_source_hint: str = ""
+    roles: list[FieldRole] = Field(default_factory=list)
+    evidence: list[EvidenceCitation] = Field(default_factory=list)
+
+
+class DataSpec(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    signal_frequency: SourcedValue[TimeUnit]
+    return_frequency: SourcedValue[TimeUnit]
+    sources: list[SourcedValue[str]] = Field(default_factory=list)
+    fields: list[RequiredField] = Field(default_factory=list)
+    coverage_notes: list[str] = Field(default_factory=list)
+
+    @model_validator(mode="after")
+    def _concept_ids_unique(self) -> "DataSpec":
+        ids = [f.concept_id for f in self.fields]
+        if len(ids) != len(set(ids)):
+            raise ValueError(f"DataSpec.fields has duplicate concept_id values: {ids}")
+        return self
+
+
+# --- 6.5 Sample period (three independent periods) --------------------------
+
+
+class Period(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    start_year: Optional[int] = None
+    end_year: Optional[int] = None
+    start_month: Optional[int] = None
+    end_month: Optional[int] = None
+    evidence: list[EvidenceCitation] = Field(default_factory=list)
+    status: EvidenceStatus = EvidenceStatus.UNSPECIFIED
+
+
+class SampleSpec(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    data_coverage: Period
+    formation: Period
+    reported_returns: Period
+
+
+# --- 6.6 Timing --------------------------------------------------------------
+
+
+class LagBasis(str, Enum):
+    FIXED_CALENDAR_LAG = "fixed_calendar_lag"
+    REPORT_DATE = "report_date"
+    POINT_IN_TIME = "point_in_time"
+
+
+class DataAvailability(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    lag_value: Optional[int] = None
+    lag_unit: TimeUnit = TimeUnit.MONTH
+    anchor: WindowAnchor = WindowAnchor.FISCAL_PERIOD_END
+    basis: LagBasis = LagBasis.FIXED_CALENDAR_LAG
+    evidence: list[EvidenceCitation] = Field(default_factory=list)
+
+
+class TimingSpec(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    formation_rule: SourcedValue[str]
+    #: Structured calendar month (1-12) portfolios form on, e.g. 6 for June --
+    #: distinct from `formation_rule`'s free text (needed for prose/quote
+    #: evidence). None when the paper doesn't state an explicit month (e.g.
+    #: monthly-rebalanced factors, where every month is a formation month).
+    #: Found missing during Phase D registry wiring -- v1's MethodSpec had a
+    #: structured `formation_month: int`, which this replaces.
+    formation_month: Optional[SourcedValue[int]] = None
+    rebalance_frequency: SourcedValue[TimeUnit]
+    holding_period: SourcedValue[int]
+    return_window: Optional[WindowSpec] = None
+    data_availability: DataAvailability
+
+
+# --- 6.7 Universe & missing-data handling ------------------------------------
+
+
+class FilterOp(str, Enum):
+    EQ = "eq"
+    NEQ = "neq"
+    IN = "in"
+    NOT_IN = "not_in"
+    BETWEEN = "between"
+    NOT_BETWEEN = "not_between"
+    GT = "gt"
+    GTE = "gte"
+    LT = "lt"
+    LTE = "lte"
+    NONMISSING = "nonmissing"
+    NONZERO = "nonzero"
+    IS_TRUE = "is_true"
+    IS_FALSE = "is_false"
+
+
+class FilterSpec(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    concept_id: str
+    op: FilterOp = FilterOp.NONMISSING
+    value: Any = None
+    evidence: list[EvidenceCitation] = Field(default_factory=list)
+
+
+class UniverseSpec(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    description: SourcedValue[str]
+    filters: list[FilterSpec] = Field(default_factory=list)
+
+
+class MissingStage(str, Enum):
+    INPUT = "input"
+    SIGNAL = "signal"
+    PORTFOLIO = "portfolio"
+
+
+class TransformStage(str, Enum):
+    BEFORE_SIGNAL = "before_signal"
+    AFTER_SIGNAL = "after_signal"
+
+
+class MissingPolicy(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    stage: MissingStage
+    action: SourcedValue[str]
+    threshold: Optional[float] = None
+
+
+class TransformKind(str, Enum):
+    WINSORIZE = "winsorize"
+    TRUNCATE = "truncate"
+    STANDARDIZE = "standardize"
+    RANK = "rank"
+    LOG = "log"
+    OTHER = "other"
+
+
+class TransformSpec(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    kind: TransformKind
+    stage: TransformStage
+    bounds: Optional[tuple[float, float]] = None
+    evidence: list[EvidenceCitation] = Field(default_factory=list)
+
+
+# --- 6.8 Portfolio construction ----------------------------------------------
+
+
+class ConstructionType(str, Enum):
+    CHARACTERISTIC_SORT = "characteristic_sort"
+    FAMA_MACBETH = "fama_macbeth"
+    DIRECT_PORTFOLIO = "direct_portfolio"
+    OTHER = "other"
+
+
+class SortRole(str, Enum):
+    TARGET = "target"
+    CONTROL = "control"
+    CONDITIONING = "conditioning"
+
+
+class SortMode(str, Enum):
+    INDEPENDENT = "independent"
+    SEQUENTIAL = "sequential"
+    WITHIN_GROUP = "within_group"
+
+
+class GroupType(str, Enum):
+    QUANTILE = "quantile"
+    CATEGORICAL = "categorical"
+    THRESHOLD = "threshold"
+
+
+class BreakpointSpec(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    population: SourcedValue[str]
+    values: list[float] = Field(default_factory=list)
+
+
+class SortDimension(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    sort_id: str
+    concept_id: str
+    role: SortRole
+    order: int
+    mode: SortMode
+    group_type: GroupType
+    group_count: Optional[int] = None
+    breakpoints: BreakpointSpec
+    condition_on_sort_id: Optional[str] = None
+    evidence: list[EvidenceCitation] = Field(default_factory=list)
+
+
+class PortfolioLeg(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    leg_id: str
+    side: Literal["long", "short"]
+    selector: dict[str, Any] = Field(default_factory=dict)  # {sort_id: group_index}
+    evidence: list[EvidenceCitation] = Field(default_factory=list)
+
+
+class PortfolioSpec(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    construction_type: SourcedValue[ConstructionType]
+    sorts: list[SortDimension] = Field(default_factory=list)
+    legs: list[PortfolioLeg] = Field(default_factory=list)
+    weighting: SourcedValue[str]
+    return_combination: SourcedValue[str]
+    missing_policies: list[MissingPolicy] = Field(default_factory=list)
+    transforms: list[TransformSpec] = Field(default_factory=list)
+
+    @model_validator(mode="after")
+    def _sort_and_leg_ids_unique(self) -> "PortfolioSpec":
+        sort_ids = [s.sort_id for s in self.sorts]
+        if len(sort_ids) != len(set(sort_ids)):
+            raise ValueError(f"PortfolioSpec.sorts has duplicate sort_id values: {sort_ids}")
+        leg_ids = [leg.leg_id for leg in self.legs]
+        if len(leg_ids) != len(set(leg_ids)):
+            raise ValueError(f"PortfolioSpec.legs has duplicate leg_id values: {leg_ids}")
+
+        known_sort_ids = set(sort_ids)
+        for s in self.sorts:
+            if s.condition_on_sort_id and s.condition_on_sort_id not in known_sort_ids:
+                raise ValueError(
+                    f"SortDimension {s.sort_id!r} conditions on unknown sort_id "
+                    f"{s.condition_on_sort_id!r}"
+                )
+        for leg in self.legs:
+            for referenced_sort_id in leg.selector:
+                if referenced_sort_id not in known_sort_ids:
+                    raise ValueError(
+                        f"PortfolioLeg {leg.leg_id!r} selector references unknown "
+                        f"sort_id {referenced_sort_id!r}"
+                    )
+        return self
+
+
+# --- 6.9 Reported results -----------------------------------------------------
+
+
+class Estimand(str, Enum):
+    MEAN_RETURN = "mean_return"
+    SPREAD = "spread"
+    ALPHA = "alpha"
+    COEFFICIENT = "coefficient"
+    SHARPE = "sharpe"
+    OTHER = "other"
+
+
+class AdjustmentModel(str, Enum):
+    """Must line up 1:1 with backtest engine output names (D5)."""
+
+    RAW = "raw"
+    CAPM = "capm"
+    FF3 = "ff3"
+    FF5 = "ff5"
+    FF6 = "ff6"
+    OTHER = "other"  # Engine doesn't produce this -- Step7 marks as non-comparable.
+
+
+class Unit(str, Enum):
+    DECIMAL = "decimal"
+    PERCENT = "percent"
+    BASIS_POINTS = "basis_points"
+
+
+class MetricStatistic(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    kind: Literal["t_stat", "standard_error", "p_value"]
+    value: float
+
+
+class ReportedMetric(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    metric_id: str
+    label: str
+    estimand: Estimand
+    adjustment_model: AdjustmentModel
+    estimate: float
+    unit: Unit
+    frequency: TimeUnit
+    statistic: Optional[MetricStatistic] = None
+    sample_period: Period
+    evidence: list[EvidenceCitation] = Field(default_factory=list)
+    status: EvidenceStatus = EvidenceStatus.UNSPECIFIED
+
+    @model_validator(mode="after")
+    def _table_only_has_table_ref(self) -> "ReportedMetric":
+        if self.status == EvidenceStatus.TABLE_ONLY:
+            has_table_ref = any(e.table_ref is not None for e in self.evidence)
+            if not has_table_ref:
+                raise ValueError(
+                    f"ReportedMetric {self.metric_id!r} has status=table_only but no "
+                    "evidence entry carries a table_ref"
+                )
+        return self
+
+
+class ReportedResults(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    primary_metric_id: str
+    metrics: list[ReportedMetric] = Field(default_factory=list, max_length=4)
+
+    @model_validator(mode="after")
+    def _primary_metric_exists(self) -> "ReportedResults":
+        ids = [m.metric_id for m in self.metrics]
+        if len(ids) != len(set(ids)):
+            raise ValueError(f"ReportedResults.metrics has duplicate metric_id values: {ids}")
+        if self.metrics and self.primary_metric_id not in ids:
+            raise ValueError(
+                f"primary_metric_id {self.primary_metric_id!r} not found in metrics {ids}"
+            )
+        return self
+
+
+# --- 6.1 (cont'd) Top-level PaperMethodSpec ----------------------------------
+
+
+class PaperMethodSpec(BaseModel):
+    """Step 1 output. Immutable paper facts only -- no physical mappings, no
+    review state, no engine defaults. See plan section 6.10 for the full
+    field audit vs methodspec.v1.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    schema_version: Literal["methodspec.v2"] = "methodspec.v2"
+    factor_id: str
+    target_name: str
+
+    paper: PaperRef
+    signal: SignalSpec
+    data: DataSpec
+    sample: SampleSpec
+    timing: TimingSpec
+    universe: UniverseSpec
+    portfolio: PortfolioSpec
+    reported_results: ReportedResults
+    notes: str = ""
+
+    def content_hash(self) -> str:
+        """Deterministic hash of paper-fact content, used by MethodReview /
+        ImplementationResolution to detect staleness (D1, D2).
+        """
+        payload = self.model_dump(mode="json", exclude={"notes"})
+        canonical = json.dumps(payload, sort_keys=True, separators=(",", ":"))
+        return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
+
+    @staticmethod
+    def make_factor_id(document_id: str, target_name: str) -> str:
+        """D7: factor_id = sha256(paper_ref + "::" + target_name)[:16]."""
+        digest = hashlib.sha256(f"{document_id}::{target_name}".encode("utf-8")).hexdigest()
+        return digest[:16]
+
+
+# --- 6.11 MethodReview --------------------------------------------------------
+
+
+class Disposition(str, Enum):
+    AUTO_APPROVE = "auto_approve"
+    APPROVE_WITH_DEFAULT = "approve_with_default"
+    NEEDS_LLM_REVIEW = "needs_llm_review"
+    NEEDS_HUMAN_CONFIRMATION = "needs_human_confirmation"
+    BLOCKED = "blocked"
+
+
+# D2: 5x2 disposition matrix (EvidenceStatus x EmpiricalImpact), replacing
+# v1's 6x2 matrix (SINGLE and WEAK_OR_CONFLICTING removed -- see plan 6.0).
+EMPIRICAL_IMPACT_HIGH = "high"
+EMPIRICAL_IMPACT_LOW = "low"
+
+DISPOSITION_MATRIX: dict[tuple[EvidenceStatus, str], Disposition] = {
+    (EvidenceStatus.CLEAR, EMPIRICAL_IMPACT_LOW): Disposition.AUTO_APPROVE,
+    (EvidenceStatus.CLEAR, EMPIRICAL_IMPACT_HIGH): Disposition.AUTO_APPROVE,
+    (EvidenceStatus.TABLE_ONLY, EMPIRICAL_IMPACT_LOW): Disposition.AUTO_APPROVE,
+    (EvidenceStatus.TABLE_ONLY, EMPIRICAL_IMPACT_HIGH): Disposition.NEEDS_HUMAN_CONFIRMATION,
+    (EvidenceStatus.INFERRED, EMPIRICAL_IMPACT_LOW): Disposition.APPROVE_WITH_DEFAULT,
+    (EvidenceStatus.INFERRED, EMPIRICAL_IMPACT_HIGH): Disposition.NEEDS_HUMAN_CONFIRMATION,
+    (EvidenceStatus.UNSPECIFIED, EMPIRICAL_IMPACT_LOW): Disposition.APPROVE_WITH_DEFAULT,
+    (EvidenceStatus.UNSPECIFIED, EMPIRICAL_IMPACT_HIGH): Disposition.NEEDS_HUMAN_CONFIRMATION,
+    (EvidenceStatus.CONFLICTING, EMPIRICAL_IMPACT_LOW): Disposition.NEEDS_LLM_REVIEW,
+    (EvidenceStatus.CONFLICTING, EMPIRICAL_IMPACT_HIGH): Disposition.NEEDS_HUMAN_CONFIRMATION,
+}
+
+
+class Finding(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    field_path: str
+    kind: Literal["ambiguous", "unsupported", "missing_mapping", "inconsistent"]
+    reason: str = ""
+    empirical_impact: Literal["high", "low"]
+    disposition: Disposition
+    paper_value: Any = None
+    evidence: list[EvidenceCitation] = Field(default_factory=list)
+
+
+class MethodReview(BaseModel):
+    """Step 2 output. Bound to a specific PaperMethodSpec content hash (D1);
+    stale if the paper spec changes underneath it.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    schema_version: Literal["methodreview.v2"] = "methodreview.v2"
+    factor_id: str
+    paper_spec_hash: str
+    capability_version: str
+    findings: list[Finding] = Field(default_factory=list)
+    status_overrides: dict[str, EvidenceStatus] = Field(default_factory=dict)
+    reextraction_attempts: int = 0
+
+    @property
+    def is_blocked(self) -> bool:
+        return any(f.disposition == Disposition.BLOCKED for f in self.findings)
+
+    def content_hash(self) -> str:
+        """Deterministic hash of review content, used by ImplementationResolution
+        to detect staleness the same way `paper_spec_hash` does for the paper (D1).
+        """
+        payload = self.model_dump(mode="json")
+        canonical = json.dumps(payload, sort_keys=True, separators=(",", ":"))
+        return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
+
+
+# --- 6.11 ImplementationResolution --------------------------------------------
+
+
+class SourceColumn(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    source: str
+    column: str
+
+
+class ResolutionEntry(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    field_path: str
+    expected_old_value: Any = None
+    new_value: Any = None
+    reason: str = ""
+    reviewer: str = ""
+    resolved_at: datetime
+
+
+class Substitution(BaseModel):
+    """An explicitly-approved standard-engine approximation for a paper
+    method the engine cannot execute as stated (D4). `original_method`
+    itself stays blocked; this records the parallel approximated track.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    field_path: str
+    paper_value: str
+    substituted_value: str
+    reason: str
+    approved_by: str
+
+
+class ImplementationResolution(BaseModel):
+    """Physical mappings + human decisions. Append-only entries list;
+    never mutates PaperMethodSpec or MethodReview in place.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    schema_version: Literal["resolution.v2"] = "resolution.v2"
+    factor_id: str
+    paper_spec_hash: str
+    review_hash: str
+
+    concept_mapping: dict[str, SourceColumn] = Field(default_factory=dict)
+    returns_source: str = ""
+    cz_acronym: Optional[str] = None
+
+    entries: list[ResolutionEntry] = Field(default_factory=list)
+    approved_substitutions: list[Substitution] = Field(default_factory=list)
+
+
+# --- 6.11 (cont'd) ResolvedMethodSpec (D1: rebuilt on read, never persisted) --
+
+
+# Capability matrix version string for the initial engine capability set
+# (D4: characteristic sort, up to 2 quantile-grouped sort dimensions --
+# matches BacktestExecutor.assign_portfolios_multi's actual implementation
+# in src/infra/backtest_engine/__init__.py, which supports exactly 2
+# dimensions, dimension-0-conditional sequential or independent; see
+# docs/decision-log.md 2026-08-07 entry. Raise this only after the engine
+# itself executes a 3rd dimension -- otherwise ResolvedMethodSpec.is_ready
+# would pass a MethodSpec the engine can't actually run.)
+CAPABILITY_VERSION_V1 = "engine_capability.v1"
+
+MAX_SUPPORTED_SORT_DIMENSIONS = 2
+
+
+class ResolvedMethodSpec(BaseModel):
+    """Deterministic aggregate view of the three source artifacts (D1).
+
+    Rebuilt in memory on every use -- Step3/Step4/Step5 never read a cached
+    "resolved" file from disk. Callers MAY write this out as an audit
+    snapshot (e.g. runs/resolved/<timestamp>_<factor>.json) for debugging,
+    but that snapshot is an output artifact, never read back in.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    paper: PaperMethodSpec
+    review: MethodReview
+    resolution: ImplementationResolution
+
+    @model_validator(mode="after")
+    def _factor_ids_consistent(self) -> "ResolvedMethodSpec":
+        ids = {self.paper.factor_id, self.review.factor_id, self.resolution.factor_id}
+        if len(ids) != 1:
+            raise ValueError(f"factor_id mismatch across paper/review/resolution: {ids}")
+        return self
+
+    def _hashes_current(self) -> bool:
+        current_paper_hash = self.paper.content_hash()
+        return (
+            self.review.paper_spec_hash == current_paper_hash
+            and self.resolution.paper_spec_hash == current_paper_hash
+            and self.resolution.review_hash == self.review.content_hash()
+        )
+
+    def _all_concepts_mapped(self) -> bool:
+        signal_input_concepts = {
+            f.concept_id for f in self.paper.data.fields if FieldRole.SIGNAL_INPUT in f.roles
+        }
+        return signal_input_concepts.issubset(self.resolution.concept_mapping.keys())
+
+    def _construction_within_capability(self) -> bool:
+        sorts = self.paper.portfolio.sorts
+        if len(sorts) > MAX_SUPPORTED_SORT_DIMENSIONS:
+            return False
+        return all(s.group_type == GroupType.QUANTILE for s in sorts)
+
+    @property
+    def is_ready(self) -> bool:
+        """Replaces v1's `codegen_ready` boolean flag -- derived, not stored."""
+        return (
+            self._hashes_current()
+            and not self.review.is_blocked
+            and self._all_concepts_mapped()
+            and self._construction_within_capability()
+        )
+

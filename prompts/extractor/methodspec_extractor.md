@@ -80,7 +80,6 @@ Each MethodSpec JSON must follow this structure. Keep field names stable. If a f
 
 ```json
 {
-  "schema_version": "methodspec.v1",
   "factor_id": "",
   "cz_acronym": null,
   "annotation_status": "draft_human_annotation",
@@ -137,7 +136,7 @@ Each MethodSpec JSON must follow this structure. Keep field names stable. If a f
       {"dataset": "", "use": "", "source_details": []}
     ],
     "required_fields": [
-      {"field": "", "dataset": "", "description": "", "source_detail": ""}
+      {"field": "", "dataset": "", "description": "", "source_detail": "", "is_signal_input": true}
     ],
     "source_note": "",
     "sample_coverage_notes": [
@@ -153,10 +152,6 @@ Each MethodSpec JSON must follow this structure. Keep field names stable. If a f
   },
   "sample": {
     "formation_years": {"start": null, "end": null},
-    "return_sample": {
-      "start": {"year": null, "month": null},
-      "end": {"year": null, "month": null}
-    },
     "source": {"location": "", "quote": "", "interpretation": ""}
   },
   "timing": {
@@ -202,21 +197,16 @@ Each MethodSpec JSON must follow this structure. Keep field names stable. If a f
       "n_groups": null,
       "group_type": "",
       "ls_quantile": null,
-      "breakpoint_source": "unspecified",
+      "breakpoint_basis": "unspecified",
       "source": {"location": "", "quote": "", "interpretation": ""}
     },
     "weights": [],
     "weights_source": {"location": "", "quote": "", "interpretation": ""},
     "paper_reports_explicit_simple_long_short_strategy": null,
-    "paper_spread_direction": "unspecified",
-    "implied_factor_direction": {
-      "long_leg": "",
-      "short_leg": "",
-      "use_for_backtest_if_needed": null,
-      "note": ""
-    },
+    "long_leg": "high or low — 'high' = buy the firms with the HIGHEST signal values (e.g. high profitability, high B/M, high past return); 'low' = buy the firms with the LOWEST signal values (e.g. low accruals, low asset growth, low beta). Use 'unspecified' only when the paper gives no direction.",
+    "short_leg": "high or low — opposite of long_leg in a standard long-short factor. 'low' = short the lowest-signal firms; 'high' = short the highest-signal firms. Use 'unspecified' only when the paper gives no direction.",
     "construction_type": "",
-    "return_combination": {"type": "", "expression": "", "long_leg": null, "short_leg": null, "note": ""}
+    "return_combination": {"type": "", "long_leg": null, "short_leg": null, "note": ""}
   },
   "reported_results": {
     "return_horizon": "",
@@ -239,14 +229,17 @@ Each MethodSpec JSON must follow this structure. Keep field names stable. If a f
 
 # 3. Allowed Values
 
-Use only these enum-like values.
+Use only these enum-like values (auto-generated from the MethodSpec schema --
+do not hand-edit the block below; it is regenerated at prompt-load time from
+`src/infra/models/field_contract.py`).
 
+<!-- FIELD_CONTRACT:ALLOWED_VALUES:START -->
 ```text
-universe.filters[].op:
+portfolio.universe_filters[].op:
 eq, neq, in, not_in, between, not_between, gt, gte, lt, lte, nonmissing, nonzero, is_true, is_false
 
-portfolio.sort.breakpoint_source:
-nyse_only, full_sample, other, unspecified
+portfolio.sort.breakpoint_basis:
+nyse, full_sample, other, unspecified
 
 portfolio.weighting:
 vw, ew, other, unspecified
@@ -255,18 +248,25 @@ signal.missing_policy.action:
 drop, other, unspecified
 
 portfolio.construction_type:
-characteristic_sort, other
+characteristic_sort, other, unspecified
 
 portfolio.return_combination.type:
-extreme_group_spread, average_leg_spread, single_signal_portfolio_return, full_portfolio_return, other
+extreme_group_spread, average_leg_spread, single_signal_portfolio_return, full_portfolio_return, other, unspecified
+```
+<!-- FIELD_CONTRACT:ALLOWED_VALUES:END -->
 
-ambiguous_fields[].status:
+`ambiguous_fields[].status` (a separate, richer extraction-time vocabulary
+that normalizes down to `EvidenceSource` -- see `_normalize_evidence_source`
+in `method_spec.py` -- not a 1:1 MethodSpec enum, so it is NOT part of the
+auto-generated block above):
+
+```text
 explicit, inferred, unspecified, ambiguous, conflicting, weak_or_conflicting, not_main_spec, inferred_for_backtest_not_paper_stated
 ```
 
 If a paper-specific construction is not covered, use `other`; do not invent enum-like strings.
 
-`other` vs `unspecified` for `breakpoint_source` / `weighting` / `missing_policy.action`
+`other` vs `unspecified` for `breakpoint_basis` / `weighting` / `missing_policy.action`
 is NOT a free choice -- it records a real distinction the pipeline depends on:
 
 - `unspecified`: the paper never addresses this choice at all.
@@ -348,6 +348,10 @@ Do not add constants or intermediate variables as raw `inputs[]` unless they are
 
 `data.sources[].source_details` must be an array of strings. `data.required_fields[].source_detail` must be a single string.
 
+`data.required_fields[].is_signal_input` distinguishes two roles:
+- `true` (default) — formula variable: directly used inside `compute_signal` (e.g. `total_assets`, `revenues`).
+- `false` — universe/sample-membership variable: mentioned in the paper for sample construction, resolved through the data catalog so the engine can apply it as a universe filter, but NOT used inside `compute_signal` (e.g. `listing_exchange`, `sic_code`, `monthly_return`, `market_equity`).
+
 Do not write WRDS table names, CRSP/Compustat merge keys, or implementation-only columns unless the paper explicitly states them.
 
 ## 4.5 Universe vs missing policy vs coverage notes
@@ -379,7 +383,7 @@ If the paper uses groups such as "lowest quartile", "top tercile", "quintile 5",
 
 - Prefer a rank field such as `zscore_quartile`, `signal_quintile`, or `ie_tercile` with `op: "eq"` or `op: "in"` and numeric values such as `1`, `5`, or `[4,5]`.
 - Do not use numeric comparison operators (`lt`, `lte`, `gt`, `gte`, `between`) with string labels such as `"lowest_quartile"` or `"high"`.
-- If the paper does not provide the numeric breakpoint value, do not invent one. Use a rank/category field and record the breakpoint universe in `portfolio.sort.breakpoint_source` and/or `ambiguous_fields`.
+- If the paper does not provide the numeric breakpoint value, do not invent one. Use a rank/category field and record the breakpoint population in `portfolio.sort.breakpoint_basis` and/or `ambiguous_fields`.
 - Keep the rank-condition field name consistent between `universe.filters[].field` and `data.required_fields[].field`.
 
 ### 4.5.2 The common "ordinary common shares / major exchange / ex-financials" screen
@@ -493,7 +497,7 @@ Separate these concepts carefully:
 |---|---|---|
 | Raw data coverage stated by the paper | `data.source_note` or `sample.source.interpretation` | CRSP data cover January 1926 to December 2009 |
 | Executable formation / strategy period | `sample.formation_years` | formation years aligned with reported strategy period |
-| Reported return sample | `sample.return_sample` | strategy returns January 1930 to December 2009 |
+| Reported return sample (month-level detail, if the paper states it) | `sample.source.interpretation` (no dedicated field -- there is no `sample.return_sample` in the current schema; record it as a note, or as an `ambiguous_fields` entry if it affects an executable choice) | strategy returns January 1930 to December 2009 |
 
 Do not put raw input-data coverage into `sample.formation_years` if the paper's reported strategy returns begin later because of estimation-window, signal-window, accounting-lag, or holding-period requirements.
 
@@ -505,15 +509,15 @@ If the paper gives only a year range but the strategy uses monthly returns, set 
 
 For annual rebalanced strategies, note partial final years explicitly when the reported sample ends before the next full rebalance cycle.
 
-### 4.9 Breakpoint source when paper is silent
+### 4.9 Breakpoint basis when paper is silent
 
-If the paper says only that portfolios are sorted into deciles/quintiles/etc. but does not state the breakpoint universe, set:
+If the paper says only that portfolios are sorted into deciles/quintiles/etc. but does not state which stock population's distribution defines the breakpoints, set:
 
 ```json
-"breakpoint_source": "unspecified"
+"breakpoint_basis": "unspecified"
 ```
 
-Do not infer `full_sample` or `nyse_only` from general practice. If an executable default is later needed, record it as an inferred convention in `ambiguous_fields` or leave it to the normalizer.
+Do not infer `full_sample` or `nyse` from general practice. If an executable default is later needed, record it as an inferred convention in `ambiguous_fields` or leave it to the normalizer.
 
 # 5. Extraction Workflow
 

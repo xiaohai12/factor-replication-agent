@@ -21,23 +21,16 @@ from __future__ import annotations
 
 import pytest
 
-from src.infra.models.method_spec import MethodSpec
 from src.steps.step3_codegen.registry import (
     ConfigOverrideError,
     build_config,
     stage_of,
 )
+from tests._spec_test_helpers import minimal_resolved_spec
 
 
-def _minimal_spec(**portfolio_overrides) -> MethodSpec:
-    payload = {
-        "factor_id": "x",
-        "factor_name": "X",
-        "signal": {"required_fields": ["f"], "formula": {"expression": "f"}},
-        "data": {"normalized_mapping": {"f": "ret"}},
-        "portfolio": portfolio_overrides,
-    }
-    return MethodSpec.model_validate(payload)
+def _minimal_spec(weighting: str = "vw"):
+    return minimal_resolved_spec("x", weighting=weighting)
 
 
 class TestUnknownOverrideKeyRejected:

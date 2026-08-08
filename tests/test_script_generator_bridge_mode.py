@@ -6,12 +6,12 @@ parquet path directly as the signal when this is set.
 
 from __future__ import annotations
 
-from src.infra.models.method_spec import MethodSpec, SignalSpec
 from src.steps.step3_codegen.script_generator import generate_backtest_script
+from tests._spec_test_helpers import minimal_resolved_spec
 
 
-def _spec() -> MethodSpec:
-    return MethodSpec(factor_id="t", factor_name="Test", signal=SignalSpec())
+def _spec():
+    return minimal_resolved_spec("t")
 
 
 def _plugin_code() -> str:

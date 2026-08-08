@@ -13,12 +13,9 @@ Seven-page dashboard aligned with architecture.md pipeline:
 """
 
 import json
-import csv
 import traceback
 from pathlib import Path
-from datetime import datetime, timezone
 
-import numpy as np
 import pandas as pd
 import streamlit as st
 
@@ -43,30 +40,56 @@ PAPER_TEXT_CACHE_DIR.mkdir(parents=True, exist_ok=True)
 # evidence) live under runs/ — a single gitignored directory — rather than
 # scattered across data/ and a top-level evidence/. See CHANGELOG.md.
 RUNS_DIR = PROJECT_ROOT / "runs"
-UNREVIEWED_METHODSPEC_DIR = RUNS_DIR / "method_specs" / "unreviewed"
-UNREVIEWED_METHODSPEC_DIR.mkdir(parents=True, exist_ok=True)
-RESOLVED_DIR = RUNS_DIR / "method_specs" / "resolved"
-RESOLVED_DIR.mkdir(parents=True, exist_ok=True)
-REVIEWED_DIR = RUNS_DIR / "method_specs" / "reviewed"
-REVIEWED_DIR.mkdir(parents=True, exist_ok=True)
-RESOLUTIONS_DIR = RUNS_DIR / "method_specs" / "resolutions"
-RESOLUTIONS_DIR.mkdir(parents=True, exist_ok=True)
+
+# Paper-first (PaperMethodSpec/MethodReview/ImplementationResolution/
+# ResolvedMethodSpec) artifact dirs (see backend/state.py for the matching
+# backend-side dirs).
+PAPER_DRAFTS_DIR = RUNS_DIR / "method_specs" / "paper_drafts"
+PAPER_DRAFTS_DIR.mkdir(parents=True, exist_ok=True)
+PAPER_REVIEWS_DIR = RUNS_DIR / "method_specs" / "paper_reviews"
+PAPER_REVIEWS_DIR.mkdir(parents=True, exist_ok=True)
+PAPER_RESOLUTIONS_DIR = RUNS_DIR / "method_specs" / "paper_resolutions"
+PAPER_RESOLUTIONS_DIR.mkdir(parents=True, exist_ok=True)
+PAPER_RESOLVED_DIR = RUNS_DIR / "method_specs" / "paper_resolved"
+PAPER_RESOLVED_DIR.mkdir(parents=True, exist_ok=True)
+
 PLUGINS_DIR = RUNS_DIR / "plugins"
 PLUGINS_DIR.mkdir(parents=True, exist_ok=True)
 BACKTEST_SCRIPTS_DIR = RUNS_DIR / "backtest_scripts"
 EVIDENCE_DIR = RUNS_DIR / "evidence"
 
-# Committed reference/test fixtures (resolved MethodSpecs + plugins that golden-
-# number tests and manual dashboard testing depend on) — tracked in git, unlike
-# runs/ above. See tests/test_*_e2e.py.
+# Committed reference/test fixtures (plugins that golden-number tests and
+# manual dashboard testing depend on) — tracked in git, unlike runs/ above.
+# See tests/test_*_e2e.py.
 FIXTURES_DIR = PROJECT_ROOT / "tests" / "fixtures"
-FIXTURE_METHODSPEC_DIR = FIXTURES_DIR / "method_specs"
 FIXTURE_PLUGINS_DIR = FIXTURES_DIR / "plugins"
 
-TEST_SPECS_DIR = PROJECT_ROOT / "data" / "test_method_specs_human_labeled"
 MSF_PATH = PROJECT_ROOT / "data" / "local" / "msf.parquet"
 SYNTHETIC_MSF_PATH = PROJECT_ROOT / "data" / "synthetic_data" / "local" / "msf.parquet"
 SYNTHETIC_SNAPSHOT_DIR = PROJECT_ROOT / "data" / "synthetic_data" / "mvp_v1"
+
+
+def _load_any_spec(text: str):
+    """Parse a ResolvedMethodSpec JSON string."""
+    from src.infra.models.paper_method_spec import ResolvedMethodSpec
+
+    return ResolvedMethodSpec.model_validate(json.loads(text))
+
+
+def _spec_factor_id(spec) -> str:
+    return spec.paper.factor_id
+
+
+def _spec_codegen_ready(spec) -> bool:
+    """Whether MetaCoder should be allowed to run for this spec --
+    `ResolvedMethodSpec.is_ready` computes readiness from hash-freshness +
+    finding + capability checks."""
+    return spec.is_ready
+
+
+def _spec_stable_hash(spec) -> str:
+    return spec.paper.content_hash()
+
 
 def _default_signal_mode(spec) -> str:
     """UI-only: preselect the "Signal Input" radio from the spec's resolved
@@ -145,7 +168,7 @@ def _run_backtest_via_script(
     scripts_dir = BACKTEST_SCRIPTS_DIR
     scripts_dir.mkdir(parents=True, exist_ok=True)
     results_dir = scripts_dir / "results"
-    output_csv = results_dir / f"{spec.factor_id}.csv"
+    output_csv = results_dir / f"{_spec_factor_id(spec)}.csv"
 
     script = generate_backtest_script(
         spec,
@@ -156,7 +179,7 @@ def _run_backtest_via_script(
         output_path=str(output_csv),
         config_overrides=config_overrides,
     )
-    script_path = scripts_dir / f"{spec.factor_id}_backtest.py"
+    script_path = scripts_dir / f"{_spec_factor_id(spec)}_backtest.py"
     script_path.write_text(script)
 
     # The generated script does `from src...` imports, but this repo's
@@ -196,13 +219,11 @@ st.sidebar.title("Pipeline Steps")
 page = st.sidebar.radio(
     "Navigate",
     [
-        "Pipeline — End to End",
-        "Extractor",
-        "Review & Resolve",
         "MetaCoder",
         "Backtest & Experiments",
         "Replication Diagnosis",
         "Trace & Logs",
+        "Paper-First Workflow",
     ],
     index=0,
 )
@@ -236,33 +257,11 @@ llm_model = st.sidebar.selectbox(
     index=0,
 )
 
-_reference_count = len(list(TEST_SPECS_DIR.glob("*.methodspec.json"))) if TEST_SPECS_DIR.exists() else 0
-st.sidebar.markdown("---")
-st.sidebar.markdown(
-    f"**Curated References:** {_reference_count} specs in `test_method_specs_human_labeled/`"
-)
-
 st.title("Factor Replication Agent")
 
 # ============================================================
 # Shared helpers
 # ============================================================
-
-def _save_paper_text_cache(pdf_name: str, paper_text: str) -> Path:
-    cache_path = PAPER_TEXT_CACHE_DIR / f"{Path(pdf_name).stem}.txt"
-    cache_path.write_text(paper_text, encoding="utf-8")
-    return cache_path
-
-
-def _load_paper_text_from_cache() -> str | None:
-    cache_path = st.session_state.get("paper_text_path")
-    if cache_path:
-        path = Path(cache_path)
-        if path.exists():
-            text = path.read_text(encoding="utf-8")
-            st.session_state["paper_text"] = text
-            return text
-    return st.session_state.get("paper_text")
 
 
 def _extract_text_from_pdf_bytes(pdf_bytes: bytes) -> str:
@@ -271,23 +270,6 @@ def _extract_text_from_pdf_bytes(pdf_bytes: bytes) -> str:
         return "\n".join(page.get_text() for page in doc)
     finally:
         doc.close()
-
-
-def _resolve_review_inputs(provider: str) -> tuple[str | None, bytes | None]:
-    paper_text = _load_paper_text_from_cache()
-    pdf_bytes = st.session_state.get("pdf_bytes")
-    if paper_text:
-        return paper_text, pdf_bytes if provider == "claude" else None
-    if pdf_bytes:
-        if provider == "claude":
-            return None, pdf_bytes
-        extracted_text = _extract_text_from_pdf_bytes(pdf_bytes)
-        st.session_state["paper_text"] = extracted_text
-        pdf_name = st.session_state.get("pdf_name", "uploaded_paper.pdf")
-        paper_text_path = _save_paper_text_cache(pdf_name, extracted_text)
-        st.session_state["paper_text_path"] = str(paper_text_path)
-        return extracted_text, None
-    return None, None
 
 
 def _show_token_usage(usage: dict | None, label: str = "Token Usage") -> None:
@@ -302,1011 +284,19 @@ def _show_token_usage(usage: dict | None, label: str = "Token Usage") -> None:
         tc3.metric(f"Total{suffix}", f"{usage.get('total_tokens', 0):,}")
 
 
-def _save_review_artifacts(spec, review_result, raw_llm_review=None) -> None:
-    import dataclasses as _dc
-    factor_id = spec.factor_id
-    def _ser(obj):
-        if hasattr(obj, "model_dump"):
-            return _ser(obj.model_dump(mode="json"))
-        if _dc.is_dataclass(obj):
-            return _ser(_dc.asdict(obj))
-        if isinstance(obj, dict):
-            return {k: _ser(v) for k, v in obj.items()}
-        if isinstance(obj, list):
-            return [_ser(i) for i in obj]
-        if hasattr(obj, "value"):
-            return obj.value
-        return obj
-    report_dict = _ser(review_result)
-    if raw_llm_review:
-        report_dict["_llm_raw"] = _ser(raw_llm_review)
-    (REVIEWED_DIR / f"{factor_id}.review_report.json").write_text(
-        json.dumps(report_dict, indent=2, ensure_ascii=False) + "\n"
-    )
-    (REVIEWED_DIR / f"{factor_id}.reviewed.methodspec.json").write_text(
-        spec.model_dump_json(indent=2) + "\n"
-    )
-
-
-def _load_curated_reference_specs() -> dict[str, dict]:
-    """Load human-curated MethodSpec references used for post-hoc scoring."""
-    specs = {}
-    if TEST_SPECS_DIR.exists():
-        for p in sorted(TEST_SPECS_DIR.glob("*.methodspec.json")):
-            try:
-                data = json.loads(p.read_text(encoding="utf-8"))
-                fid = data.get("factor_id", p.stem.replace(".methodspec", ""))
-                specs[fid] = data
-            except Exception:
-                pass
-    return specs
-
-
-def _compare_specs(extracted: dict, reference: dict) -> list[dict]:
-    """Compare extracted fields against a human-curated reference spec."""
-    fields_to_compare = [
-        ("signal.formula.expression", "signal.formula.expression"),
-        ("signal.formula.paper_expression", "signal.formula.paper_expression"),
-        ("signal.timing.formation_month", "signal.timing.formation_month"),
-        ("signal.timing.rebalance_frequency", "signal.timing.rebalance_frequency"),
-        ("signal.timing.holding_period", "signal.timing.holding_period"),
-        ("signal.timing.accounting_lag", "signal.timing.accounting_lag"),
-        ("signal.missing_policy.action", "signal.missing_policy.action"),
-        ("portfolio.sort.breakpoint_source", "portfolio.sort.breakpoint_source"),
-        ("portfolio.weighting", "portfolio.weighting"),
-        ("portfolio.long_leg", "portfolio.long_leg"),
-        ("portfolio.short_leg", "portfolio.short_leg"),
-        ("sign", "signal.sign"),
-    ]
-    results = []
-    for ext_path, gt_path in fields_to_compare:
-        ext_val = _get_nested(extracted, ext_path)
-        gt_val = _get_nested(reference, gt_path)
-        match = _values_match(ext_val, gt_val)
-        results.append({
-            "field": ext_path,
-            "extracted": str(ext_val) if ext_val is not None else "",
-            "reference": str(gt_val) if gt_val is not None else "",
-            "match": match,
-        })
-    return results
-
-
-def _get_nested(d: dict, path: str):
-    """Get a nested value from a dict using dot-separated path."""
-    cur = d
-    for key in path.split("."):
-        if isinstance(cur, dict):
-            cur = cur.get(key)
-        else:
-            return None
-    return cur
-
-
-def _values_match(a, b) -> bool:
-    """Compare two values flexibly."""
-    if a is None and b is None:
-        return True
-    if a is None or b is None:
-        return False
-    sa, sb = str(a).strip().lower(), str(b).strip().lower()
-    if sa == sb:
-        return True
-    # Handle enum values
-    for prefix in ("breakpointsource.", "weightingrule.", "missingaction.", "rebalancefrequency."):
-        sa = sa.replace(prefix, "")
-        sb = sb.replace(prefix, "")
-    return sa == sb
-
-
-def _compute_eval_metrics(comparisons: list[dict]) -> dict:
-    """Compute evaluation metrics from field comparisons."""
-    total = len(comparisons)
-    matched = sum(1 for c in comparisons if c["match"])
-    reference_present = sum(1 for c in comparisons if c["reference"])
-    extracted_present = sum(1 for c in comparisons if c["extracted"])
-    return {
-        "field_accuracy": matched / total if total > 0 else 0,
-        "field_coverage": extracted_present / reference_present if reference_present > 0 else 0,
-        "matched": matched,
-        "total": total,
-    }
-
-
-# Resolution helpers
-_PATH_ALIASES_RES = {
-    "universe.missing_policy.action": "signal.missing_policy.action",
-    "universe.winsorize_bounds": "signal.missing_policy.winsorize_bounds",
-}
-
-def _res_get_path(data, path):
-    cur = data
-    for p in _PATH_ALIASES_RES.get(path, path).split("."):
-        if not isinstance(cur, dict):
-            return None
-        cur = cur.get(p)
-    return cur
-
-def _res_set_path(data, path, value):
-    parts = _PATH_ALIASES_RES.get(path, path).split(".")
-    cur = data
-    for p in parts[:-1]:
-        cur = cur.setdefault(p, {})
-    cur[parts[-1]] = value
-
-def _field_options(field_path, current_value, candidate_value):
-    opts = []
-    if candidate_value not in (None, "", "unspecified"):
-        opts.append((f"candidate: {candidate_value}", candidate_value))
-    if field_path.endswith("breakpoint_source"):
-        opts += [("nyse", "nyse"), ("full_sample", "full_sample")]
-    elif "missing_policy" in field_path:
-        opts += [("drop", "drop"), ("keep", "keep"), ("winsorize", "winsorize")]
-    elif field_path.endswith("weighting") or field_path.endswith("stock_weight"):
-        opts += [("vw", "vw"), ("ew", "ew"), ("capped_vw", "capped_vw")]
-    elif "rebalance_frequency" in field_path:
-        opts += [("annual", "annual"), ("monthly", "monthly"), ("quarterly", "quarterly")]
-    elif "formation_month" in field_path:
-        opts += [(f"month {m}", m) for m in [6, 7, 12]]
-    elif "accounting_lag" in field_path:
-        opts += [(f"{m} months", m) for m in [4, 5, 6]]
-    else:
-        if current_value not in (None, "", "unspecified"):
-            opts.append((f"keep current: {current_value}", current_value))
-        opts.append(("unspecified", "unspecified"))
-    seen, deduped = set(), []
-    for label, val in opts:
-        k = str(val)
-        if k not in seen:
-            deduped.append((label, val))
-            seen.add(k)
-    deduped.append(("custom value...", "__custom__"))
-    return deduped
-
-def _status_val(note):
-    return note.status.value if hasattr(note.status, "value") else str(note.status)
-
-
-def _e2e_review_result_to_dict(result) -> dict:
-    """Serialize a ReviewResult to the same shape scripts/review_methodspecs.py writes."""
-    return {
-        "review_id": result.review_id,
-        "methodspec_version": result.methodspec_version,
-        "reviewer": result.reviewer,
-        "disposition": result.disposition,
-        "remediation_mode": result.remediation_mode,
-        "codegen_ready": result.codegen_ready,
-        "paper_faithful": result.paper_faithful,
-        "approved": result.approved,
-        "issues": result.issues,
-        "warnings": result.warnings,
-        "field_notes": [
-            {
-                "field": note.field,
-                "status": _status_val(note),
-                "reason": note.reason,
-                "current_value": note.current_value,
-                "candidate_value": note.candidate_value,
-                "empirical_impact": note.empirical_impact,
-                "evidence": [e.model_dump(mode="json") for e in note.evidence],
-            }
-            for note in result.field_notes
-        ],
-        "blocked_fields": result.blocked_fields,
-        "requires_human": result.requires_human,
-    }
-
-
-def _e2e_run_stage_3_to_7(
-    spec, review_result, tracer, stages, human_resolutions,
-    e2e_data_src, e2e_signal_mode, llm_provider, llm_model,
-):
-    """Stage 3 (Resolve) through Stage 7 (Replication Diagnosis) of the E2E pipeline.
-
-    Split out from Stage 1/2 (Extract/Review) so the page can pause between
-    them: if ReviewGate flags any field as needs_human_confirmation, the
-    caller collects human_resolutions via an inline selectbox (mirroring the
-    Review & Resolve page) before calling this function, instead of the
-    pipeline silently defaulting those fields like it used to.
-    """
-    from src.infra.models import MethodSpec as _MS
-    from src.steps.step2_reviewer import SENSIBLE_DEFAULTS
-
-    progress = st.progress(3 / 7, text="Stage 3/7 — Resolving...")
-
-    # Stage 3: Resolve (human confirmations + sensible defaults for the rest)
-    tracer.log("resolve", "started")
-    spec_dict = json.loads(spec.model_dump_json())
-    decisions = []
-    for note in review_result.field_notes:
-        sv = _status_val(note)
-        if sv == "needs_human_confirmation":
-            val = human_resolutions.get(note.field)
-            if val not in (None, ""):
-                decisions.append({
-                    "field_path": note.field,
-                    "old_value": _res_get_path(spec_dict, note.field),
-                    "new_value": val,
-                    "decision_type": "human_confirmed",
-                    "reason": "Human confirmed via Pipeline — End to End page.",
-                    "reviewer": "human",
-                })
-                _res_set_path(spec_dict, note.field, val)
-        elif sv in ("approve_with_default", "needs_llm_review"):
-            default_val = SENSIBLE_DEFAULTS.get(note.field, note.candidate_value)
-            if default_val not in (None, "", "unspecified"):
-                decisions.append({
-                    "field_path": note.field,
-                    "old_value": _res_get_path(spec_dict, note.field),
-                    "new_value": default_val,
-                    "decision_type": "sensible_default",
-                    "reason": note.reason or "Sensible default.",
-                    "reviewer": "dashboard_auto_resolve",
-                })
-                _res_set_path(spec_dict, note.field, default_val)
-    spec_dict["codegen_ready"] = True
-    spec_dict["review_status"] = "approved"
-    spec = _MS.model_validate(spec_dict)
-    resolution_path = RESOLUTIONS_DIR / f"{spec.factor_id}.resolution.json"
-    resolution_path.write_text(json.dumps({
-        "factor_id": spec.factor_id,
-        "reviewer": "dashboard_e2e",
-        "created_at": datetime.now(timezone.utc).isoformat(),
-        "decisions": decisions,
-        "source": "Pipeline — End to End page, Stage 3",
-    }, indent=2, default=str) + "\n")
-    resolved_path = RESOLVED_DIR / f"{spec.factor_id}.resolved.methodspec.json"
-    resolved_path.write_text(spec.model_dump_json(indent=2) + "\n")
-    tracer.log("resolve", "done", f"{len(decisions)} field(s) resolved, saved to {resolved_path}")
-    stages["resolve"] = {"status": "done", "n_resolved": len(decisions)}
-
-    # Stage 4: MetaCoder
-    progress.progress(4 / 7, text="Stage 4/7 — Generating plugin...")
-    tracer.log("metacoder", "started")
-    from src.steps.step3_codegen import MetaCoder
-    from src.infra.llm import create_llm_client as _clc
-    from src.infra.models.method_spec import ReviewStatus
-    gen_spec = spec.model_copy(update={"codegen_ready": True, "review_status": ReviewStatus.APPROVED})
-    llm = _clc(provider=llm_provider, model=llm_model)
-    coder = MetaCoder(llm_client=llm)
-    plugin = coder.generate_plugin(gen_spec)
-    plugin_path = PLUGINS_DIR / f"{plugin.factor_id}.py"
-    plugin_path.write_text(plugin.code)
-    tracer.log(
-        "metacoder", "done",
-        f"code_hash={plugin.code_hash}, formula-only plugin saved to {plugin_path}",
-    )
-    stages["metacoder"] = {"status": "done", "code_hash": plugin.code_hash}
-
-    # Stage 5: Sandbox
-    progress.progress(5 / 7, text="Stage 5/7 — Sandbox validation...")
-    tracer.log("sandbox", "started")
-    from src.steps.step4_validator import AdversarialSandbox
-    sandbox = AdversarialSandbox()
-    report = sandbox.validate(plugin, spec)
-    tracer.log("sandbox", "done" if report.passed else "FAILED", str(report.errors))
-    stages["sandbox"] = {"status": "passed" if report.passed else "failed", "errors": report.errors}
-
-    if not report.passed:
-        tracer.log("sandbox", "repair needed", level="warning")
-
-    # Stage 6: Backtest
-    progress.progress(6 / 7, text="Stage 6/7 — Backtesting...")
-    tracer.log("backtest", "started")
-    if e2e_data_src == "Bundled synthetic demo data":
-        _ensure_synthetic_data()
-    msf_path = (
-        SYNTHETIC_MSF_PATH if e2e_data_src == "Bundled synthetic demo data" else MSF_PATH
-    )
-    bt_result = None
-    if msf_path.exists():
-        import hashlib
-        from src.infra.evidence import EvidenceStore
-        from src.infra.models.run_record import RunRecord, RunMetrics
-
-        crsp_data_path = (
-            SYNTHETIC_SNAPSHOT_DIR / "crsp_msf.parquet"
-            if e2e_data_src == "Bundled synthetic demo data"
-            else MSF_PATH
-        )
-
-        if e2e_signal_mode == "Compustat + CRSP (via generated script)":
-            needs_compustat = True
-        elif e2e_signal_mode == "CRSP monthly only (price-based signals)":
-            needs_compustat = False
-        else:
-            needs_compustat = _default_signal_mode(spec) != "crsp_only"
-
-        backtest_skipped = False
-        signal_data_dir = None
-        if needs_compustat:
-            if not (SYNTHETIC_SNAPSHOT_DIR / "comp_funda.parquet").exists():
-                tracer.log(
-                    "backtest",
-                    "skipped — no Compustat snapshot available "
-                    "(run scripts/build_synthetic_data.py or choose CRSP-only signal input)",
-                    level="warning",
-                )
-                stages["backtest"] = {"status": "skipped", "reason": "no compustat snapshot"}
-                backtest_skipped = True
-            else:
-                signal_data_dir = SYNTHETIC_SNAPSHOT_DIR
-
-        if not backtest_skipped:
-            bt_result = _run_backtest_via_script(
-                spec, plugin.code,
-                crsp_data_path=crsp_data_path,
-                signal_input_mode="compustat" if needs_compustat else "crsp_only",
-                signal_data_dir=signal_data_dir,
-            )
-            tracer.log("backtest", "done", f"t_stat={bt_result['metrics'].get('t_stat', 'N/A'):.2f}")
-            stages["backtest"] = {"status": "done", "metrics": bt_result["metrics"]}
-
-            # Persist as an auditable RunRecord.
-            metrics = bt_result["metrics"]
-            run = RunRecord(
-                run_id=f"{spec.factor_id}_e2e_{plugin.code_hash[:8]}",
-                factor_id=spec.factor_id,
-                plugin_id=plugin.plugin_id,
-                track="dashboard_e2e",
-                method_spec_hash=spec.stable_hash(),
-                code_hash=plugin.code_hash,
-                config_hash=hashlib.sha256(
-                    json.dumps(bt_result["config"], sort_keys=True, default=str).encode()
-                ).hexdigest()[:16],
-                metrics=RunMetrics(
-                    mean_return=metrics.get("mean_monthly_return"),
-                    t_stat=metrics.get("t_stat"),
-                    n_months=metrics.get("n_months"),
-                ),
-                status="success",
-            )
-            EvidenceStore(base_path=str(EVIDENCE_DIR)).save_run(run)
-            stages["backtest"]["run_id"] = run.run_id
-    else:
-        tracer.log("backtest", f"skipped — {msf_path} not found", level="warning")
-        stages["backtest"] = {"status": "skipped", "reason": "no data"}
-
-    # Stage 7: deterministic diagnosis is terminal and is not yet wired into
-    # this dashboard path. It never changes MethodSpec/config automatically.
-    progress.progress(1.0, text="Stage 7/7 — Replication diagnosis...")
-    tracer.log("diagnosis", "not run — multi-config evidence matrix not implemented")
-    stages["diagnosis"] = {"status": "not_implemented"}
-
-    st.session_state["e2e_stages"] = stages
-    st.session_state["e2e_spec"] = spec
-    st.session_state["e2e_plugin"] = plugin
-    st.session_state["e2e_bt_result"] = bt_result
-
-
-# ############################################################
-# PAGE 1: Pipeline — End to End
-# ############################################################
-if page == "Pipeline — End to End":
-    st.header("Pipeline — End to End")
-    st.markdown(
-        "Run the full pipeline from PDF upload through backtest in one go. "
-        "Each stage output is displayed in an expandable section. If a field "
-        "needs human confirmation, the pipeline pauses before generating code "
-        "and asks you to resolve it — it will not silently auto-approve."
-    )
-
-    # Input selection
-    input_mode = st.radio("Input", ["Upload PDF", "Select existing MethodSpec"], horizontal=True)
-
-    if input_mode == "Upload PDF":
-        e2e_pdf = st.file_uploader("Upload paper PDF", type=["pdf"], key="e2e_pdf")
-    else:
-        spec_files_e2e = []
-        for d, label in [(UNREVIEWED_METHODSPEC_DIR, "unreviewed"), (RESOLVED_DIR, "resolved")]:
-            if d.exists():
-                for p in sorted(d.glob("*.methodspec.json")) + sorted(d.glob("*.resolved.methodspec.json")):
-                    spec_files_e2e.append((f"[{label}] {p.name}", p))
-        e2e_spec_options = [""] + [l for l, _ in spec_files_e2e]
-        e2e_spec_map = {l: p for l, p in spec_files_e2e}
-        e2e_selected = st.selectbox("MethodSpec", e2e_spec_options, key="e2e_spec_sel")
-        e2e_pdf = None
-
-    e2e_data_options = ["Bundled synthetic demo data", "Local (data/local/msf.parquet)"]
-    e2e_data_src = st.radio("CRSP Data", e2e_data_options, horizontal=True, key="e2e_data_src")
-    if e2e_data_src == "Bundled synthetic demo data":
-        if SYNTHETIC_MSF_PATH.exists():
-            st.caption(
-                "10 synthetic permnos, deterministic returns — for pipeline smoke-testing only, "
-                "not real backtest results. See docs/roadmap.md Phase 1."
-            )
-        else:
-            st.caption("Not generated yet — will be built automatically when you click Run.")
-    e2e_signal_mode = st.radio(
-        "Signal Input",
-        ["Auto-detect", "Compustat + CRSP (via generated script)", "CRSP monthly only (price-based signals)"],
-        horizontal=True,
-        key="e2e_signal_mode",
-        help="Auto-detect guesses from the resolved spec's data.normalized_mapping once "
-        "extraction/resolution finish. Override if it guesses wrong.",
-    )
-
-    run_e2e = st.button(
-        "Run Full Pipeline", type="primary", key="e2e_run",
-        disabled=st.session_state.get("e2e_awaiting_human", False),
-    )
-
-    if run_e2e:
-        from src.infra.trace import PipelineTracer
-        tracer = PipelineTracer()
-        stages = {}
-        st.session_state["e2e_tracer"] = tracer
-        st.session_state.pop("e2e_awaiting_human", None)
-        progress = st.progress(0, text="Starting...")
-
-        try:
-            # Stage 1: Extract
-            progress.progress(1 / 7, text="Stage 1/7 — Extracting...")
-            tracer.log("extract", "started")
-
-            from src.infra.models import MethodSpec as _MS
-
-            if input_mode == "Upload PDF" and e2e_pdf:
-                pdf_bytes = e2e_pdf.read()
-                paper_text = _extract_text_from_pdf_bytes(pdf_bytes)
-                pdf_stem = Path(e2e_pdf.name).stem
-                _save_paper_text_cache(e2e_pdf.name, paper_text)
-
-                from src.steps.step1_extractor import SemanticExtractor
-                from src.infra.llm import create_llm_client
-                client = create_llm_client(provider=llm_provider, model=llm_model)
-                extractor = SemanticExtractor(llm_client=client)
-                _pdf_b = pdf_bytes if llm_provider in ("claude", "codex") else None
-                result = extractor.extract(pdf_stem, paper_text, pdf_bytes=_pdf_b)
-                spec = result.spec
-                unreviewed_path = UNREVIEWED_METHODSPEC_DIR / f"{spec.factor_id}.methodspec.json"
-                unreviewed_path.write_text(spec.model_dump_json(indent=2) + "\n")
-                tracer.log(
-                    "extract", "done",
-                    f"{len(paper_text)} chars, factor_id={spec.factor_id}, saved to {unreviewed_path}",
-                )
-            elif input_mode == "Select existing MethodSpec" and e2e_selected:
-                spec = _MS.model_validate_json(e2e_spec_map[e2e_selected].read_text())
-                paper_text = None
-                tracer.log("extract", "skipped — loaded existing spec", spec.factor_id)
-            else:
-                st.warning("Select an input.")
-                st.stop()
-
-            stages["extract"] = {"status": "done", "factor_id": spec.factor_id}
-
-            # Stage 2: Review
-            progress.progress(2 / 7, text="Stage 2/7 — Reviewing...")
-            tracer.log("review", "started")
-            from src.steps.step2_reviewer import ReviewGate
-            gate = ReviewGate()
-            review_result = gate.review(spec)
-            review_report_path = REVIEWED_DIR / f"{spec.factor_id}.review_report.json"
-            review_report_path.write_text(
-                json.dumps(_e2e_review_result_to_dict(review_result), indent=2, default=str) + "\n"
-            )
-            tracer.log("review", "done", f"disposition={review_result.disposition}")
-            stages["review"] = {"status": "done", "disposition": review_result.disposition}
-            st.session_state["e2e_stages"] = stages
-
-            human_fields = [n for n in review_result.field_notes if _status_val(n) == "needs_human_confirmation"]
-            if human_fields:
-                tracer.log(
-                    "resolve",
-                    f"paused — {len(human_fields)} field(s) need human confirmation",
-                    level="warning",
-                )
-                st.session_state["e2e_awaiting_human"] = True
-                st.session_state["e2e_pending_spec"] = spec
-                st.session_state["e2e_pending_review_result"] = review_result
-                st.session_state["e2e_pending_tracer"] = tracer
-                st.session_state["e2e_pending_stages"] = stages
-                st.session_state["e2e_pending_data_src"] = e2e_data_src
-                st.session_state["e2e_pending_signal_mode"] = e2e_signal_mode
-                st.session_state["e2e_pending_llm_provider"] = llm_provider
-                st.session_state["e2e_pending_llm_model"] = llm_model
-                st.rerun()
-            else:
-                _e2e_run_stage_3_to_7(
-                    spec, review_result, tracer, stages, {},
-                    e2e_data_src, e2e_signal_mode, llm_provider, llm_model,
-                )
-
-        except Exception as e:
-            tracer.log("pipeline", f"ERROR: {e}", level="error")
-            st.error(f"Pipeline failed: {e}")
-            st.code(traceback.format_exc())
-            st.session_state["e2e_stages"] = stages
-
-    # Human-confirmation gate — rendered whenever the pipeline is paused on it.
-    if st.session_state.get("e2e_awaiting_human"):
-        st.markdown("---")
-        st.warning(
-            "⏸️ Pipeline paused — the fields below need human confirmation "
-            "before codegen. Resolve them, then continue."
-        )
-        review_result = st.session_state["e2e_pending_review_result"]
-        human_fields = [n for n in review_result.field_notes if _status_val(n) == "needs_human_confirmation"]
-        human_resolutions = {}
-        for note in human_fields:
-            fp = note.field
-            opts = _field_options(fp, note.current_value, note.candidate_value)
-            with st.expander(f"🔴 {fp}", expanded=True):
-                st.caption(note.reason)
-                labels = [l for l, _ in opts]
-                sel = st.selectbox("Resolution:", labels, key=f"e2e_hres_{fp}")
-                val = dict(opts)[sel]
-                if val == "__custom__":
-                    val = st.text_input("Custom:", key=f"e2e_hcustom_{fp}")
-                human_resolutions[fp] = val
-
-        if st.button("Continue Pipeline", type="primary", key="e2e_continue"):
-            spec = st.session_state["e2e_pending_spec"]
-            tracer = st.session_state["e2e_pending_tracer"]
-            stages = st.session_state["e2e_pending_stages"]
-            e2e_data_src_pending = st.session_state["e2e_pending_data_src"]
-            e2e_signal_mode_pending = st.session_state["e2e_pending_signal_mode"]
-            provider_pending = st.session_state["e2e_pending_llm_provider"]
-            model_pending = st.session_state["e2e_pending_llm_model"]
-            try:
-                _e2e_run_stage_3_to_7(
-                    spec, review_result, tracer, stages, human_resolutions,
-                    e2e_data_src_pending, e2e_signal_mode_pending, provider_pending, model_pending,
-                )
-            except Exception as e:
-                tracer.log("pipeline", f"ERROR: {e}", level="error")
-                st.error(f"Pipeline failed: {e}")
-                st.code(traceback.format_exc())
-                st.session_state["e2e_stages"] = stages
-            finally:
-                st.session_state["e2e_awaiting_human"] = False
-                for k in (
-                    "e2e_pending_spec", "e2e_pending_review_result", "e2e_pending_tracer",
-                    "e2e_pending_stages", "e2e_pending_data_src", "e2e_pending_signal_mode",
-                    "e2e_pending_llm_provider", "e2e_pending_llm_model",
-                ):
-                    st.session_state.pop(k, None)
-            st.rerun()
-
-    # Display results
-    stages = st.session_state.get("e2e_stages", {})
-    if stages:
-        st.markdown("---")
-        st.subheader("Stage Results")
-        stage_names = ["extract", "review", "resolve", "metacoder", "sandbox", "backtest", "diagnosis"]
-        stage_icons = {"done": "✅", "passed": "✅", "failed": "❌", "skipped": "⏭️"}
-        for sn in stage_names:
-            s = stages.get(sn, {})
-            status = s.get("status", "pending")
-            icon = stage_icons.get(status, "⏳")
-            with st.expander(f"{icon} {sn.capitalize()}", expanded=(status == "failed")):
-                st.json(s)
-
-        # Final metrics
-        bt_result = st.session_state.get("e2e_bt_result")
-        if bt_result:
-            st.markdown("---")
-            st.subheader("Backtest Results")
-            m = bt_result["metrics"]
-            mc1, mc2, mc3, mc4 = st.columns(4)
-            mc1.metric("Mean Monthly", f"{m.get('mean_monthly_return', 0)*100:.3f}%")
-            mc2.metric("t-stat (NW)", f"{m.get('t_stat', 0):.2f}")
-            mc3.metric("Annualized", f"{m.get('annualized_return', 0)*100:.1f}%")
-            mc4.metric("N Months", m.get("n_months", 0))
-
-            script_path = bt_result.get("script_path")
-            if script_path:
-                st.caption(f"Full backtest script saved to `{script_path}`")
-                with st.expander("View generated backtest script"):
-                    script_code = Path(script_path).read_text()
-                    st.code(script_code, language="python")
-                    st.download_button(
-                        "Download Script", script_code, Path(script_path).name, key="e2e_dl_script"
-                    )
-
-    # Trace
-    tracer = st.session_state.get("e2e_tracer")
-    if tracer:
-        with st.expander("Pipeline Trace"):
-            for ev in tracer.get_timeline():
-                level_icon = {"info": "ℹ️", "warning": "⚠️", "error": "❌"}.get(ev["level"], "")
-                st.text(f"{ev['timestamp'][-8:]} {level_icon} [{ev['stage']}] {ev['event']} {ev['detail']}")
-
-
-# ############################################################
-# PAGE 2: Extractor
-# ############################################################
-elif page == "Extractor":
-    st.header("Extractor — Extract MethodSpec from Paper")
-
-    if not HAS_PYMUPDF:
-        st.error("pymupdf not installed. Run: `pip install pymupdf`")
-        st.stop()
-
-    # Upload / load
-    st.subheader("1. Upload Paper or Load Saved Spec")
-    uploaded_pdf = st.file_uploader("Upload paper PDF", type=["pdf"], key="ext_pdf")
-
-    if uploaded_pdf:
-        pdf_bytes = uploaded_pdf.read()
-        paper_text = _extract_text_from_pdf_bytes(pdf_bytes)
-        paper_text_path = _save_paper_text_cache(uploaded_pdf.name, paper_text)
-        st.session_state["paper_text"] = paper_text
-        st.session_state["paper_text_path"] = str(paper_text_path)
-        st.session_state["pdf_bytes"] = pdf_bytes
-        st.session_state["pdf_name"] = uploaded_pdf.name
-        st.success(f"Extracted **{len(paper_text):,}** chars from `{uploaded_pdf.name}`")
-
-    with st.expander("Import Existing MethodSpec"):
-        saved_specs = sorted(UNREVIEWED_METHODSPEC_DIR.glob("*.methodspec.json"))
-        saved_texts = sorted(PAPER_TEXT_CACHE_DIR.glob("*.txt"))
-        spec_options = [""] + [p.name for p in saved_specs]
-        selected_spec_name = st.selectbox("Saved MethodSpec", spec_options, index=0, key="ext_saved_spec")
-        text_options = [""] + [p.name for p in saved_texts]
-        selected_text_name = st.selectbox("Saved paper text", text_options, index=0, key="ext_saved_text")
-        imported_spec_file = st.file_uploader("Or upload JSON", type=["json"], key="ext_import_json")
-
-        if st.button("Load", key="ext_load_saved"):
-            try:
-                from src.infra.models import MethodSpec
-                if imported_spec_file:
-                    spec = MethodSpec.model_validate_json(imported_spec_file.getvalue().decode())
-                elif selected_spec_name:
-                    spec = MethodSpec.model_validate_json((UNREVIEWED_METHODSPEC_DIR / selected_spec_name).read_text())
-                else:
-                    st.warning("Select or upload a spec.")
-                    spec = None
-                if spec:
-                    st.session_state["extracted_spec"] = spec
-                    if selected_text_name:
-                        tp = PAPER_TEXT_CACHE_DIR / selected_text_name
-                        st.session_state["paper_text_path"] = str(tp)
-                        st.session_state["paper_text"] = tp.read_text()
-                    st.success(f"Loaded: {spec.factor_id}")
-            except Exception as e:
-                st.error(str(e))
-
-    paper_text = _load_paper_text_from_cache()
-    if not paper_text and not st.session_state.get("extracted_spec"):
-        st.info("Upload a PDF or load a saved MethodSpec.")
-        st.stop()
-
-    # Extract
-    st.subheader("2. Extract")
-    _pdf_stem = Path(st.session_state.get("pdf_name", "unknown")).stem
-
-    if st.button("Extract MethodSpec", type="primary", disabled=not bool(paper_text), key="ext_run"):
-        with st.spinner("Extracting..."):
-            from src.steps.step1_extractor import SemanticExtractor
-            from src.infra.llm import create_llm_client
-            client = create_llm_client(provider=llm_provider, model=llm_model)
-            extractor = SemanticExtractor(llm_client=client)
-            _pdf_b = st.session_state.get("pdf_bytes") if llm_provider in ("claude", "codex") else None
-            result = extractor.extract(_pdf_stem, paper_text, pdf_bytes=_pdf_b)
-            st.session_state["raw_llm_output"] = result.raw_llm_output
-            st.session_state["extracted_spec"] = result.spec
-            st.session_state["extraction_token_usage"] = result.token_usage
-            if result.spec:
-                fid = result.spec.factor_id or _pdf_stem
-                out_path = UNREVIEWED_METHODSPEC_DIR / f"{fid}.methodspec.json"
-                out_path.write_text(result.spec.model_dump_json(indent=2) + "\n")
-                st.session_state["extracted_spec_path"] = str(out_path)
-                st.success(f"Extracted: **{fid}**")
-
-    _show_token_usage(st.session_state.get("extraction_token_usage"))
-
-    # Results
-    spec = st.session_state.get("extracted_spec")
-    if spec:
-        st.markdown("---")
-        st.subheader("3. Extraction Results")
-        st.markdown(f"**Factor:** {spec.factor_name} · **Formula:** `{spec.signal.formula}`")
-        st.markdown(f"**Required fields:** {', '.join(spec.signal.required_fields)}")
-
-        timing = spec.signal.timing
-        tcol1, tcol2, tcol3, tcol4 = st.columns(4)
-        tcol1.metric("Formation Month", timing.formation_month)
-        tcol2.metric("Rebalance", getattr(timing.rebalance_frequency, "value", timing.rebalance_frequency))
-        tcol3.metric("Holding (months)", timing.holding_period)
-        tcol4.metric("Lag (months)", timing.accounting_lag)
-
-        if spec.ambiguous_fields:
-            st.warning(f"**{len(spec.ambiguous_fields)} ambiguous fields**")
-            for af in spec.ambiguous_fields:
-                st.caption(f"- **{af.field}**: {af.reason}")
-
-        with st.expander("Full MethodSpec JSON"):
-            st.json(json.loads(spec.model_dump_json()))
-
-        # Eval vs human-curated reference
-        st.markdown("---")
-        st.subheader("4. Eval vs Curated Reference")
-        gt_specs = _load_curated_reference_specs()
-        gt_match = gt_specs.get(spec.factor_id) or gt_specs.get(getattr(spec, "cz_acronym", "") or "")
-
-        if gt_match:
-            ext_dict = json.loads(spec.model_dump_json())
-            comparisons = _compare_specs(ext_dict, gt_match)
-            metrics = _compute_eval_metrics(comparisons)
-
-            ecol1, ecol2, ecol3 = st.columns(3)
-            ecol1.metric("Field Accuracy", f"{metrics['field_accuracy']:.0%}")
-            ecol2.metric("Field Coverage", f"{metrics['field_coverage']:.0%}")
-            ecol3.metric("Matched", f"{metrics['matched']}/{metrics['total']}")
-
-            eval_data = []
-            for c in comparisons:
-                eval_data.append({
-                    "Field": c["field"],
-                    "Extracted": c["extracted"],
-                    "Curated Reference": c["reference"],
-                    "Match": "✅" if c["match"] else "❌",
-                })
-            st.table(eval_data)
-        else:
-            st.info(
-                f"No curated reference found for `{spec.factor_id}` in "
-                "`data/test_method_specs_human_labeled/`."
-            )
-
-        # Batch eval
-        with st.expander("Batch Eval — All Curated Reference Specs"):
-            if st.button("Run Batch Extraction Eval", key="ext_batch_eval"):
-                st.info("Batch eval compares already-extracted specs against curated references. "
-                        "For full re-extraction, use the CLI scripts.")
-                batch_results = []
-                for fid, gt_data in gt_specs.items():
-                    # Check if we have an unreviewed spec
-                    unreviewed_spec = UNREVIEWED_METHODSPEC_DIR / f"{fid}.methodspec.json"
-                    if unreviewed_spec.exists():
-                        try:
-                            ext_data = json.loads(unreviewed_spec.read_text())
-                            comps = _compare_specs(ext_data, gt_data)
-                            m = _compute_eval_metrics(comps)
-                            batch_results.append({"factor_id": fid, **m})
-                        except Exception:
-                            batch_results.append({"factor_id": fid, "field_accuracy": 0, "error": True})
-                if batch_results:
-                    st.dataframe(pd.DataFrame(batch_results), use_container_width=True)
-                else:
-                    st.caption("No unreviewed specs found to compare.")
-
-
-# ############################################################
-# PAGE 3: Review & Resolve
-# ############################################################
-elif page == "Review & Resolve":
-    st.header("Review & Resolve")
-
-    tab_review, tab_resolve, tab_eval = st.tabs(["Review", "Resolution", "Eval"])
-
-    # --- Load spec ---
-    spec_files_rr = []
-    for d, label in [(UNREVIEWED_METHODSPEC_DIR, "unreviewed"), (RESOLVED_DIR, "resolved")]:
-        if d.exists():
-            for p in sorted(d.glob("*.methodspec.json")) + sorted(d.glob("*.resolved.methodspec.json")):
-                spec_files_rr.append((f"[{label}] {p.name}", p))
-    rr_options = [""] + [l for l, _ in spec_files_rr]
-    rr_map = {l: p for l, p in spec_files_rr}
-
-    rr_selected = st.selectbox("Select MethodSpec to review", rr_options, key="rr_spec_sel")
-
-    if rr_selected and st.button("Load", key="rr_load"):
-        from src.infra.models import MethodSpec as _MS
-        try:
-            rr_spec = _MS.model_validate_json(rr_map[rr_selected].read_text())
-            st.session_state["rr_spec"] = rr_spec
-            st.session_state["rr_review"] = None
-            st.session_state["rr_resolution_inputs"] = {}
-            st.success(f"Loaded: {rr_spec.factor_id}")
-        except Exception as e:
-            st.error(str(e))
-
-    rr_spec = st.session_state.get("rr_spec")
-    if not rr_spec:
-        st.info("Select and load a MethodSpec to begin review.")
-        st.stop()
-
-    with tab_review:
-        st.subheader("Review Gate")
-        col_rules, col_llm = st.columns(2)
-        with col_rules:
-            if st.button("Run Rules Review", key="rr_rules"):
-                from src.steps.step2_reviewer import ReviewGate
-                review = ReviewGate().review(rr_spec)
-                st.session_state["rr_review"] = review
-        with col_llm:
-            if st.button("Run LLM Review", type="primary", key="rr_llm"):
-                from src.steps.step2_reviewer import ReviewGate
-                from src.infra.llm import create_llm_client
-                with st.spinner("LLM reviewing..."):
-                    try:
-                        pt, pb = _resolve_review_inputs(llm_provider)
-                        if not pt and not pb:
-                            raise RuntimeError("No paper text loaded.")
-                        llm = create_llm_client(provider=llm_provider, model=llm_model)
-                        gate = ReviewGate(llm_client=llm)
-                        review, raw = gate.review_with_llm(rr_spec, pt or "", pdf_bytes=pb)
-                        st.session_state["rr_review"] = review
-                        st.session_state["rr_review_raw"] = raw
-                        _save_review_artifacts(rr_spec, review, raw)
-                    except Exception as e:
-                        st.error(str(e))
-
-        review = st.session_state.get("rr_review")
-        if review:
-            _disp_icons = {"approved": "✅", "revision_required": "⚠️", "blocked": "🚫"}
-            st.subheader(f"Disposition: {_disp_icons.get(review.disposition, '❓')} {review.disposition.upper()}")
-            rc1, rc2, rc3 = st.columns(3)
-            rc1.metric("Codegen Ready", "Yes" if review.codegen_ready else "No")
-            rc2.metric("Blocked Fields", len(review.blocked_fields))
-            rc3.metric("Issues", len(review.issues))
-
-            if review.issues:
-                for issue in review.issues:
-                    st.error(issue)
-            if review.field_notes:
-                _status_icons = {
-                    "auto_approve": "✅", "auto_approve_with_flag": "🟡",
-                    "approve_with_default": "🟢", "needs_llm_review": "🔵",
-                    "needs_human_confirmation": "🔴",
-                }
-                fn_data = []
-                for note in review.field_notes:
-                    sv = _status_val(note)
-                    fn_data.append({
-                        "Field": note.field,
-                        "Status": f"{_status_icons.get(sv, '❓')} {sv}",
-                        "Impact": note.empirical_impact,
-                        "Current": str(note.current_value),
-                        "Reason": note.reason,
-                    })
-                st.table(fn_data)
-
-    with tab_resolve:
-        st.subheader("Apply Resolutions")
-        review = st.session_state.get("rr_review")
-        if not review:
-            st.info("Run a review first.")
-        else:
-            from src.steps.step2_reviewer import SENSIBLE_DEFAULTS
-            if "rr_resolution_inputs" not in st.session_state:
-                st.session_state["rr_resolution_inputs"] = {}
-
-            human_fields = [n for n in review.field_notes if _status_val(n) == "needs_human_confirmation"]
-            llm_fields = [n for n in review.field_notes if _status_val(n) == "needs_llm_review"]
-            default_fields = [n for n in review.field_notes if _status_val(n) == "approve_with_default"]
-
-            if human_fields:
-                st.markdown("#### 🔴 Human Confirmation Required")
-                for note in human_fields:
-                    fp = note.field
-                    opts = _field_options(fp, note.current_value, note.candidate_value)
-                    with st.expander(f"{fp}", expanded=True):
-                        st.caption(note.reason)
-                        labels = [l for l, _ in opts]
-                        sel = st.selectbox("Resolution:", labels, key=f"rr_hres_{fp}")
-                        val = dict(opts)[sel]
-                        if val == "__custom__":
-                            val = st.text_input("Custom:", key=f"rr_hcustom_{fp}")
-                        st.session_state["rr_resolution_inputs"][fp] = {
-                            "value": val, "reason": "Human confirmed.", "decision_type": "human_empirical_assumption",
-                        }
-
-            if default_fields:
-                st.markdown("#### 🟢 Sensible Defaults")
-                for note in default_fields:
-                    fp = note.field
-                    default_val = SENSIBLE_DEFAULTS.get(fp, note.candidate_value)
-                    st.markdown(f"**{fp}**: `{default_val}` — _{note.reason}_")
-                    st.session_state["rr_resolution_inputs"][fp] = {
-                        "value": default_val, "reason": "Sensible default.", "decision_type": "sensible_default",
-                    }
-
-            if st.button("Apply All Resolutions", type="primary", key="rr_apply"):
-                inputs = st.session_state.get("rr_resolution_inputs", {})
-                from src.infra.models.method_spec import MethodSpec as _MS
-                spec_dict = json.loads(rr_spec.model_dump_json())
-                decisions = []
-                for fp, inp in inputs.items():
-                    decisions.append({
-                        "field_path": fp, "old_value": _res_get_path(spec_dict, fp),
-                        "new_value": inp["value"], "decision_type": inp["decision_type"],
-                        "reason": inp["reason"], "reviewer": "human",
-                    })
-                    _res_set_path(spec_dict, fp, inp["value"])
-                spec_dict["codegen_ready"] = True
-                spec_dict["review_status"] = "approved"
-                spec_dict.setdefault("resolution_log", []).extend(decisions)
-                try:
-                    resolved = _MS.model_validate(spec_dict)
-                    st.session_state["rr_resolved"] = resolved
-                    fid = rr_spec.factor_id
-                    (RESOLVED_DIR / f"{fid}.resolved.methodspec.json").write_text(
-                        json.dumps(spec_dict, indent=2, ensure_ascii=False) + "\n"
-                    )
-                    (RESOLUTIONS_DIR / f"{fid}.resolution.json").write_text(
-                        json.dumps({"factor_id": fid, "decisions": decisions}, indent=2) + "\n"
-                    )
-                    st.success(f"Resolved! codegen_ready=true. Saved to `resolved/`.")
-                except Exception as e:
-                    st.error(str(e))
-
-    with tab_eval:
-        st.subheader("Resolution Eval vs Curated Reference")
-
-        # Pick which resolved MethodSpec to evaluate — defaults to whatever's
-        # currently loaded/resolved on this page, but can be overridden to any
-        # saved resolved spec or committed fixture.
-        current_resolved = st.session_state.get("rr_resolved", rr_spec)
-        eval_spec_map: dict[str, Path] = {}
-        for _dir, _label in ((RESOLVED_DIR, "resolved"), (FIXTURE_METHODSPEC_DIR, "fixture")):
-            if _dir.exists():
-                for _p in sorted(_dir.glob("*.resolved.methodspec.json")):
-                    eval_spec_map[f"[{_label}] {_p.name}"] = _p
-        current_label = f"(current) {current_resolved.factor_id}" if current_resolved else None
-        eval_spec_options = ([current_label] if current_label else []) + list(eval_spec_map)
-        eval_spec_choice = st.selectbox("MethodSpec to evaluate", eval_spec_options, key="rr_eval_spec_sel")
-
-        if eval_spec_choice == current_label:
-            resolved = current_resolved
-        elif eval_spec_choice:
-            from src.infra.models import MethodSpec as _MS
-            try:
-                resolved = _MS.model_validate_json(eval_spec_map[eval_spec_choice].read_text())
-            except Exception as e:
-                st.error(f"Failed to load spec: {e}")
-                resolved = None
-        else:
-            resolved = None
-
-        gt_specs = _load_curated_reference_specs()
-        if resolved:
-            gt_options = [""] + sorted(gt_specs.keys())
-            auto_match = resolved.factor_id if resolved.factor_id in gt_specs else (
-                getattr(resolved, "cz_acronym", "") or ""
-            )
-            default_idx = gt_options.index(auto_match) if auto_match in gt_options else 0
-            gt_choice = st.selectbox(
-                "Curated reference factor", gt_options, index=default_idx, key="rr_eval_gt_sel",
-                help="Defaults to an auto-match on factor_id/cz_acronym; override to compare "
-                "against any curated reference entry.",
-            )
-            gt = gt_specs.get(gt_choice) if gt_choice else None
-        else:
-            gt = None
-        if gt:
-            ext_dict = json.loads(resolved.model_dump_json())
-            comps = _compare_specs(ext_dict, gt)
-            metrics = _compute_eval_metrics(comps)
-            ec1, ec2 = st.columns(2)
-            ec1.metric("Resolution Accuracy", f"{metrics['field_accuracy']:.0%}")
-            ec2.metric("Matched", f"{metrics['matched']}/{metrics['total']}")
-            eval_data = [{"Field": c["field"], "Resolved": c["extracted"], "Curated Reference": c["reference"],
-                          "Correct": "✅" if c["match"] else "❌"} for c in comps]
-            st.table(eval_data)
-        elif resolved:
-            st.info(
-                f"No curated reference selected/found for `{resolved.factor_id}` in "
-                "`test_method_specs_human_labeled/`."
-            )
-        else:
-            st.info("Select a MethodSpec to evaluate.")
 
 
 # ############################################################
 # PAGE 4: MetaCoder
 # ############################################################
-elif page == "MetaCoder":
+if page == "MetaCoder":
     st.header("MetaCoder — Generate Signal Plugin")
     st.markdown("Load an approved MethodSpec and generate a Python signal plugin.")
 
     st.subheader("1. Load Resolved MethodSpec")
     _spec_files_mc: list[tuple[str, Path]] = []
-    for _dir, _label in ((RESOLVED_DIR, "resolved"), (FIXTURE_METHODSPEC_DIR, "fixture")):
-        if _dir and _dir.exists():
-            for _p in sorted(_dir.glob("*.resolved.methodspec.json")):
-                _spec_files_mc.append((f"[{_label}] {_p.name}", _p))
+    for _p in sorted(PAPER_RESOLVED_DIR.glob("*.resolved.json")):
+        _spec_files_mc.append((f"[paper-first] {_p.name}", _p))
     mc_options = [""] + [l for l, _ in _spec_files_mc]
     mc_map = {l: p for l, p in _spec_files_mc}
 
@@ -1317,12 +307,11 @@ elif page == "MetaCoder":
         mc_uploaded = st.file_uploader("Or upload JSON", type=["json"], key="mc_upload")
 
     if st.button("Load MethodSpec", key="mc_load"):
-        from src.infra.models import MethodSpec as _MS
         try:
             if mc_uploaded:
-                mc_spec = _MS.model_validate_json(mc_uploaded.getvalue().decode())
+                mc_spec = _load_any_spec(mc_uploaded.getvalue().decode())
             elif mc_selected:
-                mc_spec = _MS.model_validate_json(mc_map[mc_selected].read_text())
+                mc_spec = _load_any_spec(mc_map[mc_selected].read_text())
             else:
                 st.warning("Select a spec.")
                 mc_spec = None
@@ -1330,7 +319,7 @@ elif page == "MetaCoder":
                 st.session_state["mc_spec"] = mc_spec
                 st.session_state.pop("mc_plugin", None)
                 st.session_state.pop("mc_sandbox_report", None)
-                st.success(f"Loaded: **{mc_spec.factor_id}**")
+                st.success(f"Loaded: **{_spec_factor_id(mc_spec)}**")
         except Exception as e:
             st.error(str(e))
 
@@ -1339,28 +328,24 @@ elif page == "MetaCoder":
         st.markdown("---")
         st.subheader("2. Spec Summary")
         sc1, sc2, sc3 = st.columns(3)
-        rs_val = getattr(mc_spec.review_status, "value", mc_spec.review_status)
-        sc1.metric("Review Status", rs_val)
-        sc2.metric("Codegen Ready", "Yes" if mc_spec.codegen_ready else "No")
-        sc3.metric("Version", mc_spec.version)
+        sc1.metric("Schema", "paper-first")
+        sc2.metric("Ready (is_ready)", "Yes" if mc_spec.is_ready else "No")
 
         # Generate
         st.markdown("---")
         st.subheader("3. Generate Plugin")
-        approved = rs_val == "approved" and mc_spec.codegen_ready
+        approved = _spec_codegen_ready(mc_spec)
         if not approved:
             st.error("MethodSpec not codegen-ready. Go to Review & Resolve first.")
 
         if st.button("Generate Signal Plugin", type="primary", disabled=not approved, key="mc_gen"):
             from src.infra.llm import create_llm_client
             from src.steps.step3_codegen import MetaCoder
-            from src.infra.models.method_spec import ReviewStatus
             with st.spinner("Generating..."):
                 try:
-                    gen_spec = mc_spec.model_copy(update={"codegen_ready": True, "review_status": ReviewStatus.APPROVED})
                     llm = create_llm_client(provider=llm_provider, model=llm_model)
                     coder = MetaCoder(llm_client=llm)
-                    plugin = coder.generate_plugin(gen_spec)
+                    plugin = coder.generate_plugin(mc_spec)
                     st.session_state["mc_plugin"] = plugin
                     st.session_state.pop("mc_sandbox_report", None)
                     st.success("Plugin generated!")
@@ -1447,8 +432,7 @@ elif page == "Backtest & Experiments":
 
         plugin_map = {p.name: p for p in sorted(PLUGINS_DIR.glob("*.py"))}
         plugin_map.update({f"[fixture] {p.name}": p for p in sorted(FIXTURE_PLUGINS_DIR.glob("*.py"))})
-        spec_map = {p.name: p for p in sorted(RESOLVED_DIR.glob("*.resolved.methodspec.json"))}
-        spec_map.update({f"[fixture] {p.name}": p for p in sorted(FIXTURE_METHODSPEC_DIR.glob("*.resolved.methodspec.json"))})
+        spec_map = {f"[paper-first] {p.name}": p for p in sorted(PAPER_RESOLVED_DIR.glob("*.resolved.json"))}
 
         col_p, col_s = st.columns(2)
         with col_p:
@@ -1458,9 +442,8 @@ elif page == "Backtest & Experiments":
 
         bt_spec_obj = None
         if bt_spec:
-            from src.infra.models import MethodSpec as _MS
             try:
-                bt_spec_obj = _MS.model_validate_json(spec_map[bt_spec].read_text())
+                bt_spec_obj = _load_any_spec(spec_map[bt_spec].read_text())
             except Exception as e:
                 st.error(f"Failed to load spec: {e}")
 
@@ -1545,7 +528,7 @@ elif page == "Backtest & Experiments":
                         # disk, so materialize the upload there first.
                         uploads_dir = BACKTEST_SCRIPTS_DIR / "_uploads"
                         uploads_dir.mkdir(parents=True, exist_ok=True)
-                        crsp_data_path = uploads_dir / f"{spec.factor_id}_uploaded_msf.parquet"
+                        crsp_data_path = uploads_dir / f"{_spec_factor_id(spec)}_uploaded_msf.parquet"
                         crsp_data_path.write_bytes(bt_uploaded_msf.getvalue())
 
                     signal_data_dir = None
@@ -1566,9 +549,8 @@ elif page == "Backtest & Experiments":
 
                     code_hash = hashlib.sha256(plugin_code.encode()).hexdigest()[:16]
                     plugin_record = PluginRecord(
-                        plugin_id=f"{spec.factor_id}_v{spec.version}",
-                        factor_id=spec.factor_id,
-                        method_spec_version=spec.version,
+                        plugin_id=_spec_factor_id(spec),
+                        factor_id=_spec_factor_id(spec),
                         code=plugin_code,
                         code_hash=code_hash,
                     )
@@ -1585,11 +567,11 @@ elif page == "Backtest & Experiments":
                     # Persist as an auditable RunRecord (same shape as Pipeline.run_from_method_spec()).
                     metrics = result["metrics"]
                     run = RunRecord(
-                        run_id=f"{spec.factor_id}_dashboard_{code_hash[:8]}",
-                        factor_id=spec.factor_id,
+                        run_id=f"{_spec_factor_id(spec)}_dashboard_{code_hash[:8]}",
+                        factor_id=_spec_factor_id(spec),
                         plugin_id=plugin_record.plugin_id,
                         track="dashboard_single_run",
-                        method_spec_hash=spec.stable_hash(),
+                        method_spec_hash=_spec_stable_hash(spec),
                         code_hash=code_hash,
                         config_hash=hashlib.sha256(
                             json.dumps(result["config"], sort_keys=True, default=str).encode()
@@ -1783,3 +765,162 @@ elif page == "Trace & Logs":
         # Also show saved traces from session
         st.markdown("---")
         st.caption("Pipeline traces are generated during End-to-End runs and persist for the session.")
+
+
+# ############################################################
+# PAGE 8: Paper-First Workflow (PaperMethodSpec / MethodReview /
+# ImplementationResolution / ResolvedMethodSpec)
+# ############################################################
+elif page == "Paper-First Workflow":
+    st.header("Paper-First Workflow")
+    st.caption(
+        "New paper-first schema (`PaperMethodSpec` \u2192 `MethodReview` \u2192 "
+        "`ImplementationResolution` \u2192 `ResolvedMethodSpec`), additive alongside the "
+        "original flat `MethodSpec` workflow above. A spec produced here can be loaded "
+        "directly in MetaCoder/Backtest & Experiments (both dispatch on type)."
+    )
+
+    if not HAS_PYMUPDF:
+        st.error("pymupdf not installed. Run: `pip install pymupdf`")
+        st.stop()
+
+    tab_extract, tab_review, tab_resolve = st.tabs(["1. Extract", "2. Review", "3. Resolve"])
+
+    # ---- Extract ----
+    with tab_extract:
+        st.subheader("Extract PaperMethodSpec")
+        pf_uploaded_pdf = st.file_uploader("Upload paper PDF", type=["pdf"], key="pf_pdf")
+        if pf_uploaded_pdf:
+            pf_pdf_bytes = pf_uploaded_pdf.read()
+            pf_paper_text = _extract_text_from_pdf_bytes(pf_pdf_bytes)
+            st.session_state["pf_paper_text"] = pf_paper_text
+            st.session_state["pf_pdf_bytes"] = pf_pdf_bytes
+            st.success(f"Extracted **{len(pf_paper_text):,}** chars from `{pf_uploaded_pdf.name}`")
+
+        with st.expander("Or load an existing PaperMethodSpec draft"):
+            pf_saved_drafts = sorted(PAPER_DRAFTS_DIR.glob("*.paper.json"))
+            pf_draft_name = st.selectbox("Saved draft", [""] + [p.name for p in pf_saved_drafts], key="pf_draft_sel")
+            if st.button("Load draft", key="pf_draft_load"):
+                try:
+                    from src.infra.models.paper_method_spec import PaperMethodSpec
+                    draft_path = PAPER_DRAFTS_DIR / pf_draft_name
+                    pf_paper = PaperMethodSpec.model_validate_json(draft_path.read_text())
+                    st.session_state["pf_paper"] = pf_paper
+                    st.success(f"Loaded: {pf_paper.factor_id}")
+                except Exception as e:
+                    st.error(str(e))
+
+        pf_document_id = st.text_input("Document ID", key="pf_doc_id")
+        pf_target_name = st.text_input("Target factor name", key="pf_target_name")
+        pf_paper_text = st.session_state.get("pf_paper_text", "")
+        pf_disabled = not (pf_paper_text and pf_document_id and pf_target_name)
+        if st.button("Extract PaperMethodSpec", type="primary", disabled=pf_disabled, key="pf_extract_run"):
+            with st.spinner("Extracting..."):
+                from src.infra.llm import create_llm_client
+                from src.steps.step1_extractor.paper_extractor import PaperExtractor
+                client = create_llm_client(provider=llm_provider, model=llm_model)
+                extractor = PaperExtractor(llm_client=client)
+                pf_bytes = st.session_state.get("pf_pdf_bytes") if llm_provider in ("claude", "codex") else None
+                result = extractor.extract(pf_document_id, pf_target_name, pf_paper_text, pdf_bytes=pf_bytes)
+                st.session_state["pf_extraction_token_usage"] = result.token_usage
+                if result.spec:
+                    out_path = PAPER_DRAFTS_DIR / f"{result.spec.factor_id}.paper.json"
+                    out_path.write_text(result.spec.model_dump_json(indent=2) + "\n")
+                    st.session_state["pf_paper"] = result.spec
+                    st.success(f"Extracted: **{result.spec.factor_id}**, saved to `{out_path}`")
+                else:
+                    st.error(f"Extraction failed: {result.error}")
+
+        _show_token_usage(st.session_state.get("pf_extraction_token_usage"))
+
+        pf_paper = st.session_state.get("pf_paper")
+        if pf_paper:
+            st.markdown("---")
+            st.markdown(f"**Factor ID:** `{pf_paper.factor_id}` · **Target:** {pf_paper.target_name}")
+            with st.expander("Full PaperMethodSpec JSON"):
+                st.json(json.loads(pf_paper.model_dump_json()))
+
+    # ---- Review ----
+    with tab_review:
+        st.subheader("Deterministic Review")
+        pf_review_options = sorted(PAPER_DRAFTS_DIR.glob("*.paper.json"))
+        pf_current = st.session_state.get("pf_paper")
+        pf_choice_labels = [""] + ([f"(current) {pf_current.factor_id}"] if pf_current else []) + [p.name for p in pf_review_options]
+        pf_review_sel = st.selectbox("PaperMethodSpec to review", pf_choice_labels, key="pf_review_sel")
+
+        if st.button("Run Review", key="pf_review_run"):
+            from src.infra.models.paper_method_spec import PaperMethodSpec
+            from src.steps.step2_reviewer.paper_review import review_paper_method_spec
+            try:
+                if pf_review_sel.startswith("(current)") and pf_current:
+                    pf_review_paper = pf_current
+                elif pf_review_sel:
+                    pf_review_paper = PaperMethodSpec.model_validate_json((PAPER_DRAFTS_DIR / pf_review_sel).read_text())
+                else:
+                    st.warning("Select a PaperMethodSpec first.")
+                    pf_review_paper = None
+                if pf_review_paper:
+                    result = review_paper_method_spec(pf_review_paper)
+                    (PAPER_REVIEWS_DIR / f"{pf_review_paper.factor_id}.review.json").write_text(
+                        result.model_dump_json(indent=2) + "\n"
+                    )
+                    st.session_state["pf_review_paper"] = pf_review_paper
+                    st.session_state["pf_review_result"] = result
+                    st.success(f"Reviewed: **{pf_review_paper.factor_id}** ({len(result.findings)} findings)")
+            except Exception as e:
+                st.error(str(e))
+
+        pf_review_result = st.session_state.get("pf_review_result")
+        if pf_review_result:
+            st.markdown("---")
+            blocked = [f for f in pf_review_result.findings if f.disposition.value == "blocked"]
+            st.metric("Findings", len(pf_review_result.findings))
+            st.metric("Blocked", len(blocked))
+            for f in pf_review_result.findings:
+                icon = "🚫" if f.disposition.value == "blocked" else "⚠️"
+                st.text(f"{icon} [{f.kind}] {f.field_path}: {f.message}")
+
+    # ---- Resolve ----
+    with tab_resolve:
+        st.subheader("Resolve Physical Fields")
+        pf_review_paper = st.session_state.get("pf_review_paper")
+        pf_review_result = st.session_state.get("pf_review_result")
+        if not (pf_review_paper and pf_review_result):
+            st.info("Run Review first (previous tab).")
+        else:
+            pf_returns_source = st.text_input("Returns source", value="us_equity_crsp", key="pf_returns_source")
+            pf_cz_acronym = st.text_input("C&Z acronym (optional)", key="pf_cz_acronym")
+            if st.button("Resolve", type="primary", key="pf_resolve_run"):
+                from src.infra.models.paper_method_spec import ResolvedMethodSpec
+                from src.steps.step2_reviewer.implementation_resolution import build_implementation_resolution
+                try:
+                    resolution = build_implementation_resolution(
+                        pf_review_paper,
+                        pf_review_result,
+                        returns_source=pf_returns_source,
+                        cz_acronym=pf_cz_acronym or None,
+                    )
+                    (PAPER_RESOLUTIONS_DIR / f"{pf_review_paper.factor_id}.resolution.json").write_text(
+                        resolution.model_dump_json(indent=2) + "\n"
+                    )
+                    resolved = ResolvedMethodSpec(paper=pf_review_paper, review=pf_review_result, resolution=resolution)
+                    resolved_path = PAPER_RESOLVED_DIR / f"{pf_review_paper.factor_id}.resolved.json"
+                    resolved_path.write_text(resolved.model_dump_json(indent=2) + "\n")
+                    st.session_state["pf_resolved"] = resolved
+                    if resolved.is_ready:
+                        st.success(f"Resolved and **ready**: saved to `{resolved_path}`")
+                    else:
+                        st.warning(f"Resolved but **not ready** (blocked findings or unmapped concepts): saved to `{resolved_path}`")
+                except Exception as e:
+                    st.error(str(e))
+
+            pf_resolved = st.session_state.get("pf_resolved")
+            if pf_resolved:
+                st.markdown("---")
+                st.metric("is_ready", "Yes" if pf_resolved.is_ready else "No")
+                with st.expander("Concept Mapping"):
+                    st.json({k: v.model_dump() for k, v in pf_resolved.resolution.concept_mapping.items()})
+                st.caption(
+                    "This ResolvedMethodSpec can now be loaded directly in the MetaCoder and "
+                    "Backtest & Experiments pages (look for the `[paper-first]` entries)."
+                )

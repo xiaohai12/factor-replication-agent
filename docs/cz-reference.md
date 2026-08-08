@@ -25,7 +25,7 @@ post-hoc evaluation reference，绝不作为 Semantic Extractor 的输入。关�
 | `Acronym` | signal 简称 (如 `BM`, `Accruals`) | `factor_id` |
 | `Authors`, `Year`, `Journal` | 原始论文信息 | `paper_ref` |
 | `LongDescription` | 因子名称 | `factor_name` |
-| `Detailed Definition` | **完整信号构造逻辑**（含公式、Compustat 字段名、edge case 处理） | `signal.formula`, `signal.required_fields` |
+| `Detailed Definition` | **完整信号构造逻辑**（含公式、Compustat 字段名、edge case 处理） | `signal.formula`, `data.required_fields[].field` |
 | `Predictability in OP` | 原文预测能力：`1_clear`, `2_likely`, `3_not-pred` | pilot factor 筛选 |
 | `Signal Rep Quality` | C&Z 复现质量：`1_good`, `2_fair`, `3_poor` | extraction 难度评估 |
 | `Cat.Form` | signal 形式：continuous / discrete / binary | signal 处理方式 |
@@ -37,7 +37,7 @@ post-hoc evaluation reference，绝不作为 Semantic Extractor 的输入。关�
 | `Stock Weight` | EW / VW | `portfolio.weighting` |
 | `LS Quantile` | 分位数 (如 0.1 = decile) | `portfolio.sort.ls_quantile` |
 | `Quantile Filter` | breakpoint filter (如 NYSE) | `portfolio.breakpoints.source` |
-| `Portfolio Period` | holding period（月） | `signal.timing.holding_period` |
+| `Portfolio Period` | holding period（月） | derived from `signal.timing.rebalance_frequency` (annual=12/quarterly=3/monthly=1) via `MethodSpec.holding_period_months` -- no longer a separate stored field |
 | `Start Month` | formation month (如 6 = June) | `signal.timing.formation_month` |
 | `Filter` | 额外筛选条件 (如 `abs(prc)>5`) | universe filter |
 | `Notes` | 复现说明、与原文差异 | `ambiguous_fields` 参考 |

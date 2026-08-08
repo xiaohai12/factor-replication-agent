@@ -28,7 +28,7 @@ class TestFilterUniverseNoBaseline:
     def test_noop_when_no_universe_filters_configured(self):
         """filter_universe no longer applies any hardcoded CRSP-shaped
         (shrcd/exchcd/siccd) screen -- that assumption doesn't hold for a
-        non-CRSP returns_universe. With no `universe_filters` configured, it
+        non-CRSP returns_source. With no `universe_filters` configured, it
         is a pure no-op; the paper's actual universe restriction (including
         the common "ordinary common shares, NYSE/AMEX/NASDAQ, ex-financials"
         boilerplate) is expected to come from the MethodSpec's

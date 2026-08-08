@@ -28,11 +28,12 @@ import subprocess
 import sys
 from datetime import datetime, timezone
 from pathlib import Path
+from typing import Callable, Optional
 
 import pandas as pd
 
 from src.infra.data_layer import DataLayer
-from src.infra.models.method_spec import MethodSpec
+from src.infra.models.paper_method_spec import ResolvedMethodSpec
 from src.infra.models.plugin import PluginRecord
 from src.infra.models.run_record import RunMetrics, RunRecord
 from src.infra.provenance import collect_runtime_provenance
@@ -46,6 +47,35 @@ from src.steps.step7_replication_diff.bundle import build_evidence_bundle
 # (derived / config_diff / gap_decomposition / evidence_keys) that the step-8
 # LLM diagnosis layer consumes. v1 files carried only paper_reported + tracks.
 COMPARISON_SCHEMA_VERSION = 2
+
+
+def _spec_factor_id(spec: ResolvedMethodSpec) -> str:
+    return spec.paper.factor_id
+
+
+def _spec_paper_ref(spec: ResolvedMethodSpec) -> str:
+    return spec.paper.paper.citation
+
+
+def _spec_stable_hash(spec: ResolvedMethodSpec) -> str:
+    return spec.paper.content_hash()
+
+
+def _spec_paper_reported(spec: ResolvedMethodSpec) -> dict:
+    """Flattens a `ResolvedMethodSpec`'s `ReportedResults` (primary + up to
+    3 secondary typed metrics, D5) into the
+    `{return_type, spreads, t_stats, main_spread, main_t_stat}` shape
+    `write_comparison_summary`'s existing consumers
+    (`step7_replication_diff.bundle.build_evidence_bundle`) expect."""
+    rr = spec.paper.reported_results
+    primary = next((m for m in rr.metrics if m.metric_id == rr.primary_metric_id), None)
+    return {
+        "return_type": primary.estimand.value if primary else "",
+        "spreads": {m.metric_id: m.estimate for m in rr.metrics},
+        "t_stats": {m.metric_id: m.statistic.value for m in rr.metrics if m.statistic},
+        "main_spread": primary.estimate if primary else None,
+        "main_t_stat": primary.statistic.value if primary and primary.statistic else None,
+    }
 
 
 class BacktestRunner:
@@ -64,7 +94,7 @@ class BacktestRunner:
     def build_script(
         self,
         plugin: PluginRecord,
-        spec: MethodSpec,
+        spec: ResolvedMethodSpec,
         snapshot_id: str,
         config_overrides: dict | None,
         track_name: str | None = None,
@@ -104,6 +134,8 @@ class BacktestRunner:
             raise RuntimeError(f"Snapshot '{snapshot_id}' not registered on this DataLayer")
         storage_path = Path(snapshot.storage_path)
 
+        factor_id = spec.paper.factor_id
+
         signal_input_mode = pick_signal_input_mode(spec)
 
         scripts_dir = self.scripts_path
@@ -118,7 +150,7 @@ class BacktestRunner:
         # stays in the flat `scripts_dir` (not nested -- only "results" was
         # asked to be per-paper), so it still needs factor_id in its own
         # filename to avoid colliding with another factor's same-named track.
-        results_dir = scripts_dir / "results" / spec.factor_id
+        results_dir = scripts_dir / "results" / factor_id
         csv_stem = track_name or "original_method"
         output_csv = results_dir / f"{csv_stem}.csv"
 
@@ -155,7 +187,7 @@ class BacktestRunner:
             resolved_config=config,
             precomputed_signal_path=precomputed_signal_path,
         )
-        script_stem = f"{spec.factor_id}__{track_name}" if track_name else spec.factor_id
+        script_stem = f"{factor_id}__{track_name}" if track_name else factor_id
         script_path = scripts_dir / f"{script_stem}_backtest.py"
 
         # `execution_id` folds in the plugin's code_hash so two tracks that
@@ -166,7 +198,7 @@ class BacktestRunner:
             json.dumps(config, sort_keys=True, default=str).encode()
         ).hexdigest()[:16]
         execution_id = (
-            f"{spec.factor_id}__{track_name or 'original_method'}"
+            f"{factor_id}__{track_name or 'original_method'}"
             f"__{plugin.code_hash[:8]}__{config_hash[:8]}"
         )
 
@@ -181,14 +213,41 @@ class BacktestRunner:
             "data_snapshot_hash": snapshot_manifest_hash(storage_path),
         }
 
-    def execute(self, built: dict) -> dict:
+    def execute(
+        self,
+        built: dict,
+        log: Optional[Callable[[str], None]] = None,
+        data_path_override: Optional[str] = None,
+        signal_data_dir_override: Optional[str] = None,
+    ) -> dict:
         """Write the already-built script (see `build_script`) to disk and
         execute it via subprocess — literally "run the generated file".
         Results are read back from the CSV/metrics.json the script itself
         writes, rather than computed in-process, so the persisted script is
         always the actual source of the reported numbers.
 
-        Raises RuntimeError (with stdout/stderr) on a nonzero exit code.
+        `log`, when given, receives each line of the subprocess's combined
+        stdout/stderr AS IT RUNS (not just at the end) -- callers running
+        this inside a background job (see backend/routers/sessions.py's
+        step5 execute endpoint) wire this straight into the job's SSE log
+        stream so the user sees real-time progress instead of the request
+        appearing to hang for however long the real-data backtest takes.
+        Always optional and additive: the full captured output is still
+        returned in `stdout` regardless of whether `log` was given.
+
+        `data_path_override`/`signal_data_dir_override`, when given, are set
+        as the `BACKTEST_DATA_PATH`/`BACKTEST_SIGNAL_DATA_DIR` environment
+        variables for the subprocess -- the generated script's own
+        `DATA_PATH`/`SIGNAL_DATA_DIR` constants read these env vars first,
+        falling back to whatever was baked in at generation time (see
+        script_generator.py). This lets the EXACT SAME validated script
+        (identical bytes, identical sha256) execute against a DIFFERENT data
+        source than the one it was validated with (e.g. Step4 validates
+        against a small real-data sample, Step5 executes against the full
+        real data/local export) -- only the data source changes, never the
+        compute_signal code itself.
+
+        Raises RuntimeError (with combined stdout/stderr) on a nonzero exit code.
         """
         script_path: Path = built["script_path"]
         output_csv: Path = built["output_csv"]
@@ -207,17 +266,31 @@ class BacktestRunner:
         # the repo root to PYTHONPATH for the subprocess.
         repo_root = Path(__file__).resolve().parents[2]
         env = {**os.environ, "PYTHONPATH": f"{repo_root}{os.pathsep}{os.environ.get('PYTHONPATH', '')}"}
+        if data_path_override:
+            env["BACKTEST_DATA_PATH"] = data_path_override
+        if signal_data_dir_override:
+            env["BACKTEST_SIGNAL_DATA_DIR"] = signal_data_dir_override
 
-        proc = subprocess.run(
+        proc = subprocess.Popen(
             [sys.executable, str(script_path)],
-            capture_output=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
             text=True,
+            bufsize=1,
             env=env,
         )
+        captured_lines: list[str] = []
+        assert proc.stdout is not None
+        for line in proc.stdout:
+            captured_lines.append(line)
+            if log:
+                log(line.rstrip("\n"))
+        proc.wait()
+        combined_output = "".join(captured_lines)
         if proc.returncode != 0:
             raise RuntimeError(
                 f"Backtest script {script_path} failed (exit {proc.returncode}):\n"
-                f"--- stdout ---\n{proc.stdout}\n--- stderr ---\n{proc.stderr}"
+                f"--- stdout/stderr ---\n{combined_output}"
             )
 
         metrics_path = output_csv.with_suffix(".metrics.json")
@@ -242,12 +315,12 @@ class BacktestRunner:
             "script_path": str(script_path),
             "output_csv": str(output_csv),
             "signal_path": str(signal_path) if signal_path.exists() else None,
-            "stdout": proc.stdout,
+            "stdout": combined_output,
         }
 
     def write_comparison_summary(
         self,
-        spec: MethodSpec,
+        spec: ResolvedMethodSpec,
         tracks: dict[str, dict],
         snapshot_id: str | None = None,
         diff_result=None,
@@ -288,25 +361,17 @@ class BacktestRunner:
         and whether a track-local repair invalidated this batch's "every
         track ran identical code" guarantee.
         """
-        results_dir = self.scripts_path / "results" / spec.factor_id
+        results_dir = self.scripts_path / "results" / _spec_factor_id(spec)
         results_dir.mkdir(parents=True, exist_ok=True)
 
-        rr = spec.reported_results
-        paper_reported = {
-            "return_horizon": rr.return_horizon,
-            "return_type": rr.return_type,
-            "spreads": rr.spreads,
-            "t_stats": rr.t_stats,
-            "main_spread": rr.main_spread,
-            "main_t_stat": rr.main_t_stat,
-        }
+        paper_reported = _spec_paper_reported(spec)
 
         payload = {
             "schema_version": COMPARISON_SCHEMA_VERSION,
             "generated_at": datetime.now(timezone.utc).isoformat(),
-            "factor_id": spec.factor_id,
-            "paper_ref": spec.paper_ref,
-            "method_spec_hash": spec.stable_hash(),
+            "factor_id": _spec_factor_id(spec),
+            "paper_ref": _spec_paper_ref(spec),
+            "method_spec_hash": _spec_stable_hash(spec),
             "snapshot_id": snapshot_id,
             "paper_reported": paper_reported,
             "tracks": tracks,
@@ -319,7 +384,7 @@ class BacktestRunner:
 
     def make_run_record(
         self,
-        spec: MethodSpec,
+        spec: ResolvedMethodSpec,
         plugin: PluginRecord,
         track: str,
         result: dict,
@@ -340,14 +405,14 @@ class BacktestRunner:
         config_hash = result.get("config_hash") or hashlib.sha256(
             json.dumps(result["config"], sort_keys=True, default=str).encode()
         ).hexdigest()[:16]
-        run_id = result.get("execution_id") or f"{spec.factor_id}_{track}_{plugin.code_hash[:8]}"
+        run_id = result.get("execution_id") or f"{_spec_factor_id(spec)}_{track}_{plugin.code_hash[:8]}"
         provenance = collect_runtime_provenance(result.get("ff_factors_path"))
         return RunRecord(
             run_id=run_id,
-            factor_id=spec.factor_id,
+            factor_id=_spec_factor_id(spec),
             plugin_id=plugin.plugin_id,
             track=track,
-            method_spec_hash=spec.stable_hash(),
+            method_spec_hash=_spec_stable_hash(spec),
             code_hash=plugin.code_hash,
             config_hash=config_hash,
             lifecycle_commit=(
@@ -373,7 +438,7 @@ class BacktestRunner:
 
     def make_failed_run_record(
         self,
-        spec: MethodSpec,
+        spec: ResolvedMethodSpec,
         plugin: PluginRecord,
         track: str,
         config_overrides: dict | None,
@@ -390,17 +455,17 @@ class BacktestRunner:
         except Exception:
             config_hash = ""
         run_id = (
-            f"{spec.factor_id}_{track}_{plugin.code_hash[:8]}_{config_hash[:8]}_failed"
+            f"{_spec_factor_id(spec)}_{track}_{plugin.code_hash[:8]}_{config_hash[:8]}_failed"
             if config_hash
-            else f"{spec.factor_id}_{track}_{plugin.code_hash[:8]}_failed"
+            else f"{_spec_factor_id(spec)}_{track}_{plugin.code_hash[:8]}_failed"
         )
         provenance = collect_runtime_provenance()
         return RunRecord(
             run_id=run_id,
-            factor_id=spec.factor_id,
+            factor_id=_spec_factor_id(spec),
             plugin_id=plugin.plugin_id,
             track=track,
-            method_spec_hash=spec.stable_hash(),
+            method_spec_hash=_spec_stable_hash(spec),
             code_hash=plugin.code_hash,
             config_hash=config_hash,
             lifecycle_commit=(

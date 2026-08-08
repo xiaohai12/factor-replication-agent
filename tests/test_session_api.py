@@ -8,33 +8,71 @@ chain is verified against real golden numbers, not just fakes.
 from __future__ import annotations
 
 import json
+import time
 from pathlib import Path
 
 import pytest
 from fastapi.testclient import TestClient
 
 from backend.main import app
+from tests._spec_test_helpers import asset_growth_resolved_spec
 from tests.synthetic_data.asset_growth_synthetic_data import expected_metrics
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
-RESOLVED_SPEC_PATH = (
-    REPO_ROOT
-    / "tests"
-    / "fixtures"
-    / "method_specs"
-    / "cooper_gulen_schill_2008_asset_growth.resolved.methodspec.json"
-)
 PLUGIN_PATH = REPO_ROOT / "tests" / "fixtures" / "plugins" / "cooper_gulen_schill_2008_asset_growth.py"
 
 
+def _poll_job(client: TestClient, job_id: str, timeout: float = 20.0) -> dict:
+    """Polls `GET /api/jobs/{job_id}` until it's completed/failed (or
+    `timeout` elapses) and returns the job snapshot. Step5 execute (and any
+    other job-backed step endpoint) returns only `{"job_id": ...}`
+    synchronously -- the actual result/error lives on the job, streamed via
+    SSE in the real frontend but polled here for test simplicity."""
+    deadline = time.time() + timeout
+    snapshot: dict = {}
+    while time.time() < deadline:
+        snapshot = client.get(f"/api/jobs/{job_id}").json()
+        if snapshot["status"] in ("completed", "failed"):
+            return snapshot
+        time.sleep(0.05)
+    return snapshot
+
+
+def _ensure_session_snapshots(client: TestClient) -> None:
+    """Session step3/4/5 endpoints hardcode `REAL_WRDS_SNAPSHOT_ID`/
+    `VALIDATION_SAMPLE_SNAPSHOT_ID` internally now (no user-facing
+    `snapshot_id` field anymore -- see docs/decision-log.md 2026-08-05).
+    Tests still need something registered under those EXACT names so the
+    deterministic synthetic golden-number fixture keeps working without
+    depending on gitignored real WRDS data. FORCE-overwrites (not
+    register-once) so an earlier test that already registered these ids
+    against real dev-machine data can never leak into a later test's
+    golden-number assertions."""
+    client.get("/api/backtest/snapshots")
+    from src.infra.data_layer import SnapshotMetadata
+    from backend.state import REAL_WRDS_SNAPSHOT_ID, VALIDATION_SAMPLE_SNAPSHOT_ID, pipeline
+
+    synthetic = pipeline.data_layer.snapshots.get_snapshot("synthetic_demo_v1")
+    for sid in (REAL_WRDS_SNAPSHOT_ID, VALIDATION_SAMPLE_SNAPSHOT_ID):
+        pipeline.data_layer.snapshots.register_snapshot(
+            SnapshotMetadata(
+                snapshot_id=sid,
+                pull_date="test",
+                crsp_end_date="test",
+                compustat_end_date="test",
+                storage_path=synthetic.storage_path,
+            )
+        )
+
+
 def _load_fixture_spec() -> dict:
-    return json.loads(RESOLVED_SPEC_PATH.read_text(encoding="utf-8"))
+    return json.loads(asset_growth_resolved_spec().model_dump_json())
 
 
 def _load_fixture_plugin(spec: dict) -> dict:
     return {
-        "plugin_id": f"{spec['factor_id']}_v1",
-        "factor_id": spec["factor_id"],
+        "plugin_id": f"{spec['paper']['factor_id']}_v1",
+        "factor_id": spec["paper"]["factor_id"],
         "code": PLUGIN_PATH.read_text(encoding="utf-8"),
         "code_hash": "synthetic",
     }
@@ -141,10 +179,13 @@ class TestHardDelete:
                 json={"expected_revision": 0, "spec": spec, "plugin": plugin, "snapshot_id": "synthetic_demo_v1"},
             ).json()
             sha, rev = built["sha256"], built["revision"]
-            rev = client.post(
+            validate_resp = client.post(
                 f"/api/sessions/{sid}/steps/4/validate",
                 json={"expected_revision": rev, "spec": spec, "plugin": plugin, "script_sha256": sha},
-            ).json()["revision"]
+            )
+            validate_job = _poll_job(client, validate_resp.json()["job_id"])
+            assert validate_job["status"] == "completed", validate_job.get("error")
+            rev = validate_job["result"]["revision"]
             executed = client.post(
                 f"/api/sessions/{sid}/steps/5/execute",
                 json={
@@ -152,8 +193,10 @@ class TestHardDelete:
                     "snapshot_id": "synthetic_demo_v1", "script_sha256": sha,
                 },
             ).json()
-            run_id = executed["run_record"]["run_id"]
-            factor_id = spec["factor_id"]
+            job = _poll_job(client, executed["job_id"])
+            assert job["status"] == "completed", job.get("error")
+            run_id = job["result"]["run_record"]["run_id"]
+            factor_id = spec["paper"]["factor_id"]
 
             manifest = client.get(f"/api/sessions/{sid}").json()
             resp = client.request(
@@ -166,83 +209,53 @@ class TestHardDelete:
             assert "metadata.json" in evidence_resp.json()["files"]
 
     def _new_session_with_snapshot(self, client: TestClient) -> tuple[str, dict, dict]:
-        client.get("/api/backtest/snapshots")
+        _ensure_session_snapshots(client)
         spec = _load_fixture_spec()
         plugin = _load_fixture_plugin(spec)
-        sid = client.post("/api/sessions", json={"factor_id": spec["factor_id"]}).json()["session_id"]
+        sid = client.post("/api/sessions", json={"factor_id": spec["paper"]["factor_id"]}).json()["session_id"]
         return sid, spec, plugin
 
 
-class TestStep1PdfUpload:
-    """No real LLM call -- monkeypatches `build_extractor` with a fake whose
-    `.extract()` returns a canned result, so this only exercises the PDF
-    text extraction + job/session wiring, not the LLM prompt itself."""
+class TestStep3PluginValidation:
+    """A malformed/empty `plugin` in step3/4/5's request must be a proper 422
+    with pydantic's real error detail, not an unhandled 500 -- reproduced
+    live: the frontend's request editor resets `plugin` to the empty
+    template default (`{}`) when the user navigates away from step3 and
+    back before submitting, and posting that used to crash with
+    `PluginRecord.model_validate({})` -> 500. See docs/decision-log.md
+    2026-08-05 entry / `_validate_plugin` in backend/routers/sessions.py."""
 
-    def _fake_build_extractor(self, monkeypatch, captured: dict):
-        import backend.routers.sessions as sessions_module
-        from src.infra.models.method_spec import MethodSpec, SignalSpec
-        from src.steps.step1_extractor import ExtractionResult
-
-        class _FakeExtractor:
-            def extract(self, factor_id, paper_text, pdf_bytes=None, reextract_feedback=None):
-                captured["paper_text"] = paper_text
-                captured["pdf_bytes"] = pdf_bytes
-                return ExtractionResult(
-                    sources_used=["paper"],
-                    spec=MethodSpec(factor_id=factor_id, factor_name="Test", signal=SignalSpec()),
-                )
-
-        monkeypatch.setattr(sessions_module, "build_extractor", lambda client: _FakeExtractor())
-
-    def _minimal_pdf_bytes(self) -> bytes:
-        import pymupdf
-
-        doc = pymupdf.open()
-        page = doc.new_page()
-        page.insert_text((72, 72), "Hello from a test PDF")
-        data = doc.tobytes()
-        doc.close()
-        return data
-
-    def test_upload_extracts_text_and_completes_the_job(self, monkeypatch):
-        captured: dict = {}
-        self._fake_build_extractor(monkeypatch, captured)
+    def test_empty_plugin_on_step3_script_is_422_not_500(self):
         with TestClient(app) as client:
-            sid = client.post("/api/sessions", json={"factor_id": "factor_a"}).json()["session_id"]
+            _ensure_session_snapshots(client)
+            spec = _load_fixture_spec()
+            sid = client.post("/api/sessions", json={"factor_id": spec["paper"]["factor_id"]}).json()["session_id"]
             resp = client.post(
-                f"/api/sessions/{sid}/steps/1/extract-pdf",
-                data={"expected_revision": "0", "llm_provider": "codex"},
-                files={"file": ("paper.pdf", self._minimal_pdf_bytes(), "application/pdf")},
+                f"/api/sessions/{sid}/steps/3/script",
+                json={"expected_revision": 0, "spec": spec, "plugin": {}, "snapshot_id": "synthetic_demo_v1"},
             )
-            assert resp.status_code == 200, resp.text
-            job_id = resp.json()["job_id"]
+            assert resp.status_code == 422
+            assert "Invalid plugin" in resp.json()["detail"]
 
-            import time
-
-            deadline = time.time() + 10
-            while time.time() < deadline:
-                snapshot = client.get(f"/api/jobs/{job_id}").json()
-                if snapshot["status"] in ("completed", "failed"):
-                    break
-                time.sleep(0.05)
-            assert snapshot["status"] == "completed", snapshot.get("error")
-
-            assert "Hello from a test PDF" in captured["paper_text"]
-            assert captured["pdf_bytes"] is not None
-
-            manifest = client.get(f"/api/sessions/{sid}").json()
-            assert manifest["steps"]["1"]["attempts"][-1]["status"] == "success"
-
-    def test_empty_file_is_rejected(self, monkeypatch):
-        self._fake_build_extractor(monkeypatch, {})
+    def test_validate_unknown_script_sha256_is_404(self):
+        """Step4 no longer accepts `spec`/`plugin` over the wire -- it reads
+        both back from step3's own `{sha}.spec.json`/`{sha}.plugin.json` by
+        `script_sha256` -- so a hash step3 never built for must 404, not
+        silently validate nothing."""
         with TestClient(app) as client:
-            sid = client.post("/api/sessions", json={"factor_id": "factor_a"}).json()["session_id"]
+            sid, spec, plugin = self._new_session_with_snapshot(client)
             resp = client.post(
-                f"/api/sessions/{sid}/steps/1/extract-pdf",
-                data={"expected_revision": "0"},
-                files={"file": ("empty.pdf", b"", "application/pdf")},
+                f"/api/sessions/{sid}/steps/4/validate",
+                json={"expected_revision": 0, "script_sha256": "0" * 64},
             )
-            assert resp.status_code == 400
+            assert resp.status_code == 404
+
+    def _new_session_with_snapshot(self, client: TestClient) -> tuple[str, dict, dict]:
+        _ensure_session_snapshots(client)
+        spec = _load_fixture_spec()
+        plugin = _load_fixture_plugin(spec)
+        sid = client.post("/api/sessions", json={"factor_id": spec["paper"]["factor_id"]}).json()["session_id"]
+        return sid, spec, plugin
 
 
 def test_artifact_read_rejects_path_traversal():
@@ -263,10 +276,10 @@ class TestArtifactIdentityChain:
     """step3 -> step4 -> step5, tied together by the script's own sha256."""
 
     def _new_session_with_snapshot(self, client: TestClient) -> tuple[str, dict, dict]:
-        client.get("/api/backtest/snapshots")  # ensures synthetic_demo_v1 is registered
+        _ensure_session_snapshots(client)
         spec = _load_fixture_spec()
         plugin = _load_fixture_plugin(spec)
-        sid = client.post("/api/sessions", json={"factor_id": spec["factor_id"]}).json()["session_id"]
+        sid = client.post("/api/sessions", json={"factor_id": spec["paper"]["factor_id"]}).json()["session_id"]
         return sid, spec, plugin
 
     def test_full_chain_matches_golden_numbers(self):
@@ -296,8 +309,10 @@ class TestArtifactIdentityChain:
                 },
             )
             assert validated.status_code == 200, validated.text
-            assert validated.json()["report"]["passed"] is True
-            rev = validated.json()["revision"]
+            validate_job = _poll_job(client, validated.json()["job_id"])
+            assert validate_job["status"] == "completed", validate_job.get("error")
+            assert validate_job["result"]["report"]["passed"] is True
+            rev = validate_job["result"]["revision"]
 
             executed = client.post(
                 f"/api/sessions/{sid}/steps/5/execute",
@@ -310,7 +325,9 @@ class TestArtifactIdentityChain:
                 },
             )
             assert executed.status_code == 200, executed.text
-            result = executed.json()
+            job = _poll_job(client, executed.json()["job_id"])
+            assert job["status"] == "completed", job.get("error")
+            result = job["result"]
             golden = expected_metrics()
             assert result["metrics"]["n_months"] == golden["n_months"]
             assert result["metrics"]["mean_monthly_return"] == pytest.approx(
@@ -356,7 +373,7 @@ class TestArtifactIdentityChain:
             ).json()
             sha = built["sha256"]
             rev = built["revision"]
-            rev = client.post(
+            validate_resp = client.post(
                 f"/api/sessions/{sid}/steps/4/validate",
                 json={
                     "expected_revision": rev,
@@ -364,7 +381,10 @@ class TestArtifactIdentityChain:
                     "plugin": plugin,
                     "script_sha256": sha,
                 },
-            ).json()["revision"]
+            )
+            validate_job = _poll_job(client, validate_resp.json()["job_id"])
+            assert validate_job["status"] == "completed", validate_job.get("error")
+            rev = validate_job["result"]["revision"]
 
             # Attacker-supplied different hash -- must be rejected even though
             # SOME validation succeeded in this session.

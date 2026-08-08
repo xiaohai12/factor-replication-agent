@@ -112,6 +112,10 @@ P2 / Medium: schema cleanliness, weak evidence, missing useful reported metric
 P3 / Low: wording, style, source precision, minor auditability issue
 ```
 
+Only P0/P1 findings are approval-blocking and belong in `issues`. Put P2/P3
+findings in `warnings`; they should not make an otherwise codegen-safe,
+paper-faithful MethodSpec `revision_required`.
+
 Examples:
 
 - P0: invalid JSON, unsupported `construction_type`, wrong formula, wrong sample, wrong sign, wrong portfolio construction.
@@ -128,6 +132,10 @@ Audit these fields against the paper:
 ## 4.1 Paper and target scope
 
 Check:
+
+- `data.sources[]` uses the current `DataSourceHint` schema: `name`,
+  `source_details`, and `evidence`. `name` is the correct paper-source label;
+  do not demand a `dataset` key.
 
 - `paper_ref` names the correct paper/citation (there is no separate `paper.title`/`paper.pdf_file`/`paper.paper_sections` object in the current schema -- `paper_ref` is a single free-text citation string);
 - one JSON = one executable target;
@@ -151,15 +159,15 @@ Check:
 
 - `factor_name` (top-level, not `signal.factor_name`) is accurate;
 - `economic_intuition` and `detailed_definition` (both top-level strings) are supported by paper text and distinguish firm/security-level signal from factor portfolio when needed;
-- `signal.formula.expression` matches the paper formula and is codegen-safe (every symbol is a base variable from `signal.required_fields`/`data.required_fields[].field`, not an undefined intermediate);
+- `signal.formula.expression` matches the paper formula and is codegen-safe. Documented time suffixes (`_t`, `_t_minus_1`, `_t_minus_2`, `_m`, `_m_plus_1`) applied to a declared base field are valid references; do not require each suffixed variant to be repeated in `data.required_fields[].field`;
 - `signal.formula.paper_expression` preserves paper notation;
-- `signal.required_fields` are base variable names only, and each appears in `data.required_fields[].field`;
+- all formula base variables appear in `data.required_fields[].field` with `is_signal_input: true`;
 - `sign` (top-level int, 1 or -1) is supported by main evidence and does not confuse raw return with alpha/risk-adjusted return.
 
 Flag:
 
 - formula rewritten using downstream definitions;
-- formula inputs (`signal.required_fields`) not in `data.required_fields`;
+- formula inputs not in `data.required_fields` (or present but marked `is_signal_input: false`);
 - sign inferred from mechanism while main result table is conflicting or insignificant;
 - named factor used as signal when paper's sorting signal is different;
 - a paper formula that genuinely needs multi-step/rolling-window logic the current flat `expression` string can't express -- flag as an ambiguous/high-impact field rather than inventing `calculation_steps`.
@@ -181,7 +189,8 @@ Check:
 - `data.sources[].source_details` is an array of strings;
 - `data.required_fields[].source_detail` is a single string source hint;
 - required fields cover formula inputs, universe filters, and return calculation inputs;
-- no CRSP/Compustat merge keys or implementation-only mappings are added;
+- `data.normalized_mapping` is downstream Normalizer output added after paper-first extraction so codegen can resolve physical sources/columns. Do not flag this field itself as extractor implementation leakage; audit only that each mapping resolves a declared required-field concept through a registered source/column. Physical implementation details remain forbidden in paper-authored fields such as `data.sources` and `data.required_fields`;
+- no CRSP/Compustat merge keys or implementation-only mappings are added to paper-authored fields;
 - coverage warnings (e.g. "raw data only goes back to 1974") belong in a `data.sources[].source_details` entry or an `ambiguous_fields[].reason`, not invented row filters or return rules (there is no separate `sample_coverage_notes` field on the current schema).
 
 Flag implementation leakage.
@@ -226,7 +235,6 @@ Flag if accounting lag is confused with momentum skip month, or return window is
 
 Check:
 
-- `portfolio.universe` (a free-text description, NOT a nested `universe.description`/`universe.exchange_names` object) matches the target scope and is paper-faithful;
 - `portfolio.universe_filters[]` (`field`/`op`/`value`, not `universe.filters[]`) are true sample membership filters;
 - `signal.missing_policy` (`action`/`threshold`/`winsorize_bounds`, not `universe.missing_policy`/`universe.winsorize_bounds`) handles unavailable signal/input rules and whether winsorization/truncation applies to the main spec.
 
@@ -278,10 +286,10 @@ Flag if missing/empty when the paper clearly states a value:
 
 - `sample_start_year` / `sample_end_year` (top-level ints)
 - `signal.formula.expression` (codegen-safe expression) and `signal.formula.paper_expression`
-- `signal.timing.{formation_month, rebalance_frequency, holding_period, accounting_lag}`
+- `signal.timing.{formation_month, rebalance_frequency, accounting_lag}` (there is no `signal.timing.holding_period` field -- the engine derives the actual holding period from `rebalance_frequency` alone, a "clean calendar hold": annual=12mo, quarterly=3mo, monthly=1mo)
 - `signal.missing_policy.{action, winsorize_bounds}`
-- `portfolio.universe` (free-text description) and `portfolio.universe_filters[]` (`field`/`op`/`value`)
-- `portfolio.sort.breakpoint_source`, `portfolio.weighting`, `portfolio.construction_type`, `portfolio.return_combination.type`
+- `portfolio.universe_filters[]` (`field`/`op`/`value`)
+- `portfolio.sort.breakpoint_basis`, `portfolio.weighting`, `portfolio.construction_type`, `portfolio.return_combination.type`
 - `data.sources[]` and `data.required_fields[]`
 
 Flag if present (these are legacy/curated-schema fields that pre-date the current flat model and must not be relied on as the source of truth -- if you see them alongside the flat fields above, note it as schema drift rather than inventing new requirements around them):
@@ -298,43 +306,39 @@ Additional consistency check:
 
 ## 5.2 Allowed values
 
-`portfolio.universe_filters[].op` must be one of:
+Auto-generated from the MethodSpec schema -- do not hand-edit the block
+below; it is regenerated at prompt-load time from
+`src/infra/models/field_contract.py`. Never flag a field's CURRENT value as
+an invalid enum member unless it is absent from this block -- if this block
+and your own prior training both say a value is illegal but you are unsure,
+trust this block, since it is generated directly from the code the parser
+actually runs.
 
+<!-- FIELD_CONTRACT:ALLOWED_VALUES:START -->
 ```text
+portfolio.universe_filters[].op:
 eq, neq, in, not_in, between, not_between, gt, gte, lt, lte, nonmissing, nonzero, is_true, is_false
-```
 
-`portfolio.sort.breakpoint_source` must be one of:
+portfolio.sort.breakpoint_basis:
+nyse, full_sample, other, unspecified
 
-```text
-nyse_only, full_sample, other, unspecified
-```
-
-`portfolio.weighting` must be one of:
-
-```text
+portfolio.weighting:
 vw, ew, other, unspecified
-```
 
-`signal.missing_policy.action` must be one of:
-
-```text
+signal.missing_policy.action:
 drop, other, unspecified
+
+portfolio.construction_type:
+characteristic_sort, other, unspecified
+
+portfolio.return_combination.type:
+extreme_group_spread, average_leg_spread, single_signal_portfolio_return, full_portfolio_return, other, unspecified
 ```
+<!-- FIELD_CONTRACT:ALLOWED_VALUES:END -->
 
-`portfolio.construction_type` must be one of:
-
-```text
-characteristic_sort, regression_weighted, other
-```
-
-`portfolio.return_combination.type` must be one of:
-
-```text
-extreme_group_spread, average_leg_spread, single_signal_portfolio_return, full_portfolio_return, other
-```
-
-`ambiguous_fields[].status` must be one of:
+`ambiguous_fields[].status` must be one of (a separate, richer
+extraction-time vocabulary that normalizes down to `EvidenceSource`, not a
+1:1 MethodSpec enum, so it is NOT part of the auto-generated block above):
 
 ```text
 explicit, inferred, unspecified, ambiguous, conflicting, weak_or_conflicting, not_main_spec, inferred_for_backtest_not_paper_stated
@@ -342,7 +346,7 @@ explicit, inferred, unspecified, ambiguous, conflicting, weak_or_conflicting, no
 
 If a paper-specific construction is not covered, the JSON must use `other`, not an invented enum-like string.
 
-For `breakpoint_source` / `weighting` / `missing_policy.action`, `other` is not
+For `breakpoint_basis` / `weighting` / `missing_policy.action`, `other` is not
 interchangeable with `unspecified`: `unspecified` means the paper never
 addresses the choice; `other` means the paper states a specific value that
 isn't a menu member (e.g. weighting = "capped_vw"), and that value must ALSO
@@ -372,7 +376,7 @@ Additional operator/value semantic check:
 Additional formula executability check:
 
 Every symbol in `signal.formula.expression` must be a raw/base variable that
-appears in both `signal.required_fields[]` and `data.required_fields[].field`
+appears in `data.required_fields[].field` with `is_signal_input: true`
 (the current flat schema has no `calculation_steps`/`formula.inputs`/
 `extensions.formula_constants` -- there is nowhere to define an intermediate
 variable or paper-stated constant other than the expression string itself).
@@ -384,8 +388,8 @@ ambiguous field rather than inventing new schema sections for it.
 
 Check:
 
-- base variables in `signal.formula.expression` match `signal.required_fields[]`;
-- `signal.required_fields[]` appear in `data.required_fields[].field`;
+- base variables in `signal.formula.expression` appear in `data.required_fields[].field` with `is_signal_input: true`;
+- universe/sample-membership variables (exchange listing, SIC code, market equity, monthly return) are in `data.required_fields` with `is_signal_input: false`;
 - `portfolio.weighting` is one of `vw` / `ew` / `other` / `unspecified`;
 
 Additional weighting/construction variant check:
@@ -403,7 +407,7 @@ If a table reports multiple construction variants (for example individual-stock 
 
 Additional reported-metric source completeness check:
 
-If `reported_results.spreads` records returns, alphas, t-statistics, Sharpe ratios, standard deviations, or other table metrics, verify that every recorded metric is directly supported by the source quote or by a precise interpretation mapping metrics to nearby table rows/columns. Flag source objects that support only a subset of the recorded metrics.
+If `reported_results.spreads` records returns, alphas, t-statistics, Sharpe ratios, standard deviations, or other table metrics, verify that every recorded metric is directly supported by the source quote or by a precise interpretation mapping metrics to nearby table rows/columns. Flag source objects that support only a subset of the recorded metrics. `reported_results` preserves the paper's own row/column orientation and signs; executable long/short direction is defined separately by `portfolio.long_leg`, `portfolio.short_leg`, and `portfolio.return_combination`. Do not require paper-reported metrics to be sign-flipped to match executable portfolio direction.
 
 For every important `source` object, check:
 
@@ -480,7 +484,6 @@ Write a Markdown report with this structure:
 - review_status: approved | revision_required | blocked
 - remediation_mode: patch_existing_json | targeted_reextraction | full_regeneration
 - codegen_ready: yes | no
-- paper_faithful: yes | no
 - confidence: high | medium | low
 
 ## Executive Summary

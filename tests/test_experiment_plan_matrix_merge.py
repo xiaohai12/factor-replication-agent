@@ -8,28 +8,25 @@ merge) as a real full-factorial expansion.
 
 from __future__ import annotations
 
-from src.infra.models.method_spec import MethodSpec, SignalSpec
 from src.infra.models.plugin import PluginRecord, ValidationReport
 from src.infra.models.run_record import RunMetrics, RunRecord
 from src.steps.step6_dual_track_controller import DualTrackController, ExperimentPlan
 from src.steps.step3_codegen.registry import build_config
+from tests._spec_test_helpers import minimal_resolved_spec, spec_factor_id
 
 
-def _spec() -> MethodSpec:
-    return MethodSpec(factor_id="t", factor_name="Test", signal=SignalSpec())
+def _spec():
+    return minimal_resolved_spec("t")
 
 
-def _spec_ew() -> MethodSpec:
+def _spec_ew():
     """A spec whose own weighting ("ew") genuinely DIFFERS from HXZ's
     standardized default ("vw") -- needed so a factorial expansion over
     "weighting" actually produces 2 distinct values to combine, rather than
-    degenerately coinciding with `_spec()`'s own "vw" default."""
-    return MethodSpec.model_validate({
-        "factor_id": "t", "factor_name": "Test",
-        "signal": {"required_fields": ["f"], "formula": {"expression": "f"}},
-        "data": {"normalized_mapping": {"f": "ret"}},
-        "portfolio": {"weighting": "ew"},
-    })
+    degenerately coinciding with `_spec()`'s own "vw" default.
+    Explicitly sets breakpoint_source to full_sample to keep tests independent
+    of the default breakpoint basis value."""
+    return minimal_resolved_spec("t", weighting="ew", breakpoint_source="full_sample")
 
 
 def _plugin() -> PluginRecord:
@@ -52,7 +49,7 @@ class FakeRunner:
     def make_run_record(self, spec, plugin, track, result):
         metrics = result["metrics"]
         return RunRecord(
-            run_id=f"{spec.factor_id}_{track}", factor_id=spec.factor_id, plugin_id=plugin.plugin_id,
+            run_id=f"{spec_factor_id(spec)}_{track}", factor_id=spec_factor_id(spec), plugin_id=plugin.plugin_id,
             track=track, code_hash=plugin.code_hash,
             metrics=RunMetrics(mean_return=metrics.get("mean_monthly_return"), t_stat=metrics.get("t_stat")),
             status="success",
@@ -60,7 +57,7 @@ class FakeRunner:
 
     def make_failed_run_record(self, spec, plugin, track, config_overrides, log):
         return RunRecord(
-            run_id=f"{spec.factor_id}_{track}_failed", factor_id=spec.factor_id, plugin_id=plugin.plugin_id,
+            run_id=f"{spec_factor_id(spec)}_{track}_failed", factor_id=spec_factor_id(spec), plugin_id=plugin.plugin_id,
             track=track, metrics=RunMetrics(), status="failed", logs=[log],
         )
 

@@ -136,7 +136,7 @@ def resolve_concept(concept: str) -> tuple[Optional[str], Optional[str]]:
 # Returns-universe registry: which stock-return panel the portfolio-construction
 # side (breakpoints / returns / long-short) runs on. This is a SEPARATE concern
 # from signal-input sources above — but, like them, it must come from the
-# reviewed MethodSpec (`MethodSpec.returns_universe`), never a hardcoded
+# reviewed MethodSpec (`MethodSpec.returns_source`), never a hardcoded
 # default. CRSP US equity is ONE registered entry here, not a fallback.
 #
 # Each entry maps to the BacktestExecutor `_load_data` config:
@@ -163,7 +163,7 @@ RETURNS_UNIVERSES: dict[str, dict[str, str]] = sources.returns_universes_view()
 
 
 #: The standardized default returns universe (CRSP monthly). Used when a
-#: MethodSpec leaves `returns_universe` unset — the pipeline now defaults the
+#: MethodSpec leaves `returns_source` unset — the pipeline now defaults the
 #: stock-return panel to CRSP monthly rather than hard-blocking.
 DEFAULT_RETURNS_UNIVERSE = "us_equity_crsp"
 

@@ -39,6 +39,132 @@ when writing the paper.
 
 <!-- Add new entries below this line, newest first. -->
 
+## 2026-08-07 — Full deletion of v1 `MethodSpec` after completing the paper-first migration
+
+- **Context / problem:** Over this session, every consumer of the flat v1
+  `MethodSpec` (registry/MetaCoder/script_generator/step4/step5/step6/
+  RepairLoop/backend routers/app.py/all golden-fixture e2e tests) had been
+  migrated to dual-dispatch on the new paper-first schema
+  (`PaperMethodSpec`/`MethodReview`/`ImplementationResolution`/
+  `ResolvedMethodSpec`). The only remaining question was whether to finally
+  delete `src/infra/models/method_spec.py` and the ~20 files whose entire
+  purpose was v1-only (`SemanticExtractor`, `ReviewGate`, `apply_decisions`,
+  `field_contract.py`, v1 CLI scripts, extraction-accuracy evaluation), or
+  keep both schemas indefinitely.
+- **Options considered:** (1) Full deletion now. (2) First validate the new
+  paper-first workflow against a REAL paper with a real LLM call end-to-end
+  (extract -> review -> resolve -> codegen -> backtest), since it had only
+  been proven on synthetic/structural tests, then delete. (3) Keep v1
+  permanently as a deliberate two-schema design.
+- **Decision:** (1) — full deletion now, on explicit user instruction after
+  being shown the risk (option 2 was recommended but declined).
+- **Rationale:** The user made the call to prioritize a clean, single-schema
+  codebase over further validation before deletion. All dual-dispatch call
+  sites were already covered by unit/integration tests (structural
+  correctness), even though no real paper had been run through the new
+  extractor with a live LLM yet.
+- **Empirical impact:** None on any existing golden number -- every
+  `*_resolved_method_spec` test (asset growth, accruals, real-WRDS-sample
+  smoke test) reproduces byte-identical config/metrics to the retired v1
+  fixtures it replaced, verified field-by-field via `registry.build_config`
+  before conversion.
+- **Trade-offs / risks:** (a) The paper-first extractor
+  (`PaperExtractor`/`review_paper_method_spec`/
+  `build_implementation_resolution`) has never been exercised against a real
+  paper with a real LLM call -- if its prompt/schema has a gap, it will only
+  surface the first time someone actually uses it, with no v1 fallback left.
+  (b) `backend/routers/sessions.py` lost its step1(extract)/step2(review)
+  endpoints entirely (no paper-first equivalent was wired into the
+  session-based flow this session) -- sessions now start from step3 (script
+  build); there is no session-based extract/review UI path anymore, only the
+  standalone `paper_methodspecs.py` API + app.py's "Paper-First Workflow"
+  page. (c) **The React frontend was not touched or verified** -- it still
+  calls the now-deleted `/api/methodspecs/*`, `/api/evaluations/*`, and
+  session step1/2 endpoints (`frontend/src/lib/sessionApi.ts`, `steps.ts`,
+  `pages/BacktestExperimentsPage.tsx`, `pages/PipelineE2EPage.tsx`,
+  `pages/SchemaReferencePage.tsx`, `pages/SessionDetailPage.tsx`) and will
+  404 on those calls until updated.
+- **References:** `src/infra/models/paper_method_spec.py`,
+  `backend/routers/paper_methodspecs.py`, `app.py`'s "Paper-First Workflow"
+  page, CHANGELOG.md 2026-08-07 entry, `/memories/repo/
+  methodspec_schema_notes.md` (session-long migration log).
+
+## 2026-08-07 — Re-added double sort to the engine (partial reversal of the 2026-07-24 vanilla-path simplification)
+
+- **Context / problem:** The MethodSpec v2 redesign (see
+  `docs/methodspec-v2-plan.md` D4) decided the paper-first schema should be
+  able to represent independent/sequential double sorts, since Hirshleifer,
+  Hsu & Li (2012)'s innovation-efficiency factors need a size x
+  patents/citations independent double sort and are in the project's test
+  corpus. This directly reverses part of the 2026-07-24 decision ("Strip
+  non-standard engine capabilities to one vanilla single-dim portfolio-sort
+  path") that deliberately removed multi-dimensional sorts, along with
+  overlapping-cohort holding, the discrete/categorical sort form, the
+  Fama-MacBeth estimator, and microcap exclusion.
+- **Options considered:** (a) leave the schema able to *describe* double
+  sorts but keep them permanently unsupported/blocked at review, treating
+  Hirshleifer as a single-sort approximation forever; (b) restore all five
+  capabilities removed on 2026-07-24 in one pass, matching the original
+  scope of that removal; (c) re-add only double sort, since it is the only
+  one of the five with a concrete driving paper right now, per the
+  2026-07-24 entry's own stated re-introduction policy ("re-introduce
+  capabilities later, incrementally, only as a specific paper's replication
+  actually needs them").
+- **Decision:** (c). Restored, adapted (not copy-pasted) from the
+  2026-07-24-removed implementation: `BacktestExecutor.
+  compute_breakpoints_multi`/`assign_portfolios_multi`/
+  `compute_portfolio_returns_multi`/`combine_portfolio_returns_multi`
+  (`src/infra/backtest_engine/__init__.py`), dispatched from
+  `form_portfolios`/`compute_portfolio_returns`/`combine_portfolio_returns`
+  only when `config["sort_dims"]` has 2 entries -- the single-dim path's
+  code and behavior are completely untouched otherwise. Fama-MacBeth,
+  overlapping-cohort holding, the discrete sort form, and microcap exclusion
+  remain removed; not part of this decision.
+- **Rationale:** The adaptation is not a straight restoration of the deleted
+  code: the original multi-dim implementation grouped by `yyyymm` and
+  computed breakpoints directly from the post-return-join panel, which is
+  exactly the future-return-availability leak the single-dim path's
+  2026-07-28 formation-locked-breakpoints fix closed (the 2026-07-24 entry's
+  own trade-offs note flagged this gap explicitly: "should double sorts
+  return in the future, they would need the same fix applied to their own
+  breakpoint/assignment functions"). The re-added implementation instead
+  derives per-dimension breakpoints from `self.formation` (the pre-return-
+  join formation cross-section) and applies them to `self.merged` by
+  `cohort`, matching the single-dim path's convention, and reuses the
+  single-dim path's lagged-`me` value-weighting (`_attach_lagged_me`)
+  instead of the original's same-month `me`.
+- **Empirical impact:** None on any existing replication -- the multi-dim
+  path only activates when a MethodSpec resolves `sort_dims` with 2+
+  entries, which no currently-approved MethodSpec does yet (Hirshleifer's
+  MethodSpecs are still in `data/test_method_specs_human_labeled/`,
+  unreviewed against the v2 schema). New `tests/test_double_sort_engine.py`
+  (7 tests) verifies the 2x2 independent-sort mechanics by hand (same
+  economics as the deleted `test_multi_sort.py` fixture) and that the
+  single-dim path is unaffected when `sort_dims` is absent/empty. Full
+  suite: 594 passed, 26 skipped (was 587 before this entry -- the 7 more are
+  exactly the new double-sort tests, zero regressions).
+- **Trade-offs / risks:** Only independent or dimension-0-conditional
+  (sequential) double sorts are supported, capped at 2 dimensions (see
+  `MAX_SUPPORTED_SORT_DIMENSIONS` in `paper_method_spec.py`, currently 3 in
+  the schema's capability constant but only 2 actually executable by the
+  engine as of this entry -- a 3-dimension sort will pass
+  `ResolvedMethodSpec.is_ready`'s dimension-count check but is NOT yet
+  executable; this mismatch should be tightened or the 3rd dimension
+  implemented before any real 3-way-sort MethodSpec reaches Step3). Not yet
+  wired into `registry.build_config`/`MetaCoder`/`step6_dual_track_controller`
+  -- those still only know the single-dim `MethodSpec` v1 shape; deriving
+  `config["sort_dims"]` from a `ResolvedMethodSpec`'s `portfolio.sorts[]` is
+  separate, not-yet-done work (see `docs/methodspec-v2-plan.md` migration
+  Phase D).
+- **References:** [src/infra/backtest_engine/__init__.py](../src/infra/backtest_engine/__init__.py)
+  (`compute_breakpoints_multi`, `assign_portfolios_multi`,
+  `compute_portfolio_returns_multi`, `combine_portfolio_returns_multi`),
+  [tests/test_double_sort_engine.py](../tests/test_double_sort_engine.py),
+  [docs/methodspec-v2-plan.md](methodspec-v2-plan.md) (D4), the 2026-07-24
+  entry below ("Strip non-standard engine capabilities...").
+
+
+
 ## 2026-08-04 (fifth) — Systematically assessed C&Z bridge feasibility across the 10 test papers; only 1 of 11 factors qualifies as safely portable
 
 - **Context / problem:** Asked whether the C&Z bridge mechanism could be
@@ -146,62 +272,6 @@ when writing the paper.
   `src/steps/step6_dual_track_controller/experiment_spec.py`
   (`build_experiment_spec`); `tests/test_experiment_plan_matrix_merge.py`;
   `docs/multi-config-evidence-plan.md` Phase A2.
-
-## 2026-08-04 (third) — Bridge signal wired into a real executable track: `BacktestExecutor.run_with_config` already accepted a precomputed signal, so this was an orchestration addition, not a data one
-
-- **Context / problem:** The previous entry (second) built a real C&Z bridge
-  SIGNAL for AssetGrowth but explicitly stopped short of running it through
-  anything -- `compute_cz_bridge_signal()` returned a DataFrame nobody
-  consumed. The actual research question (Phase C/D's E2 "bridge
-  experiment") needs that signal run through OUR OWN engine, under the SAME
-  config as the agent's own track, so any gap is attributable to the signal
-  alone.
-- **Decision:** Added a `precomputed_signal_path` mode to
-  `generate_backtest_script`: when set, the generated script skips
-  `compute_signal()` and loads that parquet directly, then proceeds through
-  the IDENTICAL downstream lifecycle (universe filter, breakpoints,
-  portfolios, metrics, artifact persistence) as every other track. New
-  `DualTrackController._run_bridge_track` computes the bridge signal,
-  writes it to a real file, and runs the script in that mode --
-  deliberately NOT through the shared `RepairLoop` (there's no agent code
-  to repair here). `run_from_matrix` recognizes
-  `signal_input_ref: "cz_bridge"` (or `"cz_bridge:<factor_id>"`) as "run
-  this as a real bridge track" instead of the previous unconditional skip.
-- **A second design decision worth recording:** a bridge track's
-  `code_hash` is deliberately set to a descriptive, non-agent string
-  (`f"cz_bridge:{factor_id}"`), and a new `RunRecord.is_bridge_track` flag
-  excludes it from Phase 0.6's "every track ran identical code"
-  consistency check. Without this exclusion, EVERY bridge track would
-  spuriously trip `batch_invalidated=True` (its code_hash never matches the
-  frozen agent plugin's, by design), even though that's not a violation --
-  a bridge track's whole point is a different signal source, which is a
-  different comparison axis entirely from the config-only ablations that
-  check applies to.
-- **Empirical impact:** `tests/test_bridge_track_e2e.py` runs the
-  AssetGrowth bridge through the REAL `Pipeline`/`BacktestRunner`/subprocess
-  chain (not fakes) against the same synthetic snapshot the MVP
-  golden-number test uses, and gets back a real `status="success"`
-  `RunRecord` with populated metrics and a persisted signal series -- this
-  is now a genuinely executable capability, verified end-to-end, not a
-  theoretical one. Full suite: 363 passed, 26 skipped, zero regressions.
-- **Trade-offs / risks:** Still bounded to the one registered factor
-  (AssetGrowth) from the prior entry. The bridge track is not yet wired
-  into `run_experiment`'s (non-matrix) `ExperimentPlan` path -- only
-  `run_from_matrix` recognizes it, so a caller still using the older
-  hardcoded `ExperimentPlan` entry point has no way to request a bridge
-  track. `matched_comparison.matched_sample_stats` (built earlier) is still
-  not automatically invoked to compare the bridge track's realized signal
-  against the agent's own -- that comparison would need to be added to
-  `bundle.py`'s evidence bundle or run manually against the two tracks'
-  `signal.parquet` files.
-- **References:** `src/steps/step3_codegen/script_generator.py`
-  (`precomputed_signal_path`, `PRECOMPUTED_SIGNAL_PATH` template branch);
-  `src/steps/step5_backtest_runner/__init__.py` (`build_script`);
-  `src/steps/step6_dual_track_controller/__init__.py`
-  (`_run_bridge_track`, `run_from_matrix`); `src/infra/models/run_record.py`
-  (`is_bridge_track`); `tests/test_script_generator_bridge_mode.py`; `tests/
-  test_bridge_track_wiring.py`; `tests/test_bridge_track_e2e.py`;
-  `docs/multi-config-evidence-plan.md` Phase C/D.
 
 ## 2026-08-04 (second) — A real C&Z bridge is feasible for AssetGrowth without adding `polars`; ported the formula instead of subprocess-executing their script
 
@@ -320,183 +390,6 @@ when writing the paper.
   `tests/test_batch_invalidation.py`; `tests/test_dual_track_controller.py`
   (`TestRepairLoop::test_execute_failure_repairs_then_succeeds`, updated for
   the single-track guard); `docs/multi-config-evidence-plan.md` Phase 0.6.
-
-## 2026-08-03 (tenth) — Phase A1/A2/B/C&D implemented at bounded scope; the real C&Z signal bridge is explicitly NOT one of them
-
-- **Context / problem:** Asked to complete the rest of
-  `docs/multi-config-evidence-plan.md` (Phases A1 through E) in one session.
-  Phase E (LLM diagnosis) was already done (see the seventh entry above and
-  roadmap). Phases B/C&D's actual point -- comparing our agent-generated
-  signal against C&Z's OWN firm-level signal under a matched engine config
-  -- requires either downloading C&Z's already-computed firm-level signal
-  output or running their own `Predictors/*.py`/`Portfolios/Code/*.R` source
-  (`data/CZ code/`) against real WRDS data. Neither exists as a usable
-  artifact in this repo today: `data/CZ code/` is their SOURCE CODE (needs
-  their own WRDS download pipeline run against it), not a precomputed
-  per-factor signal file.
-- **Options considered:** (a) fabricate a "bridge" using synthetic/placeholder
-  data and present it as done; (b) skip Phase B/C&D entirely; (c) implement
-  every piece that IS honestly buildable without that missing data adapter
-  (config/evidence infrastructure, comparison math, metadata parsing) and
-  state plainly what still can't be claimed done.
-- **Decision:** (c). Implemented, and verified with real tests (343 passed,
-  26 skipped, zero regressions):
-  - Phase A1 (evidence bundle): realized-signal persistence
-    (`<track>.signal.parquet`), `artifact_sha256`/`series_semantic_hash`
-    (deliberately different hash kinds -- see `src/infra/hashing.py`
-    docstring), an approximated `data_snapshot_hash`, and
-    `EvidenceStore.save_run` accepting a real artifact bundle written
-    atomically.
-  - Phase A2 (declarative matrix): `experiment_spec.load_experiment_matrix`
-    + `DualTrackController.run_from_matrix`, with `family`/
-    `identification_level` DERIVED from the actual resolved-config diff,
-    never authored in the yaml.
-  - Phase B (bounded to metadata): `load_cz_reference_profile` parses
-    C&Z's reported summary numbers from `SignalDoc.csv` -- explicitly NOT a
-    firm-level signal loader.
-  - Phase C/D (bounded to math): `matched_comparison.matched_sample_stats`
-    implements the actual correlation/sign-agreement/extreme-overlap
-    arithmetic the bridge experiment will need, consuming whatever two
-    signal series it's given -- but nothing yet supplies a REAL C&Z series
-    as one of them.
-  - `PipelineStatus.comparison_path`/`.diagnosis` now surface the
-    already-written `comparison.json`/`diagnosis.json` back through
-    `run_full_pipeline`'s return value (roadmap: "persisted and
-    pipeline-returned diagnosis report").
-- **Rationale:** Every piece implemented is independently real, tested, and
-  useful on its own merits (config/run identity integrity, evidence
-  auditability, a validated declarative experiment format) regardless of
-  whether the C&Z bridge ever gets built. None of it depends on or assumes
-  data that doesn't exist. Fabricating a "bridge" against synthetic
-  standins would produce a plausible-looking function call that answers
-  nothing about actual replication reproducibility -- worse than admitting
-  the gap, since a future reader could mistake it for a real result.
-- **Empirical impact:** None -- no real bridge run exists to report a
-  number from. Full test suite unaffected in behavior (343/26, all new
-  tests use synthetic/fake data).
-- **Trade-offs / risks:** The plan's stated "Completion Criteria" (one
-  real-data factor running a versioned experiment matrix + C&Z bridge +
-  deterministic diagnosis report, reproducible with the LLM off) is NOT met
-  by this session's work and should not be represented as met. The
-  remaining gap is squarely: (1) a real C&Z firm-level signal adapter
-  (requires running/porting their pipeline or sourcing an already-computed
-  export), (2) wiring that adapter's output through
-  `matched_comparison.py` and a real `DualTrackController` bridge track,
-  (3) an actual full run against `data/local`'s real WRDS data producing a
-  `comparison.json` that includes a bridge track. Also NOT done: full
-  batch-level plugin FREEZE (Phase 0.6 remains detection-only), engine-level
-  intermediate-artifact persistence (breakpoints/assignments/portfolio
-  returns), and Streamlit UI wiring for the new declarative matrix path.
-- **References:** `src/infra/hashing.py`, `src/infra/evidence/__init__.py`,
-  `src/steps/step6_dual_track_controller/experiment_spec.py`,
-  `src/infra/reference/__init__.py`,
-  `src/steps/step7_replication_diff/matched_comparison.py`, `src/pipeline.py`
-  (`PipelineStatus`); `tests/test_hashing.py`, `tests/test_evidence_store.py`,
-  `tests/test_experiment_matrix.py`, `tests/test_run_from_matrix.py`,
-  `tests/test_cz_reference_profile.py`, `tests/test_matched_comparison.py`,
-  `tests/test_pipeline_status_artifacts.py`; `docs/multi-config-evidence-
-  plan.md` Phases A1/A2/B/C/D.
-
-## 2026-08-03 (ninth) — Phase 0.6 batch-invalidation detects, but does not yet prevent, a track-local repair breaking the frozen-plugin guarantee
-
-- **Context / problem:** `docs/multi-config-evidence-plan.md` D5 flagged
-  that each track in `DualTrackController.run_experiment` runs its OWN
-  `RepairLoop.execute_with_repair` independently. If a track's execution
-  fails for a genuine technical reason and gets repaired, that track's
-  plugin `code_hash` silently diverges from every other track's -- so a
-  "config X differs, everything else held fixed" comparison across tracks
-  is quietly false, with no record of it happening.
-- **Options considered:** (a) the full Phase 0.6 design as scoped in the
-  plan: freeze the plugin before the matrix starts, forbid ALL track-local
-  repair during the matrix, and invalidate + re-run the entire batch from a
-  newly-frozen plugin if a technical bug is found; (b) a smaller slice:
-  keep per-track repair as-is (still needed -- a paper's own genuinely buggy
-  formula can surface on any single track first), but detect after the fact
-  when it happened and make the violation explicit and auditable instead of
-  silent; (c) do nothing until the full batch-freeze/re-run infrastructure
-  (Phase 0's `RunContext`, per-execution unique dirs) is ready.
-- **Decision:** (b), as an explicitly partial step. Every `RunRecord` in one
-  `run_experiment()` call now carries a shared `experiment_batch_id` and the
-  `frozen_plugin_hash` (the plugin's `code_hash` as passed into
-  `run_experiment`, before any track ran). After all tracks finish, any
-  successful track whose final `code_hash` differs from
-  `frozen_plugin_hash` marks `batch_invalidated=True` with a
-  `batch_invalidation_reason` naming the diverged track(s) -- on EVERY
-  record in the batch, not only the repaired one, since the whole batch's
-  cross-track attribution is compromised, not just that track's number.
-  The same flag is embedded in `comparison.json`'s new `"batch"` key so a
-  human/LLM reading that file sees it too.
-- **Rationale:** Full pre-matrix freeze-and-forbid-repair requires the
-  matrix orchestration layer (declarative experiment loading, batch-level
-  re-run-from-frozen-plugin) that Phase A2 introduces -- building it here,
-  ahead of that, would mean either blocking a real technical bug fix
-  mid-matrix (bad: a real formula crash on one track is exactly the kind of
-  thing repair should still fix) or half-implementing batch re-run without
-  the rest of the identity infrastructure it depends on. Detecting and
-  flagging the violation is strictly additive, requires no new
-  orchestration, and immediately prevents the worse failure mode: silently
-  trusting a cross-track config-attribution claim that isn't true.
-- **Empirical impact:** None on existing runs (verified: 283/26 suite, zero
-  regressions). No real experiment has yet hit this path in production (no
-  real WRDS run has needed a track-local repair), so no historical
-  `comparison.json` needs reinterpreting.
-- **Trade-offs / risks:** This does not stop the repair from happening, nor
-  does it re-run the batch from a re-frozen plugin -- a human/LLM reading a
-  `batch_invalidated=True` result must currently re-run the whole matrix
-  manually once satisfied the repair was correct. The full freeze/forbid/
-  re-run design remains Phase A2 (`docs/multi-config-evidence-plan.md`
-  §4 Phase A2, "batch semantics").
-- **References:** `src/steps/step6_dual_track_controller/__init__.py`
-  (`run_experiment`); `src/infra/models/run_record.py`
-  (`experiment_batch_id`/`frozen_plugin_hash`/`batch_invalidated`/
-  `batch_invalidation_reason`); `src/steps/step5_backtest_runner/__init__.py`
-  (`write_comparison_summary`'s `batch_info` param); `tests/
-  test_batch_invalidation.py`; `docs/multi-config-evidence-plan.md` D5,
-  Phase 0.6.
-
-## 2026-08-03 (eighth) — Config override validation is a soft warning for no-ops, not a hard reject
-
-- **Context / problem:** `docs/multi-config-evidence-plan.md` Phase 0.2
-  (D3) flagged that `build_config`'s `config.update(overrides)` silently
-  accepted anything — an unknown key, an off-menu value, or a no-op override
-  (value already equal to the resolved default) all passed through
-  identically. This makes any config-diff-based attribution unverifiable: a
-  track named `ablation_weighting_ew` could silently run on the default
-  weighting if the override key was misspelled, and the resulting "no
-  effect" finding would be a false negative caused by tooling, not economics.
-- **Options considered:** (a) reject all three cases identically as hard
-  errors; (b) reject unknown-key/off-menu-value hard, but only warn on
-  no-op; (c) leave no-op unchecked entirely.
-- **Decision:** (b). Unknown override key and off-menu value for a
-  menu-governed key both raise `ConfigOverrideError`. A no-op override only
-  emits a `UserWarning`.
-- **Rationale:** `DualTrackController`'s `HXZ_STANDARD_CONFIG` and its
-  per-switch ablation map (`_get_ablation_override`) each ship a *named,
-  intentional* config bundle applied uniformly across every factor,
-  regardless of what that particular paper's own MethodSpec already
-  resolves to. When a paper's own weighting already happens to be `vw`, the
-  `standardized_hxz`/`ablation_weighting` track coinciding with it on that
-  one key is a real, reportable empirical fact ("this paper's own choice
-  already matches the HXZ standard on this dimension") — not a caller
-  mistake to reject. Hard-rejecting the whole override dict for one
-  coincidental match would have broken every real experiment run whose
-  paper happens to agree with the standard on at least one field. Strict
-  per-experiment no-op rejection (reject *this one* declared experiment
-  because *its* declared override changed nothing) is deferred to Phase A2's
-  `ExperimentSpec.expected_diff` cross-check, which operates on a single
-  named experiment's intent rather than a shared multi-key config bundle.
-- **Empirical impact:** None on existing runs (verified: 264/26 suite,
-  zero regressions; `test_dual_track_controller.py`'s existing test now
-  visibly emits the expected no-op warnings for `HXZ_STANDARD_CONFIG` keys
-  that coincide with its synthetic fixture's own resolved defaults).
-- **Trade-offs / risks:** A no-op override is still possible to miss if
-  warnings aren't surfaced/read; Phase A2 must still add the stricter
-  per-experiment check before declarative experiment matrices can rely on
-  "no silent no-ops" as a guarantee rather than a warning.
-- **References:** `src/steps/step3_codegen/registry.py`
-  (`_validate_overrides`, `ConfigOverrideError`); `tests/
-  test_config_override_validation.py`; `docs/multi-config-evidence-plan.md`
-  Phase 0.2, Decision 2.
 
 ## 2026-08-03 (seventh) — Diagnosis claims: citation-shape validation was not claim-entailment validation
 
@@ -663,73 +556,6 @@ when writing the paper.
   replication_diagnosis.md`, `scripts/analyze_comparison.py`,
   `tests/test_replication_diagnosis.py`, `docs/multi-config-evidence-plan.md`
   §Phase E, CHANGELOG.md.
-
-## 2026-08-03 (fifth) — Fixed two long-known multi-track bugs while running a real original-vs-HXZ comparison
-
-- **Context / problem:** After manually running a 3-config smoke test for
-  AssetGrowth (VW/full_sample, EW/full_sample, VW/NYSE) by giving each track a
-  different `factor_id` as a workaround, the user asked why the actual
-  `standardized_hxz`/C&Z tracks hadn't been run through the real
-  `DualTrackController`. Attempting that surfaced two real, previously-known
-  bugs that had never been exercised end-to-end before:
-  1. `BacktestRunner.build_script()` names its output script/CSV/metrics files
-     using `spec.factor_id` ALONE. `DualTrackController.run_experiment()`
-     calls `build_script()` once per track (`original_method`,
-     `standardized_hxz`, `ablation_*`) for the SAME factor, so every track
-     after the first silently overwrote the previous track's on-disk file.
-     Only the in-memory `RunRecord.metrics` per track was ever correct; no
-     test caught this because `test_dual_track_controller.py` uses a
-     `FakeRunner` that never touches the filesystem.
-  2. `HXZ_STANDARD_CONFIG["breakpoint_quantiles"]` was `[10, 20, ..., 90]` (a
-     percentile-cutpoint list) while `BacktestExecutor.compute_breakpoints`
-     does `int(config.get("breakpoint_quantiles", 10))` — `int()` on a list
-     raises `TypeError`. This was already documented (2026-08-02 entry,
-     `docs/roadmap.md` Immediate Correctness Work #1) but never actually
-     fixed, so the `standardized_hxz` track has never been runnable against
-     real data until now.
-- **Decision:** Fixed both, since they directly blocked the real ask (run the
-  actual HXZ track, not a hand-rolled `factor_id` workaround):
-  1. Added an optional `track_name: str | None = None` parameter to
-     `BacktestRunner.build_script()`. When supplied, the script/output file
-     stem becomes `{factor_id}__{track_name}` instead of just `{factor_id}`;
-     omitted (`None`), it's the original single-track filename (backward
-     compatible with every other caller — `Pipeline.run_from_method_spec`,
-     `backend/routers/*`, `RepairLoop`'s own single-track use). Threaded
-     `track_name` through `RepairLoop.build_validate_repair`/
-     `execute_with_repair` (both call `build_script()` on every rebuild
-     attempt, including mid-repair) and `DualTrackController._run_track`
-     (which already has `track_name` available, just wasn't passing it
-     anywhere).
-  2. Changed `HXZ_STANDARD_CONFIG["breakpoint_quantiles"]` to the integer `10`
-     (a decile sort — the percentile list's 9 cutpoints implied 10 groups
-     anyway), matching the engine's real contract.
-- **Empirical impact:** Ran the real `DualTrackController.run_experiment()`
-  (not manual overrides) for AssetGrowth against real `data/local` WRDS data,
-  `ExperimentPlan(run_original=True, run_standardized=True)`, one frozen/
-  validated plugin shared by both tracks:
-  - `original_method`: mean_return=0.4199%, t_stat=2.594 (VW, full_sample
-    breakpoints, annual June formation, as-of-aligned per the fourth entry
-    above).
-  - `standardized_hxz`: mean_return=0.3141%, t_stat=1.023 (VW, NYSE
-    breakpoints, monthly rebalance).
-  Both tracks completed successfully and wrote to distinct files
-  (`asset_growth_us_equity_vw__original_method.*` /
-  `asset_growth_us_equity_vw__standardized_hxz.*`), confirming the file
-  collision is fixed. Full suite: 213 passed, 26 skipped (unchanged; added a
-  targeted assertion in `test_dual_track_controller.py`'s existing multi-track
-  test that each `build_script` call carries the matching `track_name`).
-- **Trade-offs / risks:** This does not yet implement the fuller Phase 0
-  run-identity design (unique `execution_id`/content hashes/full evidence
-  persistence) from the 2026-08-02 entry — it's the minimal fix that makes
-  today's `DualTrackController` usable without artifact collisions, not the
-  final run-identity system. `{factor_id}__{track_name}` filenames are
-  human-readable but not guaranteed unique across concurrent/overlapping
-  ablation runs with the same track name; that's still Phase 0 scope.
-- **References:** `src/steps/step5_backtest_runner/__init__.py`
-  (`build_script`), `src/infra/repair.py` (`build_validate_repair`,
-  `execute_with_repair`), `src/steps/step6_dual_track_controller/__init__.py`
-  (`_run_track`, `HXZ_STANDARD_CONFIG`), `tests/test_dual_track_controller.py`,
-  `tests/test_repair_loop.py`, `docs/roadmap.md`, CHANGELOG.md [Unreleased].
 
 ## 2026-08-03 (fourth) — Generalize annual accounting factors with calendar-lag/as-of signal alignment, not report-date timing by default
 
@@ -934,169 +760,6 @@ when writing the paper.
   `runs/method_specs/resolved/AssetGrowth.resolved.methodspec.json`,
   CHANGELOG.md [Unreleased].
 
-## 2026-08-03 (second) — Review Gate must treat `resolution_log` as authoritative, or paper-silent fields can never leave `blocked_fields`
-
-- **Context / problem:** Continuing the same end-to-end dry run (this time
-  against `AssetGrowth` / Cooper, Gulen & Schill 2008, a paper whose main
-  strategy IS a supported `characteristic_sort`), Review Gate blocked 3
-  genuinely paper-silent, high-impact fields (`portfolio.weighting` — paper
-  reports both EW and VW without designating a main target;
-  `portfolio.long_leg`/`portfolio.return_combination` — paper's tables show
-  a 10-minus-1 spread while the executable direction requires an explicit
-  low-minus-high convention). Resolved all 3 via
-  `resolution.apply_decisions`/`build_decision` (the exact mechanism
-  `scripts/resolve_review_blocks.py` uses), grounded in the project's own
-  `SENSIBLE_DEFAULTS` convention and the paper's own curated reference spec
-  (`tests/fixtures/method_specs/cooper_gulen_schill_2008_asset_growth.
-  resolved.methodspec.json`, which made the identical choices). Per
-  `resolve_review_blocks.py`'s own printed next-step instructions, re-ran
-  Review Gate on the resolved spec — and all 3 fields were immediately
-  re-blocked, with the SAME "paper doesn't state this" reasoning. Traced the
-  cause: `MethodSpec.resolution_log` (the only place a human's decision +
-  reasoning is recorded) was never read by either review path (`review()`
-  rule-based, or `review_with_llm()`/`_raw_to_review_result`). Since "the
-  paper is silent on this" is permanently true once established, a reviewer
-  that only asks that question loops on the field forever — no number of
-  human resolutions can ever produce an `approved` spec for a paper with any
-  genuinely silent high-impact field (which is common; EW vs VW ties are a
-  frequent example across many papers, not particular to this one).
-- **Options considered:** (1) leave review as-is and have a human bypass
-  Review Gate entirely for resolved specs (rejected — throws away the
-  review gate's other checks, e.g. schema/format/source-mapping validation,
-  for the whole spec just to unblock 3 fields); (2) make `apply_decisions`
-  set `codegen_ready=true` directly, skipping re-review altogether (rejected
-  — same problem, loses the safety net for any NEW issue introduced by the
-  resolution itself, e.g. a typo'd value); (3) teach both review paths to
-  recognize `resolution_log` as authoritative for a field whose current
-  value still matches the recorded decision, and stop re-flagging it for
-  the identical paper-silent reasoning — with one narrow override so this
-  can't become a rubber stamp: a NEW, cited paper quote that actually
-  contradicts the resolution can still re-block it.
-- **Decision:** Chose (3). Added `_resolved_by_human(spec, field_path,
-  current_value)` (`src/steps/step2_reviewer/__init__.py`): true when
-  `spec.resolution_log` has an entry for that exact field_path whose
-  `new_value` still equals the field's current value (i.e. nobody silently
-  changed it again since). Wired into all 3 deterministic blocking checks
-  (`_check_ambiguous_fields`, `_check_silent_high_impact_fields`,
-  `_check_unsupported_fields`) — a match downgrades `needs_human_
-  confirmation` to `auto_approve_with_flag` and adds a `warnings` entry
-  instead of `blocked_fields`. For the LLM path, added the same rule to
-  `_LLM_REVIEW_CONTRACT` and `prompts/review_gate/methodspec_audit.md`
-  (§1.2.1), PLUS a code-level backstop in `_raw_to_review_result` that
-  doesn't rely on the LLM obeying the prompt: any `blocked_fields` entry
-  matching `_resolved_by_human` gets downgraded UNLESS its `field_notes`
-  entry carries at least one new evidence citation (a real quote) — an
-  evidence-less re-block can only mean "still just paper-silent," which is
-  exactly the loop this closes; a re-block WITH a genuine new citation is
-  still respected (the narrow override).
-- **Empirical impact:** Re-ran `review_with_llm` on the exact same resolved
-  `AssetGrowth` spec (same paper text, same LLM) after the fix: the 3
-  previously-reblocked fields now show as `warnings`
-  ("already human-resolved in resolution_log... should not be re-blocked on
-  that basis alone") instead of `blocked_fields`; one genuinely new,
-  not-yet-resolved field (`portfolio.sort.breakpoint_source`, never
-  touched by any resolution) still correctly blocks. Full suite: 209
-  passed, 26 skipped (unchanged from baseline — pure additive logic, no
-  existing test exercised this path since no prior test constructed a
-  resolution_log-backed re-review scenario).
-- **Trade-offs / risks:** The LLM-path override (new evidence can still
-  re-block) trusts the LLM to only attach evidence for a genuine new
-  citation, not to game the override by attaching an empty-ish/irrelevant
-  evidence object — acceptable given the LLM is already trusted for every
-  other paper-evidence judgment in this pipeline, and `_resolved_by_human`
-  is a hard backstop for the (more common) empty-evidence case regardless.
-  Did not extend `resolution.ResolutionLogEntry` to carry the original
-  paper evidence that led to the human's decision (would let a future
-  reviewer judge the human's reasoning quality, not just whether the value
-  changed) — deferred as a possible future enhancement, not needed to close
-  this specific loop.
-- **References:** `src/steps/step2_reviewer/__init__.py`
-  (`_resolved_by_human`, `_check_ambiguous_fields`,
-  `_check_silent_high_impact_fields`, `_check_unsupported_fields`,
-  `_raw_to_review_result`, `_LLM_REVIEW_CONTRACT`),
-  `prompts/review_gate/methodspec_audit.md` §1.2.1,
-  `src/steps/step2_reviewer/resolution.py` (`apply_decisions`,
-  `resolution_log`), `scripts/resolve_review_blocks.py`, CHANGELOG.md
-  [Unreleased].
-
-## 2026-08-03 — Review Gate's LLM audit prompt had drifted from the real (flat) MethodSpec schema
-
-- **Context / problem:** Ran a manual, full `Pipeline.run_full_pipeline()` dry
-  run against real WRDS data (`data/local`, registered as an ad hoc
-  `local_data_v1` snapshot) for a brand-new paper/factor
-  (`AB1998_ETR`, Abarbanell & Bushee 1998's effective-tax-rate signal) to
-  exercise every step end-to-end. Extraction correctly produced a spec with an
-  empty `signal.formula.expression` (the paper's exact Table 1 formulas are
-  literally absent from the extractable PDF text — "*Insert Table 1 here*" is
-  the only trace — a genuine paper-silent case, not a bug). But
-  `ReviewGate.review_with_llm`'s blocked-field output was confusing:
-  `blocked_fields = ['signal.formula.expression', 'sample.return_sample',
-  'universe.winsorize_bounds']` and the `issues` text complained about
-  missing `paper.*`/`formula_convention.*`/`input_return.*` sections. None of
-  `sample.return_sample`, `universe.winsorize_bounds` (unaliased),
-  `formula_convention`, or `input_return` exist on the current flat
-  `MethodSpec` model (`src/infra/models/method_spec.py`) — the reviewer is
-  handed `spec.model_dump()` of that exact flat model, but its system prompt
-  (`prompts/review_gate/methodspec_audit.md`) still described the older
-  richer *curated* nested schema (`paper.*`/`sample.*`/`universe.*`/
-  `formula_convention.*`/`input_return.*`, `calculation_steps`/
-  `formula.inputs`, `robustness_or_secondary_specs`/`extensions`/
-  `annotator_notes`, `portfolio.sorts` plural) that only the *extractor*
-  prompt (`prompts/extractor/methodspec_extractor.md`) still legitimately
-  emits (and `MethodSpec.normalize_curated_schema` flattens on the way in —
-  see the 2026-07 MethodSpec schema notes). `resolve_review_blocks.py`
-  already has a `PATH_ALIASES` mechanism for exactly two known cases
-  (`universe.missing_policy.action`, `universe.winsorize_bounds`), but a
-  freshly-invented path like `sample.return_sample` has no alias and would
-  silently write into a dead nested dict a human "resolving" it would never
-  notice was discarded.
-- **Options considered:** (1) leave the prompt as-is and rely on
-  `PATH_ALIASES` to patch every future invented path reactively (rejected —
-  purely reactive, guaranteed to keep recurring per-paper since the prompt
-  itself keeps re-inventing new unaliased paths); (2) make the reviewer
-  ignore/re-derive schema shape from the JSON it's given instead of a written
-  contract (rejected — the whole point of a written parser-contract section
-  is to give the LLM a stable, auditable vocabulary; removing it weakens the
-  audit); (3) fix the prompt itself to describe the real flat schema.
-- **Decision:** Chose (3). Rewrote `prompts/review_gate/methodspec_audit.md`
-  §4.1 (paper/target scope), §4.2 (signal — no `calculation_steps`/
-  `formula.inputs`/`extensions.formula_constants`, only `signal.formula.
-  {expression,paper_expression}` + top-level `signal.required_fields[]`),
-  §4.4 (sample — flat `sample_start_year`/`sample_end_year`, no month-level
-  `return_sample`), §4.6 (universe — `portfolio.universe`/
-  `portfolio.universe_filters[]`/`signal.missing_policy.*`, not a `universe.*`
-  object), §5.1 (Required stable fields — replaced the entire invented list
-  with the real flat locations), §5.3 (formula executability — checked against
-  `signal.required_fields[]`, not phantom `calculation_steps`), plus stray
-  `portfolio.sorts` (plural, doesn't exist — it's `portfolio.sort`) and
-  `robustness_or_secondary_specs`/`extensions`/`annotator_notes`/
-  `sample_coverage_notes` mentions (none exist; the only real escape hatches
-  are `ambiguous_fields`/`unsupported_fields`).
-- **Empirical impact:** Re-ran `review_with_llm` on the exact same
-  already-extracted `AB1998_ETR` spec after the fix (no re-extraction) —
-  `blocked_fields` changed from the invented
-  `['signal.formula.expression', 'sample.return_sample',
-  'universe.winsorize_bounds']` to the correct
-  `['factor_id', 'signal.formula.expression']`, both real dotted paths on the
-  actual model. `requires_human=True` in both cases (correctly — the paper's
-  Table 1 truly isn't extractable), so this fix doesn't change the pipeline's
-  terminal disposition for THIS spec, but does change what a human resolving
-  future blocked specs would be told to look at.
-- **Trade-offs / risks:** Did not touch the extractor prompt (intentionally —
-  its curated schema is the documented, live, tested contract that
-  `normalize_curated_schema` flattens; see the MethodSpec schema notes) or add
-  new `PATH_ALIASES` entries speculatively (avoided over-engineering for
-  paths the corrected prompt should no longer produce). AB1998's 9 fundamental
-  signals (AQ/AR/CAPX/EQ/ETR/GM/INV/LF/SA) remain unbacktestable from this PDF
-  specifically because Table 1 (all 9 formulas) was never included in the
-  extractable text — a paper-data-availability gap, not something further
-  pipeline changes can fix.
-- **References:** `prompts/review_gate/methodspec_audit.md`,
-  `src/steps/step2_reviewer/__init__.py` (`review_with_llm`, `_LLM_REVIEW_CONTRACT`,
-  `HIGH_IMPACT_FIELDS`), `src/steps/step2_reviewer/resolution.py`
-  (`PATH_ALIASES`), `src/infra/models/method_spec.py`
-  (`MethodSpec.normalize_curated_schema`), CHANGELOG.md [Unreleased].
-
 ## 2026-08-02 — MethodSpec must record "paper stated but engine-unsupported" separately from "paper silent"
 
 - **Context / problem:** Investigating whether the pipeline can capture a
@@ -1210,50 +873,6 @@ when writing the paper.
 - **References:** `docs/multi-config-evidence-plan.md` §3, §4
   Phase A2.1, §9; CHANGELOG `[Unreleased]`.
 
-## 2026-08-02 — Run-identity, per-key config validation, provenance, and the LLM-classification boundary for multi-config experiments
-
-- **Context / problem:** Before running one frozen signal under many configs, a
-  review found that the naive first cut (`run_id` built in `make_run_record`)
-  would harden a run-identity API that later phases must overturn, and that
-  several defects make multi-config attribution untrustworthy: config overrides
-  bypass menu validation, a `lag` override is a no-op on the signal, per-track
-  repair can change `code_hash`, the generated script is non-hermetic, and the
-  evidence store persists only metadata. A concrete existing bug:
-  `HXZ_STANDARD_CONFIG["breakpoint_quantiles"]` is a percentile list while the
-  engine calls `int(...)`; no test catches it because the dual-track test uses a
-  fake runner. (All verified against code.)
-- **Options considered:** (1) implement multi-config persistence directly
-  (unique paths in `make_run_record`); (2) a binary portfolio-only/signal-input
-  config taxonomy; (3) a per-key `ConfigKeySpec` stage taxonomy with
-  resolved-diff-driven comparability, run identity allocated before build, full
-  runtime provenance, semantic vs artifact hashing, and an explanation-only LLM
-  layer.
-- **Decision:** Chose (3). Run identity = per-execution unique `execution_id`
-  with content hashes stored as fields (audit-friendly), plus matrix/batch
-  identity so a frozen-input group can be invalidated atomically. Config
-  validity = per-key stage taxonomy; comparability and identification level come
-  from the resolved diff-set, not from a whole-config label. Reproducibility =
-  runtime provenance (commit/dirty, engine source hash, versions, FF file hash)
-  because the script imports engine code at run time. Signal equality = a
-  canonicalized `series_semantic_hash`, not a Parquet byte hash, captured at a
-  defined stage (post-canonicalization, pre-portfolio). LLM = explanation-only,
-  each claim bound to a claim-type→evidence-schema, classifications are
-  `llm_assisted_proposal` and never written back.
-- **Rationale:** These are the minimal invariants that make config-vs-signal
-  attribution and cross-factor conclusions auditable and LLM-independent. The
-  binary taxonomy could not express factorial or cross-stage diffs and would have
-  masked the `breakpoint_quantiles` bug.
-- **Empirical impact:** None yet — plan/docs only; no run numbers changed.
-- **Trade-offs / risks:** Heavier evidence model (intermediate artifacts,
-  provenance); mitigated by a configurable evidence level (full for pilot/bridge,
-  lean for bulk). The `breakpoint_quantiles` fix + real-runner smoke test are
-  called out as immediate, plan-independent work.
-- **References:** `docs/multi-config-evidence-plan.md`,
-  `docs/replication-diagnosis-design.md` Phases A–E, `src/steps/step6_dual_track_controller/__init__.py`,
-  `src/steps/step3_codegen/registry.py`, `src/steps/step3_codegen/script_generator.py`,
-  `src/infra/repair.py`, `src/infra/evidence/__init__.py`, `src/pipeline.py`,
-  CHANGELOG `[Unreleased]`.
-
 ## 2026-08-02 — Reframe the research core around inter-implementer agreement and codify the LLM usage boundary
 
 - **Context / problem:** The original framing ("which implementation choices
@@ -1283,72 +902,6 @@ when writing the paper.
 - **References:** `README.md`, `docs/architecture.md` §1,
   `docs/replication-diagnosis-design.md` §1.1/§5.3, `docs/roadmap.md`,
   `AGENTS.md`, CHANGELOG `[Unreleased]`.
-
-## 2026-08-02 — Keep reviewer field-defaults and the standardized-track config separate; cite the standard's provenance
-
-- **Context / problem:** `HXZ_STANDARD_CONFIG` (step6 standardized track) was an
-  uncited hardcoded constant, and step2's `SENSIBLE_DEFAULTS` held an
-  overlapping-looking copy of the same conventions. Their `rebalance` values
-  disagree (`monthly` vs `annual`), which looked like drift and raised the
-  question "where do these numbers come from?".
-- **Options considered:** (1) merge the two into one shared constant and force a
-  single rebalance value; (2) keep them separate but add per-field provenance
-  and document why they differ.
-- **Decision:** Chose (2). The two are different concepts with different key
-  namespaces: `SENSIBLE_DEFAULTS` (dotted MethodSpec paths) fills a
-  paper-SILENT field with its field-level convention to keep `original_method`
-  faithful to the paper; `HXZ_STANDARD_CONFIG` (engine-config keys) deliberately
-  OVERRIDES the paper to force a uniform house standard for cross-factor
-  comparison. Merging would conflate "faithful default" with "standardized
-  override" and break the diagnosis design.
-- **Rationale:** The `annual` vs `monthly` difference is the correct answer to
-  two different questions (unspecified-accounting-factor default vs HXZ
-  standardized protocol), not a bug. Auditable replication requires the
-  standardized "house standard" to have a citable provenance.
-- **Empirical impact:** None — documentation and comments only; no config value
-  changed.
-- **Trade-offs / risks:** Verified that `accounting_lag_months=6` is a
-  Fama-French (1992) convention, not HXZ (which matches most-recent quarterly
-  earnings monthly). The "HXZ_STANDARD" name is therefore approximate for that
-  field; logged a TODO to either realign to HXZ or rename the track to a neutral
-  `standardized`.
-- **References:** `src/steps/step6_dual_track_controller/__init__.py`,
-  `src/steps/step2_reviewer/__init__.py`, `docs/cz-reference.md` §7,
-  CHANGELOG `[Unreleased]`.
-
-## 2026-08-01 — Standardize the validated project environment on Python 3.11
-
-- **Context / problem:** The existing `.venv` was created with Python 3.14.
-  The official `openassetpricing==0.0.2` client imported and loaded SignalDoc
-  there, but `dl_port('op', ..., ['AssetGrowth'])` caused a native segmentation
-  fault. The identical portfolio and firm-signal requests succeeded in an
-  isolated Python 3.11 environment. The package documents testing on Python
-  3.10, while the project's scientific dependencies are mature on 3.11.
-- **Options considered:** (1) keep Python 3.14 and bypass the client; (2) run
-  only C&Z downloads in a separate environment; (3) standardize the whole
-  project development/test environment on Python 3.11 while keeping the C&Z
-  client evaluation-only. Chose (3), gated on golden and full-suite tests.
-- **Decision:** Add `.python-version` = 3.11 and an `evaluation` optional extra
-  for `openassetpricing==0.0.2`. Recreate the virtual environment rather than
-  attempting to replace an interpreter inside an existing venv. Preserve the
-  Python 3.14 environment as a backup until Python 3.11 validation passes.
-- **Rationale:** One validated interpreter reduces cross-environment drift and
-  avoids a demonstrated native crash. Python 3.11 has stable wheels for the
-  project's pandas/pyarrow/scientific stack and requires no source syntax
-  changes. Keeping the client optional avoids imposing WRDS/Polars dependencies
-  on core pipeline users.
-- **Empirical impact:** None observed. Both golden E2E tests passed unchanged;
-  the focused migration gate passed 19 tests, and the full Python 3.11 suite
-  passed 200 tests with 26 expected skips. The AssetGrowth OP portfolio API
-  also completed successfully (9,570 rows), while the Python 3.14 call had
-  crashed natively.
-- **Trade-offs / risks:** Dependency resolution selects pandas 2.2.x when the
-  evaluation extra is installed, rather than the unpinned pandas 3.x version
-  previously present. Tests must establish compatibility. Python 3.14 is no
-  longer the validated development interpreter even though the source metadata
-  still permits future versions.
-- **References:** `.python-version`, `pyproject.toml`, CHANGELOG `[Unreleased]`,
-  `docs/replication-diagnosis-design.md`.
 
 ## 2026-08-01 — C&Z is a post-freeze diagnostic reference, not the second endpoint of a simple dual track
 
@@ -1388,400 +941,6 @@ when writing the paper.
   [cz-reference.md](cz-reference.md), `src/evaluation/`,
   `src/steps/step6_dual_track_controller/`,
   `src/steps/step7_replication_diff/`, CHANGELOG `[Unreleased]`.
-
-## 2026-08-01 — DataLayer refactor Round 1 P4: one signal-master path (B-group deleted)
-
-- **Context / problem:** Two parallel mechanisms built the signal-master table:
-  the snapshot-based B-group (`CCMLinker` + `TimeAvailComputer` +
-  `get_signal_master_table`) — which the mvp/accruals GOLDEN NUMBERS ran through
-  — and the declarative D-group (`assemble_signal_master_table`, migrated to
-  `sources.py` in P3). Plan §5 (gated) merges them into one.
-- **Options considered:** (a) keep both; (b) merge, gated on a byte-identical
-  golden-number check with a fallback to split P4 into its own round.
-  Chose (b) — but FIRST ran a read-only equivalence check to quantify the risk.
-- **Read-only check (before any code change):** B-group vs D-group produced
-  BYTE-IDENTICAL `[permno, time_avail_m, *cols]` on both golden fixtures
-  (mvp/asset_growth, accruals). The only behavioral divergence: `CCMLinker`
-  drops a Compustat row whose linked `permno` is absent from the CRSP panel;
-  `link_to_permno` keeps it (irrelevant to the fixtures — every permno is in CRSP).
-- **Decision:** Deleted the B-group; the declarative loader is the single path.
-  The generated script's "compustat" mode now calls the same
-  `assemble_signal_master_table_from_sources` as "multi_source" (the modes
-  differ only in returns-panel loading). **Ghost-permno rule: KEEP** (user-
-  approved) — a permno with accounting data but no CRSP presence is retained
-  (CRSP-centric identity; the returns inner-join drops it downstream), rather
-  than replicating CCMLinker's pre-emptive drop.
-- **Rationale:** One implementation of "resolve gvkey→permno + stamp
-  time_avail_m", no drift risk between the in-process and generated paths, and
-  the registry/declarative loader is the single source of truth end to end.
-- **Empirical impact:** None — golden numbers byte-identical, verified by both
-  the read-only check and the subprocess-run mvp/accruals e2e.
-- **Trade-offs / risks:** Snapshot signal tables renamed to the real WRDS
-  layout (`comp_funda.parquet` + `ccm_lnkhist.parquet`, CCM keyed on `lpermno`);
-  every snapshot writer (e2e fixtures, `backend/state.py`, `app.py`,
-  `scripts/build_synthetic_data.py`) + `generate_backtest_script`'s signature
-  updated in lockstep. `SnapshotManager`/`DataLayer.snapshots` kept (orthogonal:
-  reproducible-run registry + UI picker + path resolution).
-- **References:** `src/infra/data_layer/__init__.py`,
-  `src/steps/step3_codegen/script_generator.py`,
-  `src/steps/step5_backtest_runner/__init__.py`, `src/pipeline.py`, `app.py`,
-  `tests/test_mvp_e2e.py`, `tests/test_accruals_e2e.py`, `plan.md` §5/P4,
-  CHANGELOG (Round 1 P4 entry).
-
-## 2026-08-01 — DataLayer refactor Round 1 P3: registry is the single source of truth; catalog derived
-
-- **Context / problem:** The signal-input metadata lived as hand-written dicts
-  in `catalog.py` (`DATA_CATALOG` / `LINK_TABLES`) while the loading behavior
-  lived as free functions in `data_layer/__init__.py` (the "D-group") — two
-  places to keep in sync, and a second signal-assembly path parallel to the
-  older snapshot one (plan.md §3).
-- **Options considered:** (a) keep catalog as the source of truth and have
-  `sources.py` read from it; (b) make the DataSource registry the source of
-  truth and DERIVE the catalog views from it. Chose (b) per plan §2② — one
-  place declares "what data exists / how it links", everything else is a view.
-- **Decision:** Registered `comp_funda`/`comp_fundq`/`ibes_statsumu` as
-  declarative `SourceSpec`s + `crsp_msf` as a `CrspSignalSource` (CRSP's dual
-  signal role, §2④), plus `ccm`/`ibes_crsp_link` as `LinkTableSpec`s; moved the
-  link/load/assemble logic into `sources.py`. `catalog.DATA_CATALOG` /
-  `LINK_TABLES` / `RETURNS_UNIVERSES` are now derived from the registry,
-  byte-identical to the old literals, so `source_of_column`/`resolve_concept`/
-  `signal_sources`/`concept_map` (and therefore MethodSpec + the reviewer) are
-  untouched (plan §6b). Raw dedup filters became declarative
-  `SourceSpec.raw_filters` instead of bespoke filter functions.
-- **Rationale:** Adding a Compustat-like source is now one `SourceSpec` entry
-  (the §0 litmus test) with no scattered dict edits; the "no silent default
-  source" rule is enforced by the same fail-loud registry lookups.
-- **Empirical impact:** None — the migrated loading logic is exercised
-  unchanged by `test_signal_master_multisource` on synthetic WRDS-shaped data,
-  and mvp/accruals golden numbers are byte-identical.
-- **Trade-offs / risks:** CRSP is now two registered objects (`crsp` returns
-  universe + `crsp_msf` signal source) sharing the CIZ assembler — intentional,
-  makes the dual role explicit. The old snapshot-based signal-master path
-  (B-group: CCMLinker/TimeAvailComputer/get_signal_master_table) still coexists;
-  merging it is the gated P4.
-- **References:** `src/infra/data_layer/sources.py`,
-  `src/infra/data_layer/catalog.py`, `src/infra/data_layer/__init__.py`,
-  `tests/test_data_sources.py`, `tests/test_signal_master_multisource.py`,
-  `plan.md` §2/§3/§4/P3, CHANGELOG (Round 1 P3 entry).
-
-## 2026-08-01 — DataLayer refactor Round 1 P2: CRSP returns via a DataSource registry
-
-- **Context / problem:** `BacktestExecutor.load_data` called the free assembler
-  `build_crsp_monthly_panel_ciz` directly, and returns/signal data entered the
-  pipeline through separate ad-hoc paths (see `plan.md` §1). Round 1 introduces a
-  CRSP-centric `DataSource` registry + `DataLayer` facade as the single source of
-  truth for "what data exists / how it links to permno".
-- **Options considered:** (a) config-driven `SourceSpec` for CRSP too;
-  (b) a bespoke `DataSource` subclass for CRSP. Chose (b) — CRSP needs multi-file
-  assembly (`CRSP_STOCK_MONTH.csv` + `CRSP_DELISTING.csv`), derived exchcd/shrcd
-  approximations, and a delisting merge, which `plan.md` §2③ explicitly carves out
-  as the "CRSP-shaped special" case for a custom class.
-- **Decision:** Migrated the CIZ returns backbone into `sources.py` as
-  `CrspReturnsUniverse` (+ the moved assembler/daily-loader/`_ciz_shrcd`/CIZ
-  constants). Added a returns sub-registry and a `DataLayer.load_returns*` facade;
-  `load_data` now resolves the panel through the registry. Kept the two public
-  assemblers re-exported from `sources.py` so the generated multi_source script,
-  `_load_source_frame`, and tests are unchanged.
-- **Rationale:** Establishes the one-directional `sources <- catalog <- __init__`
-  layering and the "no silent default panel" fail-loud contract without touching
-  the signal-assembly paths (deferred to P3/P4) — keeping golden numbers stable.
-- **Empirical impact:** None — mvp/accruals golden-number e2e byte-identical; the
-  panel-building code is a pure relocation, not a behavior change.
-- **Trade-offs / risks:** CRSP's signal role is still served by the re-exported
-  `build_crsp_monthly_panel_ciz` (D-group `_load_source_frame`); it becomes a
-  formally-registered CRSP `SignalSource` in P3. Transient duplication of the
-  `us_equity_crsp` alias between `catalog.RETURNS_UNIVERSES` and
-  `CrspReturnsUniverse.universe_aliases` until catalog is made registry-derived in P3.
-- **References:** `src/infra/data_layer/sources.py`,
-  `src/infra/data_layer/__init__.py`, `src/infra/backtest_engine/__init__.py`,
-  `tests/test_data_sources.py`, `plan.md` §2/§4/P2, CHANGELOG (Round 1 P2 entry).
-
-## 2026-07-31 — Deleted `load_msf`/`load_daily_msf` and the "panel" returns_layout
-
-- **Context / problem:** After removing the legacy 3-table CRSP assembler
-  (previous entry, same date), the user asked to also delete `load_msf`/
-  `load_daily_msf` ("还是删了msf或者daily msf吧"). These are format-agnostic
-  utilities (read an already-pre-flattened parquet, regardless of whether it
-  originated from legacy CRSP or CIZ) backing the `"panel"` returns_layout —
-  NOT specific to the legacy vs. CIZ distinction, so I flagged before
-  deleting that this would break the `"panel"` layout and
-  `tests/test_daily_frequency.py`'s `TestLoadDailyMsf` (3 tests). User
-  confirmed to proceed anyway.
-- **Approach:** Rather than fully hand-tracing every consumer up front
-  (as done for the previous, much larger legacy-assembler removal), deleted
-  the two methods + the `"panel"` layout, then ran the full test suite to
-  empirically discover the exact breakage — cheaper and more reliable than
-  guessing for a change of this size, and the test suite is comprehensive
-  enough to trust for this.
-- **What broke (only 6 tests, not the large cascade the "panel" layout's
-  other consumers implied):**
-  - `tests/test_daily_frequency.py::TestLoadDailyMsf` (all 3 tests) — deleted,
-    directly exercised the removed `load_daily_msf`.
-  - `tests/test_no_default_source.py::test_load_data_does_not_fall_back_to_crsp_for_a_different_returns_table`
-    — deleted, tested the removed `<data_path>/local/msf.parquet` legacy
-    file-location shim.
-  - `tests/test_no_default_source.py::test_build_config_sets_returns_table_from_universe`
-    / `test_build_config_defaults_returns_table_to_crsp_when_universe_unset` —
-    updated to assert `returns_layout == "crsp_ciz"` instead of `"panel"`
-    (since `catalog.RETURNS_UNIVERSES["us_equity_crsp"]` was repointed at
-    `crsp_ciz`, consolidating away the now-redundant separate
-    `"us_equity_crsp_ciz"` entry).
-- **What did NOT break (verified, not assumed):** `tests/test_mvp_e2e.py`,
-  `tests/test_accruals_e2e.py`, `tests/test_backend_api.py`, `app.py`,
-  `backend/state.py` — all pass. Root cause: the ACTUAL backtest execution for
-  these paths runs through `BacktestRunner.execute()`, which executes a
-  GENERATED STANDALONE SCRIPT via subprocess (see
-  `src/steps/step3_codegen/script_generator.py`). That generated script has
-  its OWN independent `load_msf()` function baked into its template — it
-  never calls `BacktestExecutor.load_data()`'s file-dispatch logic at all.
-  The `<data_path>/local/msf.parquet` file these e2e tests write was
-  apparently only ever consumed by `BacktestExecutor.load_data()`'s in-process
-  legacy shim (now removed), which nothing in the actual golden-number
-  execution path was relying on — the shim (and its supporting comment in
-  `tests/test_mvp_e2e.py`) had become stale/vestigial.
-- **Rationale:** Confirms `load_msf`/`load_daily_msf`/the `"panel"` layout
-  were narrower-scoped than they first appeared — removing them completes
-  the standardization on the real WRDS CIZ format for anything that goes
-  through `BacktestExecutor.load_data()` directly, while the
-  generated-script execution path (which most e2e tests and the demo
-  actually exercise) was never touched by any of this.
-- **Empirical impact:** None on any MethodSpec/backtest numbers. Full suite:
-  186 passed (down from 190 — 4 tests removed, 2 updated), 26 skipped.
-- **Trade-offs / risks:** Any FUTURE code that wants to hand
-  `BacktestExecutor.load_data()` a pre-flattened parquet by file path (rather
-  than an in-memory `data=` DataFrame or the real CIZ export) has no
-  supported mechanism anymore — would need a new, explicitly-scoped addition
-  if that need arises.
-- **References:** `src/infra/backtest_engine/__init__.py`,
-  `src/infra/data_layer/catalog.py`, `src/infra/data_layer/__init__.py`,
-  `src/steps/step3_codegen/registry.py`, `tests/test_daily_frequency.py`,
-  `tests/test_no_default_source.py`; CHANGELOG.md [Unreleased] same date.
-
-## 2026-07-31 — Deleted the legacy 3-table CRSP assembler; standardized on real WRDS CIZ format
-
-- **Context / problem:** After building real-WRDS-CIZ support (2026-07-30)
-  alongside the pre-existing legacy 3-table CRSP assembler
-  (`crsp_msf`/`crsp_msenames`/`crsp_msedelist`, joined via `SOURCE_SCHEMA`/
-  `assemble_panel()`), the user asked to drop the old format entirely and
-  standardize everything on the real sample-file-derived (CIZ) format
-  ("旧格式就不要了吧，全都按照sample文件为准").
-- **Options considered:**
-  1. Keep both formats side by side indefinitely (status quo from
-     2026-07-30).
-  2. Delete the legacy assembler and its `"crsp_raw"` returns_layout, and
-     delete/rework every test that depends on it.
-  3. Delete the legacy assembler but ALSO migrate its downstream synthetic
-     test fixtures (`data/synthetic_data/test_papers_v1/`) to a CIZ-shaped
-     equivalent, preserving full test coverage.
-- **Decision:** Option 2, per explicit user confirmation after being shown
-  the blast radius (a full audit was run first — see below — since this is
-  the kind of destructive, hard-to-reverse, cross-cutting change that
-  warrants explicit confirmation before touching anything). User also
-  explicitly confirmed deleting the dependent tests rather than pursuing
-  option 3's larger rework.
-- **Audit performed before touching anything** (to avoid guessing at blast
-  radius): confirmed that `scripts/build_synthetic_data.py`,
-  `tests/synthetic_data/asset_growth_synthetic_data.py`/
-  `accruals_synthetic_data.py`, `tests/test_mvp_e2e.py`,
-  `tests/test_accruals_e2e.py`, `tests/test_backend_api.py`, `app.py`,
-  `backend/state.py`, and `Pipeline.run_from_method_spec()` are all
-  INDEPENDENT of the legacy 3-table assembler — they all pass a single
-  pre-flattened DataFrame directly (via the `"panel"` returns_layout, or
-  `data=`/`DataLayer` snapshot passthrough), which reads a pre-flattened
-  parquet regardless of its internal provenance and was NOT touched. Only
-  `tests/test_crsp_raw_panel.py` (entirely), one test in
-  `tests/test_signal_master_multisource.py` (`test_apply_pit_attrs_
-  fallback_for_coverage_gap`, calling `assemble_panel()` directly), and one
-  more in the same file (`test_generated_multi_source_script_runs`, which
-  executes a generated multi-source script that transitively called the
-  legacy assembler through `script_generator.py`'s template) actually
-  depended on it.
-- **What was removed:**
-  - `src/infra/data_layer/__init__.py`: `SOURCE_SCHEMA`, `_DERIVE_OPS`,
-    `_load_base`, `_apply_pit_attrs`, `_apply_fold_last`, `assemble_panel`,
-    `build_crsp_monthly_panel` (the legacy one — `build_crsp_monthly_panel_ciz`
-    is now the only CRSP raw-tables assembler and was NOT renamed, to avoid
-    an unnecessary rename churn across already-working CIZ code).
-  - `BacktestExecutor.load_data()`'s `"crsp_raw"` returns_layout branch +
-    its `build_crsp_monthly_panel` import (kept `"panel"` and `"crsp_ciz"`).
-  - `catalog.RETURNS_UNIVERSES["us_equity_crsp_raw"]`.
-  - `_load_source_frame`'s special-cased `crsp_msf` branch: now calls
-    `build_crsp_monthly_panel_ciz(d / "local")` instead (matching where the
-    real CIZ export actually lives, same convention as the other raw-CSV
-    fallbacks).
-  - `script_generator.py`'s generated multi-source backtest script template:
-    now calls `build_crsp_monthly_panel_ciz(SIGNAL_DATA_DIR)` instead — a
-    generated script's `SIGNAL_DATA_DIR` is now expected to contain a real
-    WRDS CIZ export (`CRSP_STOCK_MONTH.csv`/`CRSP_DELISTING.csv`), not the
-    legacy 3-table split.
-  - `tests/test_crsp_raw_panel.py` (deleted entirely, all 5 tests) and two
-    tests in `tests/test_signal_master_multisource.py` (see above).
-- **Deliberately NOT removed / left as-is:**
-  - `scripts/build_test_papers_synthetic_data.py` — still generates
-    comp_funda/comp_fundq/ccm_lnkhist/ibes_crsp_link/ibes_statsumu fixtures
-    under `data/synthetic_data/test_papers_v1/` that
-    `test_signal_master_multisource.py`'s remaining tests use (those tests
-    never touched the legacy CRSP assembler — they exercise the generic
-    `_load_source_frame`/`link_to_permno` signal-input path against
-    Compustat/IBES parquet fixtures, independent of how the returns panel is
-    built). The same script's `crsp_msf`/`crsp_msenames`/`crsp_msedelist`/
-    `crsp_dsf`/`crsp_msedist` outputs are now simply unused, harmless
-    leftover files — not worth a separate script rewrite for this pass.
-  - The `"panel"` returns_layout / `DEFAULT_RETURNS_UNIVERSE="us_equity_crsp"`
-    — this is a GENERIC "read one pre-flattened parquet" mechanism, unrelated
-    to whether the underlying data was ever in the legacy 3-table shape; it's
-    what the MVP/accruals e2e tests and the Streamlit demo actually use, and
-    was never part of "the old format" being removed.
-- **Empirical impact:** None on any MethodSpec/backtest numbers (deletion +
-  test removal only). Full suite: 190 passed (down from 197 — 7 tests
-  removed), 26 skipped, unchanged otherwise.
-- **Trade-offs / risks:** Any future MethodSpec/generated script that needs a
-  multi-source signal + CRSP returns panel now REQUIRES the real WRDS CIZ
-  export to be present (no more legacy-format fallback for that combination).
-  `data/synthetic_data/test_papers_v1/`'s CRSP-shaped parquet files
-  (crsp_msf/crsp_msenames/crsp_msedelist/crsp_dsf/crsp_msedist) are now dead
-  weight on disk (gitignored, harmless) unless `build_test_papers_synthetic_data.py`
-  is revisited later to stop generating them.
-- **References:** `src/infra/data_layer/__init__.py`,
-  `src/infra/backtest_engine/__init__.py`,
-  `src/infra/data_layer/catalog.py`,
-  `src/steps/step3_codegen/script_generator.py`,
-  `tests/test_signal_master_multisource.py`; CHANGELOG.md [Unreleased] same
-  date; 2026-07-30 entries above (original CIZ-format introduction).
-
-## 2026-07-31 — Explicit WRDS date format after finding CCM's `LINKENDDT="E"` sentinel
-
-- **Context / problem:** Asked to validate the data layer against the
-  curated `data/local/samples/` (see the 2026-07-30 alignment work below).
-  Running the real Compustat/CCM/IBES loaders surfaced a `UserWarning:
-  Could not infer format... falling back to dateutil` on `CRSP_COMPUSTAT_LINK.csv`.
-  Root cause: `LINKENDDT` is not always a date string — an open (still
-  active) link is coded as the literal string `"E"`. Mixed real-dates +
-  `"E"` defeats pandas' fast columnar date-format inference, forcing a slow
-  per-row `dateutil` parse. The same unformatted `pd.to_datetime(...,
-  errors="coerce")` pattern was used everywhere else a date column from a
-  real WRDS file gets parsed (comp_funda/comp_fundq's `datadate`, IBES
-  summary's `statpers`, CRSP CIZ's `DlyCalDt`/`DelistingDt`, 13F's `rdate`,
-  IBES detail/actual's date columns, CRSP index's `mthcaldt`/`dlycaldt`,
-  liquidity factors' `date`) — same latent perf/warning issue at production
-  scale (comp_fundq alone is ~1.9M rows over a 4GB file).
-- **Options considered:**
-  1. Leave as-is — `errors="coerce"` already makes `"E"` become `NaT`, which
-     `link_to_permno`'s `.fillna(pd.Timestamp.max)` correctly treats as
-     "open-ended" anyway, so behavior is already correct.
-  2. Add an explicit `format="%Y-%m-%d"` everywhere a KNOWN real WRDS file's
-     date column is parsed.
-  3. Add the explicit format to the GENERIC, source-agnostic `link_to_permno`/
-     `_load_source_frame` date-parsing calls too (which run for every
-     source, including hypothetical future non-WRDS ones).
-- **Decision:** Option 2. Did NOT do option 3: `link_to_permno`/
-  `_load_source_frame`'s date parsing must stay format-agnostic since they're
-  shared infrastructure for ANY future registered source, not just
-  WRDS-shaped ones — hardcoding `"%Y-%m-%d"` there would silently turn every
-  row of a differently-formatted future source's dates into `NaT` (and then
-  zero rows downstream), exactly the "silent zero rows" class of bug this
-  project already fixed once for `patents_nber` (2026-07-25 entry). Instead,
-  `_read_raw_source_csv` (which IS scoped to a known real file) now
-  pre-parses the source's own `date` column with the explicit format before
-  handing off to the generic pipeline, so the later generic call becomes a
-  cheap no-op (already-datetime input) rather than needing its own format
-  hardcoded.
-- **Rationale:** This is a correctness-preserving performance/robustness fix,
-  not a behavior change — confirmed `"E"` still resolves to `NaT` ->
-  `Timestamp.max` (open-ended) exactly as before. Measured ~18% faster on the
-  real `comp_fundq` load (68.1s -> 56.3s) as a side benefit.
-- **Also found (documented, not fixed — not a bug):** a delisted stock's CIZ
-  monthly row for its OWN delisting month often has `PrimaryExch`/
-  `SecurityType`/`SecuritySubType`/`SICCD` blanked out entirely (confirmed on
-  permno 10000's 1987-06 delisting row: `PrimaryExch="X"`,
-  `SecurityType=NaN`, `SecuritySubType="UNK"`, `SICCD=0`, `MthRet=0.0` — the
-  real delisting return comes from `CRSP_DELISTING.csv`'s `DelRet`
-  separately). This means `exchcd=0`/`shrcd=0` for that one month even
-  though the stock was ordinary common stock every prior month — it won't
-  pass a `shrcd in [10, 11]` or `breakpoint_source="nyse"` filter for its
-  final month. This is genuinely how the CIZ export reports it (not an
-  adapter bug), and differs from the legacy 3-table path where
-  `_apply_pit_attrs`'s window-based join would carry forward the last known
-  attrs. Documented in `build_crsp_monthly_panel_ciz`'s module comment;
-  revisit only if this is ever shown to matter for a specific replication
-  (e.g. a paper whose universe filter would wrongly exclude a stock's exact
-  delisting month).
-- **Empirical impact:** None on any MethodSpec/backtest numbers — pure
-  parsing-performance fix, values unchanged.
-- **Trade-offs / risks:** None identified; `errors="coerce"` remains the
-  safety net for any date value that still doesn't match `"%Y-%m-%d"`.
-- **References:** `src/infra/data_layer/__init__.py`
-  (`_read_raw_link_table_csv`, `_read_raw_source_csv`,
-  `build_crsp_monthly_panel_ciz`, `load_daily_msf_ciz`,
-  `load_crsp_index_factors`, `load_liquidity_factors`,
-  `load_institutional_ownership_13f`, `load_ibes_recommendation_detail`,
-  `load_ibes_unadjusted_actual`); CHANGELOG.md [Unreleased] same date.
-
-## 2026-07-31 — Removed catalog.py entries with no real data behind them (optionm_vsurf, optionm_crsp_link, tr_13f, patents_nber)
-
-- **Context / problem:** After the 2026-07-30 real-data work, the user asked
-  for `catalog.py` to only reflect data sources actually backed by real data
-  in this project, not speculative/test-only registrations. Auditing every
-  `DATA_CATALOG`/`LINK_TABLES` entry against `data/local/`'s real files found
-  four with no real backing: `optionm_vsurf`/`optionm_crsp_link` (no
-  OptionMetrics data file exists anywhere in the project) and `patents_nber`
-  (no NBER patents data exists). `tr_13f` was a subtler case: it's registered
-  `{"key": "permno", "link": None, ...}` — i.e. assumed to be ALREADY
-  permno-keyed — but the real 13F export we now have (`data/local/13F.csv`)
-  has no permno column at all; its own key is `cusip`. So `tr_13f`'s
-  registered shape doesn't match how the one real 13F file we have actually
-  joins.
-- **Options considered:**
-  1. Leave all four registered (they exercise genuinely useful *generic*
-     catalog/join-framework behavior in tests, independent of whether real
-     data backs them).
-  2. Remove all four from `catalog.py`, and either drop or rework the tests
-     that depended on them reading from the real module-level `DATA_CATALOG`.
-  3. Fix `tr_13f`'s shape to match the real cusip-keyed 13F file (register a
-     new `crsp_cusip` link table) instead of removing it.
-- **Decision:** Option 2 — removed all four. For `tr_13f` specifically,
-  did NOT pursue option 3 in this pass: the real 13F loader
-  (`data_layer.load_institutional_ownership_13f()`, added 2026-07-30) already
-  documents that its CUSIP match is NOT point-in-time (uses each CUSIP's most
-  recent observed permno, no validity window) — registering it in the
-  declarative catalog would imply a level of correctness (point-in-time
-  join, like CCM/IBES-CRSP link) it doesn't actually have yet. Revisit once a
-  real point-in-time CUSIP history replaces that best-effort match.
-- **Rationale:** A catalog entry is effectively a claim "this is how this
-  real data source joins" — `optionm_vsurf`/`optionm_crsp_link`/
-  `patents_nber` made that claim about data that doesn't exist at all, and
-  `tr_13f` made a claim about join shape that's simply wrong for the one real
-  13F file this project has. Keeping them registered contradicts the
-  project's own "never silently guess/misrepresent a data source" principle
-  (the same principle behind `catalog.source_of_column`/`resolve_concept`
-  returning `(None, None)` rather than a guess, and the reviewer's hard-block
-  on unregistered sources). The tests that exercised these entries
-  (`test_link_to_permno_no_row_explosion[optionm_vsurf]`,
-  `test_link_to_permno_noop_for_permno_keyed_source`,
-  `test_load_source_frame_raises_for_source_without_date_column`) were
-  reworked to preserve their actual behavioral coverage — the generic
-  "link=None -> no-op" case now uses `crsp_msf` (a real, still-registered
-  permno-keyed source) instead of the removed `tr_13f`; the "join.date=None
-  must fail loud" regression test (originally added for the real
-  `patents_nber` bug, see the 2026-07-25 entry above) now monkeypatches a
-  temporary fake source into `SIGNAL_SOURCES` for the duration of that one
-  test, so the regression guard isn't lost even though `patents_nber` itself
-  is gone.
-- **Empirical impact:** None — pure data-plumbing/registry cleanup, no
-  MethodSpec/backtest numbers affected.
-- **Trade-offs / risks:** Re-adding any of these four requires a fresh
-  catalog entry once real data exists for it (OptionMetrics, NBER patents)
-  or once `tr_13f`'s join is redesigned around a real point-in-time CUSIP
-  history. `scripts/build_test_papers_synthetic_data.py` still builds
-  synthetic `optionm_vsurf.parquet`/`optionm_crsp_link.parquet`/
-  `tr_13f.parquet`/`patents_nber.parquet` fixtures — left in place
-  (harmless, unused parquet files) since touching that script was out of
-  scope for this catalog-only cleanup.
-- **References:** `src/infra/data_layer/catalog.py` (removed entries, with
-  a comment pointing back here); `tests/test_data_catalog.py`;
-  `tests/test_signal_master_multisource.py`; CHANGELOG.md [Unreleased] same
-  date; 2026-07-30 entry below (original `tr_13f` best-effort loader
-  decision) and 2026-07-25 entry (original `patents_nber` fail-loud fix).
 
 ## 2026-07-30 — Real WRDS raw CSV data support: CIZ CRSP mapping approximations, Compustat/IBES dedup filters, and what was deliberately left unwired
 
@@ -1882,384 +1041,6 @@ when writing the paper.
   `RETURNS_UNIVERSES["us_equity_crsp_ciz"]`); `src/infra/backtest_engine/__init__.py`
   (`load_data`'s `returns_layout=="crsp_ciz"` branch);
   `tests/test_real_wrds_csv_loaders.py`; CHANGELOG.md [Unreleased] same date.
-
-## 2026-07-28 — Fix (fifth pass): fail-loud on missing filter field; annual formation-month consistency; VW excludes (not fabricates) missing prior-month ME
-
-- **Context / problem:** A fifth-pass review surfaced three remaining
-  faithfulness gaps in `apply_signal_holding_period` / `compute_portfolio_returns`:
-  1. **Silent skip of a stated universe filter.** Both filter sites
-     (`apply_universe_filters` on the returns panel, and the formation
-     cross-section loop) did `if field not in columns: continue`. A MethodSpec
-     that explicitly requires e.g. `shrcd in [10,11]` would then keep every row
-     when the panel lacked `shrcd` — running a DIFFERENT universe than the paper
-     stated while still reporting success.
-  2. **No check that an annual signal forms in its declared month.** Nothing
-     verified that an annual-rebalanced signal's formation cohorts matched the
-     reviewed `formation_month`, so the engine and the spec could silently
-     disagree on the formation calendar.
-  3. **VW fabricated missing prior-month ME.** When `me_{t-1}` was unavailable,
-     `_attach_lagged_me` fell back to same-month ME — reintroducing the exact
-     same-month look-ahead the fourth pass removed, silently and only for the
-     rows where the lag was missing.
-- **Options considered:**
-  - Fix 1: (a) keep skipping, (b) warn, (c) **raise**. Chose raise — column
-    availability can't be validated at spec-review time (different returns
-    universes have different columns), so run time is the only place it's known,
-    and a stated restriction must never be silently dropped.
-  - Fix 2: (a) enforce a full formation calendar for all frequencies, (b)
-    **annual-only, explicit-formation_month-only validation**, (c) do nothing.
-    Chose (b). Rejected (a) because quarterly/monthly cohort-month sets are
-    convention-dependent (which 4 months? fiscal vs calendar quarters?) and the
-    engine must not invent a calendar the spec didn't state; and a DEFAULTED
-    `formation_month` (=6) is not authoritative over the signal's own cohorts,
-    so only an EXPLICIT `formation_month` triggers the check (new
-    `formation_month_explicit` config flag from `registry.build_config`).
-  - Fix 3: (a) error out, (b) **exclude the row (weight 0) + report missing
-    fraction**, (c) keep same-month fallback. Chose (b). Rejected (a) because a
-    sample's first held month legitimately can lack a prior-month row for some
-    stocks; a hard error would be too brittle. Rejected (c) as the actual bug.
-- **Decision:** Both filter sites raise `ValueError` naming the field and the
-  available columns. `apply_signal_holding_period` calls a new
-  `_validate_annual_formation_month` that raises when an annual + explicit-
-  `formation_month` signal has any cohort in a different month. VW now drops
-  rows with NaN/non-positive `me_lag` from the weighted average and surfaces
-  `vw_lagged_me_missing_frac` (None under EW) in `compute_metrics`;
-  `_attach_lagged_me` no longer fills NaN with same-month ME.
-- **Empirical impact:** No change to the golden e2e numbers. The single-stock-
-  per-decile MVP/accruals/backend fixtures needed a June-1998 formation-month
-  row added to the synthetic CRSP panel (`asset_growth_synthetic_data.build_crsp_msf`)
-  so that `me_{t-1}` resolves for the first held month under the new exclude
-  rule — real CRSP panels always have that row; the fixture simply omitted it.
-  With the row present, `me_lag` is defined for every held month and the 24-month
-  long-short series is byte-identical. The stale cached snapshot under
-  `data/synthetic_data/mvp_v1/` (gitignored) was regenerated.
-- **Trade-offs / risks:** Fix 2 does not police quarterly/monthly calendars
-  (deliberately — see above); a future paper needing quarterly formation-month
-  discipline would require a spec-declared calendar, not an engine-invented one.
-  Fix 1 will now hard-fail a spec that references an unregistered column, which
-  is the intended behavior but shifts the burden to catalog/spec correctness.
-- **References:** `src/infra/backtest_engine/__init__.py`
-  (`apply_universe_filters`, `apply_signal_holding_period`,
-  `_validate_annual_formation_month`, `compute_portfolio_returns`,
-  `_attach_lagged_me`, `compute_metrics`), `src/steps/step3_codegen/registry.py`
-  (`formation_month_explicit`), `tests/test_round5_faithfulness_fixes.py`,
-  `tests/test_research_design.py::TestApplyUniverseFilters::test_unknown_field_raises_not_skipped`,
-  `tests/synthetic_data/asset_growth_synthetic_data.py`. This is the FIFTH
-  same-day fix pass on `apply_signal_holding_period`.
-
-## 2026-07-28 — Fix (fourth pass): eligibility propagated to assignment; VW switched to prior-month ME; `formation_month` range-validated
-
-- **Context / problem:** A fourth-pass review found three more issues, one of
-  them a direct self-inconsistency introduced by the third-pass point-in-time
-  fix:
-  1. **Eligibility didn't reach the actual portfolio.** The third pass filtered
-     `self.formation` (the breakpoint population) by point-in-time
-     universe-filter eligibility, but `self.merged` (the population
-     `assign_portfolios`/`compute_portfolio_returns` actually use) was built
-     BEFORE that filtering and never got the same exclusion. Result: a stock
-     ineligible at its own formation month was correctly excluded from
-     DEFINING the breakpoints, yet still sorted BY those breakpoints and
-     contributing returns. Reproduced: a stock with `shrcd=99` at formation
-     (excluded) but `shrcd=10` (and valid returns) in its held months
-     appeared in `formation=[1,2,3]` but `assigned=[1,2,3,4]`.
-  2. **VW used same-month ME.** `compute_portfolio_returns` weighted month-`t`
-     returns by month-`t` end-of-month market equity (`|prc_t|*shrout_t`),
-     which already reflects the very return being weighted -- a subtle
-     look-ahead (two stocks +10%/-10% from equal starting caps net to 0%
-     under prior-month weights but a spurious +1% under same-month weights).
-  3. **`formation_month` had no range check.** An explicit `formation_month=13`
-     was approved with `paper_faithful=True` -- the reviewer's silent-field
-     check only tested `is None`, and neither the schema nor `build_config`
-     range-validates it.
-- **Options considered:** For eligibility, filter `merged` by the same
-  `(permno, cohort)` exclusion computed for `formation` (chosen) vs.
-  recomputing eligibility independently on `merged` (rejected -- duplicates
-  the point-in-time logic and risks the two drifting). For VW, three ME-timing
-  schemes: (a) prior-month-end ME `me_{t-1}` (chosen -- the standard monthly
-  VW convention, removes the look-ahead); (b) formation-date ME held fixed
-  across the holding period (a valid "formation weight, no drift" scheme, but
-  a bigger behavioral change and less common); (c) leave same-month (rejected
-  -- it's the look-ahead). For `formation_month`, add a range check to the
-  reviewer (chosen) vs. also ENGINE-enforcing `signal.yyyymm % 100 ==
-  formation_month` (REJECTED -- that would wrongly reject every
-  monthly/quarterly-rebalanced signal, whose cohorts legitimately appear in
-  many calendar months; formation_month=6 is an annual-June default, not a
-  universal constraint).
-- **Decision:** (1) In `apply_signal_holding_period`, compute the excluded
-  `(permno, cohort)` pairs (positive evidence: a formation-month row exists
-  AND fails the filter) once and remove them from BOTH `self.formation` and
-  `self.merged` (via an anti-join), so the exclusion reaches assignment and
-  returns. (2) Added `BacktestExecutor._attach_lagged_me`: looks up each held
-  row's `me_{t-1}` from `self._pre_missing_policy_data` (the fullest available
-  `[permno, yyyymm, me]` series, so the prior month is found even when it's
-  the formation month rather than a held row); VW now weights by `me_lag`.
-  Where a prior-month `me` genuinely can't be found (panel never recorded that
-  stock-month -- common in synthetic/test panels), `me_lag` falls back to the
-  row's own current-month `me` (a documented data-completeness fallback that
-  reintroduces the same-month dependency for ONLY those unresolved rows rather
-  than dropping the stock). (3) Added `_is_invalid_formation_month` to
-  `step2_reviewer` (mirroring `_is_invalid_ls_quantile`) and used it in
-  `_check_silent_high_impact_fields` so an unset OR out-of-1..12
-  `formation_month` blocks approval.
-- **Rationale:** A stock's eligibility to be sorted/returned must be the SAME
-  as its eligibility to define the sort -- decoupling them (as the third-pass
-  fix accidentally did) is a logical contradiction, not a methodology choice.
-  Prior-month VW is the standard convention precisely because same-month
-  weighting double-counts the current return. The reviewer-only
-  `formation_month` range check catches the genuinely-invalid case (13)
-  without the false-rejection risk of a rigid engine calendar constraint.
-- **Empirical impact:** VW change is a NO-OP for both golden-number e2e tests
-  (`test_mvp_e2e`, `test_accruals_e2e`) because they use single-stock-per-
-  decile designs, where a single-stock portfolio's VW return equals the
-  stock's own return regardless of ME timing (verified: full suite 182 passed,
-  up from 175, no golden-number changes). VW numbers change only for
-  multi-stock portfolios, exactly where the look-ahead lived. Eligibility
-  propagation changes numbers only when `universe_filters` excludes a stock
-  that has a formation-month row failing the filter AND survives into the
-  held-month panel. New `tests/test_eligibility_and_vw_weighting.py` covers
-  both (excluded stock absent from formation/merged/assignment; the
-  +10%/-10% two-stock VW example netting to 0% under prior-month weights;
-  single-stock VW = own return). New `formation_month` reviewer tests (13/0
-  blocked, 6 not) added to `tests/test_reviewer_silent_defaults.py`.
-- **Trade-offs / risks:** The VW prior-month-ME fallback to current-month ME
-  (when no prior-month row exists) still carries the same-month look-ahead for
-  those specific unresolved rows -- an honestly-documented data-completeness
-  limitation for panels that omit a stock's prior-month record (real CRSP
-  rarely does). `formation_month` is validated only at review time, not
-  enforced against actual signal cohorts in the engine (deliberately -- see
-  the rejected option). This is the FOURTH fix pass on `apply_signal_holding_period`
-  in one day; the recurring theme has been that "which population does X" was
-  under-specified across `formation`/`merged`/assignment -- future edits
-  should keep those three populations' relationship explicit.
-- **References:** [src/infra/backtest_engine/__init__.py](../src/infra/backtest_engine/__init__.py)
-  (`apply_signal_holding_period`, `compute_portfolio_returns`, `_attach_lagged_me`),
-  [src/steps/step2_reviewer/__init__.py](../src/steps/step2_reviewer/__init__.py)
-  (`_is_invalid_formation_month`, `_check_silent_high_impact_fields`),
-  [tests/test_eligibility_and_vw_weighting.py](../tests/test_eligibility_and_vw_weighting.py),
-  [tests/test_reviewer_silent_defaults.py](../tests/test_reviewer_silent_defaults.py).
-
-## 2026-07-28 — Fix (third pass): formation eligibility/exchcd made point-in-time and cohort-specific; explicit invalid `ls_quantile` now blocked
-
-- **Context / problem:** A third-pass external review of the same-day fixes
-  above (universe-filter eligibility + `ls_quantile` clamping) found the
-  second-pass fix was itself still wrong in two ways, plus a residual gap
-  in the `ls_quantile` reviewer check:
-  1. **Eligibility was permno-wide, not cohort-specific.** The second-pass
-     fix computed `excluded_permnos = seen_permnos - eligible_permnos`
-     across a permno's ENTIRE history in `self._pre_missing_policy_data` --
-     so a stock that passed `universe_filters` at ANY point in its history
-     (even an unrelated month, e.g. before or after the cohort in question)
-     was never excluded, even from a DIFFERENT cohort where it actually
-     fails the filter at formation. Reproduced: a stock with `shrcd=10` at
-     an unrelated month but `shrcd=99` at its own formation/held months for
-     a specific cohort still entered that cohort's `full_sample`
-     breakpoint (median 2.5 instead of the correct 2.0).
-  2. **`exchcd` for `breakpoint_source="nyse"` was still read from `df`**
-     (the post-`filter_universe` panel used for the returns join), not the
-     pre-missing-policy snapshot -- and, independently, `df` NEVER contains
-     a row at a cohort's own formation month at all under this engine's
-     held-months-only convention (held months start at `h=1`, strictly
-     after formation). Reproducing this end-to-end (nothing in the existing
-     test suite exercised `breakpoint_source="nyse"` through the full
-     pipeline) showed `exchcd` came back `NaN` for EVERY stock, not just
-     ones with a missing formation-return -- `compute_breakpoints` crashed
-     with an opaque pandas `ValueError` (0-column quantile frame) rather
-     than computing a wrong number. This was a more severe defect than
-     described: `breakpoint_source="nyse"` was effectively non-functional
-     after the same-day fix, not merely biased for an edge case.
-  3. **`ls_quantile` reviewer check only caught `None`,** not an explicit
-     invalid value (e.g. `-1`, `1`, `0.9`) -- `registry._resolve_ls_quantile`
-     (previous entry) silently clamps those to the standard 10-group
-     default at `build_config` time, but `ReviewGate` still approved the
-     spec (with `paper_faithful=True`) despite the explicit value being
-     numerically nonsensical for a long-short sort.
-- **Options considered (eligibility/exchcd):** (a) patch the permno-wide set
-  to be per-(permno, cohort) by intersecting with each cohort's own
-  held-month window -- rejected: still not truly point-in-time, and
-  doesn't fix the `exchcd`-from-`df` half of the bug; (b) require an exact
-  formation-month row in `df` (post-`filter_universe`) -- rejected: `df`
-  never has one, so this would evaluate to "no data" for every cohort in
-  every existing test fixture; (c) look up BOTH `universe_filters` fields
-  and `exchcd` from `self._pre_missing_policy_data` (already captured for
-  the eligibility fix), joined POINT-IN-TIME on `(permno, cohort)` where
-  `cohort` is that signal row's own formation `yyyymm` -- a permno/cohort
-  pair with a matching formation-month row gets real attributes and is
-  excluded only if it fails the filter there; a pair with NO matching row
-  (the panel never recorded that exact stock-month -- common in this
-  repo's synthetic/test panels, though real WRDS CRSP panels normally do
-  have one) is left unclassified (`exchcd` `NaN`, not excluded by
-  `universe_filters` -- no positive evidence either way).
-- **Decision:** (c). Rewrote the `self.formation` construction in
-  `apply_signal_holding_period`: build `attrs_at_formation` from
-  `self._pre_missing_policy_data` (falling back to `df`) with `yyyymm`
-  renamed to `cohort` and deduplicated to one row per `(permno, cohort)`;
-  left-merge it onto `formation` with a `_has_formation_row` indicator.
-  `universe_filters` are evaluated with `_apply_filter_op` directly (not
-  `apply_universe_filters`, to keep the per-row `passes` mask alongside the
-  indicator) and a row is dropped only when `has_formation_row AND NOT
-  passes` -- i.e. exclude only with positive, point-in-time evidence.
-  `exchcd` rides along in the same merge, so it's now the formation-month's
-  own point-in-time value (or `NaN` if genuinely unavailable) instead of an
-  arbitrary later held-month's value. Added a `bp_df.empty` guard in
-  `compute_breakpoints` that raises a clear `ValueError` (distinguishing
-  "no stock resolved to NYSE at formation" from "no signal at all") instead
-  of letting an empty quantile frame crash with a confusing pandas
-  `ValueError` on the column rename. For `ls_quantile`, added module-level
-  `_is_invalid_ls_quantile` to `step2_reviewer` (deliberately NOT imported
-  from `registry._resolve_ls_quantile`, keeping the reviewer independent of
-  the codegen module) mirroring the same validity rule, and used it (instead
-  of a bare `is None` check) in `_check_silent_high_impact_fields`'s
-  `ls_quantile` entry.
-- **Rationale:** Formation-time attributes must be evaluated AT formation
-  time for the SPECIFIC cohort in question, not aggregated across a stock's
-  whole history (a stock's eligibility/exchange listing can genuinely change
-  over time, and conflating cohorts would let a later/earlier month's
-  attributes leak into a decision that should only depend on what was true
-  at THAT formation). The permissive "no data = no exclusion" fallback keeps
-  the original 2026-07-28 look-ahead fix intact for panels that don't record
-  every formation month explicitly (this repo's synthetic test panels), while
-  still being exact for panels that do (real CRSP data). Keeping
-  `_is_invalid_ls_quantile` independent of `registry._resolve_ls_quantile`
-  (rather than importing it) avoids adding a `step2_reviewer -> step3_codegen`
-  dependency in the wrong direction of the pipeline.
-- **Empirical impact:** No-op for the full existing suite (175 passed, up
-  from 167, no failures) -- no existing fixture exercises `universe_filters`
-  with a time-varying attribute or `breakpoint_source="nyse"` end-to-end.
-  Rewrote `tests/test_formation_universe_eligibility.py` to include
-  formation-month rows in its panels (matching the point-in-time semantics)
-  and added two new test classes: cohort-specificity (a stock ineligible
-  ONLY at its own formation, still correctly excluded) and "no formation-row
-  means no exclusion" (explicit coverage of the permissive fallback). Added
-  `TestNyseExchcdIsPointInTimeAndDecoupledFromReturnAvailability` -- the
-  first test in this repo to exercise `breakpoint_source="nyse"`
-  end-to-end through `apply_signal_holding_period`/`compute_breakpoints`.
-  Added 5 new `ReviewGate` tests confirming `ls_quantile=-1`/`1`/`0.9` are
-  now blocked and `10`/`0.1` are not.
-- **Trade-offs / risks:** The "no formation-month row -> don't exclude,
-  exchcd stays NaN" fallback means `breakpoint_source="nyse"` can still
-  silently exclude fewer/more stocks than a true point-in-time CRSP
-  classification would, for any panel that (like this repo's synthetic test
-  data) doesn't record a row at every stock's exact formation month -- this
-  is now an honestly-documented data-completeness limitation, not a silent
-  wrong number, but it means synthetic/test panels used for `nyse`
-  breakpoints should include a formation-month row per signal to get exact
-  behavior. This is the third fix pass on this exact ~40 lines of code in
-  one day; future changes to `apply_signal_holding_period` should be
-  reviewed with particular care given this history.
-- **References:** [src/infra/backtest_engine/__init__.py](../src/infra/backtest_engine/__init__.py)
-  (`apply_signal_holding_period`, `compute_breakpoints`),
-  [src/steps/step2_reviewer/__init__.py](../src/steps/step2_reviewer/__init__.py)
-  (`_is_invalid_ls_quantile`, `_check_silent_high_impact_fields`),
-  [tests/test_formation_universe_eligibility.py](../tests/test_formation_universe_eligibility.py),
-  [tests/test_reviewer_silent_defaults.py](../tests/test_reviewer_silent_defaults.py).
-
-## 2026-07-28 — Fix: `self.formation` didn't inherit universe-filter eligibility (second-pass regression from the same-day look-ahead fix), plus `ls_quantile` clamping
-
-- **Context / problem:** A follow-up external review of the same-day
-  look-ahead fix (previous entry below) found that fix had itself introduced
-  a new leak: `self.formation` was built directly from the raw `signal`
-  DataFrame (`signal.rename(columns={"yyyymm": "cohort"})`), which is never
-  run through `filter_universe` at all — that step only ever touches the
-  returns panel `self.data`, not the separate `signal` object. So a stock
-  explicitly excluded by `config["universe_filters"]` (e.g. wrong share
-  class) still contributed its signal to its cohort's `full_sample`
-  breakpoint. Reproduction: formation signals `[1,2,3,4]`, permno 4 fails a
-  `shrcd in [10,11]` filter (present with `shrcd=99` in every month it
-  appears) — `filter_universe` correctly drops permno 4 from `self.data`,
-  but `self.formation` still contained it, giving a breakpoint of 2.5
-  instead of the correct 2.0 (median of the 3 eligible signals). The same
-  review also flagged that `registry._resolve_ls_quantile` (then inlined in
-  `build_config`) never validated `ls_quantile`: `None` correctly defaults
-  to a decile sort, but `-1` resolved to `-1` "groups", and `1.5`/`3.3` were
-  silently truncated by a bare `int()` to `1`/`3` — all of which reach
-  `compute_breakpoints`/`assign_portfolios` unvalidated (a genuinely
-  negative/zero group count crashes deep inside the engine with an opaque
-  `IndexError` on `bins[0]` rather than failing at config-build time).
-- **Options considered (universe eligibility):** (a) restrict `self.formation`
-  to permnos present in `self.merged` (the post-return-join panel) —
-  rejected outright, since that's exactly the population the SAME-DAY
-  look-ahead fix moved away from (it would reintroduce future-return-
-  availability dependence); (b) require a formation-month row to exist in
-  the (already `filter_universe`-restricted) returns panel `df` and inner-
-  join on it — rejected: this repo's returns-panel convention (all existing
-  test fixtures, and `apply_signal_holding_period`'s own held-month
-  expansion starting at `h=1`, i.e. strictly AFTER formation) never
-  populates a row at the formation month itself, so this would empty out
-  `self.formation` for every existing formation-locked test; (c) compute a
-  set of permnos with POSITIVE evidence of failing `universe_filters` (seen
-  somewhere in the panel, but excluded by `apply_universe_filters`) using
-  the panel state BEFORE `apply_missing_policy` drops missing-return rows,
-  and only remove those specific permnos from `self.formation` — a permno
-  with ZERO rows anywhere (no evidence either way — e.g. delisted before
-  any data was ever recorded) is left alone, preserving the same-day
-  look-ahead fix.
-- **Decision:** (c) for universe eligibility. `apply_missing_policy` now
-  snapshots its input into `self._pre_missing_policy_data` before dropping
-  missing-return rows. `apply_signal_holding_period` computes
-  `excluded_permnos = (permnos seen in that pre-drop snapshot) - (permnos
-  that pass config["universe_filters"] there)` and removes only those from
-  `self.formation` — decoupling "fails the universe screen" from both "has
-  a non-missing return" (uses the pre-`apply_missing_policy` panel) and
-  "has a future held-month return" (never checks `self.merged` at all).
-  Falls back to `df` when `self._pre_missing_policy_data` is unset (e.g.
-  the method exercised directly, bypassing `apply_missing_policy`). For
-  `ls_quantile`, extracted `registry._resolve_ls_quantile(ls_quantile)`:
-  `> 1` rounds (not truncates) to a whole group count, clamping to 10 if
-  that rounds below 2; a fraction in `(0, 0.5]` converts to `1/value`
-  groups; anything else (`None`, `<= 0`, a fraction `> 0.5`) clamps to the
-  standard 10-group default — same "clamp an out-of-menu value to the
-  canonical default" policy `_clamp` already applies to every other menu
-  field in `build_config`. Also added `"portfolio.sort.ls_quantile"` to
-  `ReviewGate._check_silent_high_impact_fields`'s covered-field list (see
-  the entry below this one) so an unset `ls_quantile` requires human
-  confirmation rather than silently defaulting to a decile sort on an
-  approved, `paper_faithful` spec.
-- **Rationale:** The correct formation-eligibility semantics is "include
-  unless there is positive evidence of exclusion" (permissive by default,
-  matching the look-ahead fix's spirit of not penalizing a stock for
-  missing FUTURE data it couldn't have controlled at formation time) rather
-  than "exclude unless there is positive evidence of inclusion" (which is
-  what an inner-join-based population check does, and which would have
-  re-broken the delisted-stock case). Using the pre-`apply_missing_policy`
-  snapshot specifically for the universe-filter check (rather than the
-  fully-processed `df`) cleanly separates two independent concerns that
-  the pipeline's linear ordering had otherwise conflated: "is this stock in
-  the reviewed universe" (a static-ish attribute question: shrcd/exchcd/
-  siccd) versus "does this stock have a valid return value this month" (an
-  outcome question that's irrelevant to universe membership).
-- **Empirical impact:** No-op for any run with no `universe_filters`
-  configured, or where every formation-eligible stock's universe-defining
-  attributes (shrcd/exchcd/siccd) are stable and pass the filter in every
-  month it appears (confirmed by the full existing suite passing
-  unchanged). Changes numbers only when `universe_filters` excludes a
-  stock that has a signal value AND appears somewhere in the panel with a
-  disqualifying attribute — exactly the case this fix targets. New
-  regression suite `tests/test_formation_universe_eligibility.py` covers:
-  the excluded-stock case (breakpoint corrected from 2.5 to 2.0), the
-  zero-data delisted-stock case (still NOT excluded, confirming no
-  regression on the same-day look-ahead fix), and the no-`universe_filters`
-  no-op case. `tests/test_ls_quantile_validation.py` covers all the
-  `_resolve_ls_quantile` clamping cases enumerated above.
-- **Trade-offs / risks:** The universe-eligibility check is per-permno, not
-  per-(permno, month) — a permno is excluded if it EVER fails the filter
-  anywhere in the pre-missing-policy panel, not specifically at its own
-  formation month (which, per the options-considered discussion, isn't
-  reliably available in this repo's panel convention). This is a reasonable
-  approximation for the largely time-invariant attributes
-  `universe_filters` typically screens on (share class, exchange, industry)
-  but is not a strictly point-in-time-exact eligibility check for a
-  genuinely time-varying filter field. `ls_quantile` rounding (`1.5` -> `2`)
-  changes behavior versus the old silent truncation (`1.5` -> `1`) for any
-  spec that happened to have a fractional `> 1` value before this fix —
-  no existing fixture hits this path (confirmed by the passing suite).
-- **References:** [src/infra/backtest_engine/__init__.py](../src/infra/backtest_engine/__init__.py)
-  (`apply_missing_policy`, `apply_signal_holding_period`),
-  [src/steps/step3_codegen/registry.py](../src/steps/step3_codegen/registry.py)
-  (`_resolve_ls_quantile`),
-  [src/steps/step2_reviewer/__init__.py](../src/steps/step2_reviewer/__init__.py)
-  (`_check_silent_high_impact_fields`),
-  [tests/test_formation_universe_eligibility.py](../tests/test_formation_universe_eligibility.py),
-  [tests/test_ls_quantile_validation.py](../tests/test_ls_quantile_validation.py).
 
 ## 2026-07-28 — Fix: breakpoint population was leaking future return availability (look-ahead / survivorship)
 
@@ -2510,56 +1291,6 @@ when writing the paper.
   [src/steps/step2_reviewer/resolution.py](../src/steps/step2_reviewer/resolution.py),
   `tests/test_resolution.py`, `CHANGELOG.md` [Unreleased].
 
-## 2026-07-25 — Data-loader audit: CCM link-quality filter was missing from the multi-source join path
-
-- **Context / problem:** An audit of `src/infra/data_layer/__init__.py` +
-  `catalog.py` found the declarative multi-source signal-input loader
-  (`link_to_permno()`, used by `assemble_signal_master_table`/`multi_source`
-  codegen mode) had NO CCM linktype/linkprim data-quality filter at all,
-  unlike the legacy `CCMLinker` class (used by
-  `DataLayer.get_signal_master_table()`), which correctly restricts to
-  `linktype IN ('LC','LU')` / `linkprim IN ('P','C')` per
-  `docs/architecture.md` Section 3.2. `link_to_permno`'s own docstring
-  additionally claimed "primary link wins on ties" while the tie-break was
-  actually just "smallest permno wins" — misleading, and not the CRSP-
-  standard rule. Not caught by tests because
-  `scripts/build_test_papers_synthetic_data.py` only ever generates clean
-  `linktype∈{LC,LU}` / `linkprim∈{P,C}` rows, so the missing filter never
-  had a bad row to reject in test fixtures.
-- **Options considered:** (a) leave `link_to_permno` filter-free and document
-  it as a known gap; (b) hardcode the CCM-specific `linktype`/`linkprim`
-  column names into `link_to_permno`; (c) make the filter/tie-break rule
-  fully declarative in `catalog.LINK_TABLES` so it generalizes to any future
-  link table with its own quality-flag columns, not just CCM.
-- **Decision:** (c). Added optional `valid_filters: {column: [allowed
-  values]}` and `primary_filter: {column: value}` keys to a `LINK_TABLES`
-  entry (only `"ccm"` uses them today). `link_to_permno()` now drops rows
-  outside `valid_filters` before joining and prefers the `primary_filter`
-  row on ties (remaining ties still fall back to smallest permno for
-  determinism).
-- **Rationale:** Keeps the "register once" declarative philosophy (adding a
-  new link table with its own quality flags is a catalog entry, not new
-  join code) and makes the two CCM-linking code paths agree, matching the
-  documented CRSP/CCM convention instead of leaving a silent
-  correctness gap that would only bite once real (non-synthetic) WRDS data
-  with mixed linktypes is loaded.
-- **Empirical impact:** None on existing golden-number tests (all synthetic
-  fixtures already only contain "good" link rows) — this only changes
-  behavior once a raw `ccm_lnkhist` extract containing non-`LC`/`LU` or
-  non-primary rows is used.
-- **Trade-offs / risks:** None identified; purely additive/declarative.
-- **References:** `src/infra/data_layer/__init__.py` (`link_to_permno`),
-  `src/infra/data_layer/catalog.py` (`LINK_TABLES["ccm"]`),
-  `tests/test_signal_master_multisource.py::test_link_to_permno_drops_bad_linktype_and_prefers_primary`,
-  `tests/test_data_catalog.py::test_link_tables_unchanged`. Two related,
-  lower-severity findings from the same audit fixed alongside this one (see
-  `CHANGELOG.md` [Unreleased]): `_apply_pit_attrs` silently dropping
-  panel rows with no covering `msenames` window (now falls back to the
-  earliest attrs record, matching its own long-standing comment), and
-  `patents_nber` (a catalog source registered with `date: None`) silently
-  returning zero rows forever instead of failing loud.
-
-
 ## 2026-07-24 — Replace Streamlit dashboard with a React + FastAPI website
 
 - **Context / problem:** `app.py` (a single ~2,200-line Streamlit script, 7
@@ -2735,26 +1466,6 @@ when writing the paper.
   (`apply_signal_holding_period`, `compute_breakpoints`, `assign_portfolios`),
   [tests/test_formation_locked_breakpoints.py](../tests/test_formation_locked_breakpoints.py).
 
-## 2026-07-24 — Rename `merge_signal` to `apply_signal_holding_period`
-
-- **Context / problem:** `merge_signal`'s name only described the least
-  important part of what it does (a one-line `.merge()` at the end); the
-  actual non-trivial logic is expanding a low-frequency signal into one row
-  per held month, capped at the rebalance step (`apply_*` is the existing
-  naming convention for "apply a rule to the data", used by
-  `apply_delisting_returns`/`apply_missing_policy`/`apply_excess_returns").
-- **Decision:** Renamed to `apply_signal_holding_period` (via IDE rename
-  across `steps.py`, its call sites, and tests; the dynamic
-  `_dispatch("merge_signal", ...)` string literal and `ctx.trace.append(...)`
-  in `__init__.py` needed a manual follow-up fix since a language-server
-  rename can't see through `getattr(steps, step_name_string)`).
-- **Rationale:** Consistent naming makes the step list in
-  `BacktestExecutor`'s docstring read accurately; no behavior change.
-- **Empirical impact:** None (pure rename). Full suite re-verified: 134
-  passed, 26 skipped.
-- **References:** [src/infra/backtest_engine/steps.py](../src/infra/backtest_engine/steps.py),
-  [src/infra/backtest_engine/__init__.py](../src/infra/backtest_engine/__init__.py).
-
 ## 2026-07-24 — Strip non-standard engine capabilities to one vanilla single-dim portfolio-sort path
 
 - **Context / problem:** An architecture review of every config/MethodSpec
@@ -2827,137 +1538,6 @@ when writing the paper.
   [src/steps/step2_reviewer/__init__.py](../src/steps/step2_reviewer/__init__.py).
 
 
-
-## 2026-07-23 — Full-repo audit: remove remaining silent CRSP defaults (universe screen + legacy path fallback)
-
-- **Context / problem:** After the `catalog.py`/`RETURNS_UNIVERSES` refactor
-  established "no silent default data source" for the returns panel, a
-  design review surfaced two places where a CRSP-specific assumption still
-  applied unconditionally, contradicting that principle: (1)
-  `steps.filter_universe()` hardcoded a `shrcd`/`exchcd`/`siccd` baseline
-  screen applied to every returns panel regardless of `returns_universe`,
-  and (2) `BacktestExecutor._load_data()`'s legacy-path fallback
-  (`<data_path>/local/msf.parquet`) applied whenever ANY named returns
-  table's raw/ file was missing, not just CRSP's -- so a future non-CRSP
-  returns universe with a misplaced/missing file would silently load CRSP
-  data instead of failing loud. A full-repo audit (grep across `src/` and
-  `scripts/` for hardcoded source/table-name defaults) was run to check for
-  further instances of this same class of bug.
-- **Options considered:** (a) leave the baseline screen hardcoded but make it
-  configurable via new MethodSpec fields (`include_financials`/`share_codes`/
-  `exchange_codes`) with CRSP-matching defaults; (b) move the baseline
-  screen's definition into `catalog.py` as a per-returns-universe
-  `baseline_filters` property; (c) remove the hardcoded baseline entirely and
-  rely on the extractor to capture it (like any other paper-specific universe
-  restriction) via the existing `universe_filters` DSL.
-- **Decision:** (c) for the universe screen — simplest, and consistent with
-  the principle that ALL universe restrictions (paper-specific or
-  "boilerplate") should be explicit, reviewable MethodSpec fields, not
-  code-level defaults tied to one specific data source's column vocabulary.
-  For the legacy-path fallback, scoped it to `returns_table == "crsp_msf"`
-  only (kept, since it's a genuine file-location compatibility shim for
-  pre-catalog snapshots/tests -- not a data-source choice -- but must not
-  silently substitute CRSP data for a different requested universe).
-- **Rationale:** `shrcd`/`exchcd`/`siccd` are CRSP-specific column names;
-  hardcoding them into a step that runs for every returns panel assumes every
-  registered returns universe is CRSP-shaped, which the catalog design
-  explicitly rejects (a returns universe is meant to be one-catalog-entry
-  extensible, e.g. to a non-US or non-CRSP panel). The extractor already has
-  a working DSL (`UniverseFilterSpec`/`FilterOp`) for exactly this kind of
-  row-level restriction; asking it to also capture the common boilerplate
-  screen (which nearly every US-equity paper states, even if just by
-  citation) is more consistent than maintaining a parallel, hardcoded
-  version of the same rule in Python.
-- **Empirical impact:** None for existing papers. Full suite green at
-  192 passed / 26 skipped (was 191/26 before the new regression test for the
-  legacy-path fix); all 9 golden e2e tests byte-identical -- the synthetic
-  test panels don't contain rows the old hardcoded screen would have
-  excluded, so removing it was a numeric no-op for every existing fixture.
-- **Trade-offs / risks:** A paper whose universe restriction extraction
-  misses the common boilerplate (and where the reviewer's evidence check
-  doesn't catch it) would now run against a broader universe than intended,
-  silently -- this risk is accepted because the alternative (a hardcoded,
-  unconditional CRSP-shaped screen) was strictly worse: it silently imposed
-  a restriction that's WRONG for any paper that doesn't want it, with no way
-  to turn it off short of a full `filter_universe_hook` rewrite.
-  `portfolio.universe`/`portfolio.universe_filters` are already
-  `HIGH_IMPACT_FIELDS` in the reviewer, so this is covered by the existing
-  evidence-check machinery, not a new gap.
-- **References:** `src/infra/backtest_engine/steps.py` (`filter_universe`),
-  `src/infra/backtest_engine/__init__.py` (`_load_data`),
-  `prompts/extractor/methodspec_extractor.md` §4.5.2,
-  `tests/test_research_design.py`, `tests/test_no_default_source.py`,
-  `docs/architecture.md` §4.6, CHANGELOG `[Unreleased]`.
-
-## 2026-07-23 — Estimator-strategy layer + single `form_portfolios` hook; delete dead `neutralize_signal` scaffold
-
-- **Context / problem:** An architecture review (assessing over-design vs.
-  generality for replicating arbitrary papers) found the engine had accreted
-  narrow deterministic branches that added complexity without expanding real
-  coverage: (1) Fama-MacBeth was an inline `if` branch inside
-  `run_with_config()` rather than a swappable strategy, making it awkward to
-  ever add a third estimator (factor-model alpha, event-window return,
-  custom); (2) `compute_breakpoints`/`assign_portfolios` were dispatched as
-  two separate Step-contract functions, but `compute_breakpoints_multi` (the
-  multi-dim counterpart) did no real work — it just returned
-  `config["sort_dims"]` unchanged so `assign_portfolios_multi` could do
-  everything, a "fake step" that only existed to satisfy the two-call
-  contract; (3) `neutralize_signal` was a full step (dispatch call, trace
-  entry, hook contract) that was *always* a no-op in practice — no
-  `MethodSpec` field has ever driven `config["neutralization"]` away from
-  `"none"` — pure speculative scaffolding (YAGNI) for a feature nothing uses.
-- **Options considered:** (a) leave as-is; (b) fix only the two most
-  clearly broken cases (neutralize_signal deletion, breakpoints/assign
-  merge) without a real estimator abstraction; (c) formalize an
-  `Estimator` strategy layer now (`estimators.py`) *and* merge
-  breakpoints+assign into one hookable `form_portfolios` unit, while leaving
-  the overlapping-cohort step family and `compute_long_short`'s
-  `average_leg_spread` special case for a later pass.
-- **Decision:** (c). The estimator abstraction is small (two functions +
-  a registry dict) and immediately removes the inline Fama-MacBeth branch
-  from `run_with_config()`, which now only knows about "prep chain, then
-  ask the estimator." `form_portfolios`/`form_portfolios_hook` replace
-  the `compute_breakpoints`/`assign_portfolios` pair (and their
-  `_hook` counterparts) as the single unit for "how portfolios get formed" —
-  the underlying `compute_breakpoints`/`assign_portfolios`/`_multi` pure
-  functions are unchanged and still directly unit-tested, only the
-  dispatch/hook *contract* collapsed from two names to one.
-- **Rationale:** Per the reviewed direction (fewer deterministic engine
-  branches, more delegation to reviewed hooks, empirics still gated by
-  MethodSpec review), a new engine branch is only justified if it (a)
-  covers a broad class of papers and (b) composes with existing branches.
-  A two-function contract where one function never does real work fails
-  (b); an always-no-op step fails both. Collapsing them to one hook name
-  each reduces the number of things a future `detect_hooks()`/hook author
-  has to reason about without losing any expressiveness (nothing was
-  standard-implemented that isn't standard-implemented after this change).
-- **Empirical impact:** None. Golden e2e (`test_*_e2e.py`, incl.
-  `test_ball2016_e2e.py`'s hand-written hooks) byte-identical; full suite
-  191 passed / 26 skipped after this change (was 193/26 — the 2 fewer
-  passing tests are the deleted `TestNeutralizeSignalScaffold` cases, not a
-  regression).
-- **Trade-offs / risks:** `form_portfolios_hook` is a breaking rename of the
-  hook contract (`compute_breakpoints_hook`/`assign_portfolios_hook` no
-  longer load) — any *external* plugin authored against the old contract
-  would need updating; migrated the two fixtures that used it in this repo.
-  Overlapping-cohort's parallel `_overlap` step family and
-  `compute_long_short`'s `average_leg_spread` (numerically identical to
-  `extreme_group_spread` unless `long_portfolios`/`short_portfolios` are
-  hand-fed via config) were flagged in the same review as further
-  candidates for consolidation but are deliberately deferred to a later,
-  separately-verified pass rather than bundled into this change.
-- **References:** `src/infra/backtest_engine/estimators.py`,
-  `src/infra/backtest_engine/__init__.py` (`run_with_config`,
-  `_MULTI_DIM_STEPS`/`_OVERLAP_STEPS`), `src/infra/backtest_engine/steps.py`
-  (`form_portfolios`/`form_portfolios_overlap`, deleted `neutralize_signal`),
-  `src/infra/backtest_engine/registry.py` (`load_hooks`),
-  `src/steps/step3_codegen/__init__.py` (`HOOK_SIGNATURES`/`HOOK_RETURN_DOCS`),
-  `src/steps/step3_codegen/registry.py` (`detect_hooks`/`build_config`),
-  `tests/fixtures/plugins/ball2016_cash_based_operating_profitability_factor.py`,
-  `tests/fixtures/plugins/fama_french_1993_double_sort_hml.py`,
-  `tests/test_engine_hooks.py`, `tests/test_ball2016_e2e.py`,
-  `tests/test_sandbox_validation.py`, `tests/test_research_design.py`,
-  `docs/architecture.md` §4.6, CHANGELOG `[Unreleased]`.
 
 ## 2026-07-23 — No silent default data source; a declarative catalog is the single source of truth
 
@@ -3119,247 +1699,6 @@ when writing the paper.
   CHANGELOG.md 2026-07-22 entries, previous decision-log entry immediately
   below (the `run_factor()` removal this reinstates, differently).
 
-## 2026-07-22 — Removed `Pipeline.run_factor()` (dead extraction-driven orchestrator)
-
-- **Context / problem:** `Pipeline.run_factor()` was the designed full pipeline
-  entry point wiring SemanticExtractor → ReviewGate → MetaCoder → Sandbox →
-  DualTrackController → AttributionLayer, with backtrack loops between them
-  (docs/architecture.md §3.1). A repo-wide grep (`app.py`, `scripts/`, `tests/`)
-  found zero callers of `run_factor()` anywhere — the only working, tested path
-  was the separate `run_from_method_spec()` MVP bypass (used by
-  `tests/test_mvp_e2e.py`, `test_accruals_e2e.py`, `test_ball2016_e2e.py`).
-  Worse, of `run_factor()`'s four "feedback loop" branches, three
-  (Review→Extractor, Sandbox→Review empirical, Attribution→Review anomaly)
-  were never more than TODO stubs: each incremented `backtrack_count` and then
-  immediately returned `status="failed"` instead of actually re-invoking the
-  upstream stage. Only Sandbox→Meta-Coder technical repair genuinely retried.
-- **Options considered:** (1) Keep `run_factor()` as documented-but-unfinished
-  scaffolding for future Phase 2 extraction work. (2) Implement the three
-  missing backtrack loops for real. (3) Delete `run_factor()` and its
-  dedicated helpers (`_has_empirical_issues`, `_is_anomalous`, `PipelineStatus`,
-  `MAX_BACKTRACK_DEPTH`) plus the now-orphaned constructor wiring
-  (`self.extractor`, `self.review_gate`, `self.controller`, `self.attribution`
-  and their imports).
-- **Decision:** (3) — delete it entirely.
-- **Rationale:** Unused, partially-fake code (backtrack loops that silently
-  fail on first trigger while claiming to retry) is worse than no code: it
-  misrepresents the pipeline's actual capabilities to future readers/agents
-  (as already surfaced by several rounds of doc/comment corrections this same
-  day — see the two preceding CHANGELOG entries). Implementing the missing
-  loops properly (option 2) is real feature work requiring product decisions
-  (what re-extraction feedback looks like, when to give up) that belongs in
-  its own dedicated effort, not a cleanup pass. `run_from_method_spec()` is
-  unaffected and remains the sole, fully-real `Pipeline` entry point.
-- **Empirical impact:** None — `run_factor()` was never exercised by any test
-  or script, so no replication results depended on it.
-- **Trade-offs / risks:** Re-introducing extraction-driven, multi-track,
-  attribution-gated orchestration (roadmap Phase 2) now means writing a new
-  orchestrator from scratch rather than finishing this one. That's judged
-  preferable to building on stub backtrack logic that was never validated
-  end-to-end. `SemanticExtractor`, `ReviewGate`, `DualTrackController`, and
-  `AttributionLayer` themselves are untouched and fully usable standalone.
-- **References:** `src/pipeline.py`, `docs/architecture.md` §3.1 and §4,
-  `docs/roadmap.md` Phase 1 status note, CHANGELOG.md 2026-07-22 entries.
-
-## 2026-07-22 — `src/steps/step5_backtest_runner/` created; `DualTrackController._run_track()` stub fixed
-
-- **Context / problem:** After the previous two entries, "Step 5" had no
-  corresponding module at all — it was private methods on `Pipeline`
-  (`_build_script`/`_execute_script`/`_make_failed_run_record`), unlike every
-  other numbered step, which is a dedicated class `Pipeline` orchestrates.
-  Separately, `DualTrackController._run_track()` (step 6) was
-  `raise NotImplementedError` — meaning `Pipeline.run_factor()`, the
-  documented 8-stage pipeline entry point, could reach "run" and then crash;
-  only the separate `run_from_method_spec()` bypass actually executed a
-  backtest. These two gaps were connected: fixing `_run_track()` requires
-  exactly the "build script, execute it" action `run_from_method_spec` already
-  had inlined — extracting that into a real Step 5 module made both fixable
-  in one pass instead of writing `_run_track()`'s own separate build+execute
-  logic (a third copy, the exact drift risk this project's Phase 0 decision
-  was designed to prevent).
-- **Options considered:**
-  1. Leave Step 5 as private `Pipeline` methods; write `_run_track()`'s
-     build+execute logic as its own separate implementation.
-  2. Extract Step 5 into `src/steps/step5_backtest_runner/BacktestRunner`
-     (build_script/execute/make_run_record/make_failed_run_record); have
-     both `Pipeline` and `DualTrackController` depend on it; give
-     `DualTrackController` its own bounded repair loop (step6→step3) using
-     injected `MetaCoder`/`AdversarialSandbox` collaborators.
-  3. Same extraction, but put the repair loop in `BacktestRunner` itself
-     (so step5 owns retries, not just the build+execute action).
-- **Decision:** Option 2. `BacktestRunner` is a pure action + result-shaping
-  class (`build_script`, `execute`, `make_run_record`, `make_failed_run_record`)
-  with **no retry logic of its own** — `Pipeline.run_from_method_spec` and
-  `DualTrackController._run_track` each own their own bounded repair loop
-  around it. `DualTrackController.__init__` now takes
-  `runner: BacktestRunner, meta_coder: MetaCoder, sandbox: AdversarialSandbox`
-  instead of `engine: BacktestExecutor`; `run_experiment`/`_run_track` gained a
-  required `snapshot_id`; `Pipeline.run_factor()` gained the same required
-  `snapshot_id` (a real, independent gap this closes — `run_factor()`
-  previously had no way to reference a data snapshot at all).
-- **Rationale:** Option 1 would have meant three drifting implementations of
-  "build the script, run it, handle failure" once `_run_track()` was filled in
-  (Pipeline's, `_run_track()`'s, and whatever the next caller needed) — the
-  same class of problem Phase 0 fixed for the engine itself
-  (`docs/decision-log.md` 2026-07-20 entry: "unify the duplicated engine logic
-  into one importable module"). Option 3 (repair loop inside `BacktestRunner`)
-  was rejected because retrying is a decision that needs `MetaCoder`
-  (Step 3) and `AdversarialSandbox` (Step 4) as collaborators — giving Step 5
-  those dependencies just to retry itself would make it the same kind of
-  cross-cutting orchestrator `Pipeline`/`DualTrackController` already are,
-  instead of a clean action step; every other step (`AdversarialSandbox.validate()`,
-  `BacktestRunner.execute()`) stays retry-free by design, with retries owned by
-  whichever orchestrator has the repair collaborators. `DualTrackController`
-  needing its own copy of the repair loop (rather than reusing
-  `Pipeline._validate_with_repair`) is accepted asymmetry: per-track repair
-  only re-validates statically (no compute_signal execution-smoke slice)
-  because that smoke test already ran once against the shared plugin before
-  `run_experiment` is called — repeating it per track per repair attempt would
-  be redundant (same signal formula, only `config_overrides` differ per track).
-- **Empirical impact:** None on any already-passing factor's numbers. Positive
-  functional impact: `Pipeline.run_factor()`'s "run" stage is no longer
-  guaranteed to crash — dual-track/ablation experiments can now actually
-  execute end-to-end through the numbered 8-stage pipeline, not just through
-  `run_from_method_spec()`.
-- **Trade-offs / risks:** `run_factor()`'s public signature changed (added a
-  required `snapshot_id` parameter) — an intentional breaking change, since
-  the method could not have worked without one; no released callers depended
-  on the old signature (grep-verified, and this project has no external
-  version yet). `DualTrackController`'s per-track repair validates
-  statically only (no data slice) — acceptable given the shared plugin's
-  formula was already smoke-tested once; documented above as the reason, not
-  silently different behavior.
-- **References:** [src/steps/step5_backtest_runner/__init__.py](../src/steps/step5_backtest_runner/__init__.py)
-  (new), [src/steps/step6_dual_track_controller/__init__.py](../src/steps/step6_dual_track_controller/__init__.py)
-  (`_run_track` fixed), [src/pipeline.py](../src/pipeline.py) (`run_factor`
-  `snapshot_id` param, `run_from_method_spec`/`_validate_with_repair` now call
-  `self.runner.*`), [tests/test_dual_track_controller.py](../tests/test_dual_track_controller.py),
-  `AGENTS.md` Module Map, `CHANGELOG.md [Unreleased]`.
-
-## 2026-07-22 — Engine library (`BacktestExecutor`/`steps.py`) moved from `src/steps/step5_executor/` to `src/infra/backtest_engine/`
-
-- **Context / problem:** "Step 5" as a *pipeline action* is genuinely just
-  "build the standalone script, validate it, execute it via subprocess" —
-  literally `subprocess.run([sys.executable, script_path])`, implemented
-  entirely in `src/pipeline.py` (`_build_script`/`_execute_script`). But the
-  directory `src/steps/step5_executor/` held something different: the
-  `BacktestExecutor` class and `steps.py`'s 12-step computation functions —
-  the *engine library* the generated script imports and calls once it's
-  running, not the act of running it. The folder name conflated "the action
-  of step 5" with "a library step 5's output happens to depend on", which is
-  what motivated the previous entry's move (registry.py's generation-time
-  functions) and this one.
-- **Options considered:**
-  1. Leave the engine library under `src/steps/step5_executor/` (status quo).
-  2. Move it under `src/steps/step3_codegen/` (reasoning: "step3 generates the
-     script that uses it").
-  3. Move it under `src/infra/` (reasoning: it's shared computation
-     infrastructure with no single owning step).
-- **Decision:** Option 3. Moved (via `git mv`, contents unchanged) to
-  `src/infra/backtest_engine/`. `src/steps/` now contains only genuine
-  pipeline actions; "Step 5" has no corresponding numbered folder — it's the
-  build+execute action in `pipeline.py`.
-- **Rationale:** Option 2 was checked against actual callers (grep) before
-  rejecting it: `step3_codegen` (after the previous entry's move) has **zero**
-  real imports of the engine library — the only remaining mention is the
-  generated script's own runtime import, which is the *artifact* step3
-  produces, not step3's own code. Meanwhile the real callers are
-  `pipeline.py` (orchestration), `step6_dual_track_controller` (ablation
-  experiments), `app.py` (dashboard), `scripts/test_codegen.py`, and 13 unit
-  test files that import `steps.py` directly to test individual step
-  functions' math — none of which have anything to do with code generation.
-  Filing it under `step3_codegen` would repeat the exact mistake being fixed
-  (one consumer's name imposed on a library everyone uses), just with a
-  different consumer. `src/infra/` already holds exactly this kind of
-  cross-cutting library with no single owning step (`DataLayer`, `CCMLinker`,
-  `TimeAvailComputer`, the Pydantic `models/`) — the engine library fits that
-  same shape.
-- **Empirical impact:** None — pure code motion (`git mv`, no logic/config
-  changes). `python3 -m pytest tests/`: 124 passed / 28 skipped / 14 failed
-  (same 14 pre-existing pyarrow-environment failures), identical before/after.
-- **Trade-offs / risks:** `src/steps/` numbering now has a "gap" at 5 (no
-  `step5_*` folder) — documented in `AGENTS.md`'s Module Map (Step 5's row now
-  points at `pipeline.py`'s `_build_script`/`_execute_script` instead of a
-  folder) so this doesn't read as a missing/forgotten step.
-- **References:** [src/infra/backtest_engine/](../src/infra/backtest_engine/)
-  (moved package), [src/pipeline.py](../src/pipeline.py) (`_build_script`/
-  `_execute_script` — the actual Step-5 action), `AGENTS.md` Module Map,
-  `docs/architecture.md` §4.6, `CHANGELOG.md [Unreleased]`.
-
-## 2026-07-22 — Codegen decision layer physically moved from step5_executor to step3_codegen
-
-- **Context / problem:** `step5_executor/registry.py` bundled two unrelated
-  responsibilities: generation-time decisions (`STANDARD`/`detect_hooks`/
-  `build_config`/`resolve_long_leg`/`resolve_short_leg`/`normalize_leg`/
-  `resolve_sort_dims` — "what does the LLM need to generate for this
-  MethodSpec") and run-time hook loading (`load_hooks` — "how does
-  `BacktestExecutor.run_with_config()` load a plugin's hook at run time").
-  Grep-verified: `run_with_config()`/`_dispatch()` never call `detect_hooks`;
-  `build_config` is called by generation-time code (`script_generator`) and by
-  `BacktestExecutor`'s own (now-vestigial — no current caller passes a raw
-  signal in-process; the real path is generate-script → validate → execute)
-  `run()` convenience method; `load_hooks` is called only by
-  `run_with_config()`. Because step3 could only reach the generation-time
-  functions through `BacktestExecutor`'s wrapper methods
-  (`BacktestExecutor._detect_hooks(spec)`, `engine._build_config(...)`),
-  `step3_codegen` imported the execution-engine class just to reach two pure
-  functions of a `MethodSpec` — the opposite of the intended shape ("step5
-  only executes the already-generated code; it decides nothing").
-- **Options considered:**
-  1. Leave as-is; have step3 call `registry.detect_hooks`/`registry.build_config`
-     directly instead of through the `BacktestExecutor` wrapper (removes the
-     *class* dependency, keeps the *file* in step5_executor/).
-  2. Physically move the generation-time functions into `step3_codegen/registry.py`;
-     keep only `load_hooks` in `step5_executor/registry.py`; keep
-     `BacktestExecutor._detect_hooks()`/etc. as delegates to the new location
-     for backward compatibility.
-  3. Move everything (including `load_hooks`) into step3_codegen.
-- **Decision:** Option 2. `src/steps/step3_codegen/registry.py` is the new,
-  sole owner of `STANDARD`/`FILTER_UNIVERSE_ALWAYS_HOOK_REASON`/`ev`/
-  `detect_hooks`/`build_config`/`resolve_sort_dims`/`resolve_long_leg`/
-  `resolve_short_leg`/`normalize_leg`. `MetaCoder.generate_plugin` and
-  `script_generator.generate_backtest_script` call these directly (no more
-  `from src.steps.step5_executor import BacktestExecutor` at either call
-  site — the generated script's own runtime import of `BacktestExecutor`,
-  which it genuinely needs to execute, is untouched). `step5_executor/registry.py`
-  now holds only `load_hooks`. `BacktestExecutor._detect_hooks()`/
-  `_build_config()`/`_resolve_long_leg()`/`_resolve_short_leg()`/
-  `_normalize_leg()` stay on the class as thin delegates to
-  `step3_codegen.registry`, so existing callers (notably
-  `tests/test_engine_hooks.py`'s direct use of `BacktestExecutor._detect_hooks(spec)`)
-  keep working unchanged.
-- **Rationale:** Option 1 (just change the import) would have removed the
-  *appearance* of step3 depending on the execution engine without changing
-  where the code physically lives — the file's own docstring already said
-  "this module answers what the LLM needs to generate ... not what a backtest
-  computes", i.e. it was already conceptually step3's file, just filed under
-  step5_executor/. Option 3 was rejected because `load_hooks` is genuinely
-  run-time-only (BacktestExecutor's own dispatch calls it); moving it too
-  would make step5_executor depend on step3_codegen for something step5 uses
-  internally on every run, which is backwards for the opposite reason. Option
-  2 makes the dependency strictly one-directional and matches each function's
-  actual caller: step3_codegen (decides) has zero imports of step5_executor
-  now (verified); step5_executor (executes) imports step3_codegen.registry
-  only for five backward-compatible delegate methods, never for anything its
-  own `run_with_config()`/`_dispatch()` executes.
-- **Empirical impact:** None — pure code motion, no config/logic changes.
-  `python3 -m pytest tests/`: 124 passed / 28 skipped / 14 failed (same 14
-  pre-existing pyarrow-environment failures as before this change) —
-  identical before and after.
-- **Trade-offs / risks:** `BacktestExecutor`'s five delegate methods are now a
-  standing backward-compatibility shim with no other purpose; if/when
-  `tests/test_engine_hooks.py` and any other direct callers are updated to
-  import `step3_codegen.registry` directly, those methods could be deleted
-  entirely for full decoupling. Left as delegates for now to avoid touching an
-  unrelated test file's public call pattern in this change.
-- **References:** [src/steps/step3_codegen/registry.py](../src/steps/step3_codegen/registry.py)
-  (new), [src/steps/step5_executor/registry.py](../src/steps/step5_executor/registry.py)
-  (trimmed to `load_hooks`), [src/steps/step5_executor/__init__.py](../src/steps/step5_executor/__init__.py)
-  (delegate methods), [src/steps/step3_codegen/__init__.py](../src/steps/step3_codegen/__init__.py) /
-  [src/steps/step3_codegen/script_generator.py](../src/steps/step3_codegen/script_generator.py)
-  (direct calls), [tests/test_multi_sort.py](../tests/test_multi_sort.py),
-  `docs/architecture.md` §4.6, `CHANGELOG.md [Unreleased]`.
-
 ## 2026-07-21 — Validator: execution smoke test + Step-5 repair net; C&Z stays out of the loop
 
 - **Context / problem:** `AdversarialSandbox` (step4) was purely static (syntax,
@@ -3462,64 +1801,6 @@ when writing the paper.
   `CHANGELOG.md [Unreleased]`. Lit: arXiv:2107.03374, arXiv:2207.10397,
   arXiv:2304.05128.
 
-## 2026-07-21 — Multi-source data loader: per-source join registry, not per-paper join code
-
-- **Context / problem:** The loader could only reach two worlds — CRSP-only or
-  CRSP+Compustat — chosen by a binary heuristic (`_signal_needs_compustat`:
-  "any mapped column outside a CRSP whitelist ⇒ Compustat"). It had no path to
-  IBES / OptionMetrics / 13F / patents, and `normalized_mapping` recorded only
-  `concept → column`, never *which source* a column came from. Papers that use
-  those sources could not be assembled at all, and when a genuinely new data
-  source appears there was no principled place to teach the loader how to join
-  it. The open question: should join logic be re-decided per paper (dialog /
-  LLM at runtime), or declared once?
-- **Options considered:**
-  1. Pop up a resolve-stage dialog per paper to declare how to join each source.
-  2. Let the LLM decide/generate the join at runtime, per paper.
-  3. Maintain a per-source join **registry**, updated once when a new source
-     first appears; field→source mapping stays per-paper (reviewed), join
-     mechanism is per-source.
-- **Decision:** Option 3. Split the problem along its real seam: the
-  **field→source→column mapping is per-paper** (human-confirmed in resolve,
-  lives in `MethodSpec.data.normalized_mapping`, now allowing the richer
-  `{concept: {source, column}}` form); the **join mechanism is per-source**,
-  declared once in `data_layer.SIGNAL_SOURCES` (`key/link/date/lag`) with one
-  generic point-in-time `link_to_permno` over `LINK_TABLES` (CCM / IBES-CRSP /
-  OptionMetrics-CRSP). `assemble_signal_master_table` groups a spec's formula
-  fields by source, reads only the needed columns, links each to permno,
-  computes an availability month, and merges on `[permno, time_avail_m]`. When
-  a spec references a source absent from the registry, `ReviewGate` **blocks**
-  and a human registers it once (LLM may *draft* the entry for review) — after
-  which every future paper using that source is handled automatically.
-- **Rationale:** "How IBES links to permno" is a property of IBES, identical for
-  every paper that uses it — so re-deciding it per paper (Options 1/2) is both
-  wasteful and a reproducibility hazard (the same source could join differently
-  across papers/runs). Point-in-time linking (CCM `linkdt`/`linkenddt`, IBES/OM
-  `sdate`/`edate`) is safety-critical for look-ahead/survivorship, so it must be
-  written and tested **once**, not regenerated. This mirrors the engine's
-  STANDARD-set-vs-hook philosophy and AGENTS.md's hard constraint that the LLM
-  never controls empirical data construction. The registry *is* the general
-  mechanism (add a source = one declaration), so it is more general than
-  per-paper join code, not less.
-- **Empirical impact:** None on existing replications — golden e2e
-  (accruals/ball2016/mvp) stay on the untouched binary `compustat`/`crsp_only`
-  path and remain byte-identical; the source-driven `multi_source` path is
-  additive. Enables (not yet exercised for a published factor) IBES/OptionMetrics
-  signals end-to-end on the synthetic WRDS-shaped data.
-- **Trade-offs / risks:** v1 cross-source alignment is an exact
-  `[permno, time_avail_m]` merge, not an as-of join — correct for single-source
-  and same-frequency multi-source signals, but mixing annual+monthly sources in
-  one formula needs an as-of join (deferred). Patents' year-based availability
-  is registered but not yet computed (`date=None` rows drop). LLM-drafted
-  registry entries are a documented future step, not yet built.
-- **References:** `src/infra/data_layer/__init__.py`
-  (`SIGNAL_SOURCES`/`LINK_TABLES`/`link_to_permno`/`assemble_signal_master_table`),
-  `src/infra/models/method_spec.py` (`resolved_sources`), `src/steps/reviewer/__init__.py`
-  (`_check_source_mapping_resolved`), `src/steps/codegen/script_generator.py`
-  (`pick_signal_input_mode` + `multi_source` mode), `tests/test_signal_master_multisource.py`,
-  `tests/test_crsp_raw_panel.py`, CHANGELOG `[0.15.0]`.
-
-
 ## 2026-07-20 — BacktestEngine: fixed step order + standard/hook dispatch, LLM never controls the pipeline
 
 - **Context / problem:** LLMs can plausibly write end-to-end backtest code, but
@@ -3554,32 +1835,6 @@ when writing the paper.
 - **References:** [src/steps/engine/steps.py](../src/steps/engine/steps.py),
   [src/steps/engine/registry.py](../src/steps/engine/registry.py),
   [docs/architecture.md](architecture.md) §2–§3, `AGENTS.md` Hard Constraints.
-
-## 2026-07-20 — BacktestEngine: ResearchDesign steps are deterministic config, daily data is source-only
-
-- **Context / problem:** Sample-construction choices (delisting-return
-  adjustment, universe filters, neutralization) materially move results but are
-  not "signal formula". Also, some signals need daily prices while the engine is
-  monthly-rebalanced. Both risked leaking into LLM-generated hooks or forcing a
-  parallel daily engine.
-- **Decision:** (a) Treat delisting returns, the `filter_universe` DSL, and
-  `neutralize_signal` as a deterministic **ResearchDesign** layer expressed as
-  pure config — never defaulting to an LLM hook. (b) Support daily CRSP as
-  *source data compounded to a monthly-keyed panel* (`ret = ∏(1+daily)-1`, `me`
-  from the last trading day) so daily-input signals flow through the existing
-  monthly engine unchanged — explicitly NOT genuine daily-frequency rebalancing.
-- **Rationale:** Keeps empirical sample choices auditable and ablatable via
-  config (per AGENTS.md, lag/empirical params are never LLM-decided), and avoids
-  duplicating the whole pipeline just to admit daily price inputs.
-- **Empirical impact:** Delisting adjustment uses `(1+ret)*(1+dlret)-1`; rows
-  with missing `dlret` stay as plain `ret` (documented simplification vs. the
-  Shumway/Johnson exchange-based imputation) — a known, bounded source of gap.
-- **Trade-offs / risks:** No true daily-rebalanced estimator (deferred to the
-  "ext" tier); delisting imputation is simplified. Both are documented scope
-  limits, not silent approximations.
-- **References:** [src/steps/engine/steps.py](../src/steps/engine/steps.py)
-  (`load_daily_msf`, `apply_excess_returns`, `apply_delisting_returns`),
-  plan.md Phases 2.5 / 6.
 
 ## 2026-07-20 — DataLayer: lag lives in the data layer, declarative panel assembly, concept→column dictionary
 
@@ -3693,81 +1948,3 @@ when writing the paper.
   `src/steps/step3_codegen/registry.py`, `src/steps/step2_reviewer/__init__.py`,
   `CHANGELOG.md`.
 
-## 2026-08-04 — Session-centric web UI redesign: contract-first plan, checkpoint before starting
-
-- **Context / problem:** The React/FastAPI site (2026-07-24 decision) only covers
-  step1-5 and holds all workflow state in per-page `useState` (lost on reload).
-  User wants full step1-8 coverage, every step independently runnable from a
-  stored upstream artifact, a persisted structured trace, and a per-step
-  "readiness to move on" signal to identify pipeline bottlenecks. A first draft
-  plan bundled persisted-workflow-state, missing-endpoint, evaluation, and
-  frontend work into one change; user review (external, thorough) scored it
-  7/10 and flagged the Session data model and step3-7 artifact boundary as the
-  most likely rework sources.
-- **Decision:** Split the redesign into a **workflow control plane** (a new
-  `Session` = state machine + artifact *references*, owned by the new backend
-  session store) and the existing **research evidence plane** (`EvidenceStore`,
-  `RunRecord`, `comparison.json` stay the sole authority for empirical
-  artifacts). Concretely:
-  - `SessionManifest` stores references + hashes only
-    (`methodspec_ref, plugin_ref, script_ref(+sha256), execution_ids[],
-    experiment_batch_id, comparison_ref, diagnosis_ref`); only step1-4's small
-    artifacts (spec/review report/resolution/plugin/script/validation) live
-    physically under the session directory; step5 onward is reference-only.
-  - Formal session state machine (`created -> ... -> diagnosis_complete`, plus
-    `blocked/failed/interrupted/cancelled/archived`) with rerun = new
-    append-only `attempts[]`, never in-place overwrite; staleness propagates
-    from upstream hash changes.
-  - `run-all` replaced by `advance`/`resume` (run-until-blocked): a backend job
-    cannot reliably pause across a process restart, so the "waits for human
-    review" step is a return value + resumable call, not a long-lived thread.
-    On backend startup, any `running` job/session is reconciled to
-    `interrupted`; the UI always reads final state from the session, never
-    from a stale job id; SSE is a notification channel only.
-  - step3->4->5 chained by **artifact identity**, not by passing script text or
-    paths over HTTP: step3 returns `{artifact_id, sha256}`, step4 validates
-    that id, step5's execute endpoint accepts only an artifact_id whose sha256
-    matches a passed validation record. Prevents the execute endpoint from
-    becoming an arbitrary-code-execution surface.
-  - step7's new endpoint accepts only `experiment_batch_id` /
-    `execution_id`s (never client-supplied runs/config/metrics); the backend
-    loads `RunRecord`s itself and checks same-batch, not-invalidated, hash
-    completeness before building the comparison (reusing
-    `write_comparison_summary`'s existing bundle build, not a second one).
-  - Renamed "Scorecard" (a unified 0-100 per-step quality score) to
-    `StepDiagnostics` + a separate `readiness` gate: several of the originally
-    proposed "quality" signals do not actually indicate quality (fewer
-    blocked fields != a more accurate MethodSpec; fewer repairs != a correct
-    formula; `ValidationReport.executes_ok` defaults `True` and stays `True`
-    when the check is skipped, so it must render tri-state, not a green
-    check). A true `evaluation score` is computed only where an independent
-    reference exists (today: step1 only, against SignalDoc/human labels).
-  - Extraction evaluation is exposed as its own opt-in
-    `POST /api/evaluations/extraction` action, isolated from normal sessions,
-    so a normal session's extractor call can never be handed `SignalDoc.csv`
-    or the human-labeled fixtures (existing hard constraint).
-- **Rationale:** Confirmed before committing to the plan that
-  `EvidenceStore.save_run` is a whole-directory `rmtree`+`rename` swap by a
-  single writer (`src/infra/evidence/__init__.py`), not a general transactional
-  store — a session manifest needs its own lock + revision/CAS write, not a
-  copy of that method. Also confirmed the in-flight step6 auto-freeze/
-  invalidation work (see CHANGELOG "Fixed a stale doc" entry same date) had
-  already landed, meaning the original plan's "current state" section was
-  stale against the actual worktree — reinforcing the need to freeze a
-  checkpoint before defining the Session API contract against it.
-- **Process:** Before any Session/UI code is written: (1) confirm the in-flight
-  multi-config/evidence/step6-8 work is stable (`pytest tests/` green: 388
-  passed/26 skipped, matching the last recorded baseline — no regression); (2)
-  fix the stale `AGENTS.md` step6 description (done, this changelog entry);
-  (3) this decision-log entry serves as the checkpoint marker; Session API
-  schemas and state-transition tests are written next, before any endpoint
-  handler body (Phase 0 of the revised plan).
-- **Trade-offs / risks:** More upfront design work before any visible UI
-  change; deliberately deferred a unified quality score the user might have
-  wanted for an at-a-glance "which step is bad" answer — mitigated by still
-  shipping per-step diagnostics and an explicit `readiness` gate, just not a
-  single misleading number.
-- **References:** `docs/multi-config-evidence-plan.md`, `AGENTS.md` (module
-  map), `backend/jobs.py`, `backend/routers/*`, `src/infra/evidence/__init__.py`,
-  `src/infra/models/plugin.py` (`ValidationReport.executes_ok`),
-  `src/steps/step6_dual_track_controller/__init__.py`, `CHANGELOG.md`.

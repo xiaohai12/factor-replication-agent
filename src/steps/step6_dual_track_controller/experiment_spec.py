@@ -49,7 +49,7 @@ from typing import Any
 
 import yaml
 
-from src.infra.models.method_spec import MethodSpec
+from src.infra.models.paper_method_spec import ResolvedMethodSpec
 from src.steps.step3_codegen.registry import ConfigOverrideError, build_config, stage_of
 
 
@@ -142,7 +142,7 @@ def _derive_identification_level(diff: dict) -> str:
 
 def build_experiment_spec(
     name: str,
-    spec: MethodSpec,
+    spec: ResolvedMethodSpec,
     baseline_config: dict,
     config_overrides: dict[str, Any] | None = None,
     signal_input_ref: str | None = None,
@@ -180,7 +180,7 @@ def build_experiment_spec(
     )
 
 
-def load_experiment_matrix(path: str | Path, spec: MethodSpec) -> ExperimentMatrix:
+def load_experiment_matrix(path: str | Path, spec: ResolvedMethodSpec) -> ExperimentMatrix:
     """Load, validate, and resolve one `experiments/<factor_id>.experiments.yaml`.
 
     Raises `ExperimentMatrixError` for: a factor_id mismatch, a duplicate
@@ -194,10 +194,11 @@ def load_experiment_matrix(path: str | Path, spec: MethodSpec) -> ExperimentMatr
     raw = yaml.safe_load(text) or {}
 
     factor_id = raw.get("factor_id")
-    if factor_id != spec.factor_id:
+    spec_factor_id = spec.paper.factor_id
+    if factor_id != spec_factor_id:
         raise ExperimentMatrixError(
             f"experiments file factor_id {factor_id!r} does not match "
-            f"MethodSpec.factor_id {spec.factor_id!r}"
+            f"MethodSpec.factor_id {spec_factor_id!r}"
         )
     baseline = raw.get("baseline", "original_method")
 
