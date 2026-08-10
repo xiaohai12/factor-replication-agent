@@ -4,7 +4,7 @@ routers.
 
 from __future__ import annotations
 
-from src.infra.models.paper_method_spec import ResolvedMethodSpec
+from src.infra.models.method_spec import ResolvedMethodSpec
 
 
 def parse_spec(raw: dict) -> ResolvedMethodSpec:

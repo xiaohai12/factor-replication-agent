@@ -9,6 +9,8 @@ import { SessionsPage } from "@/pages/SessionsPage"
 import { SessionDetailPage } from "@/pages/SessionDetailPage"
 import { SchemaReferencePage } from "@/pages/SchemaReferencePage"
 import { DataCatalogPage } from "@/pages/DataCatalogPage"
+import { ExtractorPage } from "@/pages/ExtractorPage"
+import { ReviewResolvePage } from "@/pages/ReviewResolvePage"
 
 const queryClient = new QueryClient()
 
@@ -21,6 +23,8 @@ function App() {
             <Route element={<AppLayout />}>
               <Route index element={<Navigate to="/pipeline" replace />} />
               <Route path="/pipeline" element={<PipelineE2EPage />} />
+              <Route path="/extract" element={<ExtractorPage />} />
+              <Route path="/review" element={<ReviewResolvePage />} />
               <Route path="/backtest" element={<BacktestExperimentsPage />} />
               <Route path="/trace" element={<TraceLogsPage />} />
               <Route path="/sessions" element={<SessionsPage />} />

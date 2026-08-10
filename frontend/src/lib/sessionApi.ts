@@ -17,6 +17,8 @@ export interface StepResponse {
   missing_input_refs: string[]
 }
 
+export type MethodSpecStage = "drafts" | "reviews" | "resolutions" | "resolved"
+
 export const sessionApi = {
   create: (factor_id: string, paper_id?: string) =>
     api.post<SessionManifest>("/api/sessions", { factor_id, paper_id }),
@@ -45,12 +47,102 @@ export const sessionApi = {
       confirm: true,
     }),
 
-  extractFromPdf: (sessionId: string, file: File, expectedRevision: number, llmProvider: string, llmModel?: string) =>
-    api.postForm<{ job_id: string }>(`/api/sessions/${sessionId}/steps/1/extract-pdf`, file, {
-      expected_revision: String(expectedRevision),
+  // -- standalone paper-first MethodSpec lifecycle (backend/routers/
+  // methodspecs.py). NOT session-scoped -- a session only consumes
+  // the RESULTING ResolvedMethodSpec from step3 onward (see
+  // docs/known-gaps-paper-first-v2.md). `extractPaperPdf`'s `document_id`/
+  // `target_name` have no session equivalent; callers pass the session's
+  // own factor_id/paper_id as a reasonable default.
+  extractPaperPdf: (
+    documentId: string,
+    targetName: string,
+    file: File,
+    llmProvider: string,
+    llmModel?: string,
+    sessionId?: string,
+  ) =>
+    api.postForm<{ job_id: string }>("/api/methodspecs/extract-pdf", file, {
+      document_id: documentId,
+      target_name: targetName,
       llm_provider: llmProvider,
       ...(llmModel ? { llm_model: llmModel } : {}),
+      ...(sessionId ? { session_id: sessionId } : {}),
     }),
+  reviewPaperSpec: (paper: Record<string, unknown>, sessionId?: string) =>
+    api.post<Record<string, unknown>>("/api/methodspecs/review", { paper, session_id: sessionId }),
+  reviewPaperSpecLlm: (
+    paper: Record<string, unknown>,
+    paperText: string,
+    llmProvider: string,
+    llmModel?: string,
+    sessionId?: string,
+  ) =>
+    api.post<{ job_id: string }>("/api/methodspecs/review/llm", {
+      paper,
+      paper_text: paperText,
+      llm_provider: llmProvider,
+      ...(llmModel ? { llm_model: llmModel } : {}),
+      session_id: sessionId,
+    }),
+  reviewPaperSpecOverride: (paper: Record<string, unknown>, overrides: Record<string, string>, sessionId?: string) =>
+    api.post<Record<string, unknown>>("/api/methodspecs/review/override", { paper, overrides, session_id: sessionId }),
+  /** Corrects the extracted VALUE of one or more fields (not just evidence
+   * status -- see `reviewPaperSpecOverride` for that). Returns a NEW paper;
+   * caller should re-run review/resolve against it afterward. */
+  patchPaperValue: (
+    paper: Record<string, unknown>,
+    patches: Record<string, unknown>,
+    reason?: string,
+    sessionId?: string,
+  ) =>
+    api.post<Record<string, unknown>>("/api/methodspecs/patch-value", {
+      paper,
+      patches,
+      reason: reason ?? "",
+      session_id: sessionId,
+    }),
+  /** Cached full text for a paper, keyed by `document_id` -- populated by
+   * `/api/methodspecs/extract`/`extract-pdf` (and `/api/papers/upload`) so a
+   * later LLM-backed review can recover it even after sessionStorage/the
+   * extraction job itself is gone. 404s if nothing was ever cached for it. */
+  getPaperText: (documentId: string) =>
+    api.get<{ paper_id: string; paper_text: string; text_length: number }>(
+      `/api/papers/${encodeURIComponent(documentId)}`,
+    ),
+  resolvePaperSpec: (
+    paper: Record<string, unknown>,
+    review: Record<string, unknown>,
+    returnsSource = "us_equity_crsp",
+    sessionId?: string,
+    llmProvider?: string,
+    llmModel?: string,
+  ) =>
+    api.post<{
+      resolution: Record<string, unknown>
+      is_ready: boolean
+      unmapped_concepts: string[]
+      llm_matched_concepts: string[]
+    }>("/api/methodspecs/resolve", {
+      paper,
+      review,
+      returns_source: returnsSource,
+      session_id: sessionId,
+      ...(llmProvider ? { llm_provider: llmProvider, llm_model: llmModel } : {}),
+    }),
+  listMethodSpecs: (stage: MethodSpecStage) => api.get<string[]>(`/api/methodspecs/${stage}`),
+  getMethodSpec: (stage: MethodSpecStage, factorId: string) =>
+    api.get<Record<string, unknown>>(`/api/methodspecs/${stage}/${encodeURIComponent(factorId)}`),
+
+  /** Mechanically-derived per-field reference (description/example/
+   * allowed_values/usage), generated straight from the `MethodSpec` pydantic
+   * model -- see `SchemaReferencePage.tsx` for the other consumer. */
+  getSchemaReference: () =>
+    api.get<{
+      fields: Record<
+        string,
+        { description: string; example: string; allowed_values: string[] | null; usage: string }
+      >
+    }>("/api/methodspecs/schema"),
 
   getStepArtifact: (sessionId: string, step: number, filename: string) =>
     api.get<{ filename: string; content: string }>(
@@ -60,21 +152,6 @@ export const sessionApi = {
   getComparison: (sessionId: string) =>
     api.get<Record<string, unknown>>(`/api/sessions/${sessionId}/steps/7/comparison`),
 
-  /** Applies human resolution decisions for step2's blocked fields --
-   * returns the resolved MethodSpec (becomes step3's input). */
-  resolveStep2: (sessionId: string, expected_revision: number, spec: Record<string, unknown>, decisions: unknown[]) =>
-    api.post<{ spec: Record<string, unknown>; revision: number }>(
-      `/api/sessions/${sessionId}/steps/2/resolve`,
-      { expected_revision, spec, decisions },
-    ),
-
-  /** Shared with the legacy PipelineE2EPage -- human-facing description +
-   * enum options for each resolvable MethodSpec field. */
-  getFieldHelp: () =>
-    api.get<Record<string, { description: string; options: string[]; example: string }>>(
-      "/api/methodspecs/field-help",
-    ),
-
   /** Generic "run this step's action" call -- every step's request body
    * shape differs (see lib/steps.ts's requestTemplate), so this stays
    * untyped on the request side; the response is either `{job_id}` (job
@@ -82,8 +159,8 @@ export const sessionApi = {
   runStep: (endpoint: string, body: unknown) => api.post<{ job_id?: string } & Record<string, unknown>>(endpoint, body),
 
   // -- helpers for step3's "pick an existing MethodSpec, then codegen"
-  // shortcut, reusing the EXISTING (non-session) endpoints rather than
-  // duplicating them.
+  // shortcut, reusing the paper-first (v2) resolved-spec listing rather
+  // than the deleted v1 `/api/methodspecs/resolved*` endpoints.
   listResolvedMethodSpecs: () => api.get<string[]>("/api/methodspecs/resolved"),
   getResolvedMethodSpec: (factorId: string) =>
     api.get<Record<string, unknown>>(`/api/methodspecs/resolved/${factorId}`),
@@ -92,4 +169,3 @@ export const sessionApi = {
 
   listSnapshots: () => api.get<{ snapshot_id: string }[]>("/api/backtest/snapshots"),
 }
-

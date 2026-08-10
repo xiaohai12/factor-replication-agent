@@ -20,6 +20,12 @@ data/local/
 # Committed reference fixtures live in tests/fixtures/ instead (not ignored).
 runs/
 
+# Recommended FACTOR_AGENT_RUNS_DIR target for ad-hoc/manual test runs (see
+# backend/state.py) -- keeps test-generated session/methodspec/evidence
+# artifacts out of the real runs/ dir so they're easy to bulk-delete.
+.runs_scratch/
+
+
 # Curated research metadata is intentionally trackable:
 # data/gold_standard/
 

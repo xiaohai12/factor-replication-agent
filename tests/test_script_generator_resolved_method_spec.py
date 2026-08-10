@@ -7,7 +7,7 @@ Phase D).
 
 from __future__ import annotations
 
-from src.infra.models.paper_method_spec import SourceColumn
+from src.infra.models.method_spec import SourceColumn
 from src.steps.step3_codegen.script_generator import (
     generate_backtest_script,
     pick_signal_input_mode,

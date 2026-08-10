@@ -39,6 +39,14 @@ when writing the paper.
 
 <!-- Add new entries below this line, newest first. -->
 
+## 2026-08-08 — Extract/Review are standalone pages; sessions visibly begin at Step 3
+
+- **Context / problem:** The paper-first MethodSpec backend lifecycle is global and persists drafts/reviews/resolutions under `runs/method_specs`; session-owned endpoints for Step 1/2 were deleted. The React UI nevertheless left `Extractor` and `Review & Resolve` disabled in the sidebar, then rendered one combined extract/review/resolve panel twice inside session Step 1 and Step 2, with progress stored only in sessionStorage under a session id. This contradicted the backend ownership boundary, made refresh/tab close lose UI state, and sent new sessions to two steps they cannot own.
+- **Decision:** Add real standalone `/extract` and `/review` routes backed by the persisted MethodSpec APIs. Extraction links to review by `factor_id`; review reloads persisted drafts/reviews and writes resolution artifacts. Session creation/list navigation now enters Step 3, and the session stepper hides Step 1/2. Legacy session Step 1/2 URLs redirect to the standalone pages.
+- **Rationale:** UI ownership now matches artifact ownership: MethodSpec lifecycle is reusable across sessions, while a session owns the generated script and later empirical artifacts from Step 3 onward. Backend files remain the durable source of truth; browser state is no longer required to review a saved draft.
+- **Empirical impact:** None. This changes routing and workflow presentation only; extractor, reviewer, resolver, and backtest logic are unchanged.
+- **References:** `frontend/src/pages/ExtractorPage.tsx`, `frontend/src/pages/ReviewResolvePage.tsx`, `frontend/src/App.tsx`, `frontend/src/layout/AppLayout.tsx`, `frontend/src/pages/SessionsPage.tsx`, `frontend/src/components/StepStepper.tsx`, `CHANGELOG.md`.
+
 ## 2026-08-07 — Full deletion of v1 `MethodSpec` after completing the paper-first migration
 
 - **Context / problem:** Over this session, every consumer of the flat v1
@@ -1947,4 +1955,3 @@ when writing the paper.
   (`normalize_curated_schema` lift, `PortfolioSpec`, before-validator coercions),
   `src/steps/step3_codegen/registry.py`, `src/steps/step2_reviewer/__init__.py`,
   `CHANGELOG.md`.
-

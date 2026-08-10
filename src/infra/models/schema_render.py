@@ -1,5 +1,5 @@
 """Render a paper-first MethodSpec extraction-prompt JSON skeleton directly
-from the `PaperMethodSpec` Pydantic model (docs/methodspec-v2-plan.md Phase B
+from the `MethodSpec` Pydantic model (docs/methodspec-v2-plan.md Phase B
 item 2: "在可行处从模型元数据生成提示词 schema 片段").
 
 This is the structural fix for the original drift bug (plan section 3.1):
@@ -17,7 +17,7 @@ from enum import Enum
 from pydantic import BaseModel
 from pydantic.fields import FieldInfo
 
-from src.infra.models.paper_method_spec import EvidenceCitation, SourcedValue
+from src.infra.models.method_spec import EvidenceCitation, SourcedValue
 
 _MAX_LIST_EXAMPLES = 1  # one example element is enough to show shape
 
@@ -98,9 +98,9 @@ def render_model(model_cls: type[BaseModel]) -> dict[str, typing.Any]:
 
 
 # Markers delimiting the auto-generated block inside
-# prompts/extractor/paper_method_spec_extractor.md -- same splice pattern as
+# prompts/extractor/method_spec_extractor.md -- same splice pattern as
 # field_contract.splice_allowed_values, so the "Required JSON Shape" example
-# can never silently diverge from what PaperMethodSpec actually accepts
+# can never silently diverge from what MethodSpec actually accepts
 # (the exact drift bug plan section 3.1 documents for the original schema).
 SCHEMA_SKELETON_START = "<!-- METHODSPEC:SCHEMA_SKELETON:START -->"
 SCHEMA_SKELETON_END = "<!-- METHODSPEC:SCHEMA_SKELETON:END -->"
@@ -109,9 +109,9 @@ SCHEMA_SKELETON_END = "<!-- METHODSPEC:SCHEMA_SKELETON:END -->"
 def render_schema_skeleton_block() -> str:
     import json
 
-    from src.infra.models.paper_method_spec import PaperMethodSpec
+    from src.infra.models.method_spec import MethodSpec
 
-    skeleton = render_model(PaperMethodSpec)
+    skeleton = render_model(MethodSpec)
     # factor_id and schema_version are computed by the pipeline, not the LLM
     # (D7: factor_id = sha256(document_id + "::" + target_name)); drop them
     # from the prompt example so the model doesn't try to invent one.

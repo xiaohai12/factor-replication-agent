@@ -23,7 +23,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Callable
 
-from src.infra.models.paper_method_spec import ResolvedMethodSpec
+from src.infra.models.method_spec import ResolvedMethodSpec
 from src.infra.models.plugin import PluginRecord
 from src.infra.models.run_record import RepairAttempt
 

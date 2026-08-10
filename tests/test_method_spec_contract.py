@@ -19,7 +19,7 @@ from datetime import datetime, timezone
 import pytest
 from pydantic import ValidationError
 
-from src.infra.models.paper_method_spec import (
+from src.infra.models.method_spec import (
     AdjustmentModel,
     BreakpointSpec,
     CalculationStep,
@@ -34,12 +34,14 @@ from src.infra.models.paper_method_spec import (
     EvidenceCitation,
     EvidenceStatus,
     Finding,
+    FilterOp,
+    FilterSpec,
     FormulaSpec,
     GroupType,
     ImplementationResolution,
     MethodReview,
     Period,
-    PaperMethodSpec,
+    MethodSpec,
     PaperRef,
     PortfolioLeg,
     PortfolioSpec,
@@ -124,10 +126,10 @@ def _minimal_reported_results() -> ReportedResults:
     )
 
 
-def _simple_accounting_ratio_spec() -> PaperMethodSpec:
+def _simple_accounting_ratio_spec() -> MethodSpec:
     """Case 1: simple accounting ratio, single characteristic sort."""
-    factor_id = PaperMethodSpec.make_factor_id("cooper2008", "asset_growth")
-    return PaperMethodSpec(
+    factor_id = MethodSpec.make_factor_id("cooper2008", "asset_growth")
+    return MethodSpec(
         factor_id=factor_id,
         target_name="asset_growth",
         paper=PaperRef(document_id="cooper2008", title="Asset Growth...", citation="Cooper et al 2008"),
@@ -161,7 +163,7 @@ def _simple_accounting_ratio_spec() -> PaperMethodSpec:
                     mode=SortMode.INDEPENDENT,
                     group_type=GroupType.QUANTILE,
                     group_count=10,
-                    breakpoints=BreakpointSpec(population=SourcedValue(value="nyse", status=EvidenceStatus.CLEAR)),
+                    breakpoints=BreakpointSpec(basis=SourcedValue(value="nyse", status=EvidenceStatus.CLEAR)),
                 )
             ],
             legs=[
@@ -181,26 +183,26 @@ class TestStrictRejection:
         payload = spec.model_dump(mode="json")
         payload["some_unexpected_field"] = "should not survive"
         with pytest.raises(ValidationError):
-            PaperMethodSpec.model_validate(payload)
+            MethodSpec.model_validate(payload)
 
     def test_unknown_nested_field_rejected(self):
         spec = _simple_accounting_ratio_spec()
         payload = spec.model_dump(mode="json")
         payload["signal"]["formula"]["ghost_field"] = 1
         with pytest.raises(ValidationError):
-            PaperMethodSpec.model_validate(payload)
+            MethodSpec.model_validate(payload)
 
 
 class TestRoundTrip:
     def test_lossless_round_trip(self):
         spec = _simple_accounting_ratio_spec()
         dumped = spec.model_dump(mode="json")
-        reloaded = PaperMethodSpec.model_validate(dumped)
+        reloaded = MethodSpec.model_validate(dumped)
         assert reloaded == spec
 
     def test_content_hash_stable_across_round_trip(self):
         spec = _simple_accounting_ratio_spec()
-        reloaded = PaperMethodSpec.model_validate(spec.model_dump(mode="json"))
+        reloaded = MethodSpec.model_validate(spec.model_dump(mode="json"))
         assert spec.content_hash() == reloaded.content_hash()
 
     def test_content_hash_changes_on_value_change(self):
@@ -219,13 +221,13 @@ class TestRoundTrip:
 
 class TestFactorIdHashing:
     def test_same_paper_and_target_same_id(self):
-        id1 = PaperMethodSpec.make_factor_id("cooper2008", "asset_growth")
-        id2 = PaperMethodSpec.make_factor_id("cooper2008", "asset_growth")
+        id1 = MethodSpec.make_factor_id("cooper2008", "asset_growth")
+        id2 = MethodSpec.make_factor_id("cooper2008", "asset_growth")
         assert id1 == id2
 
     def test_different_target_different_id(self):
-        id1 = PaperMethodSpec.make_factor_id("hirshleifer2012", "patent_emi")
-        id2 = PaperMethodSpec.make_factor_id("hirshleifer2012", "citations_emi")
+        id1 = MethodSpec.make_factor_id("hirshleifer2012", "patent_emi")
+        id2 = MethodSpec.make_factor_id("hirshleifer2012", "citations_emi")
         assert id1 != id2
 
 
@@ -246,12 +248,12 @@ class TestUniqueIdValidators:
                     SortDimension(
                         sort_id="dup", concept_id="a", role=SortRole.TARGET, order=1,
                         mode=SortMode.INDEPENDENT, group_type=GroupType.QUANTILE,
-                        breakpoints=BreakpointSpec(population=SourcedValue()),
+                        breakpoints=BreakpointSpec(basis=SourcedValue()),
                     ),
                     SortDimension(
                         sort_id="dup", concept_id="b", role=SortRole.CONTROL, order=2,
                         mode=SortMode.INDEPENDENT, group_type=GroupType.QUANTILE,
-                        breakpoints=BreakpointSpec(population=SourcedValue()),
+                        breakpoints=BreakpointSpec(basis=SourcedValue()),
                     ),
                 ],
                 legs=[],
@@ -267,7 +269,7 @@ class TestUniqueIdValidators:
                     SortDimension(
                         sort_id="sort1", concept_id="a", role=SortRole.TARGET, order=1,
                         mode=SortMode.INDEPENDENT, group_type=GroupType.QUANTILE,
-                        breakpoints=BreakpointSpec(population=SourcedValue()),
+                        breakpoints=BreakpointSpec(basis=SourcedValue()),
                     ),
                 ],
                 legs=[PortfolioLeg(leg_id="long", side="long", selector={"nonexistent_sort": 0})],
@@ -341,12 +343,12 @@ class TestSequentialDoubleSort:
         size_sort = SortDimension(
             sort_id="size", concept_id="me", role=SortRole.CONDITIONING, order=1,
             mode=SortMode.SEQUENTIAL, group_type=GroupType.QUANTILE, group_count=2,
-            breakpoints=BreakpointSpec(population=SourcedValue(value="nyse", status=EvidenceStatus.CLEAR)),
+            breakpoints=BreakpointSpec(basis=SourcedValue(value="nyse", status=EvidenceStatus.CLEAR)),
         )
         value_sort = SortDimension(
             sort_id="value", concept_id="bm", role=SortRole.TARGET, order=2,
             mode=SortMode.SEQUENTIAL, group_type=GroupType.QUANTILE, group_count=3,
-            breakpoints=BreakpointSpec(population=SourcedValue(value="nyse", status=EvidenceStatus.CLEAR)),
+            breakpoints=BreakpointSpec(basis=SourcedValue(value="nyse", status=EvidenceStatus.CLEAR)),
             condition_on_sort_id="size",
         )
         portfolio = PortfolioSpec(
@@ -374,7 +376,6 @@ class TestUnsupportedCustomWeighting:
 
         review = MethodReview(
             factor_id=paper.factor_id,
-            paper_spec_hash=paper.content_hash(),
             capability_version="engine_capability.v1",
             findings=[
                 Finding(
@@ -391,8 +392,6 @@ class TestUnsupportedCustomWeighting:
 
         resolution = ImplementationResolution(
             factor_id=paper.factor_id,
-            paper_spec_hash=paper.content_hash(),
-            review_hash="dummy_review_hash",
             approved_substitutions=[
                 Substitution(
                     field_path="portfolio.weighting",
@@ -433,26 +432,18 @@ class TestResolvedMethodSpecReadiness:
         paper = _simple_accounting_ratio_spec()
         review = MethodReview(
             factor_id=paper.factor_id,
-            paper_spec_hash=paper.content_hash(),
             capability_version="engine_capability.v1",
         )
         resolution = ImplementationResolution(
             factor_id=paper.factor_id,
-            paper_spec_hash=paper.content_hash(),
-            review_hash=review.content_hash(),
             concept_mapping={"at": SourceColumn(source="comp_funda", column="at")},
             returns_source="us_equity_crsp",
         )
         return ResolvedMethodSpec(paper=paper, review=review, resolution=resolution)
 
-    def test_ready_when_hashes_match_and_no_blocks(self):
+    def test_ready_when_no_blocks(self):
         resolved = self._build_ready_resolved_spec()
         assert resolved.is_ready
-
-    def test_not_ready_when_paper_hash_stale(self):
-        resolved = self._build_ready_resolved_spec()
-        resolved.paper.portfolio.weighting.value = "ew"  # mutate paper after review was bound
-        assert not resolved.is_ready
 
     def test_not_ready_when_review_blocked(self):
         resolved = self._build_ready_resolved_spec()
@@ -475,7 +466,7 @@ class TestResolvedMethodSpecReadiness:
             SortDimension(
                 sort_id=f"extra{i}", concept_id="at", role=SortRole.CONTROL, order=i + 2,
                 mode=SortMode.INDEPENDENT, group_type=GroupType.QUANTILE,
-                breakpoints=BreakpointSpec(population=SourcedValue()),
+                breakpoints=BreakpointSpec(basis=SourcedValue()),
             )
             for i in range(3)
         ]
@@ -485,14 +476,70 @@ class TestResolvedMethodSpecReadiness:
     def test_factor_id_mismatch_rejected(self):
         paper = _simple_accounting_ratio_spec()
         review = MethodReview(
-            factor_id="different_id", paper_spec_hash=paper.content_hash(),
+            factor_id="different_id",
             capability_version="engine_capability.v1",
         )
-        resolution = ImplementationResolution(
-            factor_id=paper.factor_id, paper_spec_hash=paper.content_hash(), review_hash=review.content_hash(),
-        )
+        resolution = ImplementationResolution(factor_id=paper.factor_id)
         with pytest.raises(ValidationError):
             ResolvedMethodSpec(paper=paper, review=review, resolution=resolution)
+
+
+class TestUnsupportedUniverseFilter:
+    """A universe filter that DOES resolve to a physical column but not one
+    the returns panel actually supplies (e.g. a Compustat-only backfill-bias
+    screen) is `unsupported` -- blocks `is_ready` -- unless a human
+    explicitly records `FilterSpec.accepted_unapplied` (the same "paper
+    vocabulary vs engine menu" escape hatch as `WeightingScheme.OTHER`)."""
+
+    def _resolved_with_filter(self, filter_spec: FilterSpec) -> ResolvedMethodSpec:
+        paper = _simple_accounting_ratio_spec()
+        paper.universe.filters.append(filter_spec)
+        review = MethodReview(factor_id=paper.factor_id, capability_version="engine_capability.v1")
+        resolution = ImplementationResolution(
+            factor_id=paper.factor_id,
+            concept_mapping={
+                "at": SourceColumn(source="comp_funda", column="at"),
+                # A made-up Compustat-only column -- illustrates a filter
+                # resolved but NOT on the returns panel; doesn't depend on
+                # any real registered column.
+                filter_spec.concept_id: SourceColumn(source="comp_funda", column="listing_duration_years"),
+            },
+            returns_source="us_equity_crsp",
+        )
+        return ResolvedMethodSpec(paper=paper, review=review, resolution=resolution)
+
+    def test_non_returns_panel_filter_is_unsupported_and_blocks_is_ready(self):
+        resolved = self._resolved_with_filter(
+            FilterSpec(concept_id="compustat_listing_duration", op=FilterOp.GTE, value=2)
+        )
+        assert resolved.unsupported_universe_filters() == ["compustat_listing_duration"]
+        assert not resolved.is_ready
+
+    def test_accepted_unapplied_filter_is_not_unsupported_and_does_not_block(self):
+        resolved = self._resolved_with_filter(
+            FilterSpec(
+                concept_id="compustat_listing_duration", op=FilterOp.GTE, value=2,
+                accepted_unapplied=True, unapplied_reason="no eligibility-panel support yet",
+            )
+        )
+        assert resolved.unsupported_universe_filters() == []
+        assert resolved.is_ready
+
+    def test_returns_panel_filter_is_supported(self):
+        paper = _simple_accounting_ratio_spec()
+        paper.universe.filters.append(FilterSpec(concept_id="listing_exchange", op=FilterOp.IN, value=[1, 2]))
+        review = MethodReview(factor_id=paper.factor_id, capability_version="engine_capability.v1")
+        resolution = ImplementationResolution(
+            factor_id=paper.factor_id,
+            concept_mapping={
+                "at": SourceColumn(source="comp_funda", column="at"),
+                "listing_exchange": SourceColumn(source="crsp_msf", column="exchcd"),
+            },
+            returns_source="us_equity_crsp",
+        )
+        resolved = ResolvedMethodSpec(paper=paper, review=review, resolution=resolution)
+        assert resolved.unsupported_universe_filters() == []
+        assert resolved.is_ready
 
 
 class TestResolutionEntryAppendOnly:

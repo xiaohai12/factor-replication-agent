@@ -78,7 +78,7 @@ def compute_signal(df):
 """
 
 
-def _script_for(plugin: PluginRecord) -> str:
+def _script_for(plugin: PluginRecord, spec=None) -> str:
     """Build the ONE complete standalone script for a plugin, the same way
     Pipeline._build_script does -- so the execution smoke test validates the
     real artifact, not a hand-rolled stand-in. `signal_input_mode="crsp_only"`
@@ -87,7 +87,7 @@ def _script_for(plugin: PluginRecord) -> str:
     touched.
     """
     return generate_backtest_script(
-        _spec(), plugin.code, data_path="data/does_not_exist/msf.parquet",
+        spec if spec is not None else _spec(), plugin.code, data_path="data/does_not_exist/msf.parquet",
         signal_input_mode="crsp_only",
     )
 
@@ -133,6 +133,75 @@ class TestExecutionSmoke:
         report = AdversarialSandbox().validate(plugin, _spec(), data=_slice())
         assert report.executes_ok
         assert report.passed
+
+
+def _returns_panel_slice() -> pd.DataFrame:
+    """Same shape as `_slice()` plus the returns-panel's own columns -- the
+    "crsp_only" mode case where the signal-input slice IS also a valid
+    (if thin -- only 3 permnos) returns panel."""
+    rows = []
+    for permno in (1, 2, 3):
+        for m in range(1, 13):
+            rows.append({
+                "permno": permno, "time_avail_m": 200000 + m, "x": float(permno * m),
+                "ret": 0.01 * permno, "me": float(100 + permno), "exchcd": 1,
+                "shrcd": 11, "siccd": 2000,
+            })
+    return pd.DataFrame(rows)
+
+
+class TestFullEngineSmokeTest:
+    """Best-effort `BacktestExecutor.run_with_config()` attempt on a slice
+    that already has returns-panel columns -- never a hard failure, only a
+    warning (see `_check_executes` docstring)."""
+
+    def test_returns_panel_shaped_slice_runs_engine_without_warning(self):
+        """A well-formed thin slice (only 3 permnos) doesn't actually crash
+        the engine (breakpoint/quantile logic degrades gracefully on small
+        samples) -- confirms the engine attempt runs and doesn't spuriously
+        warn when nothing is actually wrong."""
+        plugin = _plugin(_GOOD_SIGNAL)
+        report = AdversarialSandbox().validate(
+            plugin, _spec(), script_text=_script_for(plugin), data=_returns_panel_slice()
+        )
+        assert report.executes_ok
+        assert report.passed
+        assert not any("full-engine smoke test" in w for w in report.warnings)
+
+    def test_engine_failure_on_slice_warns_but_does_not_fail(self):
+        """A universe filter resolved to a column the returns panel simply
+        doesn't have (the exact real-world class of bug this whole session
+        started from) makes the engine raise -- proves that failure is
+        surfaced as a non-blocking warning here, not a hard failure."""
+        from src.infra.models.method_spec import FilterOp, FilterSpec, SourceColumn
+
+        spec = _spec()
+        spec.paper.universe.filters.append(
+            FilterSpec(concept_id="missing_concept", op=FilterOp.NONMISSING)
+        )
+        spec.resolution.concept_mapping["missing_concept"] = SourceColumn(
+            source="comp_funda", column="not_on_returns_panel"
+        )
+        plugin = _plugin(_GOOD_SIGNAL)
+        report = AdversarialSandbox().validate(
+            plugin, spec, script_text=_script_for(plugin, spec=spec), data=_returns_panel_slice()
+        )
+        assert report.executes_ok
+        assert report.passed
+        assert any("full-engine smoke test" in w for w in report.warnings)
+        assert any("not_on_returns_panel" in w for w in report.warnings)
+
+    def test_non_returns_panel_slice_skips_engine_attempt_silently(self):
+        """The default `_slice()` fixture has no ret/me/exchcd/shrcd/siccd --
+        the engine attempt must be skipped entirely (no engine-related
+        warning), same as every "compustat"/"multi_source" mode slice today."""
+        plugin = _plugin(_GOOD_SIGNAL)
+        report = AdversarialSandbox().validate(
+            plugin, _spec(), script_text=_script_for(plugin), data=_slice()
+        )
+        assert report.executes_ok
+        assert report.passed
+        assert not any("full-engine smoke test" in w for w in report.warnings)
 
 
 if __name__ == "__main__":

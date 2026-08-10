@@ -3,7 +3,7 @@ test_*.py file, so pytest won't collect it as a test module)."""
 
 from __future__ import annotations
 
-from src.infra.models.paper_method_spec import (
+from src.infra.models.method_spec import (
     ConstructionType,
     DataAvailability,
     DataSpec,
@@ -17,7 +17,7 @@ from src.infra.models.paper_method_spec import (
     GroupType,
     ImplementationResolution,
     Period,
-    PaperMethodSpec,
+    MethodSpec,
     PaperRef,
     PortfolioLeg,
     PortfolioSpec,
@@ -42,7 +42,7 @@ from src.infra.models.paper_method_spec import (
     Unit,
     UniverseSpec,
 )
-from src.steps.step2_reviewer.paper_review import review_paper_method_spec
+from src.steps.step2_reviewer.review import review_method_spec
 
 
 def spec_factor_id(spec) -> str:
@@ -59,7 +59,7 @@ def minimal_resolved_spec(
     `test_meta_coder_resolved_method_spec._resolved_spec()` but with an
     explicit, arbitrary `factor_id` (not derived via `make_factor_id`)."""
     period = Period(start_year=1968, end_year=2003)
-    paper = PaperMethodSpec(
+    paper = MethodSpec(
         factor_id=factor_id,
         target_name=factor_id,
         paper=PaperRef(document_id="doc", title="Test Paper", citation="Test 2020", publication_year=2020),
@@ -94,7 +94,7 @@ def minimal_resolved_spec(
                 SortDimension(
                     sort_id="sort1", concept_id="x", role=SortRole.TARGET, order=1,
                     mode=SortMode.INDEPENDENT, group_type=GroupType.QUANTILE, group_count=10,
-                    breakpoints=BreakpointSpec(population=SourcedValue(value=breakpoint_source, status=EvidenceStatus.CLEAR)),
+                    breakpoints=BreakpointSpec(basis=SourcedValue(value=breakpoint_source, status=EvidenceStatus.CLEAR)),
                 )
             ],
             legs=[
@@ -117,10 +117,9 @@ def minimal_resolved_spec(
             ],
         ),
     )
-    review = review_paper_method_spec(paper)
+    review = review_method_spec(paper)
     resolution = ImplementationResolution(
-        factor_id=paper.factor_id, paper_spec_hash=paper.content_hash(),
-        review_hash=review.content_hash(),
+        factor_id=paper.factor_id,
         concept_mapping={"x": SourceColumn(source=concept_source, column=concept_column)},
         returns_source="us_equity_crsp",
     )
@@ -138,7 +137,7 @@ def asset_growth_resolved_spec(factor_id: str = "cooper_gulen_schill_2008_asset_
     cooper_gulen_schill_2008_asset_growth.py`, spec-agnostic compute_signal
     code)."""
     period = Period(start_year=1968, end_year=2002)
-    paper = PaperMethodSpec(
+    paper = MethodSpec(
         factor_id=factor_id,
         target_name="asset_growth",
         paper=PaperRef(
@@ -176,7 +175,7 @@ def asset_growth_resolved_spec(factor_id: str = "cooper_gulen_schill_2008_asset_
                 SortDimension(
                     sort_id="assetg", concept_id="total_assets", role=SortRole.TARGET, order=1,
                     mode=SortMode.INDEPENDENT, group_type=GroupType.QUANTILE, group_count=10,
-                    breakpoints=BreakpointSpec(population=SourcedValue(value="nyse", status=EvidenceStatus.CLEAR)),
+                    breakpoints=BreakpointSpec(basis=SourcedValue(value="nyse", status=EvidenceStatus.CLEAR)),
                 )
             ],
             legs=[
@@ -199,10 +198,9 @@ def asset_growth_resolved_spec(factor_id: str = "cooper_gulen_schill_2008_asset_
             ],
         ),
     )
-    review = review_paper_method_spec(paper)
+    review = review_method_spec(paper)
     resolution = ImplementationResolution(
-        factor_id=paper.factor_id, paper_spec_hash=paper.content_hash(),
-        review_hash=review.content_hash(),
+        factor_id=paper.factor_id,
         concept_mapping={"total_assets": SourceColumn(source="comp_funda", column="at")},
         returns_source="us_equity_crsp",
     )
@@ -221,7 +219,7 @@ def accruals_resolved_spec() -> ResolvedMethodSpec:
     concepts = ["current_assets", "current_liabilities", "cash", "short_term_debt", "depreciation", "total_assets"]
     columns = {"current_assets": "act", "current_liabilities": "lct", "cash": "che",
                "short_term_debt": "dlc", "depreciation": "dp", "total_assets": "at"}
-    paper = PaperMethodSpec(
+    paper = MethodSpec(
         factor_id="sloan_1996_accruals",
         target_name="accruals",
         paper=PaperRef(
@@ -262,7 +260,7 @@ def accruals_resolved_spec() -> ResolvedMethodSpec:
                 SortDimension(
                     sort_id="accruals", concept_id="total_assets", role=SortRole.TARGET, order=1,
                     mode=SortMode.INDEPENDENT, group_type=GroupType.QUANTILE, group_count=10,
-                    breakpoints=BreakpointSpec(population=SourcedValue(value="nyse", status=EvidenceStatus.CLEAR)),
+                    breakpoints=BreakpointSpec(basis=SourcedValue(value="nyse", status=EvidenceStatus.CLEAR)),
                 )
             ],
             legs=[
@@ -285,10 +283,9 @@ def accruals_resolved_spec() -> ResolvedMethodSpec:
             ],
         ),
     )
-    review = review_paper_method_spec(paper)
+    review = review_method_spec(paper)
     resolution = ImplementationResolution(
-        factor_id=paper.factor_id, paper_spec_hash=paper.content_hash(),
-        review_hash=review.content_hash(),
+        factor_id=paper.factor_id,
         concept_mapping={c: SourceColumn(source="comp_funda", column=columns[c]) for c in concepts},
         returns_source="us_equity_crsp",
     )

@@ -4,9 +4,9 @@ Entry point: `run_from_method_spec()` -- steps 3-5 (generate -> validate ->
 execute) off an already-approved `ResolvedMethodSpec`. The original 7-step
 `run_full_pipeline()` (extract -> review, via `SemanticExtractor`/
 `ReviewGate`) was retired along with `MethodSpec` itself -- extraction/
-review for the paper-first schema go through `PaperExtractor`/
-`review_paper_method_spec`/`build_implementation_resolution` directly (see
-`backend/routers/paper_methodspecs.py`), not this orchestrator.
+review for the paper-first schema go through `MethodSpecExtractor`/
+`review_method_spec`/`build_implementation_resolution` directly (see
+`backend/routers/methodspecs.py`), not this orchestrator.
 
 Every step is also reachable standalone via the sub-component attributes set
 in `__init__` (`self.meta_coder`, `self.sandbox`, `self.runner`,
@@ -27,7 +27,7 @@ from src.infra.evidence import EvidenceStore, RunRegistry
 from src.infra.repair import RepairLoop
 from src.steps.step3_codegen import MetaCoder
 from src.steps.step3_codegen.script_generator import pick_signal_input_mode
-from src.infra.models.paper_method_spec import ResolvedMethodSpec
+from src.infra.models.method_spec import ResolvedMethodSpec
 from src.infra.models.plugin import PluginRecord
 from src.infra.models.run_record import RunRecord
 from src.infra.registry import PluginRegistry

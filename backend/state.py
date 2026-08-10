@@ -7,34 +7,43 @@ step that needs an LLM gets a freshly-built one for the request).
 
 from __future__ import annotations
 
+import os
 from pathlib import Path
 
 from src.infra.data_layer import SnapshotMetadata
 from src.infra.llm import create_llm_client
 from src.pipeline import Pipeline
-from src.steps.step1_extractor.paper_extractor import PaperExtractor
+from src.steps.step1_extractor.extractor import MethodSpecExtractor
 from src.steps.step3_codegen import MetaCoder
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 DATA_DIR = REPO_ROOT / "data"
-RUNS_DIR = REPO_ROOT / "runs"
+# Overridable so ad-hoc/manual test runs (e.g. FACTOR_AGENT_RUNS_DIR=.runs_scratch)
+# can write session/methodspec/evidence/backtest_script artifacts somewhere
+# other than the real runs/ dir, keeping them easy to bulk-delete without
+# touching real work. A relative override is resolved against REPO_ROOT (not
+# the process cwd, which may differ depending on how uvicorn/streamlit was
+# launched). Defaults to the same runs/ as before when unset.
+_runs_dir_override = os.environ.get("FACTOR_AGENT_RUNS_DIR")
+RUNS_DIR = (REPO_ROOT / _runs_dir_override) if _runs_dir_override else REPO_ROOT / "runs"
 
 PAPER_TEXT_CACHE_DIR = DATA_DIR / "paper_text_cache"
 METHODSPEC_ROOT = RUNS_DIR / "method_specs"
 
-# Paper-first (PaperMethodSpec/MethodReview/ImplementationResolution/
-# ResolvedMethodSpec) artifact dirs.
-PAPER_DRAFTS_DIR = METHODSPEC_ROOT / "paper_drafts"
-PAPER_REVIEWS_DIR = METHODSPEC_ROOT / "paper_reviews"
-PAPER_RESOLUTIONS_DIR = METHODSPEC_ROOT / "paper_resolutions"
-PAPER_RESOLVED_DIR = METHODSPEC_ROOT / "paper_resolved"
+# Paper-first (MethodSpec/MethodReview/ImplementationResolution/
+# ResolvedMethodSpec) artifact dirs -- the v1 MethodSpec pipeline that used
+# to own these names is gone, so this is now the only consumer of them.
+UNREVIEWED_DIR = METHODSPEC_ROOT / "unreviewed"
+REVIEWED_DIR = METHODSPEC_ROOT / "reviewed"
+RESOLUTIONS_DIR = METHODSPEC_ROOT / "resolutions"
+RESOLVED_DIR = METHODSPEC_ROOT / "resolved"
 
 for _dir in (
     PAPER_TEXT_CACHE_DIR,
-    PAPER_DRAFTS_DIR,
-    PAPER_REVIEWS_DIR,
-    PAPER_RESOLUTIONS_DIR,
-    PAPER_RESOLVED_DIR,
+    UNREVIEWED_DIR,
+    REVIEWED_DIR,
+    RESOLUTIONS_DIR,
+    RESOLVED_DIR,
 ):
     _dir.mkdir(parents=True, exist_ok=True)
 
@@ -175,5 +184,5 @@ def build_meta_coder(llm_client) -> MetaCoder:
     return MetaCoder(llm_client=llm_client)
 
 
-def build_paper_extractor(llm_client) -> PaperExtractor:
-    return PaperExtractor(llm_client=llm_client)
+def build_extractor(llm_client) -> MethodSpecExtractor:
+    return MethodSpecExtractor(llm_client=llm_client)

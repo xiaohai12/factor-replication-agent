@@ -2,7 +2,7 @@
 
 Found via a live, real-paper, real-WRDS-data session E2E run (2026-08-07):
 "Asset Growth and the Cross Section of Stock Returns.pdf" (Cooper, Gulen,
-Schill 2008) through `POST /api/paper-methodspecs/{extract,review,resolve}`
+Schill 2008) through `POST /api/methodspecs/{extract,review,resolve}`
 + session steps 3-8. The run ultimately succeeded end to end, but only after
 manually working around the 3 gaps below (see `/memories/repo/
 build_commands.md` 2026-08-07 entry for the full reproduction trace,
@@ -11,6 +11,20 @@ debug session). None of these are fixed yet -- each needs real design work,
 not a quick patch.
 
 ## 1. Extractor doesn't reliably emit canonical engine enum tokens
+
+**Partially fixed 2026-08-08**: `build_method_spec`
+(`src/steps/step1_extractor/extractor.py`) now calls
+`normalize_engine_vocabulary()` on the raw LLM JSON before validation, which
+canonicalizes known `weighting` synonyms (e.g. `"value-weighted"` -> `"vw"`)
+and long/short-spread phrasing in `return_combination` (-> `extreme_group_
+spread`/`average_leg_spread`) via exact/keyword rules -- never a guess: text
+it doesn't recognize is left untouched so review's D4 check still blocks it.
+This covers the two fields actually observed drifting in the 2026-08-07
+session. Still NOT covered: `construction_type`, `sort.group_type`, and any
+other free-text-vs-enum field that might drift the same way -- if a new one
+surfaces, extend `normalize_engine_vocabulary` rather than re-diagnosing this
+same root cause. The underlying "no resolution-time UI/endpoint to fix a
+genuinely unmapped value" gap described below is still open.
 
 `prompts/extractor/methodspec_extractor.md` documents the exact required
 tokens (e.g. `portfolio.weighting` must be `vw`/`ew`/`other`/`unspecified`;
@@ -23,8 +37,8 @@ it. For this paper it produced:
 - `portfolio.return_combination.value` = a free-text sentence describing the
   long/short legs (should be `"extreme_group_spread"`)
 
-`review_paper_method_spec`'s D4 engine-capability check
-(`src/steps/step2_reviewer/paper_review.py`) correctly flags both as
+`review_method_spec`'s D4 engine-capability check
+(`src/steps/step2_reviewer/review.py`) correctly flags both as
 `kind="unsupported"`, `disposition=blocked` -- that part is working exactly
 as designed ("paper vocabulary is separate from the engine menu"). The gap
 is that there's no resolution-time correction step in the new paper-first

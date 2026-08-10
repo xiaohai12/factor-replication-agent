@@ -39,6 +39,14 @@ and controlled pipeline components.
 - Use the narrowest relevant tests first. Run full tests only for shared schema/model behavior
   or broad cross-module changes.
 - Never use `git add .` or `git add -A`; data and evidence directories may be large.
+- `pytest tests/` never writes to the real `runs/` directory. `tests/conftest.py`
+  redirects `backend.state.RUNS_DIR` to the gitignored `.runs_scratch/` dir
+  (set at collection time, before any test module's own `from backend.main
+  import app`). Manual/live agent verification (starting a real uvicorn/
+  streamlit process) is NOT covered by that conftest and must set
+  `export FACTOR_AGENT_RUNS_DIR=.runs_scratch` itself first, then
+  `rm -rf .runs_scratch` to clean up afterward — never delete/hand-pick files
+  under the real `runs/` dir for test/verification cleanup.
 
 ## Module Map
 

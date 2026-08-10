@@ -13,7 +13,7 @@ import re
 from pathlib import Path
 from typing import Optional
 
-from src.infra.models.paper_method_spec import FieldRole, ResolvedMethodSpec
+from src.infra.models.method_spec import FieldRole, ResolvedMethodSpec
 from src.infra.models.plugin import PluginRecord
 
 

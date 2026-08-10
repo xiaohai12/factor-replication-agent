@@ -9,7 +9,7 @@ import sys
 import tempfile
 from pathlib import Path
 
-from src.infra.models.paper_method_spec import ResolvedMethodSpec
+from src.infra.models.method_spec import ResolvedMethodSpec
 from src.infra.models.plugin import PluginRecord, ValidationReport
 
 
@@ -41,11 +41,15 @@ class AdversarialSandbox:
     - Schema/contract: compute_signal exists
     - Execution smoke test: the ONE complete standalone script Pipeline built
       (`_build_script`) is imported (not run as `__main__` -- its `main()` is
-      guarded, so no full-data load or engine run is triggered) in a
+      guarded, so no full-data load is triggered by the import itself) in a
       subprocess, and its `compute_signal` is called on a small real-data
       slice, confirming it doesn't raise (lenient -- an empty/degenerate
       result on a thin slice is inconclusive, not a failure; only a raised
-      exception fails it). This validates the EXACT artifact Step5 will later
+      exception fails it). When the slice happens to already be returns-
+      panel-shaped, a best-effort `BacktestExecutor.run_with_config()` is
+      ALSO attempted on it (non-blocking -- any failure is a warning, since a
+      thin slice can legitimately be too small for e.g. decile breakpoints).
+      This validates the EXACT artifact Step5 will later
       execute -- no separate hand-rolled "exec the plugin code" runner. A
       Step-5 run failure is the guaranteed safety net that feeds any remaining
       full-data bugs back to repair.
@@ -166,6 +170,23 @@ class AdversarialSandbox:
         compute_signal AND every hook on full data and feeds failures back to
         repair).
 
+        Best-effort full-engine attempt: when `data` already has the returns-
+        panel's own columns (true for "crsp_only"-mode slices, since the CRSP
+        monthly file IS both the signal input and the returns panel -- see
+        `Pipeline._build_validation_slice`), the driver ALSO tries
+        `BacktestExecutor.run_with_config()` on the same slice after
+        `compute_signal` succeeds, surfacing engine-lifecycle failures (e.g.
+        `filter_universe`) here instead of only at Step5. This is
+        NEVER a hard failure -- a 40-permno slice can legitimately be too thin
+        for decile breakpoints/annual formation validation to succeed even
+        with entirely correct code, so any engine exception is recorded as a
+        warning, same posture as the empty/degenerate case above. Skipped
+        entirely (no engine attempt at all) when `data` lacks the returns-
+        panel columns ("compustat"/"multi_source" modes' slice is signal-
+        source-shaped, not returns-panel-shaped) -- feeding it to the engine
+        would fail on every single run regardless of code correctness, which
+        would just be noise, not signal.
+
         Skipped (returns True) when no `script_text` or no `data` slice is
         supplied.
         """
@@ -229,6 +250,13 @@ class AdversarialSandbox:
                 "output on the validation slice (likely data coverage, not a code "
                 "defect) -- deferring to the full Step-5 run"
             )
+        elif result.get("engine_error"):
+            report.warnings.append(
+                "full-engine smoke test on the validation slice raised (non-blocking -- "
+                "likely a thin-slice artifact, e.g. too few stocks for the configured "
+                "breakpoint quantiles; the real Step-5 run on full data is the guaranteed "
+                f"net): {result['engine_error']}"
+            )
         return True
 
 
@@ -279,7 +307,27 @@ def _main():
         return {{"error": "compute_signal output missing columns: " + repr(missing)}}
 
     empty = len(out) == 0 or out["signal"].notna().sum() == 0
-    return {{"error": None, "empty": bool(empty), "n_rows": int(len(out))}}
+
+    # Best-effort full-engine attempt (see `_check_executes` docstring): only
+    # when the slice already looks like a returns panel, and never a hard
+    # failure -- any exception here is reported back as `engine_error`, not
+    # raised, so a too-thin slice can never fail the overall check.
+    engine_error = None
+    returns_cols = {{"ret", "me", "exchcd", "shrcd", "siccd"}}
+    if not empty and returns_cols.issubset(df.columns):
+        try:
+            from src.infra.backtest_engine import BacktestExecutor
+            from src.infra.models.plugin import PluginRecord
+
+            returns_panel = df.rename(columns={{"time_avail_m": "yyyymm"}}) if "yyyymm" not in df.columns else df
+            plugin = PluginRecord(
+                plugin_id="validation_slice", factor_id=getattr(mod, "FACTOR_ID", "factor"), code="",
+            )
+            BacktestExecutor().run_with_config(out, mod.CONFIG, plugin=plugin, data=returns_panel)
+        except Exception as e:  # noqa: BLE001
+            engine_error = repr(e)
+
+    return {{"error": None, "empty": bool(empty), "n_rows": int(len(out)), "engine_error": engine_error}}
 
 
 print(json.dumps(_main()))

@@ -49,7 +49,7 @@ from typing import Any
 
 import yaml
 
-from src.infra.models.paper_method_spec import ResolvedMethodSpec
+from src.infra.models.method_spec import ResolvedMethodSpec
 from src.steps.step3_codegen.registry import ConfigOverrideError, build_config, stage_of
 
 

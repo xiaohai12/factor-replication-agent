@@ -33,7 +33,7 @@ from typing import Callable, Optional
 import pandas as pd
 
 from src.infra.data_layer import DataLayer
-from src.infra.models.paper_method_spec import ResolvedMethodSpec
+from src.infra.models.method_spec import ResolvedMethodSpec
 from src.infra.models.plugin import PluginRecord
 from src.infra.models.run_record import RunMetrics, RunRecord
 from src.infra.provenance import collect_runtime_provenance

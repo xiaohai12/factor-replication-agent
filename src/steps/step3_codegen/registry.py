@@ -25,7 +25,7 @@ from __future__ import annotations
 import warnings
 from typing import Any
 
-from src.infra.models.paper_method_spec import (
+from src.infra.models.method_spec import (
     MissingStage,
     ResolvedMethodSpec,
     SortMode,
@@ -58,7 +58,7 @@ KNOWN_CONFIG_KEYS: frozenset[str] = frozenset({
     "sample_start_year", "sample_end_year", "publication_year",
     "universe_filters", "apply_delisting_returns", "return_combination_type",
     "return_basis", "estimator",
-    "returns_table", "returns_layout",
+    "returns_table", "returns_layout", "unapplied_universe_filters",
 })
 
 # Which config keys are governed by a fixed menu (see STANDARD below) --
@@ -92,6 +92,7 @@ CONFIG_KEY_STAGE: dict[str, str] = {
     # universe — which firm-months are eligible, and the returns panel
     "universe": "universe",
     "universe_filters": "universe",
+    "unapplied_universe_filters": "universe",
     "apply_delisting_returns": "universe",
     "returns_table": "universe",
     "returns_layout": "universe",
@@ -299,6 +300,35 @@ def _resolved_column(resolution, concept_id: str) -> str:
     return mapping.column
 
 
+def _applied_universe_filters(paper) -> list:
+    """`paper.universe.filters` minus every filter a human has explicitly
+    marked `accepted_unapplied` (the "other" escape hatch -- see
+    `FilterSpec.accepted_unapplied`'s docstring). These play no runtime role
+    at all; `_unapplied_universe_filters` below records them instead."""
+    return [f for f in paper.universe.filters if not f.accepted_unapplied]
+
+
+def _unapplied_universe_filters(paper) -> list[dict[str, Any]]:
+    """Recorded, never-resolved entries for every `accepted_unapplied`
+    filter -- deliberately does NOT call `_resolved_column` (an unapplied
+    filter's concept may have no `concept_mapping` entry at all, e.g. no
+    registered data source can supply it yet). This is what makes the
+    deviation auditable rather than a silent drop: every entry keeps the
+    concept_id/op/value the paper actually stated plus the human's own
+    `unapplied_reason`.
+    """
+    return [
+        {
+            "concept_id": f.concept_id,
+            "op": ev(f.op),
+            "value": f.value,
+            "reason": f.unapplied_reason,
+        }
+        for f in paper.universe.filters
+        if f.accepted_unapplied
+    ]
+
+
 def _resolve_legs(paper, sort_id: str, n_groups: int) -> tuple[list[int], list[int]]:
     """Convert `PortfolioLeg.selector` (0-based group index; group 0 = lowest
     bucket, per the extraction prompt's convention) into 1-based engine
@@ -318,7 +348,7 @@ def _build_config_from_resolved(resolved: ResolvedMethodSpec, overrides: dict | 
     """`build_config`'s `ResolvedMethodSpec` branch -- see that function's
     docstring. Supports exactly what `ResolvedMethodSpec.is_ready` already
     requires to be true: 1 or 2 quantile-grouped sort dimensions (D4;
-    `MAX_SUPPORTED_SORT_DIMENSIONS` in `paper_method_spec.py`), a
+    `MAX_SUPPORTED_SORT_DIMENSIONS` in `method_spec.py`), a
     characteristic-sort construction type, and a fully resolved physical
     concept mapping.
     """
@@ -352,7 +382,7 @@ def _build_config_from_resolved(resolved: ResolvedMethodSpec, overrides: dict | 
 
     config: dict[str, Any] = {
         "breakpoint_source": _track_clamp(
-            "breakpoint_source", target_sort.breakpoints.population.value,
+            "breakpoint_source", target_sort.breakpoints.basis.value,
             STANDARD["breakpoint_source"], "nyse",
         ),
         "breakpoint_quantiles": target_sort.group_count or 10,
@@ -390,8 +420,9 @@ def _build_config_from_resolved(resolved: ResolvedMethodSpec, overrides: dict | 
         "publication_year": paper.paper.publication_year,
         "universe_filters": [
             {"field": _resolved_column(resolution, f.concept_id), "op": ev(f.op), "value": f.value}
-            for f in paper.universe.filters
+            for f in _applied_universe_filters(paper)
         ],
+        "unapplied_universe_filters": _unapplied_universe_filters(paper),
         "apply_delisting_returns": True,
         "return_combination_type": _track_clamp(
             "return_combination_type", paper.portfolio.return_combination.value,
@@ -421,7 +452,7 @@ def _build_config_from_resolved(resolved: ResolvedMethodSpec, overrides: dict | 
             {
                 "column": "signal" if s.role == SortRole.TARGET else _resolved_column(resolution, s.concept_id),
                 "quantiles": s.group_count or 2,
-                "source": ev(s.breakpoints.population.value),
+                "source": ev(s.breakpoints.basis.value),
                 "independent": s.mode == SortMode.INDEPENDENT,
                 "role": s.role.value,
             }

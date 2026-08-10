@@ -7,7 +7,7 @@ from __future__ import annotations
 import json
 
 from backend.spec_parsing import parse_spec, spec_factor_id
-from src.infra.models.paper_method_spec import ResolvedMethodSpec
+from src.infra.models.method_spec import ResolvedMethodSpec
 from tests.test_meta_coder_resolved_method_spec import _resolved_spec
 
 

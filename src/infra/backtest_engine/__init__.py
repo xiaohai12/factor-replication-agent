@@ -52,7 +52,7 @@ from typing import Any
 import numpy as np
 import pandas as pd
 
-from src.infra.models.paper_method_spec import ResolvedMethodSpec
+from src.infra.models.method_spec import ResolvedMethodSpec
 from src.steps.step3_codegen import registry as codegen_registry
 
 from src.infra.data_layer import DataLayer
@@ -1294,7 +1294,7 @@ class BacktestExecutor:
 
         Finds whichever `config["sort_dims"]` entry has `role == "target"`
         (the paper's own characteristic being studied -- see
-        `SortDimension.role` in `paper_method_spec.py`), computes its
+        `SortDimension.role` in `method_spec.py`), computes its
         extreme-decile spread separately within every combination of the
         OTHER ("control"/"conditioning") dimensions, then averages those
         spreads -- e.g. for a characteristic x size sort, this is "average

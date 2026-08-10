@@ -17,11 +17,11 @@ from datetime import datetime
 from pathlib import Path
 from typing import Optional
 
+from backend.state import RUNS_DIR
 from src.infra.models.session import ConcurrentModificationError, StepStatus
 from src.infra.session_store import SessionStore
 
-REPO_ROOT = Path(__file__).resolve().parents[1]
-SESSIONS_DIR = REPO_ROOT / "runs" / "sessions"
+SESSIONS_DIR = RUNS_DIR / "sessions"
 
 session_store = SessionStore(base_path=str(SESSIONS_DIR))
 

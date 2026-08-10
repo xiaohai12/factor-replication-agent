@@ -1,12 +1,27 @@
 import { useState } from "react"
 import { Badge } from "@/components/ui/badge"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
-import { cn } from "@/lib/utils"
+
+interface TableRefItem {
+  table?: string
+  row?: string
+  column?: string
+}
 
 interface EvidenceItem {
   location?: string
   quote?: string
   interpretation?: string
+  table_ref?: TableRefItem | null
+}
+
+/** A `SourcedValue[T]` field: `{value, evidence, status}` -- the atomic
+ * evidence-carrying unit of a MethodSpec (src/infra/models/method_spec.py).
+ * Every leaf field in the schema below is shaped like this. */
+interface SourcedValueLike {
+  value?: unknown
+  evidence?: EvidenceItem[] | null
+  status?: string
 }
 
 function fmt(value: unknown): string {
@@ -16,19 +31,14 @@ function fmt(value: unknown): string {
   return String(value)
 }
 
-/** Mirrors `MethodSpec.holding_period_months` (src/infra/models/method_spec.py):
- * there is no stored `signal.timing.holding_period` field anymore -- the
- * engine assumes a "clean calendar hold" and derives the hold length
- * entirely from `rebalance_frequency`. */
-function holdingPeriodFromFrequency(rebalanceFrequency: unknown): string {
-  const months: Record<string, number> = { annual: 12, quarterly: 3, monthly: 1 }
-  const value = months[String(rebalanceFrequency)]
-  return value !== undefined ? `${value}` : "—"
+function isSourced(v: unknown): v is SourcedValueLike {
+  return typeof v === "object" && v !== null && !Array.isArray(v) && "value" in (v as object)
 }
 
 /** Renders one paper citation as a small blockquote -- location + the exact
- * quote + the extractor's interpretation of it. This is the "cite the
- * paper" evidence every field-level value in a MethodSpec can carry. */
+ * quote (or table cell reference) + the extractor's interpretation of it.
+ * This is the "cite the paper" evidence every field-level value in a
+ * MethodSpec can carry. */
 function Citation({ evidence }: { evidence?: EvidenceItem[] | null }) {
   const [open, setOpen] = useState(false)
   if (!evidence || evidence.length === 0) return null
@@ -47,6 +57,13 @@ function Citation({ evidence }: { evidence?: EvidenceItem[] | null }) {
             <blockquote key={i} className="border-l-2 border-border pl-2 text-xs text-muted-foreground">
               {e.location && <div className="font-medium">{e.location}</div>}
               {e.quote && <div className="italic">"{e.quote}"</div>}
+              {e.table_ref?.table && (
+                <div>
+                  table {e.table_ref.table}
+                  {e.table_ref.row && `, row ${e.table_ref.row}`}
+                  {e.table_ref.column && `, column ${e.table_ref.column}`}
+                </div>
+              )}
               {e.interpretation && <div>{e.interpretation}</div>}
             </blockquote>
           ))}
@@ -56,26 +73,41 @@ function Citation({ evidence }: { evidence?: EvidenceItem[] | null }) {
   )
 }
 
-/** One field row: label on the left, value (+ optional citation) on the
- * right -- the atomic unit of the "board" view. */
+/** One field row: label on the left, value (+ optional status badge +
+ * citation) on the right -- the atomic unit of the "board" view. Accepts
+ * either a raw value or a `SourcedValue`-shaped object directly, so callers
+ * don't have to unwrap `.value`/`.evidence`/`.status` themselves. */
 function Field({
   label,
   value,
   evidence,
+  status,
   secondary,
 }: {
   label: string
   value: unknown
   evidence?: EvidenceItem[] | null
+  status?: string
   secondary?: string | null
 }) {
+  const sourced = isSourced(value)
+  const displayValue = sourced ? (value as SourcedValueLike).value : value
+  const displayEvidence = evidence ?? (sourced ? (value as SourcedValueLike).evidence : null)
+  const displayStatus = status ?? (sourced ? (value as SourcedValueLike).status : undefined)
   return (
     <div className="grid grid-cols-[minmax(0,220px)_1fr] gap-3 border-b border-border/60 py-2 text-sm last:border-b-0">
       <span className="text-muted-foreground">{label}</span>
       <div>
-        <div className="font-medium">{fmt(value)}</div>
+        <div className="flex items-center gap-2">
+          <span className="font-medium">{fmt(displayValue)}</span>
+          {displayStatus && displayStatus !== "unspecified" && (
+            <Badge variant="outline" className="text-[10px]">
+              {displayStatus}
+            </Badge>
+          )}
+        </div>
         {secondary && <div className="text-xs text-muted-foreground">{secondary}</div>}
-        <Citation evidence={evidence} />
+        <Citation evidence={displayEvidence} />
       </div>
     </div>
   )
@@ -90,112 +122,120 @@ function Section({ title, children }: { title: string; children: React.ReactNode
   )
 }
 
-/** Structured, human-readable "board" view of a MethodSpec -- every field
- * shown as label/value/citation instead of raw JSON. Reads defensively
- * (every access is optional) since a MethodSpec fresh out of extraction may
- * be missing whole sections; falls back to just omitting a Field/Section
- * when its data isn't present rather than crashing. */
+function period(p: Record<string, any> | undefined): string {
+  if (!p) return "—"
+  return `${fmt(p.start_year)}–${fmt(p.end_year)}`
+}
+
+/** Structured, human-readable "board" view of a `MethodSpec` (the paper-first
+ * schema, src/infra/models/method_spec.py) -- every field shown as
+ * label/value/citation instead of raw JSON. Reads defensively (every access
+ * is optional) since a MethodSpec fresh out of extraction may be missing
+ * whole sections; falls back to just omitting a Field/Section when its data
+ * isn't present rather than crashing. */
 export function MethodSpecBoard({ spec }: { spec: Record<string, any> }) {
+  const paper = spec.paper ?? {}
   const signal = spec.signal ?? {}
+  const data = spec.data ?? {}
+  const sample = spec.sample ?? {}
+  const timing = spec.timing ?? {}
+  const universe = spec.universe ?? {}
   const portfolio = spec.portfolio ?? {}
   const reported = spec.reported_results ?? {}
-  const data = spec.data ?? {}
-  const ambiguous = (spec.ambiguous_fields ?? []) as Array<Record<string, any>>
-  const resolutions = (spec.resolution_log ?? []) as Array<Record<string, any>>
+  const fields = (data.fields ?? []) as Array<Record<string, any>>
+  const filters = (universe.filters ?? []) as Array<Record<string, any>>
+  const sorts = (portfolio.sorts ?? []) as Array<Record<string, any>>
+  const legs = (portfolio.legs ?? []) as Array<Record<string, any>>
+  const missingPolicies = (portfolio.missing_policies ?? []) as Array<Record<string, any>>
+  const transforms = (portfolio.transforms ?? []) as Array<Record<string, any>>
+  const metrics = (reported.metrics ?? []) as Array<Record<string, any>>
 
   return (
     <div className="flex flex-col gap-3">
       <div className="rounded-lg border border-border p-3">
         <div className="flex items-center justify-between">
-          <h3 className="text-base font-semibold">{spec.factor_name || spec.factor_id}</h3>
-          <div className="flex gap-1">
-            {spec.review_status && <Badge variant="outline">{spec.review_status}</Badge>}
-            {spec.codegen_ready && <Badge variant="default">codegen ready</Badge>}
-            {ambiguous.length > 0 && <Badge variant="destructive">{ambiguous.length} ambiguous</Badge>}
-          </div>
+          <h3 className="text-base font-semibold">{spec.target_name || spec.factor_id}</h3>
+          <Badge variant="outline">{fmt(spec.schema_version)}</Badge>
         </div>
-        {spec.paper_ref && <p className="mt-1 text-xs italic text-muted-foreground">{spec.paper_ref}</p>}
-        {spec.economic_intuition && <p className="mt-2 text-sm">{spec.economic_intuition}</p>}
+        {paper.citation && <p className="mt-1 text-xs italic text-muted-foreground">{paper.citation}</p>}
         <div className="mt-2 grid grid-cols-3 gap-2 text-xs text-muted-foreground">
           <span>factor_id: {fmt(spec.factor_id)}</span>
-          <span>sign: {fmt(spec.sign)}</span>
-          <span>
-            sample: {fmt(spec.sample_start_year)}–{fmt(spec.sample_end_year)}
-          </span>
+          <span>publication_year: {fmt(paper.publication_year)}</span>
+          <span>data_coverage: {period(sample.data_coverage)}</span>
         </div>
       </div>
 
       <Section title="Signal">
+        <Field label="Definition" value={signal.definition} />
+        <Field label="Economic intuition" value={signal.economic_intuition} />
+        <Field label="Direction" value={signal.direction} />
+        <Field label="Category" value={signal.category} />
         <Field
           label="Formula"
-          value={signal.formula?.expression}
+          value={signal.formula?.output_concept}
           secondary={signal.formula?.paper_expression ? `Paper: ${signal.formula.paper_expression}` : null}
           evidence={signal.formula?.evidence}
         />
-        <Field label="Sign" value={spec.sign} />
+        {(signal.formula?.steps ?? []).map((s: Record<string, any>, i: number) => (
+          <Field
+            key={s.step_id ?? i}
+            label={`Step: ${s.step_id ?? i + 1}`}
+            value={s.description}
+            secondary={s.expression || null}
+            evidence={s.evidence}
+            status={s.status}
+          />
+        ))}
+        {signal.estimation && (
+          <>
+            <Field label="Estimation method" value={signal.estimation.method} />
+            <Field
+              label="Estimation model"
+              value={signal.estimation.model_expression}
+              secondary={signal.estimation.residual_definition || null}
+              evidence={signal.estimation.evidence}
+            />
+          </>
+        )}
+      </Section>
+
+      <Section title="Timing">
+        <Field label="Formation rule" value={timing.formation_rule} />
+        {timing.formation_month && <Field label="Formation month" value={timing.formation_month} />}
+        <Field label="Rebalance frequency" value={timing.rebalance_frequency} />
+        <Field label="Holding period" value={timing.holding_period} />
         <Field
-          label="Formation month / rebalance / holding period (derived)"
-          value={`${fmt(signal.timing?.formation_month)} / ${fmt(signal.timing?.rebalance_frequency)} / ${holdingPeriodFromFrequency(signal.timing?.rebalance_frequency)}mo`}
-          evidence={signal.timing?.evidence}
-        />
-        <Field label="Accounting lag (months)" value={signal.timing?.accounting_lag} />
-        <Field
-          label="Missing-value policy"
-          value={signal.missing_policy?.action}
-          evidence={signal.missing_policy?.evidence}
+          label="Data availability (lag)"
+          value={`${fmt(timing.data_availability?.lag_value)} ${fmt(timing.data_availability?.lag_unit)} after ${fmt(timing.data_availability?.anchor)}`}
+          secondary={timing.data_availability?.basis ? `basis: ${timing.data_availability.basis}` : null}
+          evidence={timing.data_availability?.evidence}
         />
       </Section>
 
-      <Section title="Portfolio">
-        <Field
-          label="Breakpoint source / groups"
-          value={`${fmt(portfolio.sort?.breakpoint_basis)} / ${fmt(portfolio.sort?.ls_quantile)}`}
-          evidence={portfolio.sort?.evidence}
-        />
-        <Field label="Weighting" value={portfolio.weighting} />
-        <Field
-          label="Long leg / short leg"
-          value={`${fmt(portfolio.long_leg)} / ${fmt(portfolio.short_leg)}`}
-        />
+      <Section title="Sample">
+        <Field label="Data coverage" value={period(sample.data_coverage)} />
+        <Field label="Formation sample" value={period(sample.formation)} />
+        <Field label="Reported-returns sample" value={period(sample.reported_returns)} />
       </Section>
 
-      <Section title="Reported results">
-        <Field
-          label="Input return"
-          value={reported.return_calculation?.input_return?.expression}
-          secondary={reported.return_calculation?.input_return?.data_frequency}
-          evidence={
-            reported.return_calculation?.input_return?.source
-              ? [reported.return_calculation.input_return.source]
-              : null
-          }
-        />
-        <Field
-          label="Portfolio return construction"
-          value={reported.return_calculation?.portfolio_return?.construction_type}
-          secondary={reported.return_calculation?.portfolio_return?.return_combination?.note}
-          evidence={
-            reported.return_calculation?.portfolio_return?.source
-              ? [reported.return_calculation.portfolio_return.source]
-              : null
-          }
-        />
-        {reported.spreads && Object.keys(reported.spreads).length > 0 && (
+      <Section title="Universe">
+        <Field label="Description" value={universe.description} />
+        {filters.length > 0 && (
           <div className="pt-2">
             <Table>
               <TableHeader>
                 <TableRow>
-                  <TableHead>Reported spread</TableHead>
+                  <TableHead>Concept</TableHead>
+                  <TableHead>Op</TableHead>
                   <TableHead>Value</TableHead>
-                  <TableHead>t-stat</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {Object.entries(reported.spreads as Record<string, any>).map(([key, s]) => (
-                  <TableRow key={key}>
-                    <TableCell className="text-xs">{key}</TableCell>
-                    <TableCell className="text-xs">{fmt(s.value)}</TableCell>
-                    <TableCell className="text-xs">{fmt(s.t_stat)}</TableCell>
+                {filters.map((f, i) => (
+                  <TableRow key={i}>
+                    <TableCell className="text-xs">{f.concept_id}</TableCell>
+                    <TableCell className="text-xs">{f.op}</TableCell>
+                    <TableCell className="text-xs">{fmt(f.value)}</TableCell>
                   </TableRow>
                 ))}
               </TableBody>
@@ -204,22 +244,126 @@ export function MethodSpecBoard({ spec }: { spec: Record<string, any> }) {
         )}
       </Section>
 
-      {data.required_fields?.length > 0 && (
-        <Section title="Data sources">
+      <Section title="Portfolio">
+        <Field label="Construction type" value={portfolio.construction_type} />
+        <Field label="Weighting" value={portfolio.weighting} />
+        <Field label="Return combination" value={portfolio.return_combination} />
+        {sorts.length > 0 && (
+          <div className="pt-2">
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>Sort</TableHead>
+                  <TableHead>Concept</TableHead>
+                  <TableHead>Role</TableHead>
+                  <TableHead>Mode</TableHead>
+                  <TableHead>Group type / count</TableHead>
+                  <TableHead>Breakpoint basis</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {sorts.map((s) => (
+                  <TableRow key={s.sort_id}>
+                    <TableCell className="text-xs">{s.sort_id}</TableCell>
+                    <TableCell className="text-xs">{s.concept_id}</TableCell>
+                    <TableCell className="text-xs">{s.role}</TableCell>
+                    <TableCell className="text-xs">{s.mode}</TableCell>
+                    <TableCell className="text-xs">
+                      {s.group_type} / {fmt(s.group_count)}
+                    </TableCell>
+                    <TableCell className="text-xs">{fmt(s.breakpoints?.basis?.value)}</TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          </div>
+        )}
+        {legs.length > 0 && (
+          <div className="pt-2">
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>Leg</TableHead>
+                  <TableHead>Side</TableHead>
+                  <TableHead>Selector</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {legs.map((l) => (
+                  <TableRow key={l.leg_id}>
+                    <TableCell className="text-xs">{l.leg_id}</TableCell>
+                    <TableCell className="text-xs">{l.side}</TableCell>
+                    <TableCell className="text-xs">{fmt(l.selector)}</TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          </div>
+        )}
+        {missingPolicies.length > 0 && (
+          <div className="pt-2">
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>Missing-policy stage</TableHead>
+                  <TableHead>Action</TableHead>
+                  <TableHead>Threshold</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {missingPolicies.map((m, i) => (
+                  <TableRow key={i}>
+                    <TableCell className="text-xs">{m.stage}</TableCell>
+                    <TableCell className="text-xs">{fmt(m.action?.value)}</TableCell>
+                    <TableCell className="text-xs">{fmt(m.threshold)}</TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          </div>
+        )}
+        {transforms.length > 0 && (
+          <div className="pt-2">
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>Transform</TableHead>
+                  <TableHead>Stage</TableHead>
+                  <TableHead>Bounds</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {transforms.map((t, i) => (
+                  <TableRow key={i}>
+                    <TableCell className="text-xs">{t.kind}</TableCell>
+                    <TableCell className="text-xs">{t.stage}</TableCell>
+                    <TableCell className="text-xs">{fmt(t.bounds)}</TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          </div>
+        )}
+      </Section>
+
+      {fields.length > 0 && (
+        <Section title="Data fields">
           <Table>
             <TableHeader>
               <TableRow>
-                <TableHead>Field</TableHead>
                 <TableHead>Concept</TableHead>
-                <TableHead>Source</TableHead>
+                <TableHead>Paper name</TableHead>
+                <TableHead>Source hint</TableHead>
+                <TableHead>Roles</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
-              {(data.required_fields as Array<Record<string, any>>).map((f) => (
-                <TableRow key={f.field}>
-                  <TableCell className="text-xs">{f.field}</TableCell>
-                  <TableCell className="text-xs">{f.concept}</TableCell>
-                  <TableCell className="text-xs">{f.source_detail}</TableCell>
+              {fields.map((f) => (
+                <TableRow key={f.concept_id}>
+                  <TableCell className="text-xs">{f.concept_id}</TableCell>
+                  <TableCell className="text-xs">{f.paper_name}</TableCell>
+                  <TableCell className="text-xs">{f.paper_source_hint}</TableCell>
+                  <TableCell className="text-xs">{(f.roles ?? []).join(", ")}</TableCell>
                 </TableRow>
               ))}
             </TableBody>
@@ -227,50 +371,50 @@ export function MethodSpecBoard({ spec }: { spec: Record<string, any> }) {
         </Section>
       )}
 
-      {ambiguous.length > 0 && (
-        <Section title="Ambiguous fields (need human review)">
-          {ambiguous.map((a, i) => (
-            <div key={i} className={cn("py-2", i > 0 && "border-t border-border/60")}>
-              <div className="flex items-center gap-2">
-                <span className="text-sm font-medium">{a.field}</span>
-                <Badge variant="outline">{fmt(a.confidence)} confidence</Badge>
-                <Badge variant="outline">{fmt(a.empirical_impact)} impact</Badge>
-              </div>
-              {a.candidate_value != null && (
-                <p className="text-xs text-muted-foreground">candidate: {fmt(a.candidate_value)}</p>
-              )}
-              <Citation evidence={a.evidence} />
-            </div>
-          ))}
-        </Section>
-      )}
-
-      {resolutions.length > 0 && (
-        <Section title="Resolution log (human decisions)">
+      {metrics.length > 0 && (
+        <Section title="Reported results">
+          <p className="text-xs text-muted-foreground">
+            primary metric: <span className="font-mono">{fmt(reported.primary_metric_id)}</span>
+          </p>
           <Table>
             <TableHeader>
               <TableRow>
-                <TableHead>Field</TableHead>
-                <TableHead>Old → new</TableHead>
-                <TableHead>Reason</TableHead>
-                <TableHead>By</TableHead>
+                <TableHead>Metric</TableHead>
+                <TableHead>Label</TableHead>
+                <TableHead>Estimand</TableHead>
+                <TableHead>Adjustment</TableHead>
+                <TableHead>Estimate</TableHead>
+                <TableHead>Stat</TableHead>
+                <TableHead>Sample</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
-              {resolutions.map((r, i) => (
-                <TableRow key={i}>
-                  <TableCell className="text-xs">{r.field_path}</TableCell>
+              {metrics.map((m) => (
+                <TableRow key={m.metric_id}>
+                  <TableCell className="text-xs">{m.metric_id}</TableCell>
+                  <TableCell className="text-xs">{m.label}</TableCell>
+                  <TableCell className="text-xs">{m.estimand}</TableCell>
+                  <TableCell className="text-xs">{m.adjustment_model}</TableCell>
                   <TableCell className="text-xs">
-                    {fmt(r.old_value)} → {fmt(r.new_value)}
+                    {fmt(m.estimate)} {m.unit}
                   </TableCell>
-                  <TableCell className="text-xs">{r.reason}</TableCell>
-                  <TableCell className="text-xs">{r.reviewer}</TableCell>
+                  <TableCell className="text-xs">
+                    {m.statistic ? `${m.statistic.kind}=${fmt(m.statistic.value)}` : "—"}
+                  </TableCell>
+                  <TableCell className="text-xs">{period(m.sample_period)}</TableCell>
                 </TableRow>
               ))}
             </TableBody>
           </Table>
+        </Section>
+      )}
+
+      {spec.notes && (
+        <Section title="Notes">
+          <p className="text-sm">{spec.notes}</p>
         </Section>
       )}
     </div>
   )
 }
+

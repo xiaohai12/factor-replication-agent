@@ -154,13 +154,13 @@ class CodexCLIClient:
 
     Wraps codex CLI to provide an OpenAI-compatible interface.
     Uses --json flag for structured JSONL output parsing.
-    Supports model selection via -m flag (e.g. gpt-5.4, gpt-5.5).
+    Supports model selection via -m flag (e.g. gpt-5.5, gpt-5.6-terra, gpt-5.6-sol).
     Set stream_callback to receive incremental agent_message text as it arrives.
     """
 
-    SUPPORTED_MODELS = ["gpt-5.4", "gpt-5.5"]
+    SUPPORTED_MODELS = ["gpt-5.5", "gpt-5.6-terra", "gpt-5.6-sol"]
 
-    def __init__(self, model: str = "gpt-5.4"):
+    def __init__(self, model: str = "gpt-5.6-terra"):
         self.chat = _ChatNamespace(self)
         self.default_model = model
         self._bin = _find_codex_bin()
@@ -289,9 +289,9 @@ class CopilotCLIClient:
         "github.copilot-chat/copilotCli/copilot"
     )
 
-    SUPPORTED_MODELS = ["claude-sonnet-5", "claude-opus-4-6", "claude-sonnet-4-6", "gpt-5.4"]
+    SUPPORTED_MODELS = ["claude-sonnet-5", "claude-opus-5", "gpt-5.6-terra", "gpt-5.6-sol"]
 
-    def __init__(self, model: str = "claude-opus-4-6", agent_mode: bool = False):
+    def __init__(self, model: str = "claude-opus-5", agent_mode: bool = False):
         self.chat = _ChatNamespace(self)
         self.default_model = model
         self._agent_mode = agent_mode
@@ -672,9 +672,9 @@ def create_llm_client(
         Client with OpenAI-compatible .chat.completions.create() interface
     """
     if provider == "codex":
-        return CodexCLIClient(model=model or "gpt-5.4")
+        return CodexCLIClient(model=model or "gpt-5.6-terra")
     elif provider == "copilot":
-        return CopilotCLIClient(model=model or "claude-opus-4-6")
+        return CopilotCLIClient(model=model or "claude-opus-5")
     elif provider == "claude":
         return ClaudeCodeCLIClient(model=model or "claude-sonnet-4-6")
     elif provider == "openrouter":

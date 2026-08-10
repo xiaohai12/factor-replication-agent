@@ -5,7 +5,7 @@ deterministic synthetic data used by tests/test_mvp_e2e.py (golden numbers
 from tests/synthetic_data/asset_growth_synthetic_data.py), proving the
 backend wraps `BacktestRunner`/`EvidenceStore`/`RunRegistry` correctly
 end-to-end. The paper-first extract/review/resolve lifecycle has its own
-test file (test_backend_paper_methodspecs_api.py).
+test file (test_backend_methodspecs_api.py).
 """
 
 from __future__ import annotations

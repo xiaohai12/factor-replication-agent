@@ -29,7 +29,7 @@ from __future__ import annotations
 from typing import Any
 
 from src.steps.step3_codegen import registry as codegen_registry
-from src.infra.models.paper_method_spec import FieldRole, ResolvedMethodSpec
+from src.infra.models.method_spec import FieldRole, ResolvedMethodSpec
 
 
 # Sources the legacy binary crsp_only/compustat generated-script path handles.

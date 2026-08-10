@@ -22,7 +22,7 @@ from backend.routers import (
     evidence,
     experiments,
     jobs,
-    paper_methodspecs,
+    methodspecs,
     papers,
     replication,
     sessions,
@@ -72,7 +72,7 @@ app.add_middleware(
 )
 
 app.include_router(papers.router)
-app.include_router(paper_methodspecs.router)
+app.include_router(methodspecs.router)
 app.include_router(catalog.router)
 app.include_router(codegen.router)
 app.include_router(backtest.router)

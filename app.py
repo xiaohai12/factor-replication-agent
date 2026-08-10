@@ -13,6 +13,7 @@ Seven-page dashboard aligned with architecture.md pipeline:
 """
 
 import json
+import os
 import traceback
 from pathlib import Path
 
@@ -39,19 +40,21 @@ PAPER_TEXT_CACHE_DIR.mkdir(parents=True, exist_ok=True)
 # All pipeline-run-generated artifacts (MethodSpecs, plugins, backtest scripts,
 # evidence) live under runs/ — a single gitignored directory — rather than
 # scattered across data/ and a top-level evidence/. See CHANGELOG.md.
-RUNS_DIR = PROJECT_ROOT / "runs"
+# Overridable (FACTOR_AGENT_RUNS_DIR) for ad-hoc test runs -- see backend/state.py.
+_runs_dir_override = os.environ.get("FACTOR_AGENT_RUNS_DIR")
+RUNS_DIR = (PROJECT_ROOT / _runs_dir_override) if _runs_dir_override else PROJECT_ROOT / "runs"
 
-# Paper-first (PaperMethodSpec/MethodReview/ImplementationResolution/
+# Paper-first (MethodSpec/MethodReview/ImplementationResolution/
 # ResolvedMethodSpec) artifact dirs (see backend/state.py for the matching
 # backend-side dirs).
-PAPER_DRAFTS_DIR = RUNS_DIR / "method_specs" / "paper_drafts"
-PAPER_DRAFTS_DIR.mkdir(parents=True, exist_ok=True)
-PAPER_REVIEWS_DIR = RUNS_DIR / "method_specs" / "paper_reviews"
-PAPER_REVIEWS_DIR.mkdir(parents=True, exist_ok=True)
-PAPER_RESOLUTIONS_DIR = RUNS_DIR / "method_specs" / "paper_resolutions"
-PAPER_RESOLUTIONS_DIR.mkdir(parents=True, exist_ok=True)
-PAPER_RESOLVED_DIR = RUNS_DIR / "method_specs" / "paper_resolved"
-PAPER_RESOLVED_DIR.mkdir(parents=True, exist_ok=True)
+UNREVIEWED_DIR = RUNS_DIR / "method_specs" / "unreviewed"
+UNREVIEWED_DIR.mkdir(parents=True, exist_ok=True)
+REVIEWED_DIR = RUNS_DIR / "method_specs" / "reviewed"
+REVIEWED_DIR.mkdir(parents=True, exist_ok=True)
+RESOLUTIONS_DIR = RUNS_DIR / "method_specs" / "resolutions"
+RESOLUTIONS_DIR.mkdir(parents=True, exist_ok=True)
+RESOLVED_DIR = RUNS_DIR / "method_specs" / "resolved"
+RESOLVED_DIR.mkdir(parents=True, exist_ok=True)
 
 PLUGINS_DIR = RUNS_DIR / "plugins"
 PLUGINS_DIR.mkdir(parents=True, exist_ok=True)
@@ -71,7 +74,7 @@ SYNTHETIC_SNAPSHOT_DIR = PROJECT_ROOT / "data" / "synthetic_data" / "mvp_v1"
 
 def _load_any_spec(text: str):
     """Parse a ResolvedMethodSpec JSON string."""
-    from src.infra.models.paper_method_spec import ResolvedMethodSpec
+    from src.infra.models.method_spec import ResolvedMethodSpec
 
     return ResolvedMethodSpec.model_validate(json.loads(text))
 
@@ -246,8 +249,8 @@ llm_provider = st.sidebar.selectbox(
     index=0,
 )
 _PROVIDER_MODELS = {
-    "codex": ["gpt-5.4", "gpt-5.5"],
-    "copilot": ["claude-sonnet-5", "claude-opus-4-6", "claude-sonnet-4-6", "gpt-5.4"],
+    "codex": ["gpt-5.6-terra", "gpt-5.6-sol", "gpt-5.5"],
+    "copilot": ["claude-opus-5", "claude-sonnet-5", "gpt-5.6-terra", "gpt-5.6-sol"],
     "claude": ["claude-sonnet-5", "claude-sonnet-4-6", "claude-opus-4-8", "claude-haiku-4-5-20251001"],
     "openrouter": ["openai/gpt-4o", "anthropic/claude-sonnet-4", "openai/gpt-5.4"],
 }
@@ -295,7 +298,7 @@ if page == "MetaCoder":
 
     st.subheader("1. Load Resolved MethodSpec")
     _spec_files_mc: list[tuple[str, Path]] = []
-    for _p in sorted(PAPER_RESOLVED_DIR.glob("*.resolved.json")):
+    for _p in sorted(RESOLVED_DIR.glob("*.resolved.json")):
         _spec_files_mc.append((f"[paper-first] {_p.name}", _p))
     mc_options = [""] + [l for l, _ in _spec_files_mc]
     mc_map = {l: p for l, p in _spec_files_mc}
@@ -432,7 +435,7 @@ elif page == "Backtest & Experiments":
 
         plugin_map = {p.name: p for p in sorted(PLUGINS_DIR.glob("*.py"))}
         plugin_map.update({f"[fixture] {p.name}": p for p in sorted(FIXTURE_PLUGINS_DIR.glob("*.py"))})
-        spec_map = {f"[paper-first] {p.name}": p for p in sorted(PAPER_RESOLVED_DIR.glob("*.resolved.json"))}
+        spec_map = {f"[paper-first] {p.name}": p for p in sorted(RESOLVED_DIR.glob("*.resolved.json"))}
 
         col_p, col_s = st.columns(2)
         with col_p:
@@ -768,16 +771,16 @@ elif page == "Trace & Logs":
 
 
 # ############################################################
-# PAGE 8: Paper-First Workflow (PaperMethodSpec / MethodReview /
+# PAGE 8: Paper-First Workflow (MethodSpec / MethodReview /
 # ImplementationResolution / ResolvedMethodSpec)
 # ############################################################
 elif page == "Paper-First Workflow":
     st.header("Paper-First Workflow")
     st.caption(
-        "New paper-first schema (`PaperMethodSpec` \u2192 `MethodReview` \u2192 "
-        "`ImplementationResolution` \u2192 `ResolvedMethodSpec`), additive alongside the "
-        "original flat `MethodSpec` workflow above. A spec produced here can be loaded "
-        "directly in MetaCoder/Backtest & Experiments (both dispatch on type)."
+        "Extract from the paper text (`MethodSpec`) \u2192 deterministic review "
+        "(`MethodReview`) \u2192 physical-field resolution "
+        "(`ImplementationResolution` \u2192 `ResolvedMethodSpec`). A spec produced here "
+        "can be loaded directly in MetaCoder/Backtest & Experiments."
     )
 
     if not HAS_PYMUPDF:
@@ -788,7 +791,7 @@ elif page == "Paper-First Workflow":
 
     # ---- Extract ----
     with tab_extract:
-        st.subheader("Extract PaperMethodSpec")
+        st.subheader("Extract MethodSpec")
         pf_uploaded_pdf = st.file_uploader("Upload paper PDF", type=["pdf"], key="pf_pdf")
         if pf_uploaded_pdf:
             pf_pdf_bytes = pf_uploaded_pdf.read()
@@ -797,14 +800,14 @@ elif page == "Paper-First Workflow":
             st.session_state["pf_pdf_bytes"] = pf_pdf_bytes
             st.success(f"Extracted **{len(pf_paper_text):,}** chars from `{pf_uploaded_pdf.name}`")
 
-        with st.expander("Or load an existing PaperMethodSpec draft"):
-            pf_saved_drafts = sorted(PAPER_DRAFTS_DIR.glob("*.paper.json"))
+        with st.expander("Or load an existing MethodSpec draft"):
+            pf_saved_drafts = sorted(UNREVIEWED_DIR.glob("*.paper.json"))
             pf_draft_name = st.selectbox("Saved draft", [""] + [p.name for p in pf_saved_drafts], key="pf_draft_sel")
             if st.button("Load draft", key="pf_draft_load"):
                 try:
-                    from src.infra.models.paper_method_spec import PaperMethodSpec
-                    draft_path = PAPER_DRAFTS_DIR / pf_draft_name
-                    pf_paper = PaperMethodSpec.model_validate_json(draft_path.read_text())
+                    from src.infra.models.method_spec import MethodSpec
+                    draft_path = UNREVIEWED_DIR / pf_draft_name
+                    pf_paper = MethodSpec.model_validate_json(draft_path.read_text())
                     st.session_state["pf_paper"] = pf_paper
                     st.success(f"Loaded: {pf_paper.factor_id}")
                 except Exception as e:
@@ -814,17 +817,17 @@ elif page == "Paper-First Workflow":
         pf_target_name = st.text_input("Target factor name", key="pf_target_name")
         pf_paper_text = st.session_state.get("pf_paper_text", "")
         pf_disabled = not (pf_paper_text and pf_document_id and pf_target_name)
-        if st.button("Extract PaperMethodSpec", type="primary", disabled=pf_disabled, key="pf_extract_run"):
+        if st.button("Extract MethodSpec", type="primary", disabled=pf_disabled, key="pf_extract_run"):
             with st.spinner("Extracting..."):
                 from src.infra.llm import create_llm_client
-                from src.steps.step1_extractor.paper_extractor import PaperExtractor
+                from src.steps.step1_extractor.extractor import MethodSpecExtractor
                 client = create_llm_client(provider=llm_provider, model=llm_model)
-                extractor = PaperExtractor(llm_client=client)
+                extractor = MethodSpecExtractor(llm_client=client)
                 pf_bytes = st.session_state.get("pf_pdf_bytes") if llm_provider in ("claude", "codex") else None
                 result = extractor.extract(pf_document_id, pf_target_name, pf_paper_text, pdf_bytes=pf_bytes)
                 st.session_state["pf_extraction_token_usage"] = result.token_usage
                 if result.spec:
-                    out_path = PAPER_DRAFTS_DIR / f"{result.spec.factor_id}.paper.json"
+                    out_path = UNREVIEWED_DIR / f"{result.spec.factor_id}.paper.json"
                     out_path.write_text(result.spec.model_dump_json(indent=2) + "\n")
                     st.session_state["pf_paper"] = result.spec
                     st.success(f"Extracted: **{result.spec.factor_id}**, saved to `{out_path}`")
@@ -837,31 +840,31 @@ elif page == "Paper-First Workflow":
         if pf_paper:
             st.markdown("---")
             st.markdown(f"**Factor ID:** `{pf_paper.factor_id}` · **Target:** {pf_paper.target_name}")
-            with st.expander("Full PaperMethodSpec JSON"):
+            with st.expander("Full MethodSpec JSON"):
                 st.json(json.loads(pf_paper.model_dump_json()))
 
     # ---- Review ----
     with tab_review:
         st.subheader("Deterministic Review")
-        pf_review_options = sorted(PAPER_DRAFTS_DIR.glob("*.paper.json"))
+        pf_review_options = sorted(UNREVIEWED_DIR.glob("*.paper.json"))
         pf_current = st.session_state.get("pf_paper")
         pf_choice_labels = [""] + ([f"(current) {pf_current.factor_id}"] if pf_current else []) + [p.name for p in pf_review_options]
-        pf_review_sel = st.selectbox("PaperMethodSpec to review", pf_choice_labels, key="pf_review_sel")
+        pf_review_sel = st.selectbox("MethodSpec to review", pf_choice_labels, key="pf_review_sel")
 
         if st.button("Run Review", key="pf_review_run"):
-            from src.infra.models.paper_method_spec import PaperMethodSpec
-            from src.steps.step2_reviewer.paper_review import review_paper_method_spec
+            from src.infra.models.method_spec import MethodSpec
+            from src.steps.step2_reviewer.review import review_method_spec
             try:
                 if pf_review_sel.startswith("(current)") and pf_current:
                     pf_review_paper = pf_current
                 elif pf_review_sel:
-                    pf_review_paper = PaperMethodSpec.model_validate_json((PAPER_DRAFTS_DIR / pf_review_sel).read_text())
+                    pf_review_paper = MethodSpec.model_validate_json((UNREVIEWED_DIR / pf_review_sel).read_text())
                 else:
-                    st.warning("Select a PaperMethodSpec first.")
+                    st.warning("Select a MethodSpec first.")
                     pf_review_paper = None
                 if pf_review_paper:
-                    result = review_paper_method_spec(pf_review_paper)
-                    (PAPER_REVIEWS_DIR / f"{pf_review_paper.factor_id}.review.json").write_text(
+                    result = review_method_spec(pf_review_paper)
+                    (REVIEWED_DIR / f"{pf_review_paper.factor_id}.review.json").write_text(
                         result.model_dump_json(indent=2) + "\n"
                     )
                     st.session_state["pf_review_paper"] = pf_review_paper
@@ -891,7 +894,7 @@ elif page == "Paper-First Workflow":
             pf_returns_source = st.text_input("Returns source", value="us_equity_crsp", key="pf_returns_source")
             pf_cz_acronym = st.text_input("C&Z acronym (optional)", key="pf_cz_acronym")
             if st.button("Resolve", type="primary", key="pf_resolve_run"):
-                from src.infra.models.paper_method_spec import ResolvedMethodSpec
+                from src.infra.models.method_spec import ResolvedMethodSpec
                 from src.steps.step2_reviewer.implementation_resolution import build_implementation_resolution
                 try:
                     resolution = build_implementation_resolution(
@@ -900,11 +903,11 @@ elif page == "Paper-First Workflow":
                         returns_source=pf_returns_source,
                         cz_acronym=pf_cz_acronym or None,
                     )
-                    (PAPER_RESOLUTIONS_DIR / f"{pf_review_paper.factor_id}.resolution.json").write_text(
+                    (RESOLUTIONS_DIR / f"{pf_review_paper.factor_id}.resolution.json").write_text(
                         resolution.model_dump_json(indent=2) + "\n"
                     )
                     resolved = ResolvedMethodSpec(paper=pf_review_paper, review=pf_review_result, resolution=resolution)
-                    resolved_path = PAPER_RESOLVED_DIR / f"{pf_review_paper.factor_id}.resolved.json"
+                    resolved_path = RESOLVED_DIR / f"{pf_review_paper.factor_id}.resolved.json"
                     resolved_path.write_text(resolved.model_dump_json(indent=2) + "\n")
                     st.session_state["pf_resolved"] = resolved
                     if resolved.is_ready:

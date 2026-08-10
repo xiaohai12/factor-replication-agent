@@ -43,7 +43,7 @@ from src.steps.step3_codegen import MetaCoder
 from src.steps.step3_codegen.registry import build_config
 from src.steps.step4_validator import AdversarialSandbox
 from src.steps.step7_replication_diff import safe_diff_ablation
-from src.infra.models.paper_method_spec import ResolvedMethodSpec
+from src.infra.models.method_spec import ResolvedMethodSpec
 from src.infra.models.plugin import PluginRecord
 from src.infra.models.run_record import RunRecord
 from src.infra.repair import RepairLoop

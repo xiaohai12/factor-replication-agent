@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from "react"
 import { useNavigate, useParams } from "react-router-dom"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { Button } from "@/components/ui/button"
+import { Input } from "@/components/ui/input"
 import { Textarea } from "@/components/ui/textarea"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
@@ -9,11 +10,15 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { StepStepper } from "@/components/StepStepper"
 import { JobLogPanel } from "@/components/JobLogPanel"
 import { StepOutputView } from "@/components/StepOutputView"
+import { MethodSpecBoard } from "@/components/MethodSpecBoard"
+import { JsonTree } from "@/components/JsonTree"
+import { CodeView } from "@/components/CodeView"
 import { sessionApi } from "@/lib/sessionApi"
 import { stepDefinition } from "@/lib/steps"
 import { useJobStream } from "@/lib/useJobStream"
 import { ApiError } from "@/lib/api"
 import { PROVIDER_MODELS, useLlm } from "@/lib/llmContext"
+import { getMethodSpecWorkflowState, setMethodSpecWorkflowState, type MethodSpecWorkflowState } from "@/lib/methodSpecStore"
 import type { SessionManifest } from "@/lib/types"
 
 /** Auto-fills a step's request body from whatever this SAME session has
@@ -60,6 +65,12 @@ async function buildAutoFilledRequest(
     } catch {
       // same fallback as above.
     }
+  } else if ("spec" in body) {
+    // Sessions are not owned steps 1/2 anymore (see
+    // docs/known-gaps-paper-first-v2.md) -- their output lives in
+    // sessionStorage via MethodSpecWorkflowPanel instead of a session artifact.
+    const resolved = getMethodSpecWorkflowState(sessionId).resolved
+    if (resolved) body.spec = resolved
   }
   let pluginFilled = false
   if ("plugin" in body && step === 5 && step4?.output_refs.plugin_ref) {
@@ -101,6 +112,21 @@ async function buildAutoFilledRequest(
   return body
 }
 
+/** Whether a step's own result body signals a real failure (as opposed to
+ * "the HTTP call didn't throw") -- e.g. step4 validate can 200 with
+ * `passed: false`, step2 resolve can 200 with `is_ready: false`. Drives
+ * auto-advance: a clean result with none of these fields set false counts
+ * as success. */
+function isFailureResult(result: unknown): boolean {
+  if (!result || typeof result !== "object") return false
+  const r = result as Record<string, unknown>
+  if ("passed" in r) return r.passed === false
+  if ("is_ready" in r) return r.is_ready === false
+  if ("success" in r) return r.success === false
+  if (typeof r.status === "string") return r.status === "failed" || r.status === "blocked"
+  return false
+}
+
 /** Session-scoped step detail page: stepper + a generic request/response
  * JSON panel for whichever step is selected (Phase 4's D1-D4 scope --
  * per-step deep visualization panels are explicit future work, see
@@ -134,6 +160,15 @@ export function SessionDetailPage() {
   const [jobId, setJobId] = useState<string | null>(null)
   const [syncResult, setSyncResult] = useState<unknown>(null)
   const { provider: llmProvider, model: llmModel } = useLlm()
+
+  // Steps 1/2's own progress (`MethodSpecWorkflowPanel`) lives in
+  // sessionStorage, not the session manifest's step attempts -- lifted up
+  // here so the stepper's step-1/2 color coding reacts to it the same way
+  // steps 3-8 react to `sessionQuery.data.steps[n]`.
+  const [specState, setSpecState] = useState<MethodSpecWorkflowState>(() => getMethodSpecWorkflowState(sessionId))
+  useEffect(() => {
+    setSpecState(getMethodSpecWorkflowState(sessionId))
+  }, [sessionId])
 
   // Any step whose request template carries an `llm_provider` key (steps 1/2,
   // the only two that actually call an LLM) tracks the SAME sidebar-selected
@@ -198,6 +233,7 @@ export function SessionDetailPage() {
         queryClient.invalidateQueries({ queryKey: ["session", sessionId] })
         queryClient.invalidateQueries({ queryKey: ["session-step", sessionId, step] })
         queryClient.invalidateQueries({ queryKey: ["session-events", sessionId] })
+        advanceIfSuccessful(response)
       }
     },
     onError: (err) => {
@@ -205,11 +241,22 @@ export function SessionDetailPage() {
     },
   })
 
+  // Auto-advance to the next step once THIS step's own result looks like a
+  // real success -- not just "the HTTP call didn't throw" (e.g. step4
+  // validate can 200 with `passed: false`, step2 resolve can 200 with
+  // `is_ready: false`). Anything with an explicit failure-shaped field wins;
+  // otherwise a clean response/completed job counts as success.
+  const advanceIfSuccessful = (result: unknown) => {
+    if (step >= 8 || isFailureResult(result)) return
+    navigate(`/sessions/${sessionId}/steps/${step + 1}`)
+  }
+
   useEffect(() => {
     if (job.status === "completed" || job.status === "failed") {
       queryClient.invalidateQueries({ queryKey: ["session", sessionId] })
       queryClient.invalidateQueries({ queryKey: ["session-step", sessionId, step] })
       queryClient.invalidateQueries({ queryKey: ["session-events", sessionId] })
+      if (job.status === "completed") advanceIfSuccessful(job.result)
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [job.status])
@@ -269,235 +316,689 @@ export function SessionDetailPage() {
       <StepStepper
         manifest={sessionQuery.data}
         activeStep={step}
+        specState={specState}
         onSelect={(s) => navigate(`/sessions/${sessionId}/steps/${s}`)}
       />
 
-      <div className="grid grid-cols-2 gap-4">
-        <Card>
-          <CardHeader>
-            <CardTitle>{def.label} — request</CardTitle>
-          </CardHeader>
-          <CardContent className="flex flex-col gap-3">
-            {missingRefs.length > 0 && (
-              <p className="text-xs text-muted-foreground">
-                Missing upstream refs: {missingRefs.join(", ")} -- this step may fail until an earlier
-                step provides them.
-              </p>
-            )}
-            {step === 1 ? (
-              <PdfExtractPanel
-                sessionId={sessionId}
-                expectedRevision={sessionQuery.data.revision}
-                onJobStarted={setJobId}
-                onError={setRequestError}
-              />
-            ) : (
-              <>
-                {"llm_provider" in def.requestTemplate && (
-                  <p className="text-xs text-muted-foreground">
-                    Uses the LLM Provider / Model picked in the sidebar (bottom-left) -- change it there, not
-                    just in this JSON, or it'll be overwritten on your next edit.
-                  </p>
-                )}
-                {step === 3 && (
-                  <MethodSpecPicker
-                    onSpecPluginReady={(spec, plugin) => {
-                      const current = JSON.parse(requestText)
-                      setRequestText(JSON.stringify({ ...current, spec, plugin }, null, 2))
-                    }}
-                  />
-                )}
-                {"snapshot_id" in def.requestTemplate && (
-                  <SnapshotPicker
-                    onSelect={(snapshotId) => {
-                      const current = JSON.parse(requestText)
-                      setRequestText(JSON.stringify({ ...current, snapshot_id: snapshotId }, null, 2))
-                    }}
-                  />
-                )}
-                <Textarea
-                  className="h-64 font-mono text-xs"
-                  value={requestText}
-                  onChange={(e) => setRequestText(e.target.value)}
-                />
-                <Button onClick={() => runMutation.mutate()} disabled={runMutation.isPending}>
-                  Run {def.label}
-                </Button>
-              </>
-            )}
-            {requestError && <p className="text-xs text-destructive">{requestError}</p>}
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardHeader>
-            <CardTitle>Result</CardTitle>
-          </CardHeader>
-          <CardContent className="flex flex-col gap-3">
-            {def.isJob ? (
-              <JobLogPanel job={job} />
-            ) : null}
-            {latestAttempt?.diagnostics && "readiness" in latestAttempt.diagnostics && (
-              <div className="flex flex-col gap-1 rounded-md border border-border p-2 text-xs">
-                <span>
-                  readiness: <Badge variant="outline">{latestAttempt.diagnostics.readiness}</Badge>
-                </span>
-                <pre className="overflow-auto">{JSON.stringify(latestAttempt.diagnostics.counters, null, 2)}</pre>
-                {latestAttempt.diagnostics.flags.map((f, i) => (
-                  <p key={i} className="text-muted-foreground">
-                    ⚑ {f}
-                  </p>
+      {(() => {
+        const eventsCard = (
+          <Card>
+            <CardHeader>
+              <CardTitle>Events</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <div className="max-h-48 overflow-auto font-mono text-xs">
+                {(eventsQuery.data ?? []).map((e) => (
+                  <div key={e.seq} className={e.level === "error" ? "text-destructive" : undefined}>
+                    [{e.step ?? "-"}] {e.stage}.{e.event} {e.detail}
+                  </div>
                 ))}
               </div>
+            </CardContent>
+          </Card>
+        )
+
+        const resultCard = (
+          <Card>
+            <CardHeader>
+              <CardTitle>Result</CardTitle>
+            </CardHeader>
+            <CardContent className="flex flex-col gap-3">
+              {step > 2 && def.isJob ? <JobLogPanel job={job} /> : null}
+              {latestAttempt?.diagnostics && "readiness" in latestAttempt.diagnostics && (
+                <div className="flex flex-col gap-1 rounded-md border border-border p-2 text-xs">
+                  <span>
+                    readiness: <Badge variant="outline">{latestAttempt.diagnostics.readiness}</Badge>
+                  </span>
+                  <pre className="overflow-auto">{JSON.stringify(latestAttempt.diagnostics.counters, null, 2)}</pre>
+                  {latestAttempt.diagnostics.flags.map((f, i) => (
+                    <p key={i} className="text-muted-foreground">
+                      ⚑ {f}
+                    </p>
+                  ))}
+                </div>
+              )}
+            </CardContent>
+          </Card>
+        )
+
+        // Steps 1/2 get a single, full-width column (Events -> Extract/Review
+        // -> Result) instead of the 2-col request/result grid used by steps
+        // 3-8 -- `MethodSpecBoard` inside the panel is dense/tall, and a
+        // half-width column left it cramped. Events also moves ABOVE the
+        // panel here specifically because it's the first thing worth
+        // checking on these two steps (extraction/review job progress).
+        if (step === 1 || step === 2) {
+          return (
+            <>
+              {eventsCard}
+              <Card>
+                <CardHeader>
+                  <CardTitle>{def.label}</CardTitle>
+                </CardHeader>
+                <CardContent className="flex flex-col gap-3">
+                  {missingRefs.length > 0 && (
+                    <p className="text-xs text-muted-foreground">
+                      Missing upstream refs: {missingRefs.join(", ")} -- this step may fail until an
+                      earlier step provides them.
+                    </p>
+                  )}
+                  <MethodSpecWorkflowPanel
+                    sessionId={sessionId}
+                    step={step}
+                    defaultTargetName={sessionQuery.data.factor_id}
+                    onStateChange={setSpecState}
+                  />
+                  {requestError && <p className="text-xs text-destructive">{requestError}</p>}
+                </CardContent>
+              </Card>
+              {resultCard}
+            </>
+          )
+        }
+
+        return (
+          <>
+            {eventsCard}
+            <div className="grid grid-cols-2 gap-4">
+              <Card>
+                <CardHeader>
+                  <CardTitle>{def.label} — request</CardTitle>
+                </CardHeader>
+                <CardContent className="flex flex-col gap-3">
+                  {missingRefs.length > 0 && (
+                    <p className="text-xs text-muted-foreground">
+                      Missing upstream refs: {missingRefs.join(", ")} -- this step may fail until an earlier
+                      step provides them.
+                    </p>
+                  )}
+                  {"llm_provider" in def.requestTemplate && (
+                    <p className="text-xs text-muted-foreground">
+                      Uses the LLM Provider / Model picked in the sidebar (bottom-left) -- change it there, not
+                      just in this JSON, or it'll be overwritten on your next edit.
+                    </p>
+                  )}
+                  {step === 3 && (
+                    <MethodSpecPicker
+                      onSpecPluginReady={(spec, plugin) => {
+                        const current = JSON.parse(requestText)
+                        setRequestText(JSON.stringify({ ...current, spec, plugin }, null, 2))
+                      }}
+                    />
+                  )}
+                  {"snapshot_id" in def.requestTemplate && (
+                    <SnapshotPicker
+                      onSelect={(snapshotId) => {
+                        const current = JSON.parse(requestText)
+                        setRequestText(JSON.stringify({ ...current, snapshot_id: snapshotId }, null, 2))
+                      }}
+                    />
+                  )}
+                  <Textarea
+                    className="h-64 font-mono text-xs"
+                    value={requestText}
+                    onChange={(e) => setRequestText(e.target.value)}
+                  />
+                  <Button onClick={() => runMutation.mutate()} disabled={runMutation.isPending}>
+                    Run {def.label}
+                  </Button>
+                  {requestError && <p className="text-xs text-destructive">{requestError}</p>}
+                </CardContent>
+              </Card>
+
+              {resultCard}
+            </div>
+
+            {step > 2 && (
+              <Card>
+                <CardHeader>
+                  <CardTitle>Step output</CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <StepOutputView
+                    step={step}
+                    sessionId={sessionId}
+                    factorId={sessionQuery.data.factor_id}
+                    attempt={latestAttempt}
+                    syncResult={def.isJob ? job.result : syncResult}
+                  />
+                </CardContent>
+              </Card>
             )}
-          </CardContent>
-        </Card>
-      </div>
-
-      <Card>
-        <CardHeader>
-          <CardTitle>Step output</CardTitle>
-        </CardHeader>
-        <CardContent>
-          <StepOutputView
-            step={step}
-            sessionId={sessionId}
-            factorId={sessionQuery.data.factor_id}
-            attempt={latestAttempt}
-            syncResult={def.isJob ? job.result : syncResult}
-            sessionRevision={sessionQuery.data.revision}
-            onResolved={async () => {
-              queryClient.invalidateQueries({ queryKey: ["session", sessionId] })
-              queryClient.invalidateQueries({ queryKey: ["session-step", sessionId, step] })
-              queryClient.invalidateQueries({ queryKey: ["session-events", sessionId] })
-              // Resolving step2's blocked fields always resets review_status/
-              // codegen_ready to pending (src/steps/step2_reviewer/resolution.py),
-              // so the resolved spec must go back through Review Gate before
-              // codegen is allowed. Auto-fire that re-review instead of making
-              // the user click "Run" again with a manifest revision that's now
-              // stale (the resolve call already bumped it).
-              if (step === 2) {
-                try {
-                  const manifest = await sessionApi.get(sessionId)
-                  const body = await buildAutoFilledRequest(sessionId, step, manifest, def.requestTemplate)
-                  const response = await sessionApi.runStep(def.endpoint(sessionId), withLlmSelection(body))
-                  if (typeof response.job_id === "string") {
-                    setJobId(response.job_id)
-                  } else {
-                    setSyncResult(response)
-                    queryClient.invalidateQueries({ queryKey: ["session", sessionId] })
-                    queryClient.invalidateQueries({ queryKey: ["session-step", sessionId, step] })
-                    queryClient.invalidateQueries({ queryKey: ["session-events", sessionId] })
-                  }
-                } catch (err) {
-                  setRequestError(err instanceof ApiError ? `${err.status}: ${err.message}` : String(err))
-                }
-              }
-            }}
-          />
-        </CardContent>
-      </Card>
-
-      <Card>
-        <CardHeader>
-          <CardTitle>Events</CardTitle>
-        </CardHeader>
-        <CardContent>
-          <div className="max-h-48 overflow-auto font-mono text-xs">
-            {(eventsQuery.data ?? []).map((e) => (
-              <div key={e.seq} className={e.level === "error" ? "text-destructive" : undefined}>
-                [{e.step ?? "-"}] {e.stage}.{e.event} {e.detail}
-              </div>
-            ))}
-          </div>
-        </CardContent>
-      </Card>
+          </>
+        )
+      })()}
     </div>
   )
 }
 
-/** Step1's input is fundamentally different from every other step's plain
- * JSON body (a document, not a small object) -- a dedicated PDF-upload
- * widget instead of a JSON textarea. `SemanticExtractor.extract()` accepts
- * `pdf_bytes` directly (used when the built LLM client supports native PDF
- * attachments); the backend endpoint always also extracts plain text via
- * pymupdf as the fallback (`backend/routers/sessions.py`'s
- * `extract_step1_from_pdf`). */
-function PdfExtractPanel({
+/** Steps 1+2's combined UI: the standalone paper-first MethodSpec lifecycle
+ * (extract -> review -> resolve, backend/routers/methodspecs.py) is
+ * NOT session-scoped anymore (see docs/known-gaps-paper-first-v2.md -- a
+ * session only starts owning artifacts from step3 onward), so this renders
+ * for BOTH step 1 and step 2 and keeps its own progress in sessionStorage
+ * (via lib/methodSpecStore) instead of session attempts/artifacts. Once a
+ * spec resolves, step3's `spec` field auto-fills from that same store (see
+ * `buildAutoFilledRequest`'s "spec" fallback above).
+ *
+ * Auto-advances like every other step: extract success jumps 1 -> 2, and a
+ * ready resolve jumps straight to step 3 -- `onStateChange` also mirrors
+ * every state change up to `SessionDetailPage` so the stepper's step-1/2
+ * badges recolor immediately, the same way steps 3-8 do from their own
+ * session-recorded attempt status. */
+function MethodSpecWorkflowPanel({
   sessionId,
-  expectedRevision,
-  onJobStarted,
-  onError,
+  step,
+  defaultTargetName,
+  onStateChange,
 }: {
   sessionId: string
-  expectedRevision: number
-  onJobStarted: (jobId: string) => void
-  onError: (message: string | null) => void
+  step: number
+  defaultTargetName: string
+  onStateChange: (state: MethodSpecWorkflowState) => void
 }) {
+  const navigate = useNavigate()
+  const queryClient = useQueryClient()
+  const [state, setState] = useState<MethodSpecWorkflowState>(() => getMethodSpecWorkflowState(sessionId))
   const [file, setFile] = useState<File | null>(null)
+  const [targetName, setTargetName] = useState(defaultTargetName)
+  const [extractJobId, setExtractJobId] = useState<string | null>(null)
+  const [reviewLlmJobId, setReviewLlmJobId] = useState<string | null>(null)
+  const [overrideDrafts, setOverrideDrafts] = useState<Record<string, string>>({})
+  const [valuePatchDrafts, setValuePatchDrafts] = useState<Record<string, string>>({})
+  const [useOtherValueFor, setUseOtherValueFor] = useState<Record<string, boolean>>({})
+  const [error, setError] = useState<string | null>(null)
   const { provider, model, setProvider, setModel } = useLlm()
+  const schemaQuery = useQuery({ queryKey: ["methodspec-schema"], queryFn: sessionApi.getSchemaReference })
+  const extractJob = useJobStream<{ spec?: Record<string, unknown>; error?: string; paper_text?: string }>(
+    extractJobId,
+  )
+  const reviewLlmJob = useJobStream<{ review?: Record<string, unknown>; raw_llm_output?: unknown }>(reviewLlmJobId)
 
-  const mutation = useMutation({
-    mutationFn: () => sessionApi.extractFromPdf(sessionId, file!, expectedRevision, provider, model),
+  useEffect(() => {
+    onStateChange(state)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
+  const patch = (p: MethodSpecWorkflowState) => {
+    const next = setMethodSpecWorkflowState(sessionId, p)
+    setState(next)
+    onStateChange(next)
+  }
+
+  useEffect(() => {
+    if (extractJob.status === "completed") {
+      if (extractJob.result?.spec) {
+        patch({
+          paper: extractJob.result.spec,
+          paperText: extractJob.result.paper_text,
+          review: undefined,
+          reviewSource: undefined,
+          resolved: undefined,
+        })
+        setError(null)
+        if (step === 1) navigate(`/sessions/${sessionId}/steps/2`)
+      } else {
+        setError(extractJob.result?.error ?? "Extraction returned no spec")
+      }
+    } else if (extractJob.status === "failed") {
+      setError(extractJob.error)
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [extractJob.status])
+
+  useEffect(() => {
+    if (reviewLlmJob.status === "completed") {
+      if (reviewLlmJob.result?.review) {
+        patch({ review: reviewLlmJob.result.review, reviewSource: "llm", resolved: undefined })
+        setError(null)
+      } else {
+        setError("LLM-backed review returned no result")
+      }
+      queryClient.invalidateQueries({ queryKey: ["session-events", sessionId] })
+    } else if (reviewLlmJob.status === "failed") {
+      setError(reviewLlmJob.error)
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [reviewLlmJob.status])
+
+  const extractMutation = useMutation({
+    mutationFn: () => sessionApi.extractPaperPdf(file!.name, targetName, file!, provider, model, sessionId),
     onSuccess: (res) => {
-      onError(null)
-      onJobStarted(res.job_id)
+      setError(null)
+      setExtractJobId(res.job_id)
     },
-    onError: (err) => onError(err instanceof ApiError ? `${err.status}: ${err.message}` : String(err)),
+    onError: (err) => setError(err instanceof ApiError ? `${err.status}: ${err.message}` : String(err)),
   })
 
-  return (
-    <div className="flex flex-col gap-3">
-      <label
-        htmlFor="session-pdf-upload-input"
-        className="flex cursor-pointer flex-col items-center justify-center gap-1 rounded-md border-2 border-dashed border-border p-4 text-center transition-colors hover:border-primary hover:bg-muted/50"
-      >
-        <span className="text-sm font-medium">
-          {file ? file.name : "Click to choose a PDF, or drag one here"}
-        </span>
-        <span className="text-xs text-muted-foreground">
-          {file ? `${(file.size / 1024).toFixed(0)} KB -- click to change` : "PDF files only"}
-        </span>
-      </label>
-      <input
-        id="session-pdf-upload-input"
-        type="file"
-        accept="application/pdf"
-        onChange={(e) => setFile(e.target.files?.[0] ?? null)}
-        className="hidden"
-      />
-      <div className="flex gap-2">
-        <Select value={provider} onValueChange={setProvider}>
-          <SelectTrigger className="w-32">
-            <SelectValue />
-          </SelectTrigger>
-          <SelectContent>
-            {Object.keys(PROVIDER_MODELS).map((p) => (
-              <SelectItem key={p} value={p}>
-                {p}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
-        <Select value={model} onValueChange={setModel}>
-          <SelectTrigger className="w-56">
-            <SelectValue />
-          </SelectTrigger>
-          <SelectContent>
-            {(PROVIDER_MODELS[provider] ?? []).map((m) => (
-              <SelectItem key={m} value={m}>
-                {m}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
+  // Single review action: LLM-backed review is a strict superset of the
+  // rules-based pass (it re-runs the same D2/D4 deterministic findings via
+  // `_compute_findings`, see `src/steps/step2_reviewer/review.py`), so there
+  // is deliberately no separate "rules-only" button to choose between --
+  // this always tries LLM-backed review first and only falls back to the
+  // sync rules-only endpoint if no paper text is available for it at all
+  // (mirrors v1's `review_with_llm` always merging in the deterministic
+  // pass rather than presenting it as an alternative).
+  const reviewMutation = useMutation({
+    mutationFn: async () => {
+      let paperText = state.paperText
+      if (!paperText) {
+        const documentId = (state.paper as { paper?: { document_id?: string } })?.paper?.document_id
+        if (documentId) {
+          try {
+            const cached = await sessionApi.getPaperText(documentId)
+            paperText = cached.paper_text
+            patch({ paperText })
+          } catch {
+            // no cached paper text either -- fall back to rules-only below.
+          }
+        }
+      }
+      if (paperText) {
+        const res = await sessionApi.reviewPaperSpecLlm(state.paper!, paperText, provider, model, sessionId)
+        setReviewLlmJobId(res.job_id)
+        return { ranLlm: true as const }
+      }
+      const review = await sessionApi.reviewPaperSpec(state.paper!, sessionId)
+      patch({ review, reviewSource: "rules", resolved: undefined })
+      queryClient.invalidateQueries({ queryKey: ["session-events", sessionId] })
+      return { ranLlm: false as const }
+    },
+    onSuccess: () => setError(null),
+    onError: (err) => setError(err instanceof ApiError ? `${err.status}: ${err.message}` : String(err)),
+  })
+
+  const overrideMutation = useMutation({
+    mutationFn: () => {
+      const existing = (state.review?.status_overrides as Record<string, string> | undefined) ?? {}
+      return sessionApi.reviewPaperSpecOverride(state.paper!, { ...existing, ...overrideDrafts }, sessionId)
+    },
+    onSuccess: (review) => {
+      patch({ review, reviewSource: "human", resolved: undefined })
+      setOverrideDrafts({})
+      queryClient.invalidateQueries({ queryKey: ["session-events", sessionId] })
+    },
+    onError: (err) => setError(err instanceof ApiError ? `${err.status}: ${err.message}` : String(err)),
+  })
+
+  // Corrects the extracted VALUE itself (not just its evidence status --
+  // see `overrideMutation` above for that). Produces a NEW paper, so the
+  // stored review/resolved state is cleared -- there's no automatic
+  // staleness detection forcing a re-review anymore (docs/decision-log.md
+  // 2026-08-09), so we clear it here as the deliberate "you must redo this"
+  // signal instead.
+  const patchValueMutation = useMutation({
+    mutationFn: () => sessionApi.patchPaperValue(state.paper!, valuePatchDrafts, "", sessionId),
+    onSuccess: (paperSpec) => {
+      patch({ paper: paperSpec, review: undefined, reviewSource: undefined, resolved: undefined })
+      setValuePatchDrafts({})
+      queryClient.invalidateQueries({ queryKey: ["session-events", sessionId] })
+    },
+    onError: (err) => setError(err instanceof ApiError ? `${err.status}: ${err.message}` : String(err)),
+  })
+
+  const resolveMutation = useMutation({
+    mutationFn: async () => {
+      // Deterministic concept-mapping is tried first either way (see
+      // `build_implementation_resolution`) -- passing provider/model only
+      // adds an LLM fallback attempt for concepts that are STILL unresolved
+      // after that, so this never changes behavior for a spec that already
+      // resolves cleanly.
+      const { is_ready, unmapped_concepts, llm_matched_concepts } = await sessionApi.resolvePaperSpec(
+        state.paper!,
+        state.review!,
+        "us_equity_crsp",
+        sessionId,
+        provider,
+        model,
+      )
+      if (!is_ready) return { is_ready, unmapped_concepts, llm_matched_concepts, resolved: null }
+      const resolved = await sessionApi.getResolvedMethodSpec((state.paper as { factor_id: string }).factor_id)
+      return { is_ready, unmapped_concepts, llm_matched_concepts, resolved }
+    },
+    onSuccess: ({ is_ready, resolved }) => {
+      queryClient.invalidateQueries({ queryKey: ["session-events", sessionId] })
+      if (resolved) {
+        patch({ resolved })
+        navigate(`/sessions/${sessionId}/steps/3`)
+      } else if (!is_ready) {
+        setError("Resolved spec is not codegen-ready yet -- see the blocking fields below.")
+      }
+    },
+    onError: (err) => setError(err instanceof ApiError ? `${err.status}: ${err.message}` : String(err)),
+  })
+
+  const findings = (state.review?.findings as Array<Record<string, unknown>> | undefined) ?? []
+  const isBlocked = findings.some((f) => f.disposition === "blocked")
+  const EVIDENCE_STATUSES = ["clear", "table_only", "inferred", "conflicting", "unspecified"]
+  // Schema reference is keyed by the STATIC dotted path (no `[i]` sort
+  // index) -- strip it before lookup; falls back to no info for the one
+  // field this can't match (`portfolio.sorts[i].breakpoints.basis`, nested
+  // two levels inside a list item the schema walker doesn't recurse into).
+  const schemaFieldInfo = (fieldPath: string) => schemaQuery.data?.fields[fieldPath.replace(/\[\d+\]/g, "")]
+
+  // Step 1 is extract-only; step 2 is review+resolve over whatever step 1
+  // already produced -- two distinct pages now, not the same combined panel
+  // rendered twice under different labels.
+  if (step === 1) {
+    return (
+      <div className="flex flex-col gap-4">
+        <div className="flex flex-col gap-2 rounded-md border border-border p-3">
+          <p className="text-sm font-medium">Extract MethodSpec from paper</p>
+          <label
+            htmlFor="session-pdf-upload-input"
+            className="flex cursor-pointer flex-col items-center justify-center gap-1 rounded-md border-2 border-dashed border-border p-4 text-center transition-colors hover:border-primary hover:bg-muted/50"
+          >
+            <span className="text-sm font-medium">
+              {file ? file.name : "Click to choose a PDF, or drag one here"}
+            </span>
+            <span className="text-xs text-muted-foreground">
+              {file ? `${(file.size / 1024).toFixed(0)} KB -- click to change` : "PDF files only"}
+            </span>
+          </label>
+          <input
+            id="session-pdf-upload-input"
+            type="file"
+            accept="application/pdf"
+            onChange={(e) => setFile(e.target.files?.[0] ?? null)}
+            className="hidden"
+          />
+          <input
+            className="rounded-md border border-border bg-transparent px-2 py-1 text-xs"
+            value={targetName}
+            onChange={(e) => setTargetName(e.target.value)}
+            placeholder="target_name (factor label for the extractor)"
+          />
+          <div className="flex gap-2">
+            <Select value={provider} onValueChange={setProvider}>
+              <SelectTrigger className="w-32">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {Object.keys(PROVIDER_MODELS).map((p) => (
+                  <SelectItem key={p} value={p}>
+                    {p}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            <Select value={model} onValueChange={setModel}>
+              <SelectTrigger className="w-56">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {(PROVIDER_MODELS[provider] ?? []).map((m) => (
+                  <SelectItem key={m} value={m}>
+                    {m}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+          <Button disabled={!file || extractMutation.isPending} onClick={() => extractMutation.mutate()}>
+            Extract MethodSpec from PDF
+          </Button>
+          {extractJobId && <JobLogPanel job={extractJob} />}
+        </div>
+
+        {state.paper && (
+          <div className="flex flex-col gap-2 rounded-md border border-border p-3">
+            <div className="flex items-center justify-between">
+              <p className="text-sm font-medium">
+                Already extracted — <span className="font-mono text-xs">{String(state.paper.factor_id)}</span>
+              </p>
+              <Button size="sm" variant="outline" onClick={() => navigate(`/sessions/${sessionId}/steps/2`)}>
+                Go to Step 2 — Review
+              </Button>
+            </div>
+            <p className="text-xs text-muted-foreground">Re-extracting above will replace this.</p>
+            <MethodSpecBoard spec={state.paper} />
+          </div>
+        )}
+
+        {error && <p className="text-xs text-destructive">{error}</p>}
       </div>
-      <p className="text-xs text-muted-foreground">
-        Same Provider/Model picker as the sidebar (bottom-left) -- shared everywhere, not just here.
-      </p>
-      <Button disabled={!file || mutation.isPending} onClick={() => mutation.mutate()}>
-        Extract MethodSpec from PDF
-      </Button>
+    )
+  }
+
+  // step === 2
+  if (!state.paper) {
+    return (
+      <div className="flex flex-col gap-2 rounded-md border border-border p-3 text-sm">
+        <p>No MethodSpec extracted yet.</p>
+        <Button size="sm" onClick={() => navigate(`/sessions/${sessionId}/steps/1`)}>
+          Go to Step 1 — Extract
+        </Button>
+      </div>
+    )
+  }
+
+  return (
+    <div className="flex flex-col gap-4">
+      <div className="flex flex-col gap-2 rounded-md border border-border p-3">
+        <p className="text-sm font-medium">
+          Review — <span className="font-mono text-xs">{String(state.paper.factor_id)}</span>
+        </p>
+        <div className="flex flex-wrap gap-2">
+          <Button size="sm" disabled={reviewMutation.isPending || reviewLlmJob.status === "running"} onClick={() => reviewMutation.mutate()}>
+            {reviewMutation.isPending || reviewLlmJob.status === "running" ? "Reviewing…" : "Run review"}
+          </Button>
+        </div>
+        <p className="text-xs text-muted-foreground">
+          Always runs the same deterministic evidence-status/engine-capability checks (`MethodReview`'s D2/D4
+          findings); when paper text is available (captured automatically on extraction, or fetched from the
+          cached copy) it also re-reads the paper via LLM to catch fields the extractor may have mislabeled
+          (e.g. "unspecified" when the paper actually states it clearly) -- the LLM only proposes evidence-status
+          corrections and human-confirmation findings, it never decides disposition/approval itself. Falls back
+          to rules-only if no paper text can be found at all.
+        </p>
+        {reviewLlmJobId && <JobLogPanel job={reviewLlmJob} title="LLM review job" />}
+        {state.review && (
+          <div className="flex flex-col gap-1">
+            <div className="flex items-center gap-2">
+              <Badge variant={isBlocked ? "destructive" : "default"}>
+                {findings.length === 0 ? "no findings -- every field looks fine" : `${findings.length} field(s) flagged`}
+              </Badge>
+              <Badge variant="outline">
+                {state.reviewSource === "llm"
+                  ? "LLM-backed review"
+                  : state.reviewSource === "human"
+                    ? "human override applied"
+                    : "Rules-based review"}
+              </Badge>
+            </div>
+            {findings.map((f, i) => {
+              const fieldPath = String(f.field_path)
+              const canOverride = f.kind !== "unsupported" && f.disposition === "needs_human_confirmation"
+              const info = schemaFieldInfo(fieldPath)
+              const allowedValues = info?.allowed_values ?? null
+              const usingOther = useOtherValueFor[fieldPath] ?? false
+              return (
+                <div key={i} className="flex flex-col gap-1 rounded-md border border-border/60 p-2 text-xs">
+                  <div className="flex items-start gap-2">
+                    <Badge variant={f.disposition === "blocked" ? "destructive" : "outline"} className="shrink-0">
+                      {String(f.disposition)}
+                    </Badge>
+                    <div>
+                      <span className="font-mono font-medium">{fieldPath}</span>{" "}
+                      <span className="text-muted-foreground">({String(f.kind)})</span>
+                      <p className="text-muted-foreground">{String(f.reason)}</p>
+                    </div>
+                  </div>
+                  {canOverride && info?.description && (
+                    <p className="pl-1 text-muted-foreground">ℹ {info.description}</p>
+                  )}
+                  {canOverride && (
+                    <div className="flex items-center gap-2 pl-1">
+                      <span className="text-muted-foreground">Correct evidence status:</span>
+                      <Select
+                        value={overrideDrafts[fieldPath] ?? ""}
+                        onValueChange={(v) => setOverrideDrafts((prev) => ({ ...prev, [fieldPath]: v }))}
+                      >
+                        <SelectTrigger className="h-7 w-40 text-xs">
+                          <SelectValue placeholder="unchanged" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {EVIDENCE_STATUSES.map((s) => (
+                            <SelectItem key={s} value={s}>
+                              {s}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </div>
+                  )}
+                  {canOverride && (
+                    <div className="flex items-center gap-2 pl-1">
+                      <span className="text-muted-foreground">Or correct the value itself:</span>
+                      {allowedValues && allowedValues.length > 0 && !usingOther ? (
+                        <Select
+                          value={valuePatchDrafts[fieldPath] ?? ""}
+                          onValueChange={(v) => {
+                            if (v === "__other__") {
+                              setUseOtherValueFor((prev) => ({ ...prev, [fieldPath]: true }))
+                              setValuePatchDrafts((prev) => ({ ...prev, [fieldPath]: "" }))
+                            } else {
+                              setValuePatchDrafts((prev) => ({ ...prev, [fieldPath]: v }))
+                            }
+                          }}
+                        >
+                          <SelectTrigger className="h-7 w-56 text-xs">
+                            <SelectValue placeholder={`current: ${JSON.stringify(f.paper_value)}`} />
+                          </SelectTrigger>
+                          <SelectContent>
+                            {allowedValues.map((v) => (
+                              <SelectItem key={v} value={v}>
+                                {v}
+                              </SelectItem>
+                            ))}
+                            <SelectItem value="__other__">Other (type my own)</SelectItem>
+                          </SelectContent>
+                        </Select>
+                      ) : (
+                        <div className="flex items-center gap-1">
+                          <Input
+                            className="h-7 w-56 text-xs"
+                            placeholder={`current: ${JSON.stringify(f.paper_value)}`}
+                            value={valuePatchDrafts[fieldPath] ?? ""}
+                            onChange={(e) => setValuePatchDrafts((prev) => ({ ...prev, [fieldPath]: e.target.value }))}
+                          />
+                          {allowedValues && allowedValues.length > 0 && (
+                            <button
+                              type="button"
+                              className="text-muted-foreground underline"
+                              onClick={() => setUseOtherValueFor((prev) => ({ ...prev, [fieldPath]: false }))}
+                            >
+                              choose from list
+                            </button>
+                          )}
+                        </div>
+                      )}
+                    </div>
+                  )}
+                </div>
+              )
+            })}
+            {Object.keys(overrideDrafts).length > 0 && (
+              <Button size="sm" variant="outline" disabled={overrideMutation.isPending} onClick={() => overrideMutation.mutate()}>
+                {overrideMutation.isPending ? "Applying…" : `Apply ${Object.keys(overrideDrafts).length} human override(s)`}
+              </Button>
+            )}
+            {Object.keys(valuePatchDrafts).length > 0 && (
+              <Button size="sm" variant="outline" disabled={patchValueMutation.isPending} onClick={() => patchValueMutation.mutate()}>
+                {patchValueMutation.isPending
+                  ? "Patching…"
+                  : `Apply ${Object.keys(valuePatchDrafts).length} value correction(s) -- re-run review after`}
+              </Button>
+            )}
+            <p className="text-xs text-muted-foreground">
+              Only "needs_human_confirmation" findings from evidence-status checks can be corrected this way
+              -- "unsupported" (engine-capability) findings can't, since those mean the engine has no menu
+              member for the paper's choice at all, not that the evidence/value is wrong. A value correction
+              replaces the extracted content itself (marks it "clear" and records your reason as evidence) and
+              clears the current review -- re-run review afterward.
+            </p>
+          </div>
+        )}
+      </div>
+
+      {state.review && (
+        <div className="flex flex-col gap-2 rounded-md border border-border p-3">
+          <p className="text-sm font-medium">Resolve</p>
+          <Button size="sm" disabled={resolveMutation.isPending} onClick={() => resolveMutation.mutate()}>
+            {resolveMutation.isPending ? "Resolving…" : "Resolve to a codegen-ready MethodSpec"}
+          </Button>
+          {resolveMutation.data && (
+            <Badge variant={resolveMutation.data.is_ready ? "default" : "destructive"}>
+              is_ready: {String(resolveMutation.data.is_ready)}
+            </Badge>
+          )}
+          {(resolveMutation.data?.llm_matched_concepts?.length ?? 0) > 0 && (
+            <div className="flex flex-col gap-1 rounded-md border border-amber-500/40 bg-amber-500/5 p-2 text-xs">
+              <p className="font-medium">
+                LLM-matched concept(s) -- re-check these, the deterministic catalog matcher couldn't resolve them on its own:
+              </p>
+              {resolveMutation.data!.llm_matched_concepts.map((c) => (
+                <span key={c} className="font-mono">
+                  {c}
+                </span>
+              ))}
+            </div>
+          )}
+          {resolveMutation.data && !resolveMutation.data.is_ready && (
+            <div className="flex flex-col gap-2 rounded-md border border-destructive/40 bg-destructive/5 p-2 text-xs">
+              <p className="font-medium">This needs human resolution before codegen can run:</p>
+              {findings
+                .filter((f) => f.disposition === "blocked")
+                .map((f, i) => (
+                  <div key={`blocked-${i}`} className="flex items-start gap-2">
+                    <Badge variant="destructive" className="shrink-0">
+                      review
+                    </Badge>
+                    <div>
+                      <span className="font-mono font-medium">{String(f.field_path)}</span>{" "}
+                      <span className="text-muted-foreground">({String(f.kind)})</span>
+                      <p className="text-muted-foreground">{String(f.reason)}</p>
+                    </div>
+                  </div>
+                ))}
+              {(resolveMutation.data.unmapped_concepts ?? []).map((c, i) => (
+                <div key={`unmapped-${i}`} className="flex items-start gap-2">
+                  <Badge variant="destructive" className="shrink-0">
+                    unmapped
+                  </Badge>
+                  <div>
+                    <span className="font-mono font-medium">{c}</span>
+                    <p className="text-muted-foreground">
+                      concept has no physical column mapping in the data catalog -- it can't be resolved
+                      automatically. Fix the paper's `data.fields`/`universe.filters` for this concept (e.g.
+                      register a real source column) and re-extract/re-review, or remove the filter/field if
+                      it's not truly needed.
+                    </p>
+                  </div>
+                </div>
+              ))}
+              <p className="text-muted-foreground">
+                Note: these are all "unsupported" engine-capability findings (`disposition=blocked`) -- the
+                engine simply has no menu member for the paper's stated choice, so there is no field to
+                override above; fix it by correcting the extracted MethodSpec (re-extract) or picking an
+                approved substitution, then re-run review/resolve. "needs_human_confirmation" findings (from
+                evidence-status checks) CAN be corrected above via the review panel's per-field override.
+              </p>
+            </div>
+          )}
+          {state.resolved && (
+            <>
+              <JsonTree name="resolved" data={state.resolved} />
+              <Button size="sm" onClick={() => navigate(`/sessions/${sessionId}/steps/3`)}>
+                Use this spec — go to Step 3
+              </Button>
+            </>
+          )}
+        </div>
+      )}
+
+      {error && <p className="text-xs text-destructive">{error}</p>}
     </div>
   )
 }
@@ -557,6 +1058,12 @@ function MethodSpecPicker({
         </Button>
       </div>
       {job.status !== "idle" && <JobLogPanel job={job} title="codegen" />}
+      {job.status === "completed" && job.result && (
+        <div>
+          <p className="mb-1 text-xs font-medium">Generated compute_signal plugin</p>
+          <CodeView code={String((job.result as { code?: string }).code ?? "")} language="python" />
+        </div>
+      )}
     </div>
   )
 }

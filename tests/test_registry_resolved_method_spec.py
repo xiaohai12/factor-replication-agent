@@ -13,7 +13,7 @@ import pandas as pd
 import pytest
 
 from src.infra.backtest_engine import BacktestExecutor
-from src.infra.models.paper_method_spec import (
+from src.infra.models.method_spec import (
     AdjustmentModel,
     BreakpointSpec,
     ConstructionType,
@@ -29,7 +29,7 @@ from src.infra.models.paper_method_spec import (
     ImplementationResolution,
     MethodReview,
     Period,
-    PaperMethodSpec,
+    MethodSpec,
     PaperRef,
     PortfolioLeg,
     PortfolioSpec,
@@ -54,7 +54,7 @@ from src.infra.models.paper_method_spec import (
     Unit,
     UniverseSpec,
 )
-from src.steps.step2_reviewer.paper_review import review_paper_method_spec
+from src.steps.step2_reviewer.review import review_method_spec
 from src.steps.step3_codegen.registry import build_config
 
 
@@ -77,9 +77,9 @@ def _reported_results() -> ReportedResults:
     )
 
 
-def _single_sort_spec() -> PaperMethodSpec:
-    factor_id = PaperMethodSpec.make_factor_id("cooper2008", "asset_growth")
-    return PaperMethodSpec(
+def _single_sort_spec() -> MethodSpec:
+    factor_id = MethodSpec.make_factor_id("cooper2008", "asset_growth")
+    return MethodSpec(
         factor_id=factor_id,
         target_name="asset_growth",
         paper=PaperRef(document_id="cooper2008", title="Asset Growth...", citation="Cooper et al 2008", publication_year=2008),
@@ -112,7 +112,7 @@ def _single_sort_spec() -> PaperMethodSpec:
                 SortDimension(
                     sort_id="sort1", concept_id="at", role=SortRole.TARGET, order=1,
                     mode=SortMode.INDEPENDENT, group_type=GroupType.QUANTILE, group_count=10,
-                    breakpoints=BreakpointSpec(population=SourcedValue(value="nyse", status=EvidenceStatus.CLEAR)),
+                    breakpoints=BreakpointSpec(basis=SourcedValue(value="nyse", status=EvidenceStatus.CLEAR)),
                 )
             ],
             legs=[
@@ -126,11 +126,10 @@ def _single_sort_spec() -> PaperMethodSpec:
     )
 
 
-def _resolved(paper: PaperMethodSpec, concept_mapping: dict[str, SourceColumn], returns_source: str = "us_equity_crsp") -> ResolvedMethodSpec:
-    review = review_paper_method_spec(paper)
+def _resolved(paper: MethodSpec, concept_mapping: dict[str, SourceColumn], returns_source: str = "us_equity_crsp") -> ResolvedMethodSpec:
+    review = review_method_spec(paper)
     resolution = ImplementationResolution(
-        factor_id=paper.factor_id, paper_spec_hash=paper.content_hash(),
-        review_hash=review.content_hash(), concept_mapping=concept_mapping,
+        factor_id=paper.factor_id, concept_mapping=concept_mapping,
         returns_source=returns_source,
     )
     return ResolvedMethodSpec(paper=paper, review=review, resolution=resolution)
@@ -176,17 +175,74 @@ class TestBuildConfigSingleSort:
         assert any(d["config_key"] == "accounting_lag_months" for d in config.get("defaults_applied", []))
 
 
-def _double_sort_spec() -> PaperMethodSpec:
+class TestAcceptedUnappliedUniverseFilter:
+    """`FilterSpec.accepted_unapplied` -- the "other" escape hatch: a human
+    explicitly records that a stated universe restriction is NOT applied,
+    instead of it crashing `build_config`/the engine. Never set implicitly."""
+
+    def test_unapplied_filter_needs_no_concept_mapping_and_never_crashes(self):
+        paper = _single_sort_spec()
+        paper.universe.filters.append(
+            FilterSpec(
+                concept_id="compustat_listing_duration", op=FilterOp.GTE, value=2,
+                accepted_unapplied=True, unapplied_reason="no eligibility-panel wiring yet",
+            )
+        )
+        # No concept_mapping entry at all for compustat_listing_duration --
+        # would fail loudly if this filter were treated as applied.
+        resolved = _resolved(paper, {"at": SourceColumn(source="comp_funda", column="at")})
+        config = build_config(resolved, None)
+        assert config["universe_filters"] == []
+        assert config["unapplied_universe_filters"] == [
+            {
+                "concept_id": "compustat_listing_duration", "op": "gte", "value": 2,
+                "reason": "no eligibility-panel wiring yet",
+            }
+        ]
+
+    def test_unapplied_filter_concept_is_not_required_by_is_ready(self):
+        paper = _single_sort_spec()
+        paper.universe.filters.append(
+            FilterSpec(
+                concept_id="compustat_listing_duration", op=FilterOp.GTE, value=2,
+                accepted_unapplied=True, unapplied_reason="no eligibility-panel wiring yet",
+            )
+        )
+        resolved = _resolved(paper, {"at": SourceColumn(source="comp_funda", column="at")})
+        assert "compustat_listing_duration" not in resolved.unmapped_concepts()
+
+    def test_mixed_applied_and_unapplied_filters(self):
+        paper = _single_sort_spec()
+        paper.universe.filters.append(
+            FilterSpec(concept_id="listing_exchange", op=FilterOp.IN, value=[1, 2])
+        )
+        paper.universe.filters.append(
+            FilterSpec(
+                concept_id="compustat_listing_duration", op=FilterOp.GTE, value=2,
+                accepted_unapplied=True, unapplied_reason="no eligibility-panel wiring yet",
+            )
+        )
+        resolved = _resolved(paper, {
+            "at": SourceColumn(source="comp_funda", column="at"),
+            "listing_exchange": SourceColumn(source="crsp_msf", column="exchcd"),
+        })
+        config = build_config(resolved, None)
+        assert config["universe_filters"] == [{"field": "exchcd", "op": "in", "value": [1, 2]}]
+        assert len(config["unapplied_universe_filters"]) == 1
+        assert config["unapplied_universe_filters"][0]["concept_id"] == "compustat_listing_duration"
+
+
+def _double_sort_spec() -> MethodSpec:
     paper = _single_sort_spec()
     size_sort = SortDimension(
         sort_id="size", concept_id="me", role=SortRole.CONDITIONING, order=1,
         mode=SortMode.INDEPENDENT, group_type=GroupType.QUANTILE, group_count=2,
-        breakpoints=BreakpointSpec(population=SourcedValue(value="nyse", status=EvidenceStatus.CLEAR)),
+        breakpoints=BreakpointSpec(basis=SourcedValue(value="nyse", status=EvidenceStatus.CLEAR)),
     )
     target_sort = SortDimension(
         sort_id="sort1", concept_id="at", role=SortRole.TARGET, order=2,
         mode=SortMode.INDEPENDENT, group_type=GroupType.QUANTILE, group_count=2,
-        breakpoints=BreakpointSpec(population=SourcedValue(value="nyse", status=EvidenceStatus.CLEAR)),
+        breakpoints=BreakpointSpec(basis=SourcedValue(value="nyse", status=EvidenceStatus.CLEAR)),
     )
     paper.portfolio.sorts = [size_sort, target_sort]
     paper.portfolio.legs = [

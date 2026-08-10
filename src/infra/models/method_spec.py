@@ -3,8 +3,8 @@ consumers yet).
 
 Implements the four-artifact boundary from docs/methodspec-v2-plan.md section 5:
 
-    PaperMethodSpec          Step 1, immutable paper-first facts only.
-    MethodReview              Step 2 findings, bound to a paper_spec_hash.
+    MethodSpec          Step 1, immutable paper-first facts only.
+    MethodReview              Step 2 findings.
     ImplementationResolution  Physical mappings + human decisions, append-only.
     ResolvedMethodSpec        Rebuilt-on-read aggregate (D1); never persisted as input.
 
@@ -12,7 +12,13 @@ None of this is wired into src/steps/* yet. See plan section 9 (migration
 phases) -- Phase A only freezes the contract and adds round-trip tests.
 
 Naming/semantics follow the plan's section 6 decisions (D1-D8); see
-docs/decision-log.md for the approval record.
+docs/decision-log.md for the approval record. NOTE: the plan's D1
+paper/review/resolution hash-binding staleness check
+(`paper_spec_hash`/`review_hash`/`_hashes_current`) was removed 2026-08-09 --
+see that date's decision-log entry. `MethodSpec.content_hash()` itself is
+kept (still used elsewhere, e.g. plugin/script naming), but `MethodReview`/
+`ImplementationResolution` no longer bind to it and `ResolvedMethodSpec.
+is_ready` no longer checks staleness.
 """
 
 from __future__ import annotations
@@ -21,7 +27,7 @@ import hashlib
 import json
 from datetime import datetime
 from enum import Enum
-from typing import Any, Generic, Literal, Optional, TypeVar
+from typing import Any, Generic, Literal, TypeVar
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
@@ -52,11 +58,11 @@ class EvidenceCitation(BaseModel):
 
     location: str = ""
     quote: str = ""
-    table_ref: Optional[TableRef] = None
+    table_ref: TableRef | None = None
     interpretation: str = ""
 
     @model_validator(mode="after")
-    def _quote_xor_table_ref_for_clear_vs_table_only(self) -> "EvidenceCitation":
+    def _quote_xor_table_ref_for_clear_vs_table_only(self) -> EvidenceCitation:
         # Not a hard error here -- EvidenceStatus is what actually branches
         # verification behavior (Step2 automation vs human review path).
         # This citation shape only records what evidence looks like.
@@ -68,7 +74,7 @@ class SourcedValue(BaseModel, Generic[T]):
 
     model_config = ConfigDict(extra="forbid")
 
-    value: Optional[T] = None
+    value: T | None = None
     evidence: list[EvidenceCitation] = Field(default_factory=list)
     status: EvidenceStatus = EvidenceStatus.UNSPECIFIED
 
@@ -82,7 +88,7 @@ class PaperRef(BaseModel):
     document_id: str
     title: str = ""
     citation: str = ""
-    publication_year: Optional[int] = None
+    publication_year: int | None = None
 
 
 # --- 6.2 Signal & formula ---------------------------------------------------
@@ -123,7 +129,7 @@ class FormulaSpec(BaseModel):
     evidence: list[EvidenceCitation] = Field(default_factory=list)
 
     @model_validator(mode="after")
-    def _step_ids_unique(self) -> "FormulaSpec":
+    def _step_ids_unique(self) -> FormulaSpec:
         ids = [s.step_id for s in self.steps]
         if len(ids) != len(set(ids)):
             raise ValueError(f"FormulaSpec.steps has duplicate step_id values: {ids}")
@@ -171,8 +177,8 @@ class EstimationSpec(BaseModel):
     method: EstimationMethod
     model_expression: str = ""
     estimation_window: WindowSpec
-    measurement_window: Optional[WindowSpec] = None
-    minimum_observations: Optional[int] = None
+    measurement_window: WindowSpec | None = None
+    minimum_observations: int | None = None
     residual_definition: str = ""
     evidence: list[EvidenceCitation] = Field(default_factory=list)
 
@@ -185,10 +191,10 @@ class SignalSpec(BaseModel):
     direction: SourcedValue[SignalDirection]
     category: SignalCategory = SignalCategory.CONTINUOUS
     formula: FormulaSpec
-    estimation: Optional[EstimationSpec] = None
+    estimation: EstimationSpec | None = None
 
     @model_validator(mode="after")
-    def _estimated_category_requires_estimation(self) -> "SignalSpec":
+    def _estimated_category_requires_estimation(self) -> SignalSpec:
         if self.category == SignalCategory.ESTIMATED and self.estimation is None:
             raise ValueError("signal.category == 'estimated' requires signal.estimation to be set")
         return self
@@ -226,7 +232,7 @@ class DataSpec(BaseModel):
     coverage_notes: list[str] = Field(default_factory=list)
 
     @model_validator(mode="after")
-    def _concept_ids_unique(self) -> "DataSpec":
+    def _concept_ids_unique(self) -> DataSpec:
         ids = [f.concept_id for f in self.fields]
         if len(ids) != len(set(ids)):
             raise ValueError(f"DataSpec.fields has duplicate concept_id values: {ids}")
@@ -239,10 +245,10 @@ class DataSpec(BaseModel):
 class Period(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    start_year: Optional[int] = None
-    end_year: Optional[int] = None
-    start_month: Optional[int] = None
-    end_month: Optional[int] = None
+    start_year: int | None = None
+    end_year: int | None = None
+    start_month: int | None = None
+    end_month: int | None = None
     evidence: list[EvidenceCitation] = Field(default_factory=list)
     status: EvidenceStatus = EvidenceStatus.UNSPECIFIED
 
@@ -267,7 +273,7 @@ class LagBasis(str, Enum):
 class DataAvailability(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    lag_value: Optional[int] = None
+    lag_value: int | None = None
     lag_unit: TimeUnit = TimeUnit.MONTH
     anchor: WindowAnchor = WindowAnchor.FISCAL_PERIOD_END
     basis: LagBasis = LagBasis.FIXED_CALENDAR_LAG
@@ -284,10 +290,10 @@ class TimingSpec(BaseModel):
     #: monthly-rebalanced factors, where every month is a formation month).
     #: Found missing during Phase D registry wiring -- v1's MethodSpec had a
     #: structured `formation_month: int`, which this replaces.
-    formation_month: Optional[SourcedValue[int]] = None
+    formation_month: SourcedValue[int] | None = None
     rebalance_frequency: SourcedValue[TimeUnit]
     holding_period: SourcedValue[int]
-    return_window: Optional[WindowSpec] = None
+    return_window: WindowSpec | None = None
     data_availability: DataAvailability
 
 
@@ -318,6 +324,18 @@ class FilterSpec(BaseModel):
     op: FilterOp = FilterOp.NONMISSING
     value: Any = None
     evidence: list[EvidenceCitation] = Field(default_factory=list)
+    #: Human-approved escape hatch: this stated universe restriction is NOT
+    #: applied at runtime (e.g. its field can't yet be resolved against any
+    #: registered data source/panel). Never set by `build_config` itself --
+    #: only a human decision, always paired with `unapplied_reason` -- so the
+    #: deviation is explicitly recorded rather than silently dropped (see
+    #: AGENTS.md: "never silently ignore a stated universe restriction").
+    #: Excluded from `concept_mapping` resolution requirements (see
+    #: `ResolvedMethodSpec.unmapped_concepts`) and from the engine's
+    #: `universe_filters` -- it plays no runtime role, it's purely a
+    #: recorded, reviewable gap (see `registry._unapplied_universe_filters`).
+    accepted_unapplied: bool = False
+    unapplied_reason: str = ""
 
 
 class UniverseSpec(BaseModel):
@@ -338,12 +356,24 @@ class TransformStage(str, Enum):
     AFTER_SIGNAL = "after_signal"
 
 
+class MissingActionScheme(str, Enum):
+    """Mirrors `ENGINE_MISSING_ACTION_MENU` (src/steps/step2_reviewer/review.py):
+    same pattern as `WeightingScheme` -- `OTHER` is the escape hatch for a
+    paper-stated policy the engine can't run (e.g. imputation/interpolation),
+    with the paper's own free-text description still surviving in this
+    field's `evidence[]` citations.
+    """
+
+    DROP = "drop"
+    OTHER = "other"
+
+
 class MissingPolicy(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     stage: MissingStage
-    action: SourcedValue[str]
-    threshold: Optional[float] = None
+    action: SourcedValue[MissingActionScheme]
+    threshold: float | None = None
 
 
 class TransformKind(str, Enum):
@@ -360,7 +390,7 @@ class TransformSpec(BaseModel):
 
     kind: TransformKind
     stage: TransformStage
-    bounds: Optional[tuple[float, float]] = None
+    bounds: tuple[float, float] | None = None
     evidence: list[EvidenceCitation] = Field(default_factory=list)
 
 
@@ -392,10 +422,35 @@ class GroupType(str, Enum):
     THRESHOLD = "threshold"
 
 
+class WeightingScheme(str, Enum):
+    """Mirrors `ENGINE_WEIGHTING_MENU` (src/steps/step2_reviewer/review.py):
+    `OTHER` is the escape hatch for a paper-stated scheme the engine can't run
+    (same D4-block-via-enum pattern as `ConstructionType.OTHER`) -- the paper's
+    own free-text description still survives in this field's `evidence[]`
+    citations, only the categorical `.value` is constrained.
+    """
+
+    VW = "vw"
+    EW = "ew"
+    OTHER = "other"
+
+
+class BreakpointBasis(str, Enum):
+    """Mirrors `ENGINE_BREAKPOINT_SOURCE_MENU` (src/steps/step2_reviewer/
+    review.py) -- same OTHER-escape-hatch pattern as `WeightingScheme`.
+    `FULL_SAMPLE` covers any "all stocks"/"all eligible stocks"/"entire
+    universe" wording; `NYSE` covers "NYSE-only"/"NYSE breakpoints" wording.
+    """
+
+    FULL_SAMPLE = "full_sample"
+    NYSE = "nyse"
+    OTHER = "other"
+
+
 class BreakpointSpec(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    population: SourcedValue[str]
+    basis: SourcedValue[BreakpointBasis]
     values: list[float] = Field(default_factory=list)
 
 
@@ -408,9 +463,9 @@ class SortDimension(BaseModel):
     order: int
     mode: SortMode
     group_type: GroupType
-    group_count: Optional[int] = None
+    group_count: int | None = None
     breakpoints: BreakpointSpec
-    condition_on_sort_id: Optional[str] = None
+    condition_on_sort_id: str | None = None
     evidence: list[EvidenceCitation] = Field(default_factory=list)
 
 
@@ -429,13 +484,13 @@ class PortfolioSpec(BaseModel):
     construction_type: SourcedValue[ConstructionType]
     sorts: list[SortDimension] = Field(default_factory=list)
     legs: list[PortfolioLeg] = Field(default_factory=list)
-    weighting: SourcedValue[str]
+    weighting: SourcedValue[WeightingScheme]
     return_combination: SourcedValue[str]
     missing_policies: list[MissingPolicy] = Field(default_factory=list)
     transforms: list[TransformSpec] = Field(default_factory=list)
 
     @model_validator(mode="after")
-    def _sort_and_leg_ids_unique(self) -> "PortfolioSpec":
+    def _sort_and_leg_ids_unique(self) -> PortfolioSpec:
         sort_ids = [s.sort_id for s in self.sorts]
         if len(sort_ids) != len(set(sort_ids)):
             raise ValueError(f"PortfolioSpec.sorts has duplicate sort_id values: {sort_ids}")
@@ -506,13 +561,13 @@ class ReportedMetric(BaseModel):
     estimate: float
     unit: Unit
     frequency: TimeUnit
-    statistic: Optional[MetricStatistic] = None
+    statistic: MetricStatistic | None = None
     sample_period: Period
     evidence: list[EvidenceCitation] = Field(default_factory=list)
     status: EvidenceStatus = EvidenceStatus.UNSPECIFIED
 
     @model_validator(mode="after")
-    def _table_only_has_table_ref(self) -> "ReportedMetric":
+    def _table_only_has_table_ref(self) -> ReportedMetric:
         if self.status == EvidenceStatus.TABLE_ONLY:
             has_table_ref = any(e.table_ref is not None for e in self.evidence)
             if not has_table_ref:
@@ -530,7 +585,7 @@ class ReportedResults(BaseModel):
     metrics: list[ReportedMetric] = Field(default_factory=list, max_length=4)
 
     @model_validator(mode="after")
-    def _primary_metric_exists(self) -> "ReportedResults":
+    def _primary_metric_exists(self) -> ReportedResults:
         ids = [m.metric_id for m in self.metrics]
         if len(ids) != len(set(ids)):
             raise ValueError(f"ReportedResults.metrics has duplicate metric_id values: {ids}")
@@ -541,10 +596,10 @@ class ReportedResults(BaseModel):
         return self
 
 
-# --- 6.1 (cont'd) Top-level PaperMethodSpec ----------------------------------
+# --- 6.1 (cont'd) Top-level MethodSpec ----------------------------------
 
 
-class PaperMethodSpec(BaseModel):
+class MethodSpec(BaseModel):
     """Step 1 output. Immutable paper facts only -- no physical mappings, no
     review state, no engine defaults. See plan section 6.10 for the full
     field audit vs methodspec.v1.
@@ -577,7 +632,7 @@ class PaperMethodSpec(BaseModel):
     @staticmethod
     def make_factor_id(document_id: str, target_name: str) -> str:
         """D7: factor_id = sha256(paper_ref + "::" + target_name)[:16]."""
-        digest = hashlib.sha256(f"{document_id}::{target_name}".encode("utf-8")).hexdigest()
+        digest = hashlib.sha256(f"{document_id}::{target_name}".encode()).hexdigest()
         return digest[:16]
 
 
@@ -624,15 +679,12 @@ class Finding(BaseModel):
 
 
 class MethodReview(BaseModel):
-    """Step 2 output. Bound to a specific PaperMethodSpec content hash (D1);
-    stale if the paper spec changes underneath it.
-    """
+    """Step 2 output."""
 
     model_config = ConfigDict(extra="forbid")
 
     schema_version: Literal["methodreview.v2"] = "methodreview.v2"
     factor_id: str
-    paper_spec_hash: str
     capability_version: str
     findings: list[Finding] = Field(default_factory=list)
     status_overrides: dict[str, EvidenceStatus] = Field(default_factory=dict)
@@ -641,14 +693,6 @@ class MethodReview(BaseModel):
     @property
     def is_blocked(self) -> bool:
         return any(f.disposition == Disposition.BLOCKED for f in self.findings)
-
-    def content_hash(self) -> str:
-        """Deterministic hash of review content, used by ImplementationResolution
-        to detect staleness the same way `paper_spec_hash` does for the paper (D1).
-        """
-        payload = self.model_dump(mode="json")
-        canonical = json.dumps(payload, sort_keys=True, separators=(",", ":"))
-        return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
 
 
 # --- 6.11 ImplementationResolution --------------------------------------------
@@ -689,19 +733,24 @@ class Substitution(BaseModel):
 
 class ImplementationResolution(BaseModel):
     """Physical mappings + human decisions. Append-only entries list;
-    never mutates PaperMethodSpec or MethodReview in place.
+    never mutates MethodSpec or MethodReview in place.
     """
 
     model_config = ConfigDict(extra="forbid")
 
     schema_version: Literal["resolution.v2"] = "resolution.v2"
     factor_id: str
-    paper_spec_hash: str
-    review_hash: str
 
     concept_mapping: dict[str, SourceColumn] = Field(default_factory=dict)
     returns_source: str = ""
-    cz_acronym: Optional[str] = None
+    cz_acronym: str | None = None
+    #: concept_ids in `concept_mapping` that the deterministic exact/substring
+    #: matcher (`DataDictionary.normalize_fields`) could NOT resolve on its
+    #: own -- only an LLM catalog-menu match (`normalize_fields_with_llm`,
+    #: hard-validated against real registered sources/columns) filled them
+    #: in. Surfaced so a human can specifically re-check these picks instead
+    #: of trusting every entry in `concept_mapping` equally.
+    llm_matched_concepts: list[str] = Field(default_factory=list)
 
     entries: list[ResolutionEntry] = Field(default_factory=list)
     approved_substitutions: list[Substitution] = Field(default_factory=list)
@@ -722,6 +771,22 @@ CAPABILITY_VERSION_V1 = "engine_capability.v1"
 
 MAX_SUPPORTED_SORT_DIMENSIONS = 2
 
+#: Columns the (only) supported returns panel (`CrspReturnsUniverse`/
+#: `build_crsp_monthly_panel_ciz`) actually supplies, i.e. what
+#: `BacktestExecutor.filter_universe` can evaluate a universe filter against
+#: today. A filter resolving to any OTHER column (e.g. a Compustat-only
+#: field like a listing-duration screen) is `kind="unsupported"` -- the
+#: engine has no eligibility-panel join to bring it in yet -- and blocks
+#: `is_ready` unless a human explicitly records `FilterSpec.
+#: accepted_unapplied` (the same "paper vocabulary vs engine menu"
+#: escape-hatch pattern as `WeightingScheme.OTHER` etc.). This is
+#: deliberately a small static list, not a data-layer lookup -- adding real
+#: eligibility-panel support (loading+joining other sources here) is
+#: out of scope for now; this constant only decides what CAN'T run yet.
+RETURNS_PANEL_NATIVE_COLUMNS: frozenset[str] = frozenset(
+    {"permno", "yyyymm", "ret", "me", "exchcd", "shrcd", "siccd", "dlret"}
+)
+
 
 class ResolvedMethodSpec(BaseModel):
     """Deterministic aggregate view of the three source artifacts (D1).
@@ -734,30 +799,69 @@ class ResolvedMethodSpec(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
-    paper: PaperMethodSpec
+    paper: MethodSpec
     review: MethodReview
     resolution: ImplementationResolution
 
     @model_validator(mode="after")
-    def _factor_ids_consistent(self) -> "ResolvedMethodSpec":
+    def _factor_ids_consistent(self) -> ResolvedMethodSpec:
         ids = {self.paper.factor_id, self.review.factor_id, self.resolution.factor_id}
         if len(ids) != 1:
             raise ValueError(f"factor_id mismatch across paper/review/resolution: {ids}")
         return self
 
-    def _hashes_current(self) -> bool:
-        current_paper_hash = self.paper.content_hash()
-        return (
-            self.review.paper_spec_hash == current_paper_hash
-            and self.resolution.paper_spec_hash == current_paper_hash
-            and self.resolution.review_hash == self.review.content_hash()
-        )
-
-    def _all_concepts_mapped(self) -> bool:
+    def unmapped_concepts(self) -> list[str]:
+        """Concept ids that `registry._resolved_column` will need at
+        build_config time but that `resolution.concept_mapping` has no entry
+        for -- surfaced so the resolve UI can tell a human exactly what's
+        blocking `is_ready`, instead of a bare boolean.
+        """
         signal_input_concepts = {
             f.concept_id for f in self.paper.data.fields if FieldRole.SIGNAL_INPUT in f.roles
         }
-        return signal_input_concepts.issubset(self.resolution.concept_mapping.keys())
+        universe_filter_concepts = {
+            f.concept_id for f in self.paper.universe.filters if not f.accepted_unapplied
+        }
+        non_target_sort_concepts = {
+            s.concept_id for s in self.paper.portfolio.sorts if s.role != SortRole.TARGET
+        }
+        required = signal_input_concepts | universe_filter_concepts | non_target_sort_concepts
+        return sorted(required - self.resolution.concept_mapping.keys())
+
+    def unsupported_universe_filters(self) -> list[str]:
+        """Concept ids of every APPLIED (not `accepted_unapplied`) universe
+        filter that DOES resolve to a physical column (so it's not already
+        caught by `unmapped_concepts`), but whose column isn't one the
+        engine's returns panel actually supplies (`RETURNS_PANEL_NATIVE_
+        COLUMNS`) -- e.g. a Compustat-only backfill-bias screen. This is the
+        "unsupported, needs a human decision" case, same posture as a D4
+        engine-capability finding: either register real eligibility-panel
+        support (out of scope today) or explicitly mark the filter
+        `accepted_unapplied=True` with a reason, recorded and surfaced here
+        rather than crashing at Step5 runtime.
+        """
+        out = []
+        for f in self.paper.universe.filters:
+            if f.accepted_unapplied:
+                continue
+            mapping = self.resolution.concept_mapping.get(f.concept_id)
+            if mapping is not None and mapping.column not in RETURNS_PANEL_NATIVE_COLUMNS:
+                out.append(f.concept_id)
+        return out
+
+    def _universe_filters_supported(self) -> bool:
+        return not self.unsupported_universe_filters()
+
+    def _all_concepts_mapped(self) -> bool:
+        # Universe filters and non-target sort dimensions also go through
+        # `registry._resolved_column(resolution, concept_id)` at build_config
+        # time -- an unmapped concept there previously slipped past is_ready
+        # (only signal-input concepts were checked) and only surfaced as a
+        # confusing step3 "no physical column mapping" 400 later. Require
+        # these to be mapped too, so a genuinely-unresolvable concept (e.g. a
+        # derived eligibility rule with no physical column at all) blocks
+        # resolution at the source instead.
+        return not self.unmapped_concepts()
 
     def _construction_within_capability(self) -> bool:
         sorts = self.paper.portfolio.sorts
@@ -767,11 +871,16 @@ class ResolvedMethodSpec(BaseModel):
 
     @property
     def is_ready(self) -> bool:
-        """Replaces v1's `codegen_ready` boolean flag -- derived, not stored."""
+        """Replaces v1's `codegen_ready` boolean flag -- derived, not stored.
+        No longer checks a paper/review/resolution hash-binding (staleness
+        detection was removed 2026-08-09 -- see docs/decision-log.md); a
+        review/resolution computed against an EARLIER version of the paper
+        is silently treated as still valid here.
+        """
         return (
-            self._hashes_current()
-            and not self.review.is_blocked
+            not self.review.is_blocked
             and self._all_concepts_mapped()
+            and self._universe_filters_supported()
             and self._construction_within_capability()
         )
 

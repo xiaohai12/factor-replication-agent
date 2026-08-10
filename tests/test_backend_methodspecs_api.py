@@ -1,10 +1,10 @@
 """Integration test for the paper-first API lifecycle
-(`backend/routers/paper_methodspecs.py`): deterministic review + resolve
-endpoints (no LLM call), proving the new v2 (paper-first) HTTP surface
-round-trips through `ResolvedMethodSpec.is_ready` correctly. Extract is not
-covered here (LLM call) -- see `PaperExtractor` for that logic, tested
-without a real network call would require a fake client wired through
-`build_llm_client`, out of scope for this HTTP-level test.
+(`backend/routers/methodspecs.py`): deterministic review + resolve
+endpoints (no LLM call), proving the paper-first HTTP surface round-trips
+through `ResolvedMethodSpec.is_ready` correctly. Extract is not covered here
+(LLM call) -- see `MethodSpecExtractor` for that logic, tested without a real
+network call would require a fake client wired through `build_llm_client`,
+out of scope for this HTTP-level test.
 """
 
 from __future__ import annotations
@@ -22,13 +22,13 @@ def test_review_and_resolve_round_trip():
     paper_payload = json.loads(resolved.paper.model_dump_json())
 
     with TestClient(app) as client:
-        review_resp = client.post("/api/paper-methodspecs/review", json={"paper": paper_payload})
+        review_resp = client.post("/api/methodspecs/review", json={"paper": paper_payload})
         assert review_resp.status_code == 200
         review_json = review_resp.json()
         assert review_json["factor_id"] == resolved.paper.factor_id
 
         resolve_resp = client.post(
-            "/api/paper-methodspecs/resolve",
+            "/api/methodspecs/resolve",
             json={"paper": paper_payload, "review": review_json},
         )
         assert resolve_resp.status_code == 200
@@ -36,14 +36,14 @@ def test_review_and_resolve_round_trip():
         assert "resolution" in resolve_json
         assert isinstance(resolve_json["is_ready"], bool)
 
-        listed = client.get("/api/paper-methodspecs/reviews").json()
+        listed = client.get("/api/methodspecs/reviews").json()
         assert resolved.paper.factor_id in listed
 
-        loaded = client.get(f"/api/paper-methodspecs/reviews/{resolved.paper.factor_id}").json()
+        loaded = client.get(f"/api/methodspecs/reviews/{resolved.paper.factor_id}").json()
         assert loaded["factor_id"] == resolved.paper.factor_id
 
 
 def test_unknown_stage_404s():
     with TestClient(app) as client:
-        resp = client.get("/api/paper-methodspecs/bogus-stage")
+        resp = client.get("/api/methodspecs/bogus-stage")
         assert resp.status_code == 404

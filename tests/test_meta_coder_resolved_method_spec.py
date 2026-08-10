@@ -8,7 +8,7 @@ client (no real network call).
 
 from __future__ import annotations
 
-from src.infra.models.paper_method_spec import (
+from src.infra.models.method_spec import (
     ConstructionType,
     DataAvailability,
     DataSpec,
@@ -22,7 +22,7 @@ from src.infra.models.paper_method_spec import (
     GroupType,
     ImplementationResolution,
     Period,
-    PaperMethodSpec,
+    MethodSpec,
     PaperRef,
     PortfolioLeg,
     PortfolioSpec,
@@ -47,7 +47,7 @@ from src.infra.models.paper_method_spec import (
     Unit,
     UniverseSpec,
 )
-from src.steps.step2_reviewer.paper_review import review_paper_method_spec
+from src.steps.step2_reviewer.review import review_method_spec
 from src.steps.step3_codegen import MetaCoder
 
 
@@ -92,8 +92,8 @@ def _period() -> Period:
 
 
 def _resolved_spec() -> ResolvedMethodSpec:
-    factor_id = PaperMethodSpec.make_factor_id("cooper2008", "asset_growth")
-    paper = PaperMethodSpec(
+    factor_id = MethodSpec.make_factor_id("cooper2008", "asset_growth")
+    paper = MethodSpec(
         factor_id=factor_id,
         target_name="asset_growth",
         paper=PaperRef(document_id="cooper2008", title="Asset Growth...", citation="Cooper et al 2008", publication_year=2008),
@@ -131,7 +131,7 @@ def _resolved_spec() -> ResolvedMethodSpec:
                 SortDimension(
                     sort_id="sort1", concept_id="at", role=SortRole.TARGET, order=1,
                     mode=SortMode.INDEPENDENT, group_type=GroupType.QUANTILE, group_count=10,
-                    breakpoints=BreakpointSpec(population=SourcedValue(value="nyse", status=EvidenceStatus.CLEAR)),
+                    breakpoints=BreakpointSpec(basis=SourcedValue(value="nyse", status=EvidenceStatus.CLEAR)),
                 )
             ],
             legs=[
@@ -154,10 +154,9 @@ def _resolved_spec() -> ResolvedMethodSpec:
             ],
         ),
     )
-    review = review_paper_method_spec(paper)
+    review = review_method_spec(paper)
     resolution = ImplementationResolution(
-        factor_id=paper.factor_id, paper_spec_hash=paper.content_hash(),
-        review_hash=review.content_hash(),
+        factor_id=paper.factor_id,
         concept_mapping={"at": SourceColumn(source="comp_funda", column="at")},
         returns_source="us_equity_crsp",
     )
@@ -168,7 +167,7 @@ class TestGeneratePluginFromResolved:
     def test_generates_plugin_and_records_factor_id(self):
         coder = MetaCoder(llm_client=_FakeLLMClient())
         record = coder.generate_plugin(_resolved_spec())
-        assert record.factor_id == PaperMethodSpec.make_factor_id("cooper2008", "asset_growth")
+        assert record.factor_id == MethodSpec.make_factor_id("cooper2008", "asset_growth")
         assert "compute_signal" in record.code
 
     def test_not_ready_spec_rejected(self):

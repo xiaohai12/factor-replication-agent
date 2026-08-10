@@ -11,6 +11,8 @@ import { cn } from "@/lib/utils"
 
 const NAV_ITEMS = [
   { to: "/sessions", label: "Sessions" },
+  { to: "/extract", label: "Extractor" },
+  { to: "/review", label: "Review & Resolve" },
   { to: "/pipeline", label: "Pipeline — End to End" },
   { to: "/backtest", label: "Backtest & Experiments" },
   { to: "/trace", label: "Trace & Logs" },
@@ -18,7 +20,7 @@ const NAV_ITEMS = [
   { to: "/data-catalog", label: "Data Catalog" },
 ]
 
-const COMING_SOON = ["Extractor", "Review & Resolve", "MetaCoder", "Replication Diagnosis"]
+const COMING_SOON = ["MetaCoder", "Replication Diagnosis"]
 
 export function AppLayout() {
   const { provider, model, setProvider, setModel } = useLlm()

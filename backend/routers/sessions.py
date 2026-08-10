@@ -32,7 +32,7 @@ from backend.state import (
     pipeline,
 )
 from src.evaluation import diagnostics as step_diagnostics
-from src.infra.models.paper_method_spec import ResolvedMethodSpec
+from src.infra.models.method_spec import ResolvedMethodSpec
 from src.infra.models.plugin import PluginRecord
 from src.infra.repair import RepairLoop
 from src.infra.models.session import (

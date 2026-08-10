@@ -1,6 +1,7 @@
 import { Badge } from "@/components/ui/badge"
 import { cn } from "@/lib/utils"
 import { STEP_REGISTRY } from "@/lib/steps"
+import type { MethodSpecWorkflowState } from "@/lib/methodSpecStore"
 import type { SessionManifest, StepStatus } from "@/lib/types"
 
 const STATUS_VARIANT: Record<StepStatus, "default" | "secondary" | "destructive" | "outline"> = {
@@ -11,7 +12,30 @@ const STATUS_VARIANT: Record<StepStatus, "default" | "secondary" | "destructive"
   blocked: "destructive",
 }
 
-/** 8-node stepper driven entirely by session state -- readiness/status
+/** Steps 1/2's own progress lives client-side in `MethodSpecWorkflowState`
+ * (sessionStorage), not the session manifest's step attempts (see
+ * `docs/known-gaps-paper-first-v2.md`) -- derive an equivalent `StepStatus`
+ * from it so those two nodes color the same way steps 3-8 do. */
+function specStepStatus(specState: MethodSpecWorkflowState | undefined, step: number): StepStatus | undefined {
+  if (!specState) return undefined
+  if (step === 1) return specState.paper ? "success" : "not_started"
+  if (step === 2) {
+    if (specState.resolved) return "success"
+    if (specState.review) {
+      const findings = (specState.review.findings as Array<Record<string, unknown>> | undefined) ?? []
+      return findings.some((f) => f.disposition === "blocked") ? "blocked" : "running"
+    }
+    return "not_started"
+  }
+  return undefined
+}
+
+/** Session-owned stepper driven entirely by session state, except steps 1/2
+ * which fall back to `specState` (see `specStepStatus` above) since the
+ * paper-first MethodSpec lifecycle is global and persisted under
+ * runs/method_specs, not as session step attempts.
+ *
+ * Readiness/status
  * badges come from the session's own recorded diagnostics/attempts, never
  * a client-side guess. Clicking a node is always allowed (per Phase 1's
  * "every step can run standalone from a stored upstream artifact"
@@ -19,10 +43,12 @@ const STATUS_VARIANT: Record<StepStatus, "default" | "secondary" | "destructive"
 export function StepStepper({
   manifest,
   activeStep,
+  specState,
   onSelect,
 }: {
   manifest: SessionManifest
   activeStep: number
+  specState?: MethodSpecWorkflowState
   onSelect: (step: number) => void
 }) {
   return (
@@ -30,7 +56,7 @@ export function StepStepper({
       {STEP_REGISTRY.map((def) => {
         const record = manifest.steps[String(def.step)]
         const latest = record?.attempts[record.attempts.length - 1]
-        const status: StepStatus = latest?.status ?? "not_started"
+        const status: StepStatus = specStepStatus(specState, def.step) ?? latest?.status ?? "not_started"
         const readiness = latest?.diagnostics && "readiness" in latest.diagnostics ? latest.diagnostics.readiness : undefined
 
         return (
