@@ -8,6 +8,12 @@ match the model exactly**. The model uses `extra="forbid"` -- any field you
 invent that isn't in the schema below will make extraction fail loudly
 instead of being silently dropped. Do not add fields. Do not rename fields.
 
+Your output is not checked immediately -- a later review step re-reads the
+paper alongside your extraction, corrects mistakes, and classifies a few
+paper-vocabulary fields into the engine's fixed menu tokens (see 1.7a below).
+Aim to be correct and complete anyway; do not rely on that later step to fix
+avoidable errors.
+
 ---
 
 # 1. Extraction rules
@@ -101,36 +107,37 @@ dimensions with `order` reflecting sequence and (for sequential sorts)
 short side -- each leg's `selector` maps `sort_id -> group_index` (0-based;
 group 0 = lowest bucket).
 
-## 1.7a `breakpoints.basis` is a constrained enum
+## 1.7a `breakpoints.basis`, `weighting`, `missing_policies[].action`: write the paper's literal description, not an engine token
 
-`portfolio.sorts[].breakpoints.basis.value` only accepts exactly
-`full_sample`, `nyse`, or `other` -- writing anything else (e.g. "all
-eligible stocks") will FAIL validation. Use `full_sample` whenever
-breakpoints are computed from every stock in the universe (regardless of
-exchange), `nyse` whenever the paper explicitly uses NYSE-only breakpoints
-(a very common convention even when NYSE/Amex/NASDAQ stocks are all
-included in the PORTFOLIOS themselves), and `other` only for a genuinely
-different breakpoint population (e.g. a size-conditional subset). As
-always, put the paper's own wording in this field's `evidence[]` citation.
+`portfolio.sorts[].breakpoints.basis.value`, `portfolio.weighting.value`, and
+`portfolio.missing_policies[].action.value` are schema-constrained fields
+(they only accept a small set of engine-menu tokens), but classifying a
+paper's wording into the correct token is **not your job at this stage** --
+a later review step reads your extraction alongside the paper and performs
+that classification. Writing the paper's own words directly avoids
+preemptively (and possibly incorrectly) forcing a paper's actual method into
+the wrong token before anyone has checked it.
 
-## 1.7b `weighting` is a constrained enum; `return_combination` is free text with preferred tokens
+Concretely:
 
-`portfolio.weighting.value` only accepts exactly `vw`, `ew`, or `other` --
-writing anything else (e.g. "value-weighted") will FAIL validation. Use:
-
-- `vw` for any value-weighted/market-cap-weighted scheme.
-- `ew` for any equal-weighted scheme.
-- `other` for anything genuinely different (e.g. a capped value-weighting, a
-  custom weighting formula). Put the actual scheme description in this
-  field's `evidence[].quote`/`interpretation` -- `other` only tells review
-  "the engine can't run this exact scheme," it does not lose the paper's own
-  description, which still lives in the evidence citation.
+- If the paper's wording obviously and unambiguously matches one of the menu
+  tokens (e.g. the paper literally says "NYSE breakpoints", or "value-weighted
+  portfolios"), it's fine to write the token directly.
+- Otherwise, write the paper's own description as a short phrase (e.g. "a
+  value-weighted portfolio capped at 5% per stock", "NYSE/Amex/NASDAQ size
+  quintiles") -- do NOT force-fit it into one of the menu tokens just because
+  the field only accepts a few values. Getting this wrong here (forcing a
+  capped-VW scheme into plain `vw`, for instance) silently loses information
+  a later step needs to correctly flag the paper's method as something the
+  engine can't run exactly.
+- Either way, put the paper's exact wording in this field's `evidence[]`
+  citation too -- the classification (whichever form you wrote) should never
+  be the ONLY place the paper's own language survives.
 
 `portfolio.return_combination.value` is a plain string (not an enum) since
 its free-text cases are too varied to enumerate exhaustively, but still
-prefer the exact engine token whenever the paper's scheme genuinely matches
-one of these -- this is the single most common cause of a spec getting stuck
-at review for no real reason:
+prefer the exact engine token whenever the paper's scheme genuinely and
+unambiguously matches one of these:
 
 - return_combination: write exactly `extreme_group_spread` for a long the
   top group / short the bottom group construction (the by-far most common
@@ -139,20 +146,6 @@ at review for no real reason:
   `full_portfolio_return` for a return computed across the whole universe
   with no long-short spread. Only write a free-text sentence when none of
   these four descriptions actually matches what the paper does.
-
-## 1.7c `missing_policies[].action` is a constrained enum
-
-`portfolio.missing_policies[].action.value` only accepts exactly `drop` or
-`other` -- writing a free-text sentence (e.g. "require nonzero total assets
-in both input years") will FAIL validation. Use `drop` whenever the paper's
-policy amounts to excluding/removing firms failing some condition before
-computing the signal or forming portfolios (this covers the large majority
-of papers' missing-data handling); use `other` only for a genuinely
-different policy (e.g. imputation, carrying forward a stale value,
-winsorizing instead of dropping). Put the paper's own exact wording in this
-field's `evidence[].quote` either way -- the enum only tells review whether
-the engine can execute the policy, it does not replace the evidence
-citation.
 
 ## 1.8 Reported metrics: primary + up to 3 secondary
 

@@ -25,8 +25,6 @@ from src.infra.models.method_spec import (
     GroupType,
     Period,
     MethodSpec,
-    MissingPolicy,
-    MissingStage,
     PaperRef,
     PortfolioLeg,
     PortfolioSpec,
@@ -127,10 +125,9 @@ def _base_spec(**portfolio_overrides) -> MethodSpec:
 
 
 class TestReviewCleanBaseline:
-    def test_fully_clear_spec_has_no_findings_and_is_not_blocked(self):
+    def test_fully_clear_spec_has_no_findings(self):
         review = review_method_spec(_base_spec())
         assert review.findings == []
-        assert not review.is_blocked
 
 
 class TestEvidenceStatusFindings:
@@ -141,14 +138,14 @@ class TestEvidenceStatusFindings:
         matches = [f for f in review.findings if f.field_path == "timing.formation_rule"]
         assert len(matches) == 1
         assert matches[0].disposition == Disposition.NEEDS_HUMAN_CONFIRMATION
-        assert not review.is_blocked  # NEEDS_HUMAN_CONFIRMATION alone doesn't block
 
-    def test_table_only_high_impact_field_needs_human_confirmation(self):
+    def test_table_only_high_impact_field_auto_approves(self):
+        # (TABLE_ONLY, HIGH) -> AUTO_APPROVE (2026-08-10): clear/table_only
+        # both mean "the paper actually states this".
         paper = _base_spec()
         paper.universe.description.status = EvidenceStatus.TABLE_ONLY
         review = review_method_spec(paper)
-        matches = [f for f in review.findings if f.field_path == "universe.description"]
-        assert matches[0].disposition == Disposition.NEEDS_HUMAN_CONFIRMATION
+        assert not any(f.field_path == "universe.description" for f in review.findings)
 
     def test_conflicting_field_needs_human_confirmation(self):
         paper = _base_spec()
@@ -158,87 +155,29 @@ class TestEvidenceStatusFindings:
         assert matches[0].disposition == Disposition.NEEDS_HUMAN_CONFIRMATION
 
 
-class TestCapabilityFindings:
-    def test_unsupported_weighting_scheme_blocked(self):
+class TestMissingMappingFindings:
+    """D4 (engine-capability blocking) was removed 2026-08-10 -- menu-vocabulary
+    classification (weighting/construction_type/breakpoints.basis/
+    missing_policies[].action) now happens in the LLM review loop
+    (spec_build.py) and is recorded via `SourcedValue.unsupported_value`,
+    never blocked. The one D4-era check that survives is the
+    `universe.filters[].concept_id` cross-reference (refiled as
+    `missing_mapping`/`NEEDS_HUMAN_CONFIRMATION`, not `BLOCKED`), since an
+    unmappable concept is a hard Step3 crash risk, not an engine-capability
+    gap."""
+
+    def test_unsupported_weighting_scheme_not_flagged(self):
         paper = _base_spec()
-        paper.portfolio.weighting = SourcedValue(value="capped_vw_at_5pct", status=EvidenceStatus.CLEAR)
+        paper.portfolio.weighting = SourcedValue(value="other", status=EvidenceStatus.CLEAR)
         review = review_method_spec(paper)
-        matches = [f for f in review.findings if f.field_path == "portfolio.weighting"]
-        assert len(matches) == 1
-        assert matches[0].kind == "unsupported"
-        assert matches[0].disposition == Disposition.BLOCKED
-        assert matches[0].paper_value == "capped_vw_at_5pct"
-        assert review.is_blocked
+        assert not any(f.field_path == "portfolio.weighting" for f in review.findings)
 
-    def test_unsupported_construction_type_blocked(self):
-        paper = _base_spec()
-        paper.portfolio.construction_type = SourcedValue(value=ConstructionType.FAMA_MACBETH, status=EvidenceStatus.CLEAR)
-        review = review_method_spec(paper)
-        matches = [f for f in review.findings if f.field_path == "portfolio.construction_type"]
-        assert matches[0].disposition == Disposition.BLOCKED
-        assert review.is_blocked
-
-    def test_double_sort_within_capability_not_blocked(self):
-        size_sort = SortDimension(
-            sort_id="size", concept_id="me", role=SortRole.CONDITIONING, order=1,
-            mode=SortMode.SEQUENTIAL, group_type=GroupType.QUANTILE, group_count=2,
-            breakpoints=BreakpointSpec(basis=SourcedValue(value="nyse", status=EvidenceStatus.CLEAR)),
-        )
-        value_sort = SortDimension(
-            sort_id="value", concept_id="bm", role=SortRole.TARGET, order=2,
-            mode=SortMode.SEQUENTIAL, group_type=GroupType.QUANTILE, group_count=3,
-            breakpoints=BreakpointSpec(basis=SourcedValue(value="nyse", status=EvidenceStatus.CLEAR)),
-            condition_on_sort_id="size",
-        )
-        paper = _base_spec(
-            sorts=[size_sort, value_sort],
-            legs=[
-                PortfolioLeg(leg_id="long", side="long", selector={"size": 0, "value": 2}),
-                PortfolioLeg(leg_id="short", side="short", selector={"size": 0, "value": 0}),
-            ],
-        )
-        review = review_method_spec(paper)
-        assert not review.is_blocked
-        assert not any(f.field_path == "portfolio.sorts" for f in review.findings)
-
-    def test_too_many_sort_dimensions_blocked(self):
-        sorts = [
-            SortDimension(
-                sort_id=f"s{i}", concept_id="at", role=SortRole.CONTROL, order=i,
-                mode=SortMode.INDEPENDENT, group_type=GroupType.QUANTILE,
-                breakpoints=BreakpointSpec(basis=SourcedValue(value="nyse", status=EvidenceStatus.CLEAR)),
-            )
-            for i in range(4)
-        ]
-        paper = _base_spec(
-            sorts=sorts,
-            legs=[PortfolioLeg(leg_id="long", side="long", selector={"s0": 0})],
-        )
-        review = review_method_spec(paper)
-        matches = [f for f in review.findings if f.field_path == "portfolio.sorts"]
-        assert matches[0].disposition == Disposition.BLOCKED
-        assert review.is_blocked
-
-    def test_non_quantile_group_type_blocked(self):
-        sort = SortDimension(
-            sort_id="sort1", concept_id="industry", role=SortRole.TARGET, order=1,
-            mode=SortMode.INDEPENDENT, group_type=GroupType.CATEGORICAL,
-            breakpoints=BreakpointSpec(basis=SourcedValue(value="full_sample", status=EvidenceStatus.CLEAR)),
-        )
-        paper = _base_spec(
-            sorts=[sort],
-            legs=[PortfolioLeg(leg_id="long", side="long", selector={"sort1": 0})],
-        )
-        review = review_method_spec(paper)
-        matches = [f for f in review.findings if f.field_path == "portfolio.sorts[0].group_type"]
-        assert matches[0].disposition == Disposition.BLOCKED
-
-    def test_universe_filter_concept_not_in_data_fields_blocked(self):
+    def test_universe_filter_concept_not_in_data_fields_needs_human_confirmation(self):
         """docs/known-gaps-paper-first-v2.md gap #3: a universe filter
         concept_id with no matching data.fields entry (e.g. a lag-suffixed
         pseudo-name the extractor invented for a formula step, like
         "total_assets_t_minus_1") can never resolve to a physical column --
-        review should block it instead of letting it surface as a confusing
+        review should flag it instead of letting it surface as a confusing
         step3 'no physical column mapping' 400."""
         paper = _base_spec()
         paper.universe.filters = [
@@ -247,71 +186,16 @@ class TestCapabilityFindings:
         review = review_method_spec(paper)
         matches = [f for f in review.findings if f.field_path == "universe.filters[0].concept_id"]
         assert len(matches) == 1
-        assert matches[0].kind == "unsupported"
-        assert matches[0].disposition == Disposition.BLOCKED
+        assert matches[0].kind == "missing_mapping"
+        assert matches[0].disposition == Disposition.NEEDS_HUMAN_CONFIRMATION
         assert matches[0].paper_value == "total_assets_t_minus_1"
-        assert review.is_blocked
 
-    def test_universe_filter_concept_already_in_data_fields_not_blocked(self):
+    def test_universe_filter_concept_already_in_data_fields_not_flagged(self):
         paper = _base_spec()
         paper.universe.filters = [FilterSpec(concept_id="at", op=FilterOp.NONMISSING)]
         review = review_method_spec(paper)
         assert not any(f.field_path == "universe.filters[0].concept_id" for f in review.findings)
-        assert not review.is_blocked
 
-    def test_unsupported_missing_action_blocked(self):
-        paper = _base_spec()
-        paper.portfolio.missing_policies = [
-            MissingPolicy(
-                stage=MissingStage.SIGNAL,
-                action=SourcedValue(value="other", status=EvidenceStatus.CLEAR),
-            )
-        ]
-        review = review_method_spec(paper)
-        matches = [f for f in review.findings if f.field_path == "portfolio.missing_policies[0].action"]
-        assert len(matches) == 1
-        assert matches[0].kind == "unsupported"
-        assert matches[0].disposition == Disposition.BLOCKED
-        assert matches[0].paper_value == "other"
-        assert review.is_blocked
-
-    def test_drop_missing_action_not_blocked(self):
-        paper = _base_spec()
-        paper.portfolio.missing_policies = [
-            MissingPolicy(
-                stage=MissingStage.SIGNAL,
-                action=SourcedValue(value="drop", status=EvidenceStatus.CLEAR),
-            )
-        ]
-        review = review_method_spec(paper)
-        assert not any(f.field_path == "portfolio.missing_policies[0].action" for f in review.findings)
-        assert not review.is_blocked
-
-    def test_unsupported_breakpoint_basis_blocked(self):
-        paper = _base_spec()
-        paper.portfolio.sorts[0].breakpoints.basis = SourcedValue(
-            value="other", status=EvidenceStatus.CLEAR
-        )
-        review = review_method_spec(paper)
-        matches = [
-            f for f in review.findings if f.field_path == "portfolio.sorts[0].breakpoints.basis"
-        ]
-        assert len(matches) == 1
-        assert matches[0].kind == "unsupported"
-        assert matches[0].disposition == Disposition.BLOCKED
-        assert matches[0].paper_value == "other"
-        assert review.is_blocked
-
-    def test_full_sample_breakpoint_basis_not_blocked(self):
-        paper = _base_spec()
-        paper.portfolio.sorts[0].breakpoints.basis = SourcedValue(
-            value="full_sample", status=EvidenceStatus.CLEAR
-        )
-        review = review_method_spec(paper)
-        assert not any(
-            f.field_path == "portfolio.sorts[0].breakpoints.basis" for f in review.findings
-        )
-        assert not review.is_blocked
 
 
 class TestResolutionBuilder:

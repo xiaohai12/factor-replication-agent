@@ -2,7 +2,142 @@
 
 ## [Unreleased]
 
+### Follow-up (2026-08-11，第三次)：轮次语义修正 + Step1/Step2 拆成两个独立 job
+
+- **`MAX_REVIEW_ROUNDS` 语义修正**：`spec_build.py` 的 `total_rounds` 之前是
+  `max_rounds + 1`（"1 次预检 + max_rounds 次重试"），导致 `MAX_REVIEW_ROUNDS=3`
+  实际跑 4 次 LLM 调用。改为 `total_rounds = max_rounds`——现在设成 3 就正好
+  跑 3 轮（3 次 validate + 3 次 LLM 调用）。相应更新了
+  `tests/test_step2_reviewer_llm.py` 里硬编码轮次数的测试。
+- **Step1 提取与 Step2 审核循环拆成两个独立 job**：此前 `POST /extract*`
+  一个 job 里顺序做完 Step1 提取 + Step2 循环，导致 Step1 页面只有等 Step2
+  也跑完才会显示"成功"。现在：
+  - `_extract_job()` 只做 Step1（提取 + 落盘裸 JSON），返回
+    `{raw_spec, error, token_usage, paper_text}`，提取一结束就算"成功"。
+  - 新增 `POST /api/methodspecs/review-loop`（`_review_loop_job()`）单独跑
+    `build_reviewed_method_spec()`，返回
+    `{spec, error, review, history, total_diff, llm_notes}`，job
+    `step=2`/`stage="review_loop"`。
+  - 前端 `sessionApi.ts` 新增 `runReviewLoop()`；`SessionDetailPage.tsx` 的
+    `MethodSpecWorkflowPanel` 现在维护两个独立的 `useJobStream`
+    （`extractJob`/`reviewJob`）：Step1 提取一结束就 patch `rawSpec` 并跳转到
+    Step2，同时立刻自动调用 `runReviewLoop`（无需用户手动点）；Step2 页面
+    在 `state.paper` 还没生成时展示审核循环的实时日志/状态，并提供"手动
+    重跑"按钮（应对页面刷新后本地 `reviewJobId` 丢失的情况——`documentId`/
+    `targetName` 已经持久化进 `methodSpecStore.ts`，可以重新发起）。
+  - `MethodSpecWorkflowPanel` 在 step1↔step2 之间导航时不会重新挂载（同一个
+    路由 `element`，`step` 只是变化的 prop），所以本地的 `reviewJobId` 状态
+    在两个页面之间是延续的，不需要额外持久化就能让 SSE 日志跨页面继续显示。
+
 ### Added
+
+- **Step1/Step2 重构（`docs/step1-step2-refactor-plan.md`）：Step1 精简为一次纯 LLM
+  调用，Step2 承担全部 validate/normalize/review，单条有界循环收敛。**
+  - `SourcedValue` 新增 `unsupported_value: str | None = None` 字段
+    （`src/infra/models/method_spec.py`），配一个跨字段一致性 `@model_validator`：
+    非空时 `value` 必须是 `"other"`，反之必须为 `None`。放宽 D2：
+    `DISPOSITION_MATRIX` 中 `(TABLE_ONLY, HIGH)` 由 `NEEDS_HUMAN_CONFIRMATION`
+    改为 `AUTO_APPROVE`。
+  - `src/steps/step1_extractor/extractor.py` 精简：`MethodSpecExtractor.extract()`
+    现在只返回裸 dict（`ExtractionResult.raw_spec`），删除
+    `normalize_engine_vocabulary`/`_normalize_*`/`_repair_bare_sourced_scalars`/
+    `build_method_spec`，不再做任何校验；新增 `persist_raw_spec()` 落盘到
+    `runs/method_specs/raw/`。
+  - `src/steps/step2_reviewer/review.py`：删除 D4（`_capability_findings`及其
+    `ENGINE_*_MENU` 阻断逻辑），保留 `universe.filters[].concept_id` 检查但改归类
+    为 `kind="missing_mapping"`/`NEEDS_HUMAN_CONFIRMATION`；删除
+    `apply_human_status_overrides` 与旧的快照式 `review_method_spec_with_llm`；
+    `apply_human_value_patches` 泛化为 `apply_value_patches(..., source="llm"|"human")`。
+  - 新增 `src/steps/step2_reviewer/spec_build.py`：`build_reviewed_method_spec()`
+    单条有界循环（`MAX_REVIEW_ROUNDS=3`，即最多 4 次 LLM 调用）——每轮先
+    `model_validate()` 再 LLM review，只合并 LLM 明确声明的
+    `field_assessments`/`evidence_assessments`（自动生效）与 4 个菜单分类字段
+    （`weighting`/`construction_type`/`sorts[].breakpoints.basis`/
+    `missing_policies[].action`），其余字段一律强制沿用上一轮的值（防漂移护栏）；
+    `value_corrections` 仅作为人工待确认提议，从不自动写入；预算耗尽返回
+    `error`（不抛异常）。
+  - 重写 `prompts/extractor/method_spec_extractor.md`（菜单字段改写论文原文措辞，
+    不再强制分类）与 `prompts/review_gate/llm_review.md`（审核整份 spec，四类
+    结构化输出：`field_assessments`/`value_corrections`/`evidence_assessments`/
+    `additional_findings`）。
+  - `backend/routers/methodspecs.py`：`/extract` 现在内部先跑 Step1 提取再跑
+    Step2 review 循环；删除已废弃的 `/review/llm`、`/review/override` 端点
+    （旧的快照式 LLM review 与人工状态覆盖已不存在）；`/patch-value` 改用
+    `apply_value_patches(source="human")`。`app.py` 的 paper-first 提取面板
+    同步接入新的两步调用。
+  - 测试：`tests/test_method_spec_contract.py` 新增
+    `TestUnsupportedValueConsistency`；`tests/test_step1_extractor.py` 全部
+    改写为测试裸 dict 提取契约；`tests/test_step2_reviewer.py` 的 D4 相关测试
+    替换为 `TestMissingMappingFindings`；`tests/test_step2_reviewer_llm.py` 全部
+    改写为测试 `spec_build.build_reviewed_method_spec`（收敛、预算耗尽、
+    菜单分类合并、护栏丢弃未声明字段、`field_assessments`/`value_corrections`
+    的应用/不应用边界）。全量 `pytest tests/` 524 passed / 18 skipped。
+  - **已知未完成（推迟）**：`frontend/src/pages/SessionDetailPage.tsx` 的四项
+    人工审核 UI 契约（§5.1：推荐值/下拉/source/字段解释）尚未实现，仍是旧的
+    交互；`Disposition.BLOCKED`/`MethodReview.is_blocked` 在 D4 删除后已无任何
+    代码路径能产出，是否清理待定。
+
+### Follow-up (2026-08-11)
+
+- **前端接线**：`SessionDetailPage.tsx` 的 `MethodSpecWorkflowPanel` 接入新后端
+  契约——`/extract*` 现在一次性返回 `{spec, review, value_corrections}`（Step1+
+  Step2 循环已经跑完），不再有单独的 LLM-review 任务；删除已废弃的
+  `reviewPaperSpecLlm`/`reviewPaperSpecOverride`（对应后端 `/review/llm`、
+  `/review/override` 端点已删除）。Step2 面板现在实现了计划 §5.1 的四项人工
+  审核契约：推荐值（`value_corrections` 匹配上则预填，否则显示当前值）、
+  enum 下拉（复用 `schema_reference.py` 的 `allowed_values`）、source（`Finding.
+  evidence[]` 的 quote/table_ref/interpretation）、字段解释（`allowed_values`
+  旁的 `description`）；同时新增一个"全部 LLM value_corrections 提议"列表
+  （逐条可一键填入草稿，仍需手动 Apply 才生效——`value_corrections` 从不
+  自动写入）。`methodSpecStore.ts` 新增 `valueCorrections` 字段持久化。
+  `npx tsc -b` 通过，无类型错误。
+- **`Disposition.BLOCKED`/`MethodReview.is_blocked` 清理**：确认 D4 删除后
+  `BLOCKED` 已无任何代码路径可达，直接删除该枚举成员与 `is_blocked` 属性；
+  `ResolvedMethodSpec.is_ready` 不再检查 `review.is_blocked`（其余三项检查
+  ——`_all_concepts_mapped`/`_universe_filters_supported`/
+  `_construction_within_capability`——不变）。同步修正
+  `backend/routers/methodspecs.py`/`app.py` 里引用 `disposition=="blocked"` 的
+  展示逻辑，改为展示 `needs_human_confirmation`。相关测试更新/删除
+  （`tests/test_method_spec_contract.py`、`tests/test_step2_reviewer.py`）。
+  全量 `pytest tests/` 523 passed / 18 skipped。
+
+### Follow-up (2026-08-11，第二次)：Step2 循环改为全信任 + 前端 diff 展示
+
+- **`src/steps/step2_reviewer/spec_build.py` 彻底重写合并策略**：删除"只合并
+  声明字段"的护栏（`_merge_menu_fields`/`_apply_field_assessments`/
+  `_apply_evidence_assessments` 等全部删除）。现在 LLM 每轮重写的**整份 spec
+  直接生效**（唯一例外仍是 `factor_id`/`schema_version`/`paper.document_id`
+  这 3 个 D7 字段，每轮都强制重新注入，不管 LLM 写了什么）。新增
+  `_diff_json()` 通用递归 JSON diff，产出 `ReviewRound.diff`（每轮改了什么）
+  与 `SpecBuildOutcome.total_diff`（从 Step1 裸提取到最终收敛结果的总账），
+  `ReviewRound` 同时保存 `spec_before`/`spec_after` 两份完整快照。循环出口
+  条件从"validate 通过且没有声明的新修正"改为"validate 通过且这一轮 diff
+  为空"。`field_assessments`/`value_corrections`/`evidence_assessments` 降级
+  为解释性注释（存进 `SpecBuildOutcome.llm_notes`），不再是生效开关。
+  **实际效果**：此前"裸标量 `formation_month` 永远修不好、循环必然耗尽预算"
+  的已知缺陷被修复——LLM 的结构修复现在直接生效，循环能正常收敛。
+- **`prompts/review_gate/llm_review.md`**：更新开场说明，明确"你写的每个字段
+  都会直接生效"；新增一份"这些字段直接驱动回测结果，请格外仔细核对"的提醒
+  清单（即原来的 9 个高影响字段）；§2 的"不得借修结构之名改经验值"从硬性
+  禁止软化为"改了也行，但要在 `value_corrections` 里说明原因"（因为现在没有
+  单独的门禁去区分"结构修复"和"经验值修正"了）；§4 重写为"这些是解释性
+  标注，不是生效开关"。
+- **前端**：`SessionDetailPage.tsx` 新增 `DiffTable` 组件——渲染
+  `total_diff`/`history[i].diff`，每一条改动展示 `field_path` + 旧值（删除线）
+  + 新值（红色高亮），多轮情况下可切换"总账"或某一轮单独查看。移除了基于
+  `value_corrections` 的"推荐值预填"逻辑（现在 LLM 的纠正已经直接体现在
+  `spec` 里，不再是待确认提议）。`methodSpecStore.ts` 的 `valueCorrections`
+  字段替换为 `totalDiff`/`history`。`backend/routers/methodspecs.py` 的
+  `/extract` 任务结果新增 `history`/`total_diff`/`llm_notes` 三个字段
+  （复用现有 `to_jsonable` 对 dataclass 的递归序列化，无需额外改动）。
+- **已知取舍**：原先"9 个高影响字段的 `value_corrections` 必须人工逐条
+  接受/拒绝才能写入"这条硬性门禁被取消——这些字段现在和其它字段一样被直接
+  信任。D2 的规则审核（`inferred`/`unspecified`/`conflicting` →
+  `NEEDS_HUMAN_CONFIRMATION`，需要人工补一个值）不受影响，继续保留。详见
+  `docs/decision-log.md` 2026-08-11 条目的完整取舍讨论。
+- 测试：`tests/test_step2_reviewer_llm.py` 全部改写（新增
+  `TestFullyTrustedRewrite`/`TestDiffAndHistory`，`TestLoopConvergence` 新增
+  "结构修复现在能真正收敛"的回归测试）。
 
 - **`review_method_spec_with_llm` (Step2 LLM-assisted review) 现在会把完整
   `MethodSpec` JSON 也发给 LLM**（此前只发送 9 个高影响字段的 snapshot +

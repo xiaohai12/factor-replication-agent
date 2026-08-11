@@ -77,6 +77,23 @@ class SourcedValue(BaseModel, Generic[T]):
     value: T | None = None
     evidence: list[EvidenceCitation] = Field(default_factory=list)
     status: EvidenceStatus = EvidenceStatus.UNSPECIFIED
+    #: Paper's literal description of the value, filled only when `value`
+    #: was classified as the `other` menu member (weighting/construction_type/
+    #: breakpoints.basis/missing_policies[].action -- see review.py's LLM
+    #: review contract). `None` for every other field; never populated
+    #: alongside a real menu token, since that would make it look like an
+    #: unresolved gap when the field actually classified cleanly.
+    unsupported_value: str | None = None
+
+    @model_validator(mode="after")
+    def _unsupported_value_only_with_other(self) -> SourcedValue:
+        is_other = self.value is not None and str(getattr(self.value, "value", self.value)) == "other"
+        if self.unsupported_value is not None and not is_other:
+            raise ValueError(
+                "unsupported_value is set but value != 'other' -- "
+                f"got value={self.value!r}, unsupported_value={self.unsupported_value!r}"
+            )
+        return self
 
 
 # --- 6.1 Top-level identity ------------------------------------------------
@@ -640,11 +657,14 @@ class MethodSpec(BaseModel):
 
 
 class Disposition(str, Enum):
+    # `BLOCKED` was removed 2026-08-10 along with D4 (engine-capability
+    # blocking, see docs/decision-log.md) -- no finding-producing code path
+    # can reach it anymore; an out-of-menu choice is now recorded via
+    # `SourcedValue.unsupported_value` instead of being blocked.
     AUTO_APPROVE = "auto_approve"
     APPROVE_WITH_DEFAULT = "approve_with_default"
     NEEDS_LLM_REVIEW = "needs_llm_review"
     NEEDS_HUMAN_CONFIRMATION = "needs_human_confirmation"
-    BLOCKED = "blocked"
 
 
 # D2: 5x2 disposition matrix (EvidenceStatus x EmpiricalImpact), replacing
@@ -656,7 +676,7 @@ DISPOSITION_MATRIX: dict[tuple[EvidenceStatus, str], Disposition] = {
     (EvidenceStatus.CLEAR, EMPIRICAL_IMPACT_LOW): Disposition.AUTO_APPROVE,
     (EvidenceStatus.CLEAR, EMPIRICAL_IMPACT_HIGH): Disposition.AUTO_APPROVE,
     (EvidenceStatus.TABLE_ONLY, EMPIRICAL_IMPACT_LOW): Disposition.AUTO_APPROVE,
-    (EvidenceStatus.TABLE_ONLY, EMPIRICAL_IMPACT_HIGH): Disposition.NEEDS_HUMAN_CONFIRMATION,
+    (EvidenceStatus.TABLE_ONLY, EMPIRICAL_IMPACT_HIGH): Disposition.AUTO_APPROVE,
     (EvidenceStatus.INFERRED, EMPIRICAL_IMPACT_LOW): Disposition.APPROVE_WITH_DEFAULT,
     (EvidenceStatus.INFERRED, EMPIRICAL_IMPACT_HIGH): Disposition.NEEDS_HUMAN_CONFIRMATION,
     (EvidenceStatus.UNSPECIFIED, EMPIRICAL_IMPACT_LOW): Disposition.APPROVE_WITH_DEFAULT,
@@ -689,10 +709,6 @@ class MethodReview(BaseModel):
     findings: list[Finding] = Field(default_factory=list)
     status_overrides: dict[str, EvidenceStatus] = Field(default_factory=dict)
     reextraction_attempts: int = 0
-
-    @property
-    def is_blocked(self) -> bool:
-        return any(f.disposition == Disposition.BLOCKED for f in self.findings)
 
 
 # --- 6.11 ImplementationResolution --------------------------------------------
@@ -878,8 +894,7 @@ class ResolvedMethodSpec(BaseModel):
         is silently treated as still valid here.
         """
         return (
-            not self.review.is_blocked
-            and self._all_concepts_mapped()
+            self._all_concepts_mapped()
             and self._universe_filters_supported()
             and self._construction_within_capability()
         )

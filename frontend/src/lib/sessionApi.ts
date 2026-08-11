@@ -68,27 +68,36 @@ export const sessionApi = {
       ...(llmModel ? { llm_model: llmModel } : {}),
       ...(sessionId ? { session_id: sessionId } : {}),
     }),
-  reviewPaperSpec: (paper: Record<string, unknown>, sessionId?: string) =>
-    api.post<Record<string, unknown>>("/api/methodspecs/review", { paper, session_id: sessionId }),
-  reviewPaperSpecLlm: (
-    paper: Record<string, unknown>,
+  /** Step2's LLM review loop (`spec_build.build_reviewed_method_spec`),
+   * run as its OWN job -- separate from `extractPaperPdf` so Step1 can
+   * show "succeeded" as soon as extraction itself returns, without waiting
+   * for the (much slower) review loop too. */
+  runReviewLoop: (
+    rawSpec: Record<string, unknown>,
+    documentId: string,
+    targetName: string,
     paperText: string,
     llmProvider: string,
     llmModel?: string,
     sessionId?: string,
   ) =>
-    api.post<{ job_id: string }>("/api/methodspecs/review/llm", {
-      paper,
+    api.post<{ job_id: string }>("/api/methodspecs/review-loop", {
+      raw_spec: rawSpec,
+      document_id: documentId,
+      target_name: targetName,
       paper_text: paperText,
       llm_provider: llmProvider,
       ...(llmModel ? { llm_model: llmModel } : {}),
       session_id: sessionId,
     }),
-  reviewPaperSpecOverride: (paper: Record<string, unknown>, overrides: Record<string, string>, sessionId?: string) =>
-    api.post<Record<string, unknown>>("/api/methodspecs/review/override", { paper, overrides, session_id: sessionId }),
-  /** Corrects the extracted VALUE of one or more fields (not just evidence
-   * status -- see `reviewPaperSpecOverride` for that). Returns a NEW paper;
-   * caller should re-run review/resolve against it afterward. */
+  reviewPaperSpec: (paper: Record<string, unknown>, sessionId?: string) =>
+    api.post<Record<string, unknown>>("/api/methodspecs/review", { paper, session_id: sessionId }),
+  /** Corrects the extracted VALUE of one or more fields. Human-only --
+   * `apply_human_status_overrides`/`/review/override` (evidence-status-only
+   * corrections) were removed 2026-08-10; a human now only ever confirms/
+   * corrects a field's final `value`, status is auto-stamped `clear` server
+   * side. Returns a NEW paper; caller should re-run review/resolve against
+   * it afterward. */
   patchPaperValue: (
     paper: Record<string, unknown>,
     patches: Record<string, unknown>,

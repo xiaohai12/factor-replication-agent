@@ -34,19 +34,15 @@ from backend.state import (
     pipeline,
 )
 from src.infra.models.method_spec import (
-    EvidenceStatus,
     MethodReview,
     MethodSpec,
     ResolvedMethodSpec,
 )
 from src.infra.models.schema_reference import build_schema_reference
+from src.steps.step1_extractor.extractor import persist_raw_spec
 from src.steps.step2_reviewer.implementation_resolution import build_implementation_resolution
-from src.steps.step2_reviewer.review import (
-    apply_human_status_overrides,
-    apply_human_value_patches,
-    review_method_spec,
-    review_method_spec_with_llm,
-)
+from src.steps.step2_reviewer.review import apply_value_patches, review_method_spec
+from src.steps.step2_reviewer.spec_build import build_reviewed_method_spec
 
 router = APIRouter(prefix="/api/methodspecs", tags=["methodspecs"])
 
@@ -75,37 +71,95 @@ class ExtractRequest(BaseModel):
 
 
 def _extract_job(document_id: str, target_name: str, paper_text: str, llm_provider: str, llm_model: str | None, pdf_bytes: bytes | None = None):
+    """Step1 only -- a single LLM call, no validation, no Step2 review loop
+    (see `_review_loop_job` below, kicked off as its own job once this one
+    completes). Splitting these into two jobs means Step1 can show
+    "succeeded" the moment extraction itself returns, instead of only after
+    the whole (much slower) review loop also finishes."""
     def run(log):
         # Cached under `document_id` the same way `/api/papers/upload` caches
-        # it (`backend/routers/papers.py`) -- so a later `/review/llm` call
-        # can fetch it back via `GET /api/papers/{document_id}` even after
-        # the extraction job itself has expired (`JOB_TTL_SECONDS`) or the
-        # frontend's sessionStorage was cleared.
+        # it (`backend/routers/papers.py`) -- so later calls can fetch it
+        # back via `GET /api/papers/{document_id}` even after the extraction
+        # job itself has expired (`JOB_TTL_SECONDS`) or the frontend's
+        # sessionStorage was cleared.
         (PAPER_TEXT_CACHE_DIR / f"{document_id}.txt").write_text(paper_text, encoding="utf-8")
+        log(f"Cached paper text for document '{document_id}'.")
         log(f"Building {llm_provider} LLM client...")
         client = build_llm_client(llm_provider, llm_model)
         extractor = build_extractor(client)
-        log(f"Extracting MethodSpec for '{target_name}' (document '{document_id}')...")
+        log(f"Extracting raw MethodSpec JSON for '{target_name}' (document '{document_id}')...")
         result = extractor.extract(document_id=document_id, target_name=target_name, paper_text=paper_text, pdf_bytes=pdf_bytes)
-        if result.spec is not None:
-            out_path = UNREVIEWED_DIR / f"{result.spec.factor_id}.paper.json"
-            out_path.write_text(result.spec.model_dump_json(indent=2), encoding="utf-8")
-            log(f"Saved draft spec to {out_path}")
-        else:
+        if result.raw_spec is None:
             log(f"Extraction failed: {result.error}")
-        # `paper_text` is stashed alongside the extraction result (not part
-        # of `ExtractionResult` itself) purely so the session-workflow
-        # frontend can persist it and later pass it to `/review/llm`, which
-        # needs the original paper text to re-check evidence status.
+            return {
+                "raw_spec": None,
+                "error": result.error,
+                "token_usage": result.token_usage,
+                "paper_text": paper_text,
+            }
+        log(f"Extraction call succeeded (token usage: {result.token_usage}).")
+
+        raw_path = persist_raw_spec(document_id, target_name, result.raw_spec)
+        log(f"Persisted raw Step1 spec to {raw_path}")
         return {
-            "spec": result.spec,
-            "error": result.error,
-            "raw_llm_output": result.raw_llm_output,
+            "raw_spec": result.raw_spec,
+            "error": None,
             "token_usage": result.token_usage,
             "paper_text": paper_text,
         }
 
     return run
+
+
+class ReviewLoopRequest(BaseModel):
+    raw_spec: dict
+    document_id: str
+    target_name: str
+    paper_text: str
+    llm_provider: str = "codex"
+    llm_model: str | None = None
+    session_id: str | None = None
+
+
+def _review_loop_job(
+    raw_spec: dict, document_id: str, target_name: str, paper_text: str, llm_provider: str, llm_model: str | None
+):
+    """Step2's LLM review loop, run as its own job so its progress/log is
+    scoped to the Step2 page (see docstring on `_extract_job` above)."""
+    def run(log):
+        log(f"Building {llm_provider} LLM client...")
+        client = build_llm_client(llm_provider, llm_model)
+        log("Running Step2 review loop (validate <-> LLM review)...")
+        outcome = build_reviewed_method_spec(
+            raw_spec, document_id, target_name, paper_text, client, log=log
+        )
+        if outcome.spec is not None:
+            out_path = UNREVIEWED_DIR / f"{outcome.spec.factor_id}.paper.json"
+            out_path.write_text(outcome.spec.model_dump_json(indent=2), encoding="utf-8")
+            log(f"Saved reviewed draft spec to {out_path}")
+        else:
+            log(f"Review loop did not converge: {outcome.error}")
+        return {
+            "spec": outcome.spec,
+            "error": outcome.error,
+            "review": outcome.review,
+            "history": outcome.history,
+            "total_diff": outcome.total_diff,
+            "llm_notes": outcome.llm_notes,
+        }
+
+    return run
+
+
+@router.post("/review-loop")
+async def review_loop(req: ReviewLoopRequest) -> dict:
+    job_id = job_manager.create_job(
+        _review_loop_job(req.raw_spec, req.document_id, req.target_name, req.paper_text, req.llm_provider, req.llm_model),
+        session_id=req.session_id,
+        step=2,
+        stage="review_loop",
+    )
+    return {"job_id": job_id}
 
 
 @router.post("/extract")
@@ -156,87 +210,14 @@ def review(req: ReviewRequest) -> dict:
         result.model_dump_json(indent=2), encoding="utf-8"
     )
     if req.session_id:
-        blocked = [f.field_path for f in result.findings if f.disposition == "blocked"]
-        level = "error" if blocked else "info"
-        detail = f"{len(result.findings)} finding(s), blocked: {blocked}" if blocked else f"{len(result.findings)} finding(s), none blocked"
+        needs_human = [f.field_path for f in result.findings if f.disposition == "needs_human_confirmation"]
+        level = "error" if needs_human else "info"
+        detail = (
+            f"{len(result.findings)} finding(s), needs human confirmation: {needs_human}"
+            if needs_human
+            else f"{len(result.findings)} finding(s), none needing human confirmation"
+        )
         append_event(req.session_id, step=2, stage="review", event="completed", detail=detail, level=level)
-    return to_jsonable(result)
-
-
-class ReviewLlmRequest(BaseModel):
-    paper: dict
-    paper_text: str
-    llm_provider: str = "codex"
-    llm_model: str | None = None
-    session_id: str | None = None
-
-
-def _review_llm_job(paper_dict: dict, paper_text: str, llm_provider: str, llm_model: str | None):
-    def run(log):
-        paper = _validate_paper_spec(paper_dict)
-        log(f"Building {llm_provider} LLM client for LLM-assisted review...")
-        client = build_llm_client(llm_provider, llm_model)
-        log(f"Re-reading paper text to double-check evidence status for '{paper.factor_id}'...")
-        result, raw_llm_output = review_method_spec_with_llm(paper, paper_text, client)
-        (REVIEWED_DIR / f"{paper.factor_id}.review.json").write_text(
-            result.model_dump_json(indent=2), encoding="utf-8"
-        )
-        blocked = [f.field_path for f in result.findings if f.disposition == "blocked"]
-        log(f"LLM-assisted review done: {len(result.findings)} finding(s), blocked: {blocked}")
-        return {"review": to_jsonable(result), "raw_llm_output": raw_llm_output}
-
-    return run
-
-
-@router.post("/review/llm")
-async def review_llm(req: ReviewLlmRequest) -> dict:
-    """LLM-assisted counterpart to `/review` -- async job (like `/extract`)
-    since it makes an LLM call over the full paper text instead of a cheap
-    in-process rule pass. Wraps `review_method_spec_with_llm`, which still
-    computes `disposition` deterministically; the LLM only proposes
-    `EvidenceStatus` re-assessments and new human-confirmation findings.
-    """
-    _validate_paper_spec(req.paper)  # fail fast with a 422 before spawning the job
-    job_id = job_manager.create_job(
-        _review_llm_job(req.paper, req.paper_text, req.llm_provider, req.llm_model),
-        session_id=req.session_id,
-        step=2,
-        stage="review_llm",
-    )
-    return {"job_id": job_id}
-
-
-class ReviewOverrideRequest(BaseModel):
-    paper: dict
-    overrides: dict[str, str]  # field_path -> evidence_status
-    session_id: str | None = None
-
-
-@router.post("/review/override")
-def review_override(req: ReviewOverrideRequest) -> dict:
-    """Manual-resolution path for D2 (evidence-status) findings: a human
-    directly asserts a corrected `EvidenceStatus` per field (e.g. "the paper
-    does state this clearly in Section 3") instead of going through the LLM
-    pass. Sync, no LLM call -- same deterministic `DISPOSITION_MATRIX` as
-    `/review` decides the outcome.
-    """
-    paper = _validate_paper_spec(req.paper)
-    try:
-        status_overrides = {field: EvidenceStatus(status) for field, status in req.overrides.items()}
-    except ValueError as exc:
-        raise HTTPException(status_code=422, detail=f"Invalid evidence_status: {exc}")
-
-    result = apply_human_status_overrides(paper, status_overrides)
-    (REVIEWED_DIR / f"{paper.factor_id}.review.json").write_text(
-        result.model_dump_json(indent=2), encoding="utf-8"
-    )
-    if req.session_id:
-        blocked = [f.field_path for f in result.findings if f.disposition == "blocked"]
-        detail = f"human override applied, {len(result.findings)} finding(s), blocked: {blocked}"
-        append_event(
-            req.session_id, step=2, stage="review", event="completed", detail=detail,
-            level="error" if blocked else "info",
-        )
     return to_jsonable(result)
 
 
@@ -250,8 +231,7 @@ class PatchValueRequest(BaseModel):
 @router.post("/patch-value")
 def patch_value(req: PatchValueRequest) -> dict:
     """A human directly corrects the extracted VALUE of one or more
-    high-impact fields (not just its evidence status -- see `/review/
-    override` for that). Produces a NEW draft `MethodSpec` (saved over the
+    high-impact fields. Produces a NEW draft `MethodSpec` (saved over the
     unreviewed draft, same as re-extraction would) with each patched field's
     `status` set to `clear` and an evidence citation recording the human
     correction. The caller should re-run `/review` (and `/resolve`) against
@@ -260,7 +240,7 @@ def patch_value(req: PatchValueRequest) -> dict:
     """
     paper = _validate_paper_spec(req.paper)
     try:
-        patched = apply_human_value_patches(paper, req.patches, req.reason)
+        patched = apply_value_patches(paper, req.patches, req.reason, source="human")
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc))
 

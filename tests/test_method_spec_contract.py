@@ -43,6 +43,7 @@ from src.infra.models.method_spec import (
     Period,
     MethodSpec,
     PaperRef,
+    WeightingScheme,
     PortfolioLeg,
     PortfolioSpec,
     ReportedMetric,
@@ -368,8 +369,12 @@ class TestUnsupportedCustomWeighting:
     def test_custom_weighting_recorded_as_substitution_not_silently_dropped(self):
         """Case 4: paper states a capped-VW scheme the engine doesn't implement.
 
-        D4: original_method stays blocked; the paper value survives via
-        Substitution on ImplementationResolution, never silently coerced.
+        The `Substitution` model records the paper's original value against
+        an engine-approved replacement, never silently coercing it. (D4's
+        `BLOCKED` disposition -- which used to gate this -- was removed
+        2026-08-10; an out-of-menu choice is now recorded via
+        `SourcedValue.unsupported_value` and clamped, not blocked -- see
+        docs/decision-log.md.)
         """
         paper = _simple_accounting_ratio_spec()
         paper.portfolio.weighting = SourcedValue(value="capped_vw_at_5pct", status=EvidenceStatus.CLEAR)
@@ -380,15 +385,15 @@ class TestUnsupportedCustomWeighting:
             findings=[
                 Finding(
                     field_path="portfolio.weighting",
-                    kind="unsupported",
+                    kind="ambiguous",
                     reason="engine only supports ew/vw, not capped-VW",
                     empirical_impact="high",
-                    disposition=Disposition.BLOCKED,
+                    disposition=Disposition.NEEDS_HUMAN_CONFIRMATION,
                     paper_value="capped_vw_at_5pct",
                 )
             ],
         )
-        assert review.is_blocked
+        assert review.findings[0].disposition == Disposition.NEEDS_HUMAN_CONFIRMATION
 
         resolution = ImplementationResolution(
             factor_id=paper.factor_id,
@@ -403,6 +408,24 @@ class TestUnsupportedCustomWeighting:
             ],
         )
         assert resolution.approved_substitutions[0].paper_value == "capped_vw_at_5pct"
+
+
+class TestUnsupportedValueConsistency:
+    def test_unsupported_value_allowed_when_value_is_other(self):
+        sv = SourcedValue(value="other", unsupported_value="capped VW at 5% per stock", status=EvidenceStatus.CLEAR)
+        assert sv.unsupported_value == "capped VW at 5% per stock"
+
+    def test_unsupported_value_allowed_when_enum_value_is_other(self):
+        sv = SourcedValue(value=WeightingScheme.OTHER, unsupported_value="capped VW at 5% per stock")
+        assert sv.value == WeightingScheme.OTHER
+
+    def test_unsupported_value_rejected_when_value_is_not_other(self):
+        with pytest.raises(ValidationError):
+            SourcedValue(value=WeightingScheme.VW, unsupported_value="capped VW at 5% per stock")
+
+    def test_unsupported_value_defaults_to_none(self):
+        sv = SourcedValue(value=WeightingScheme.VW, status=EvidenceStatus.CLEAR)
+        assert sv.unsupported_value is None
 
 
 class TestDispositionMatrix:
@@ -420,8 +443,11 @@ class TestDispositionMatrix:
     def test_clear_high_impact_auto_approves(self):
         assert DISPOSITION_MATRIX[(EvidenceStatus.CLEAR, "high")] == Disposition.AUTO_APPROVE
 
-    def test_table_only_high_impact_needs_human(self):
-        assert DISPOSITION_MATRIX[(EvidenceStatus.TABLE_ONLY, "high")] == Disposition.NEEDS_HUMAN_CONFIRMATION
+    def test_table_only_high_impact_auto_approves(self):
+        # (TABLE_ONLY, HIGH) changed to AUTO_APPROVE -- clear/table_only both
+        # mean "the paper actually states this", just prose vs table; only
+        # inferred/unspecified/conflicting need a human (2026-08 refactor).
+        assert DISPOSITION_MATRIX[(EvidenceStatus.TABLE_ONLY, "high")] == Disposition.AUTO_APPROVE
 
     def test_inferred_low_impact_auto_defaults(self):
         assert DISPOSITION_MATRIX[(EvidenceStatus.INFERRED, "low")] == Disposition.APPROVE_WITH_DEFAULT
@@ -444,16 +470,6 @@ class TestResolvedMethodSpecReadiness:
     def test_ready_when_no_blocks(self):
         resolved = self._build_ready_resolved_spec()
         assert resolved.is_ready
-
-    def test_not_ready_when_review_blocked(self):
-        resolved = self._build_ready_resolved_spec()
-        resolved.review.findings.append(
-            Finding(
-                field_path="portfolio.weighting", kind="unsupported", empirical_impact="high",
-                disposition=Disposition.BLOCKED,
-            )
-        )
-        assert not resolved.is_ready
 
     def test_not_ready_when_concept_mapping_missing(self):
         resolved = self._build_ready_resolved_spec()

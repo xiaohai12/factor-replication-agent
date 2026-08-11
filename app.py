@@ -820,17 +820,25 @@ elif page == "Paper-First Workflow":
         if st.button("Extract MethodSpec", type="primary", disabled=pf_disabled, key="pf_extract_run"):
             with st.spinner("Extracting..."):
                 from src.infra.llm import create_llm_client
-                from src.steps.step1_extractor.extractor import MethodSpecExtractor
+                from src.steps.step1_extractor.extractor import MethodSpecExtractor, persist_raw_spec
+                from src.steps.step2_reviewer.spec_build import build_reviewed_method_spec
                 client = create_llm_client(provider=llm_provider, model=llm_model)
                 extractor = MethodSpecExtractor(llm_client=client)
                 pf_bytes = st.session_state.get("pf_pdf_bytes") if llm_provider in ("claude", "codex") else None
                 result = extractor.extract(pf_document_id, pf_target_name, pf_paper_text, pdf_bytes=pf_bytes)
                 st.session_state["pf_extraction_token_usage"] = result.token_usage
-                if result.spec:
-                    out_path = UNREVIEWED_DIR / f"{result.spec.factor_id}.paper.json"
-                    out_path.write_text(result.spec.model_dump_json(indent=2) + "\n")
-                    st.session_state["pf_paper"] = result.spec
-                    st.success(f"Extracted: **{result.spec.factor_id}**, saved to `{out_path}`")
+                if result.raw_spec:
+                    persist_raw_spec(pf_document_id, pf_target_name, result.raw_spec)
+                    outcome = build_reviewed_method_spec(
+                        result.raw_spec, pf_document_id, pf_target_name, pf_paper_text, client
+                    )
+                    if outcome.spec:
+                        out_path = UNREVIEWED_DIR / f"{outcome.spec.factor_id}.paper.json"
+                        out_path.write_text(outcome.spec.model_dump_json(indent=2) + "\n")
+                        st.session_state["pf_paper"] = outcome.spec
+                        st.success(f"Extracted + reviewed: **{outcome.spec.factor_id}**, saved to `{out_path}`")
+                    else:
+                        st.error(f"Review loop did not converge: {outcome.error}")
                 else:
                     st.error(f"Extraction failed: {result.error}")
 
@@ -876,12 +884,12 @@ elif page == "Paper-First Workflow":
         pf_review_result = st.session_state.get("pf_review_result")
         if pf_review_result:
             st.markdown("---")
-            blocked = [f for f in pf_review_result.findings if f.disposition.value == "blocked"]
+            needs_human = [f for f in pf_review_result.findings if f.disposition.value == "needs_human_confirmation"]
             st.metric("Findings", len(pf_review_result.findings))
-            st.metric("Blocked", len(blocked))
+            st.metric("Needs human confirmation", len(needs_human))
             for f in pf_review_result.findings:
-                icon = "🚫" if f.disposition.value == "blocked" else "⚠️"
-                st.text(f"{icon} [{f.kind}] {f.field_path}: {f.message}")
+                icon = "⚠️" if f.disposition.value == "needs_human_confirmation" else "ℹ️"
+                st.text(f"{icon} [{f.kind}] {f.field_path}: {f.reason}")
 
     # ---- Resolve ----
     with tab_resolve:
