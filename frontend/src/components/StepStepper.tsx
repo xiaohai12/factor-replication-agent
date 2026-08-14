@@ -18,8 +18,14 @@ const STATUS_VARIANT: Record<StepStatus, "default" | "secondary" | "destructive"
  * from it so those two nodes color the same way steps 3-8 do. */
 function specStepStatus(specState: MethodSpecWorkflowState | undefined, step: number): StepStatus | undefined {
   if (!specState) return undefined
-  if (step === 1) return specState.paper ? "success" : "not_started"
+  // Step 1's own output is `rawSpec` -- `paper` is Step 2's converged
+  // result (see `MethodSpecWorkflowState`'s docstring). Keying step 1's
+  // status off `paper` meant clearing `paper` for a Step 2 re-run (see
+  // `reviewLoopMutation`'s `onMutate`) made Step 1 look "not_started" even
+  // though its own extraction output was untouched.
+  if (step === 1) return specState.rawSpec ? "success" : "not_started"
   if (step === 2) {
+    if (specState.reviewRunning) return "running"
     if (specState.resolved) return "success"
     if (specState.review) {
       const findings = (specState.review.findings as Array<Record<string, unknown>> | undefined) ?? []

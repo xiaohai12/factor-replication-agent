@@ -25,10 +25,13 @@ from __future__ import annotations
 import warnings
 from typing import Any
 
+from src.infra.data_layer import catalog
 from src.infra.models.method_spec import (
+    FILTER_VALUE_ENCODINGS,
+    MAX_SUPPORTED_SORT_DIMENSIONS,
     MissingStage,
     ResolvedMethodSpec,
-    SortMode,
+    RETURNS_PANEL_NATIVE_COLUMNS,
     SortRole,
     TimeUnit,
 )
@@ -59,6 +62,7 @@ KNOWN_CONFIG_KEYS: frozenset[str] = frozenset({
     "universe_filters", "apply_delisting_returns", "return_combination_type",
     "return_basis", "estimator",
     "returns_table", "returns_layout", "unapplied_universe_filters",
+    "universe_filter_join_sources",
 })
 
 # Which config keys are governed by a fixed menu (see STANDARD below) --
@@ -93,6 +97,7 @@ CONFIG_KEY_STAGE: dict[str, str] = {
     "universe": "universe",
     "universe_filters": "universe",
     "unapplied_universe_filters": "universe",
+    "universe_filter_join_sources": "universe",
     "apply_delisting_returns": "universe",
     "returns_table": "universe",
     "returns_layout": "universe",
@@ -276,13 +281,20 @@ _LAG_UNIT_TO_MONTHS: dict[TimeUnit, int] = {
 }
 
 
-def _accounting_lag_months(data_availability) -> int | None:
+def _accounting_lag_months(data_availability) -> tuple[int | None, bool]:
+    """Returns `(months, unit_unsupported)`. `unit_unsupported=True` means
+    the paper DID specify a `lag_value`/`lag_unit`, but `lag_unit` isn't one
+    this month-granularity config field can represent (e.g. `TimeUnit.DAY`)
+    -- distinct from "paper didn't specify anything at all" (`months=None,
+    unit_unsupported=False`), so the caller can record an honest reason
+    instead of falsely claiming the field was unspecified (see
+    docs/resolve-diagnostics-gaps.md problem 2)."""
     if data_availability.lag_value is None:
-        return None
+        return None, False
     multiplier = _LAG_UNIT_TO_MONTHS.get(data_availability.lag_unit)
     if multiplier is None:
-        return None
-    return data_availability.lag_value * multiplier
+        return None, True
+    return data_availability.lag_value * multiplier, False
 
 
 def _resolved_column(resolution, concept_id: str) -> str:
@@ -300,33 +312,109 @@ def _resolved_column(resolution, concept_id: str) -> str:
     return mapping.column
 
 
+def _translate_filter_value(column: str, value: Any) -> Any:
+    """Translate a universe filter's paper-vocabulary `value` (e.g.
+    `["NYSE", "Amex", "NASDAQ"]`) into `column`'s actual physical encoding,
+    via `FILTER_VALUE_ENCODINGS` (docs/resolve-diagnostics-gaps.md problem
+    3) -- e.g. `exchcd` is a numeric column, so `series.isin(["NYSE", ...])`
+    would otherwise silently be all-False, filtering the universe down to
+    zero rows with no error anywhere near this call.
+
+    Fails loud (never silently guesses) when `column` HAS a registered
+    encoding but a string element doesn't match any of its known labels --
+    that combination means either the paper used wording not yet
+    registered, or a genuine typo; either way this must not be passed
+    through as-is (same "never silently ignore a stated universe
+    restriction" policy as `apply_universe_filters`'s missing-field check).
+    Elements that are already numeric (or `column` has no registered
+    encoding at all) pass through unchanged.
+    """
+    encoding = FILTER_VALUE_ENCODINGS.get(column)
+    if encoding is None:
+        return value
+    items = value if isinstance(value, list) else [value]
+    translated = []
+    for item in items:
+        if not isinstance(item, str):
+            translated.append(item)
+            continue
+        key = item.strip().lower()
+        if key not in encoding:
+            raise ValueError(
+                f"Universe filter value {item!r} has no registered encoding for "
+                f"column {column!r} (known: {sorted(encoding)}) -- register it in "
+                "FILTER_VALUE_ENCODINGS (src/infra/models/method_spec.py) or "
+                "correct the MethodSpec's filter value."
+            )
+        translated.append(encoding[key])
+    return translated if isinstance(value, list) else translated[0]
+
+
 def _applied_universe_filters(paper) -> list:
-    """`paper.universe.filters` minus every filter a human has explicitly
+    """`paper.universe.filters` minus (a) every filter a human has explicitly
     marked `accepted_unapplied` (the "other" escape hatch -- see
-    `FilterSpec.accepted_unapplied`'s docstring). These play no runtime role
-    at all; `_unapplied_universe_filters` below records them instead."""
-    return [f for f in paper.universe.filters if not f.accepted_unapplied]
+    `FilterSpec.accepted_unapplied`'s docstring), and (b) every filter whose
+    `derivation` is non-null. A non-null `derivation` means the paper's
+    condition needs a COMPUTED value (e.g. "years since first observed in
+    Compustat"), not a literal op/value comparison against the resolved
+    column as-is -- the engine has no derivation-execution step, so applying
+    it literally would silently run a different (and often broken, e.g.
+    comparing a date column to an integer) condition than the paper states.
+    Neither case plays a runtime role at all; `_unapplied_universe_filters`
+    below records both instead of silently dropping them."""
+    return [f for f in paper.universe.filters if not f.accepted_unapplied and f.derivation is None]
 
 
 def _unapplied_universe_filters(paper) -> list[dict[str, Any]]:
-    """Recorded, never-resolved entries for every `accepted_unapplied`
-    filter -- deliberately does NOT call `_resolved_column` (an unapplied
-    filter's concept may have no `concept_mapping` entry at all, e.g. no
-    registered data source can supply it yet). This is what makes the
-    deviation auditable rather than a silent drop: every entry keeps the
-    concept_id/op/value the paper actually stated plus the human's own
-    `unapplied_reason`.
+    """Recorded, never-resolved entries for every filter NOT applied at
+    runtime -- either explicitly `accepted_unapplied` by a human, or
+    automatically skipped because it has a non-null `derivation` (see
+    `_applied_universe_filters`). Deliberately does NOT call
+    `_resolved_column` (an unapplied filter's concept may have no
+    `concept_mapping` entry at all, e.g. no registered data source can
+    supply it yet). This is what makes the deviation auditable rather than a
+    silent drop: every entry keeps the concept_id/op/value the paper
+    actually stated plus a reason (the human's own `unapplied_reason` when
+    explicitly marked, else a fixed note for the derivation case).
     """
     return [
         {
             "concept_id": f.concept_id,
             "op": ev(f.op),
             "value": f.value,
-            "reason": f.unapplied_reason,
+            "reason": f.unapplied_reason if f.accepted_unapplied else "derivation not executable by the engine",
         }
         for f in paper.universe.filters
-        if f.accepted_unapplied
+        if f.accepted_unapplied or f.derivation is not None
     ]
+
+
+def _universe_filter_join_sources(paper, resolution) -> dict[str, list[str]]:
+    """`{source: [columns]}` for every APPLIED universe filter whose
+    resolved column is a REAL registered physical column (see
+    `catalog.DATA_CATALOG`) but not one the returns panel supplies natively
+    (`RETURNS_PANEL_NATIVE_COLUMNS`) -- e.g. a Compustat-only backfill-bias
+    screen. The generated script joins these columns onto the returns panel
+    point-in-time (via `assemble_signal_master_table_from_sources`, the SAME
+    mechanism `compute_signal`'s own input already uses) BEFORE
+    `filter_universe` runs, so the filter sees them as ordinary panel
+    columns. A column that ISN'T registered in the catalog at all is left
+    OUT here -- there's no way to load it -- and stays flagged by
+    `ResolvedMethodSpec.unsupported_universe_filters()` instead. Deduped per
+    source, order-stable.
+    """
+    out: dict[str, list[str]] = {}
+    for f in _applied_universe_filters(paper):
+        mapping = resolution.concept_mapping.get(f.concept_id)
+        if mapping is None or mapping.column in RETURNS_PANEL_NATIVE_COLUMNS:
+            continue
+        registered_columns = catalog.DATA_CATALOG.get(mapping.source, {}).get("physical_columns", set())
+        if mapping.column not in registered_columns:
+            continue
+        cols = out.setdefault(mapping.source, [])
+        if mapping.column not in cols:
+            cols.append(mapping.column)
+    return out
 
 
 def _resolve_legs(paper, sort_id: str, n_groups: int) -> tuple[list[int], list[int]]:
@@ -346,11 +434,12 @@ def _resolve_legs(paper, sort_id: str, n_groups: int) -> tuple[list[int], list[i
 
 def _build_config_from_resolved(resolved: ResolvedMethodSpec, overrides: dict | None) -> dict:
     """`build_config`'s `ResolvedMethodSpec` branch -- see that function's
-    docstring. Supports exactly what `ResolvedMethodSpec.is_ready` already
-    requires to be true: 1 or 2 quantile-grouped sort dimensions (D4;
-    `MAX_SUPPORTED_SORT_DIMENSIONS` in `method_spec.py`), a
-    characteristic-sort construction type, and a fully resolved physical
-    concept mapping.
+    docstring. Every engine-menu field (weighting/return_combination/
+    breakpoint_source/missing_action/group_type/sort mode/rebalance_
+    frequency/lag_unit/sort-dimension count) is auto-clamped to a documented
+    default when the paper's value is off-menu -- never blocks `is_ready`,
+    always recorded in `defaults_applied` (see docs/resolve-diagnostics-gaps.md
+    problem 2).
     """
     paper = resolved.paper
     resolution = resolved.resolution
@@ -377,8 +466,85 @@ def _build_config_from_resolved(resolved: ResolvedMethodSpec, overrides: dict | 
             return default
         return val
 
-    sorts = sorted(paper.portfolio.sorts, key=lambda s: s.order)
+    def _track_sort_mode(config_key: str, sourced_mode) -> str:
+        """`within_group` is a known, unimplemented engine capability (see
+        `SortMode` docstring) -- passed through AS-IS (never silently
+        clamped to `sequential`); the engine itself fails loud on it. Only a
+        genuine `other` classification is clamped to the `independent`
+        default here.
+        """
+        mode_str = ev(sourced_mode.value)
+        if mode_str == "other":
+            defaults_applied.append({
+                "config_key": config_key,
+                "value": "independent",
+                "reason": (
+                    "paper's sort-dimension relationship isn't classifiable as "
+                    "independent/sequential/within_group; defaulted to independent"
+                ),
+            })
+            return "independent"
+        return mode_str
+
+    def _track_group_type(config_key: str, sourced_group_type) -> None:
+        """The engine only ever executes quantile grouping (there is no
+        separate `group_type` config key) -- this only records the
+        deviation for non-quantile values, it doesn't change execution
+        (already quantile-only regardless of what's recorded)."""
+        group_type_str = ev(sourced_group_type.value)
+        if group_type_str != "quantile":
+            defaults_applied.append({
+                "config_key": config_key,
+                "value": "quantile",
+                "reason": f"engine only implements quantile grouping (paper used {group_type_str!r})",
+            })
+
+    def _clamp_sort_dims(sorts: list) -> list:
+        """Deterministically trims to `MAX_SUPPORTED_SORT_DIMENSIONS`: the
+        `target` dimension is always kept (the paper's own signal); non-
+        target dimensions are kept in ascending `order` (ties broken by
+        `sort_id` -- `order` has no uniqueness constraint), dropping the
+        rest. Recorded in `defaults_applied`, never blocks `is_ready`."""
+        if len(sorts) <= MAX_SUPPORTED_SORT_DIMENSIONS:
+            return sorts
+        target = next(s for s in sorts if s.role == SortRole.TARGET)
+        others = sorted(
+            (s for s in sorts if s.role != SortRole.TARGET),
+            key=lambda s: (s.order, s.sort_id),
+        )
+        kept = [target] + others[: MAX_SUPPORTED_SORT_DIMENSIONS - 1]
+        kept_ids = {s.sort_id for s in kept}
+        dropped_ids = [s.sort_id for s in sorts if s.sort_id not in kept_ids]
+        defaults_applied.append({
+            "config_key": "sort_dims",
+            "value": [s.sort_id for s in kept],
+            "reason": (
+                f"engine supports at most {MAX_SUPPORTED_SORT_DIMENSIONS} sort dimensions; "
+                f"dropped {dropped_ids} (kept target + lowest-order control dims)"
+            ),
+        })
+        return sorted(kept, key=lambda s: s.order)
+
+    sorts = _clamp_sort_dims(sorted(paper.portfolio.sorts, key=lambda s: s.order))
     target_sort = next((s for s in sorts if s.role.value == "target"), sorts[0])
+
+    for i, s in enumerate(sorts):
+        _track_group_type(f"sorts[{i}].group_type", s.group_type)
+
+    lag_months, lag_unit_unsupported = _accounting_lag_months(paper.timing.data_availability)
+    if lag_unit_unsupported:
+        defaults_applied.append({
+            "config_key": "accounting_lag_months",
+            "value": 6,
+            "reason": (
+                f"paper specified lag_unit={paper.timing.data_availability.lag_unit.value!r} "
+                f"(lag_value={paper.timing.data_availability.lag_value}), which this "
+                "month-granularity config field can't represent -- defaulted to 6 months"
+            ),
+        })
+        lag_months = 6
+    else:
+        lag_months = _track_or("accounting_lag_months", lag_months, 6)
 
     config: dict[str, Any] = {
         "breakpoint_source": _track_clamp(
@@ -389,15 +555,15 @@ def _build_config_from_resolved(resolved: ResolvedMethodSpec, overrides: dict | 
         "weighting_rule": _track_clamp(
             "weighting_rule", paper.portfolio.weighting.value, STANDARD["weighting"], "vw"
         ),
-        "rebalance_frequency": _REBALANCE_FREQUENCY_FROM_TIME_UNIT.get(
-            paper.timing.rebalance_frequency.value, "unspecified"
+        "rebalance_frequency": _track_clamp(
+            "rebalance_frequency",
+            _REBALANCE_FREQUENCY_FROM_TIME_UNIT.get(paper.timing.rebalance_frequency.value),
+            {"annual", "quarterly", "monthly"}, "monthly",
         ),
         "holding_period_months": _track_or(
             "holding_period_months", paper.timing.holding_period.value, 12
         ),
-        "accounting_lag_months": _track_or(
-            "accounting_lag_months", _accounting_lag_months(paper.timing.data_availability), 6
-        ),
+        "accounting_lag_months": lag_months,
         "signal_max_staleness_months": 11,
         "missing_action": _track_clamp(
             "missing_action",
@@ -419,10 +585,15 @@ def _build_config_from_resolved(resolved: ResolvedMethodSpec, overrides: dict | 
         "sample_end_year": paper.sample.formation.end_year,
         "publication_year": paper.paper.publication_year,
         "universe_filters": [
-            {"field": _resolved_column(resolution, f.concept_id), "op": ev(f.op), "value": f.value}
+            {
+                "field": (col := _resolved_column(resolution, f.concept_id)),
+                "op": ev(f.op),
+                "value": _translate_filter_value(col, f.value),
+            }
             for f in _applied_universe_filters(paper)
         ],
         "unapplied_universe_filters": _unapplied_universe_filters(paper),
+        "universe_filter_join_sources": _universe_filter_join_sources(paper, resolution),
         "apply_delisting_returns": True,
         "return_combination_type": _track_clamp(
             "return_combination_type", paper.portfolio.return_combination.value,
@@ -453,10 +624,11 @@ def _build_config_from_resolved(resolved: ResolvedMethodSpec, overrides: dict | 
                 "column": "signal" if s.role == SortRole.TARGET else _resolved_column(resolution, s.concept_id),
                 "quantiles": s.group_count or 2,
                 "source": ev(s.breakpoints.basis.value),
-                "independent": s.mode == SortMode.INDEPENDENT,
+                "mode": (mode_str := _track_sort_mode(f"sorts[{i}].mode", s.mode)),
+                "independent": mode_str == "independent",
                 "role": s.role.value,
             }
-            for s in sorts
+            for i, s in enumerate(sorts)
         ]
 
     from src.infra.data_layer import catalog

@@ -9,6 +9,7 @@ import { Badge } from "@/components/ui/badge"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { StepStepper } from "@/components/StepStepper"
 import { JobLogPanel } from "@/components/JobLogPanel"
+import { ToolResultsPanel } from "@/components/ToolResultsPanel"
 import { StepOutputView } from "@/components/StepOutputView"
 import { MethodSpecBoard } from "@/components/MethodSpecBoard"
 import { JsonTree } from "@/components/JsonTree"
@@ -24,7 +25,7 @@ import {
   type MethodSpecWorkflowState,
   type ReviewRound,
 } from "@/lib/methodSpecStore"
-import type { SessionManifest } from "@/lib/types"
+import type { SessionManifest, ToolResult } from "@/lib/types"
 
 /** Auto-fills a step's request body from whatever this SAME session has
  * already recorded upstream, so the user never has to hand-copy a spec/
@@ -204,6 +205,28 @@ export function SessionDetailPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [step, sessionId])
 
+  // Resume watching a still-running step (navigated away mid-job, then back,
+  // or a plain page reload) instead of only showing "not started" until the
+  // user manually re-runs it. The backend attaches `job_id` to the attempt
+  // in the SAME write as `start_attempt` (see `SessionStore.start_attempt`),
+  // so `stepQuery`'s latest attempt already carries everything needed to
+  // re-subscribe via `useJobStream` -- no separate persistence layer needed
+  // here (unlike steps 1/2's sessionStorage-only `MethodSpecWorkflowPanel`,
+  // this step's "running" truth already lives in the session manifest).
+  // Only fires when nothing is already being tracked (`jobId` still null)
+  // and the LATEST attempt is the one still running -- `runMutation`'s
+  // `onMutate` already reset `jobId` to null before starting a fresh run, so
+  // this won't clobber that.
+  useEffect(() => {
+    if (jobId) return
+    const attempts = stepQuery.data?.record.attempts ?? []
+    const attempt = attempts[attempts.length - 1]
+    if (attempt?.status === "running" && attempt.job_id) {
+      setJobId(attempt.job_id)
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [stepQuery.data, jobId])
+
   // If the user changes the sidebar provider/model WHILE already looking at
   // a step's request editor, keep the JSON in sync rather than silently
   // going stale (only touches the two llm_provider/llm_model keys, never
@@ -222,12 +245,38 @@ export function SessionDetailPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [llmProvider, llmModel])
 
+
   const job = useJobStream(jobId)
 
   const runMutation = useMutation({
-    mutationFn: async () => {
-      const body = JSON.parse(requestText)
+    // `fromUpstream`: rebuild the request body fresh from whatever the
+    // upstream step's LATEST successful output is right now (same
+    // `buildAutoFilledRequest` the page uses on first load) instead of
+    // whatever's currently sitting in the request-body textarea -- lets a
+    // human re-run this step against a newer upstream result without
+    // hand-editing refs/hashes back in.
+    mutationFn: async (opts?: { fromUpstream?: boolean }) => {
+      let body: Record<string, unknown>
+      if (opts?.fromUpstream) {
+        const manifest = await sessionApi.get(sessionId)
+        body = withLlmSelection(await buildAutoFilledRequest(sessionId, step, manifest, def.requestTemplate))
+        setRequestText(JSON.stringify(body, null, 2))
+      } else {
+        body = JSON.parse(requestText)
+      }
       return sessionApi.runStep(def.endpoint(sessionId), body)
+    },
+    // Clear THIS step's currently-displayed output right away -- otherwise
+    // the previous job's logs/result/diagnostics stay on screen (job.result
+    // only resets once `setJobId` below actually swaps in a new id) while
+    // the new run is still in flight.
+    onMutate: () => {
+      setJobId(null)
+      setSyncResult(null)
+      setRequestError(null)
+      // `setQueryData(key, undefined)` is a no-op in TanStack Query --
+      // `removeQueries` is what actually drops the cached (stale) attempt.
+      queryClient.removeQueries({ queryKey: ["session-step", sessionId, step], exact: true })
     },
     onSuccess: (response) => {
       setRequestError(null)
@@ -253,7 +302,7 @@ export function SessionDetailPage() {
   // otherwise a clean response/completed job counts as success.
   const advanceIfSuccessful = (result: unknown) => {
     if (step >= 8 || isFailureResult(result)) return
-    navigate(`/sessions/${sessionId}/steps/${step + 1}`)
+    navigate(`/runs/${sessionId}/step/${step + 1}`)
   }
 
   useEffect(() => {
@@ -278,7 +327,7 @@ export function SessionDetailPage() {
   })
   const deleteMutation = useMutation({
     mutationFn: () => sessionApi.hardDelete(sessionId, sessionQuery.data?.revision ?? 0),
-    onSuccess: () => navigate("/sessions"),
+    onSuccess: () => navigate("/runs"),
   })
 
   if (sessionQuery.isLoading) return <div className="p-6">Loading session…</div>
@@ -312,8 +361,8 @@ export function SessionDetailPage() {
           >
             Delete
           </Button>
-          <Button variant="outline" onClick={() => navigate("/sessions")}>
-            All sessions
+          <Button variant="outline" onClick={() => navigate("/runs")}>
+            All runs
           </Button>
         </div>
       </div>
@@ -322,7 +371,7 @@ export function SessionDetailPage() {
         manifest={sessionQuery.data}
         activeStep={step}
         specState={specState}
-        onSelect={(s) => navigate(`/sessions/${sessionId}/steps/${s}`)}
+        onSelect={(s) => navigate(`/runs/${sessionId}/step/${s}`)}
       />
 
       {(() => {
@@ -444,9 +493,19 @@ export function SessionDetailPage() {
                     value={requestText}
                     onChange={(e) => setRequestText(e.target.value)}
                   />
-                  <Button onClick={() => runMutation.mutate()} disabled={runMutation.isPending}>
-                    Run {def.label}
-                  </Button>
+                  <div className="flex gap-2">
+                    <Button onClick={() => runMutation.mutate(undefined)} disabled={runMutation.isPending}>
+                      Run {def.label}
+                    </Button>
+                    <Button
+                      variant="outline"
+                      onClick={() => runMutation.mutate({ fromUpstream: true })}
+                      disabled={runMutation.isPending}
+                      title="Re-fetch the upstream step's latest output and re-run this step with it, discarding whatever's in the request box above."
+                    >
+                      Re-run from upstream output
+                    </Button>
+                  </div>
                   {requestError && <p className="text-xs text-destructive">{requestError}</p>}
                 </CardContent>
               </Card>
@@ -537,10 +596,29 @@ function MethodSpecWorkflowPanel({
   const [state, setState] = useState<MethodSpecWorkflowState>(() => getMethodSpecWorkflowState(sessionId))
   const [file, setFile] = useState<File | null>(null)
   const [targetName, setTargetName] = useState(defaultTargetName)
-  const [extractJobId, setExtractJobId] = useState<string | null>(null)
-  const [reviewJobId, setReviewJobId] = useState<string | null>(null)
+  // Restore from persisted state on mount -- otherwise navigating away from
+  // this page (or just switching Step 1 <-> Step 2) while a job is still
+  // running loses track of it: the backend job keeps executing regardless,
+  // but nothing is left to re-subscribe/poll for its result.
+  const [extractJobId, setExtractJobId] = useState<string | null>(() => getMethodSpecWorkflowState(sessionId).extractJobId ?? null)
+  const [reviewJobId, setReviewJobId] = useState<string | null>(() => getMethodSpecWorkflowState(sessionId).reviewJobId ?? null)
   const [valuePatchDrafts, setValuePatchDrafts] = useState<Record<string, string>>({})
   const [useOtherValueFor, setUseOtherValueFor] = useState<Record<string, boolean>>({})
+  //: field_path -> the paper's literal wording, only shown/sent when that
+  //: field_path's drafted value is the enum's "other" member.
+  const [unsupportedValueDrafts, setUnsupportedValueDrafts] = useState<Record<string, string>>({})
+  //: universe.filters index -> raw `FormulaSpec` JSON text for that
+  //: filter's `derivation` -- client-side only edit (no dedicated backend
+  //: endpoint; `state.paper` is resent wholesale on the next /review or
+  //: /resolve call, same as every other in-session paper edit).
+  const [derivationDrafts, setDerivationDrafts] = useState<Record<number, string>>({})
+  const [derivationError, setDerivationError] = useState<string | null>(null)
+  //: universe.filters index -> drafted `unapplied_reason` text, for the
+  //: `accepted_unapplied` escape hatch (docs/todo.md item 2) -- same
+  //: client-side-only pattern as `derivationDrafts` (no dedicated backend
+  //: endpoint; `state.paper` is resent wholesale on the next /resolve call).
+  const [unappliedReasonDrafts, setUnappliedReasonDrafts] = useState<Record<number, string>>({})
+  const [unappliedError, setUnappliedError] = useState<string | null>(null)
   //: null = "total diff" (Step1 raw -> final spec); otherwise an index into
   //: `state.history` for that single round's before/after.
   const [selectedRound, setSelectedRound] = useState<number | null>(null)
@@ -548,6 +626,11 @@ function MethodSpecWorkflowPanel({
   const [error, setError] = useState<string | null>(null)
   const { provider, model, setProvider, setModel } = useLlm()
   const schemaQuery = useQuery({ queryKey: ["methodspec-schema"], queryFn: sessionApi.getSchemaReference })
+  //: Powers the `source_column` dropdown's options (filtered by whichever
+  //: `source_table` a sibling `data.fields[i]` entry currently has) --
+  //: `source_table` itself already gets a dropdown for free from
+  //: `schemaQuery`'s dynamic-enum `allowed_values` (see `schemaFieldInfo`).
+  const dataCatalogQuery = useQuery({ queryKey: ["data-catalog"], queryFn: sessionApi.getDataCatalog })
   // Step1 (extraction) and Step2 (the LLM review loop,
   // `spec_build.build_reviewed_method_spec`) are two SEPARATE jobs now --
   // Step1 shows "succeeded" as soon as extraction itself returns, and the
@@ -559,6 +642,7 @@ function MethodSpecWorkflowPanel({
     error?: string
     paper_text?: string
     token_usage?: unknown
+    tool_results?: ToolResult[]
   }>(extractJobId)
   const reviewJob = useJobStream<{
     spec?: Record<string, unknown>
@@ -566,6 +650,7 @@ function MethodSpecWorkflowPanel({
     review?: Record<string, unknown>
     total_diff?: Array<{ field_path: string; old: unknown; new: unknown }>
     history?: ReviewRound[]
+    tool_results?: ToolResult[]
   }>(reviewJobId)
 
   useEffect(() => {
@@ -582,8 +667,31 @@ function MethodSpecWorkflowPanel({
   const reviewLoopMutation = useMutation({
     mutationFn: (vars: { rawSpec: Record<string, unknown>; documentId: string; targetName: string; paperText: string }) =>
       sessionApi.runReviewLoop(vars.rawSpec, vars.documentId, vars.targetName, vars.paperText, provider, model, sessionId),
-    onSuccess: (res) => setReviewJobId(res.job_id),
-    onError: (err) => setError(err instanceof ApiError ? `${err.status}: ${err.message}` : String(err)),
+    // Clear the currently-displayed paper/review/resolve/diff right away --
+    // a restart from Step 1's output should look like a fresh run, not keep
+    // showing this step's previous (possibly hand-patched) result while the
+    // new loop is still running.
+    onMutate: () => {
+      setReviewJobId(null)
+      patch({
+        paper: undefined,
+        review: undefined,
+        reviewSource: undefined,
+        resolved: undefined,
+        totalDiff: undefined,
+        history: undefined,
+        reviewRunning: true,
+        reviewJobId: undefined,
+      })
+    },
+    onSuccess: (res) => {
+      setReviewJobId(res.job_id)
+      patch({ reviewJobId: res.job_id })
+    },
+    onError: (err) => {
+      patch({ reviewRunning: false })
+      setError(err instanceof ApiError ? `${err.status}: ${err.message}` : String(err))
+    },
   })
 
   useEffect(() => {
@@ -601,17 +709,21 @@ function MethodSpecWorkflowPanel({
           totalDiff: undefined,
           history: undefined,
           resolved: undefined,
+          extractToolResults: extractJob.result.tool_results,
         })
         setError(null)
-        if (step === 1) navigate(`/sessions/${sessionId}/steps/2`)
+        patch({ extractJobId: undefined })
+        if (step === 1) navigate(`/runs/${sessionId}/step/2`)
         if (state.documentId && state.targetName && paperText) {
           reviewLoopMutation.mutate({ rawSpec, documentId: state.documentId, targetName: state.targetName, paperText })
         }
       } else {
         setError(extractJob.result?.error ?? "Extraction returned no output")
+        patch({ extractJobId: undefined })
       }
     } else if (extractJob.status === "failed") {
       setError(extractJob.error)
+      patch({ extractJobId: undefined })
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [extractJob.status])
@@ -626,13 +738,18 @@ function MethodSpecWorkflowPanel({
           totalDiff: reviewJob.result.total_diff,
           history: reviewJob.result.history,
           resolved: undefined,
+          reviewRunning: false,
+          reviewJobId: undefined,
+          reviewToolResults: reviewJob.result.tool_results,
         })
         setError(null)
       } else {
+        patch({ reviewRunning: false, reviewJobId: undefined })
         setError(reviewJob.result?.error ?? "Step2 review loop did not converge on a valid MethodSpec")
       }
       queryClient.invalidateQueries({ queryKey: ["session-events", sessionId] })
     } else if (reviewJob.status === "failed") {
+      patch({ reviewRunning: false, reviewJobId: undefined })
       setError(reviewJob.error)
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -646,6 +763,7 @@ function MethodSpecWorkflowPanel({
     onSuccess: (res) => {
       setError(null)
       setExtractJobId(res.job_id)
+      patch({ extractJobId: res.job_id })
     },
     onError: (err) => setError(err instanceof ApiError ? `${err.status}: ${err.message}` : String(err)),
   })
@@ -656,12 +774,20 @@ function MethodSpecWorkflowPanel({
   // to (that ran once already, via `runReviewLoop` above).
   const reviewMutation = useMutation({
     mutationFn: () => sessionApi.reviewPaperSpec(state.paper!, sessionId),
+    // Clear the currently-displayed findings/resolve result right away --
+    // otherwise the old review stays on screen until this request resolves.
+    // `reviewRunning: true` is what makes the stepper show "running" for
+    // Step 2 during that window instead of falling back to "not_started".
+    onMutate: () => patch({ review: undefined, reviewSource: undefined, resolved: undefined, reviewRunning: true }),
     onSuccess: (review) => {
-      patch({ review, reviewSource: "rules", resolved: undefined })
+      patch({ review, reviewSource: "rules", resolved: undefined, reviewRunning: false })
       setError(null)
       queryClient.invalidateQueries({ queryKey: ["session-events", sessionId] })
     },
-    onError: (err) => setError(err instanceof ApiError ? `${err.status}: ${err.message}` : String(err)),
+    onError: (err) => {
+      patch({ reviewRunning: false })
+      setError(err instanceof ApiError ? `${err.status}: ${err.message}` : String(err))
+    },
   })
 
   // Corrects the extracted VALUE itself. Produces a NEW paper, so the
@@ -670,14 +796,89 @@ function MethodSpecWorkflowPanel({
   // 2026-08-09), so we clear it here as the deliberate "you must redo this"
   // signal instead.
   const patchValueMutation = useMutation({
-    mutationFn: () => sessionApi.patchPaperValue(state.paper!, valuePatchDrafts, "", sessionId),
+    mutationFn: () =>
+      sessionApi.patchPaperValue(state.paper!, valuePatchDrafts, "", sessionId, unsupportedValueDrafts),
     onSuccess: (paperSpec) => {
       patch({ paper: paperSpec, review: undefined, reviewSource: undefined, resolved: undefined })
       setValuePatchDrafts({})
+      setUnsupportedValueDrafts({})
       queryClient.invalidateQueries({ queryKey: ["session-events", sessionId] })
     },
     onError: (err) => setError(err instanceof ApiError ? `${err.status}: ${err.message}` : String(err)),
   })
+
+  // `universe.filters[i].derivation` (a `FormulaSpec`) isn't a
+  // `SourcedValue` -- `apply_value_patches`/`/patch-value` only patch
+  // scalar high-impact fields, so this can't go through that endpoint.
+  // Purely a client-side edit of `state.paper` instead: every /review and
+  // /resolve call already resends `state.paper` wholesale, so there's
+  // nothing to persist server-side until the human re-runs review anyway.
+  const applyDerivationEdits = () => {
+    setDerivationError(null)
+    const paper = state.paper as { universe?: { filters?: Array<Record<string, unknown>> } } | undefined
+    const filters = paper?.universe?.filters
+    if (!filters) return
+    const nextFilters = [...filters]
+    try {
+      for (const [indexStr, text] of Object.entries(derivationDrafts)) {
+        const i = Number(indexStr)
+        nextFilters[i] = { ...nextFilters[i], derivation: text.trim() === "" ? null : JSON.parse(text) }
+      }
+    } catch (e) {
+      setDerivationError(e instanceof Error ? `Invalid derivation JSON: ${e.message}` : String(e))
+      return
+    }
+    patch({
+      paper: { ...paper, universe: { ...paper!.universe, filters: nextFilters } },
+      review: undefined,
+      reviewSource: undefined,
+      resolved: undefined,
+    })
+    setDerivationDrafts({})
+  }
+
+  // `accepted_unapplied`/`unapplied_reason` (docs/todo.md item 2): same
+  // client-side-edit pattern as `applyDerivationEdits` above -- these two
+  // plain fields on `FilterSpec` have no dedicated backend endpoint either,
+  // `state.paper` is resent wholesale on the next /resolve call.
+  const applyAcceptedUnapplied = (index: number) => {
+    setUnappliedError(null)
+    const reason = (unappliedReasonDrafts[index] ?? "").trim()
+    if (!reason) {
+      setUnappliedError("Provide a reason before marking accepted_unapplied.")
+      return
+    }
+    const paper = state.paper as { universe?: { filters?: Array<Record<string, unknown>> } } | undefined
+    const filters = paper?.universe?.filters
+    if (!filters) return
+    const nextFilters = [...filters]
+    nextFilters[index] = { ...nextFilters[index], accepted_unapplied: true, unapplied_reason: reason }
+    patch({
+      paper: { ...paper, universe: { ...paper!.universe, filters: nextFilters } },
+      review: undefined,
+      reviewSource: undefined,
+      resolved: undefined,
+    })
+    setUnappliedReasonDrafts((prev) => {
+      const next = { ...prev }
+      delete next[index]
+      return next
+    })
+  }
+
+  const undoAcceptedUnapplied = (index: number) => {
+    const paper = state.paper as { universe?: { filters?: Array<Record<string, unknown>> } } | undefined
+    const filters = paper?.universe?.filters
+    if (!filters) return
+    const nextFilters = [...filters]
+    nextFilters[index] = { ...nextFilters[index], accepted_unapplied: false, unapplied_reason: "" }
+    patch({
+      paper: { ...paper, universe: { ...paper!.universe, filters: nextFilters } },
+      review: undefined,
+      reviewSource: undefined,
+      resolved: undefined,
+    })
+  }
 
   const resolveMutation = useMutation({
     mutationFn: async () => {
@@ -686,7 +887,7 @@ function MethodSpecWorkflowPanel({
       // adds an LLM fallback attempt for concepts that are STILL unresolved
       // after that, so this never changes behavior for a spec that already
       // resolves cleanly.
-      const { is_ready, unmapped_concepts, llm_matched_concepts } = await sessionApi.resolvePaperSpec(
+      const { is_ready, unmapped_concepts, llm_matched_concepts, resolution_findings } = await sessionApi.resolvePaperSpec(
         state.paper!,
         state.review!,
         "us_equity_crsp",
@@ -694,15 +895,15 @@ function MethodSpecWorkflowPanel({
         provider,
         model,
       )
-      if (!is_ready) return { is_ready, unmapped_concepts, llm_matched_concepts, resolved: null }
+      if (!is_ready) return { is_ready, unmapped_concepts, llm_matched_concepts, resolution_findings, resolved: null }
       const resolved = await sessionApi.getResolvedMethodSpec((state.paper as { factor_id: string }).factor_id)
-      return { is_ready, unmapped_concepts, llm_matched_concepts, resolved }
+      return { is_ready, unmapped_concepts, llm_matched_concepts, resolution_findings, resolved }
     },
     onSuccess: ({ is_ready, resolved }) => {
       queryClient.invalidateQueries({ queryKey: ["session-events", sessionId] })
       if (resolved) {
         patch({ resolved })
-        navigate(`/sessions/${sessionId}/steps/3`)
+        navigate(`/runs/${sessionId}/step/3`)
       } else if (!is_ready) {
         setError("Resolved spec is not codegen-ready yet -- see the blocking fields below.")
       }
@@ -712,11 +913,38 @@ function MethodSpecWorkflowPanel({
 
   const findings = (state.review?.findings as Array<Record<string, unknown>> | undefined) ?? []
   const isBlocked = findings.some((f) => f.disposition === "blocked")
+  // Every high-impact field, unconditionally (including AUTO_APPROVE ones
+  // `findings` omits) -- merged with any OTHER finding not already covered
+  // by a high-impact path (missing_mapping, non-high-impact capability
+  // checks), so nothing that used to show up disappears.
+  const allHighImpactFields = (state.review?.all_high_impact_fields as Array<Record<string, unknown>> | undefined) ?? []
+  const highImpactPaths = new Set(allHighImpactFields.map((f) => String(f.field_path)))
+  const displayFindings = [...allHighImpactFields, ...findings.filter((f) => !highImpactPaths.has(String(f.field_path)))]
   // Schema reference is keyed by the STATIC dotted path (no `[i]` sort
   // index) -- strip it before lookup; falls back to no info for the one
   // field this can't match (`portfolio.sorts[i].breakpoints.basis`, nested
   // two levels inside a list item the schema walker doesn't recurse into).
   const schemaFieldInfo = (fieldPath: string) => schemaQuery.data?.fields[fieldPath.replace(/\[\d+\]/g, "")]
+
+  //: `data.fields[i].source_column`'s options depend on that SAME index's
+  //: `source_table` value (a column only makes sense once a table is
+  //: picked) -- `schemaFieldInfo`'s static per-path `allowed_values` can't
+  //: express that cross-field dependency, so this reads the live draft/
+  //: current `source_table` value straight off `state.paper` and looks up
+  //: that table's `physical_columns` in the data-catalog response instead.
+  //: Returns `null` (falls back to free-text input) until a real table is
+  //: chosen.
+  const sourceColumnOptions = (fieldPath: string): string[] | null => {
+    const match = fieldPath.match(/^data\.fields\[(\d+)\]\.source_column$/)
+    if (!match) return null
+    const idx = Number(match[1])
+    const fields = (state.paper as { data?: { fields?: Array<Record<string, unknown>> } } | undefined)?.data?.fields
+    const tableDraft = valuePatchDrafts[`data.fields[${idx}].source_table`]
+    const tableValue =
+      tableDraft ?? (fields?.[idx]?.source_table as { value?: string } | undefined)?.value ?? null
+    if (!tableValue || tableValue === "other") return null
+    return dataCatalogQuery.data?.signal_sources[tableValue]?.physical_columns ?? null
+  }
 
   // Step 1 is extract-only; step 2 is review+resolve over whatever step 1
   // already produced -- two distinct pages now, not the same combined panel
@@ -780,13 +1008,14 @@ function MethodSpecWorkflowPanel({
             Extract MethodSpec from PDF
           </Button>
           {extractJobId && <JobLogPanel job={extractJob} />}
+          <ToolResultsPanel results={state.extractToolResults ?? []} title="Step1 tool results" />
         </div>
 
         {state.rawSpec && (
           <div className="flex flex-col gap-2 rounded-md border border-border p-3">
             <div className="flex items-center justify-between">
               <p className="text-sm font-medium">Step1 succeeded -- raw, unreviewed LLM extraction</p>
-              <Button size="sm" variant="outline" onClick={() => navigate(`/sessions/${sessionId}/steps/2`)}>
+              <Button size="sm" variant="outline" onClick={() => navigate(`/runs/${sessionId}/step/2`)}>
                 Go to Step 2 — Review
               </Button>
             </div>
@@ -819,7 +1048,7 @@ function MethodSpecWorkflowPanel({
     return (
       <div className="flex flex-col gap-2 rounded-md border border-border p-3 text-sm">
         <p>No MethodSpec extracted yet.</p>
-        <Button size="sm" onClick={() => navigate(`/sessions/${sessionId}/steps/1`)}>
+        <Button size="sm" onClick={() => navigate(`/runs/${sessionId}/step/1`)}>
           Go to Step 1 — Extract
         </Button>
       </div>
@@ -873,16 +1102,35 @@ function MethodSpecWorkflowPanel({
           Review — <span className="font-mono text-xs">{String(state.paper.factor_id)}</span>
         </p>
         {reviewJobId && <JobLogPanel job={reviewJob} title="Step2 review loop" />}
+        <ToolResultsPanel results={state.reviewToolResults ?? []} title="Step2 tool results" />
         <div className="flex flex-wrap gap-2">
           <Button size="sm" disabled={reviewMutation.isPending} onClick={() => reviewMutation.mutate()}>
             {reviewMutation.isPending ? "Reviewing…" : "Re-run rules-only review"}
           </Button>
+          <Button
+            size="sm"
+            variant="outline"
+            disabled={reviewLoopMutation.isPending || !(state.documentId && state.targetName && state.paperText)}
+            title="Discards any in-step2 edits (patches/status overrides) and restarts the LLM review loop from Step 1's raw extraction."
+            onClick={() =>
+              reviewLoopMutation.mutate({
+                rawSpec: state.rawSpec!,
+                documentId: state.documentId!,
+                targetName: state.targetName!,
+                paperText: state.paperText!,
+              })
+            }
+          >
+            {reviewLoopMutation.isPending ? "Re-running…" : "Re-run from Step 1 output"}
+          </Button>
         </div>
         <p className="text-xs text-muted-foreground">
           The LLM-backed review (full-spec check + menu-vocabulary classification) already ran once as part of
-          extraction (`spec_build.build_reviewed_method_spec`). This button only re-runs the deterministic
-          rules pass (`MethodReview`'s D2/missing-mapping findings, no LLM call) -- use it after applying a
-          value correction below, since a patch clears the stored review.
+          extraction (`spec_build.build_reviewed_method_spec`). "Re-run rules-only review" only re-runs the
+          deterministic rules pass (`MethodReview`'s D2/missing-mapping findings, no LLM call) over THIS
+          step's current spec -- use it after applying a value correction below, since a patch clears the
+          stored review. "Re-run from Step 1 output" instead throws away any edits made in this step and
+          restarts the full LLM review loop from Step 1's raw extraction.
         </p>
         {state.review && (
           <div className="flex flex-col gap-1">
@@ -890,6 +1138,7 @@ function MethodSpecWorkflowPanel({
               <Badge variant={isBlocked ? "destructive" : "default"}>
                 {findings.length === 0 ? "no findings -- every field looks fine" : `${findings.length} field(s) flagged`}
               </Badge>
+              <Badge variant="secondary">{displayFindings.length} high-impact field(s) shown</Badge>
               <Badge variant="outline">
                 {state.reviewSource === "llm"
                   ? "LLM-backed review"
@@ -898,23 +1147,31 @@ function MethodSpecWorkflowPanel({
                     : "Rules-based review"}
               </Badge>
             </div>
-            {findings.map((f, i) => {
+            {displayFindings.map((f, i) => {
               const fieldPath = String(f.field_path)
               const canPatch = f.kind !== "missing_mapping" && f.disposition === "needs_human_confirmation"
               const info = schemaFieldInfo(fieldPath)
-              const allowedValues = info?.allowed_values ?? null
+              const allowedValues = fieldPath.endsWith(".source_column") ? sourceColumnOptions(fieldPath) : info?.allowed_values ?? null
               const usingOther = useOtherValueFor[fieldPath] ?? false
               const evidence = (f.evidence as Array<Record<string, unknown>> | undefined) ?? []
               return (
                 <div key={i} className="flex flex-col gap-1 rounded-md border border-border/60 p-2 text-xs">
                   <div className="flex items-start gap-2">
-                    <Badge variant={f.disposition === "blocked" ? "destructive" : "outline"} className="shrink-0">
+                    <Badge
+                      variant={
+                        f.disposition === "auto_approve" ? "secondary" : f.disposition === "blocked" ? "destructive" : "outline"
+                      }
+                      className="shrink-0"
+                    >
                       {String(f.disposition)}
                     </Badge>
                     <div>
                       <span className="font-mono font-medium">{fieldPath}</span>{" "}
                       <span className="text-muted-foreground">({String(f.kind)})</span>
                       <p className="text-muted-foreground">{String(f.reason)}</p>
+                      {!canPatch && f.paper_value !== undefined && f.paper_value !== null && (
+                        <p className="text-muted-foreground">value: {JSON.stringify(f.paper_value)}</p>
+                      )}
                     </div>
                   </div>
                   {/* §5.1 four-item human-review contract: 字段解释 */}
@@ -980,6 +1237,19 @@ function MethodSpecWorkflowPanel({
                           )}
                         </div>
                       )}
+                    </div>
+                  )}
+                  {canPatch && valuePatchDrafts[fieldPath] === "other" && (
+                    <div className="flex items-center gap-2 pl-1">
+                      <span className="text-muted-foreground">Paper's original wording (unsupported_value):</span>
+                      <Input
+                        className="h-7 w-56 text-xs"
+                        placeholder="e.g. the paper's literal phrase for this choice"
+                        value={unsupportedValueDrafts[fieldPath] ?? ""}
+                        onChange={(e) =>
+                          setUnsupportedValueDrafts((prev) => ({ ...prev, [fieldPath]: e.target.value }))
+                        }
+                      />
                     </div>
                   )}
                 </div>
@@ -1093,20 +1363,86 @@ function MethodSpecWorkflowPanel({
                   </div>
                 </div>
               ))}
+              {(resolveMutation.data.resolution_findings ?? []).map((f, i) => (
+                <div key={`resolution-${i}`} className="flex items-start gap-2">
+                  <Badge variant="destructive" className="shrink-0">
+                    {String(f.kind)}
+                  </Badge>
+                  <div>
+                    <span className="font-mono font-medium">{String(f.field_path)}</span>
+                    <p className="text-muted-foreground">{String(f.reason)}</p>
+                  </div>
+                </div>
+              ))}
               <p className="text-muted-foreground">
                 Note: D4 (engine-capability blocking) was removed 2026-08-10 -- an out-of-menu choice
                 (weighting/construction_type/breakpoints.basis/missing_policies) is now recorded as
                 `SourcedValue.unsupported_value` and clamped to an engine default, not blocked here. What
-                remains blocking at this point is a `missing_mapping` finding you haven't resolved yet, or an
-                unmapped concept above -- fix the paper's `data.fields`/`universe.filters` and re-extract, or
-                pick a value correction in the review panel above.
+                remains blocking at this point is a `missing_mapping` finding you haven't resolved yet, an
+                unmapped concept, or an unsupported universe filter above -- fix the paper's `data.fields`/
+                `universe.filters` and re-extract, or pick a value correction in the review panel above.
               </p>
+              <div className="flex flex-col gap-2 rounded-md border border-border/60 bg-background p-2">
+                <p className="font-medium">
+                  Or: register a `derivation` (a `FormulaSpec`) on the filter instead of a direct column
+                  mapping -- for a concept that's really computed from other columns (e.g. "listed at least
+                  2 years") rather than a raw physical column. Paste/edit the raw JSON below, then re-run
+                  resolve.
+                </p>
+                {(
+                  ((state.paper as { universe?: { filters?: Array<Record<string, unknown>> } } | undefined)
+                    ?.universe?.filters ?? []) as Array<Record<string, unknown>>
+                ).map((filt, i) => (
+                  <div key={i} className="flex flex-col gap-1 rounded border border-border/60 p-2">
+                    <span className="font-mono font-medium">{String(filt.concept_id)}</span>
+                    {filt.derivation ? (
+                      <JsonTree name="current derivation" data={filt.derivation} />
+                    ) : (
+                      <span className="text-muted-foreground">no derivation set</span>
+                    )}
+                    <Textarea
+                      className="h-24 font-mono text-[11px]"
+                      placeholder='FormulaSpec JSON, e.g. {"paper_expression": "listed >= 2 years", "inputs": ["compustat_listing_history"], "steps": [], "output_concept": "..."} -- leave blank to clear'
+                      value={derivationDrafts[i] ?? ""}
+                      onChange={(e) => setDerivationDrafts((prev) => ({ ...prev, [i]: e.target.value }))}
+                    />
+                    {filt.accepted_unapplied ? (
+                      <div className="flex items-center gap-2 border-t border-border/40 pt-1">
+                        <Badge variant="outline">accepted_unapplied</Badge>
+                        <span className="text-muted-foreground">{String(filt.unapplied_reason)}</span>
+                        <Button size="sm" variant="ghost" onClick={() => undoAcceptedUnapplied(i)}>
+                          Undo
+                        </Button>
+                      </div>
+                    ) : (
+                      <div className="flex items-center gap-2 border-t border-border/40 pt-1">
+                        <Input
+                          className="h-7 text-[11px]"
+                          placeholder="Reason this filter is accepted as unapplied (e.g. engine can't join non-CRSP columns yet)"
+                          value={unappliedReasonDrafts[i] ?? ""}
+                          onChange={(e) => setUnappliedReasonDrafts((prev) => ({ ...prev, [i]: e.target.value }))}
+                        />
+                        <Button size="sm" variant="outline" onClick={() => applyAcceptedUnapplied(i)}>
+                          Mark accepted_unapplied
+                        </Button>
+                      </div>
+                    )}
+                  </div>
+                ))}
+                {derivationError && <p className="text-destructive">{derivationError}</p>}
+                {unappliedError && <p className="text-destructive">{unappliedError}</p>}
+                {Object.keys(derivationDrafts).length > 0 && (
+                  <Button size="sm" variant="outline" onClick={applyDerivationEdits}>
+                    Apply {Object.keys(derivationDrafts).length} derivation edit(s) -- re-run resolve after
+                  </Button>
+                )}
+              </div>
             </div>
           )}
           {state.resolved && (
             <>
               <JsonTree name="resolved" data={state.resolved} />
-              <Button size="sm" onClick={() => navigate(`/sessions/${sessionId}/steps/3`)}>
+              <Button size="sm" onClick={() => navigate(`/runs/${sessionId}/step/3`)}>
                 Use this spec — go to Step 3
               </Button>
             </>

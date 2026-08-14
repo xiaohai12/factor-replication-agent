@@ -18,9 +18,14 @@ from src.infra.models.diagnosis import DiagnosisClaim, ReplicationDiagnosisRepor
 from src.steps.step7_replication_diff import ReplicationDiffResult, safe_diff_ablation
 from src.steps.step7_replication_diff.bundle import (
     SIGNIFICANCE_T_THRESHOLD,
+    build_bridge_comparison,
     build_config_diff,
     build_evidence_bundle,
     build_gap_decomposition,
+    build_menu_deviations,
+    build_publication_decay,
+    build_robustness_summary,
+    build_spec_quality,
     build_track_vs_paper,
     classify_overall,
     flatten,
@@ -28,6 +33,7 @@ from src.steps.step7_replication_diff.bundle import (
 )
 from src.steps.step8_diagnosis import ReplicationDiagnoser, validate_claims
 from src.steps.step8_diagnosis.render import render_markdown
+from tests._spec_test_helpers import minimal_resolved_spec
 
 
 PAPER = {
@@ -219,6 +225,173 @@ class TestEvidenceBundle:
         bundle = build_evidence_bundle(PAPER, {})
         assert bundle["derived"]["overall_tag"] == "inconclusive"
         assert bundle["config_diff"]["baseline_track"] is None
+
+
+class TestSpecQuality:
+    def test_no_spec_reports_unavailable(self):
+        section = build_spec_quality(None)
+        assert section["available"] is False
+        assert section["weak_fields"] == []
+
+    def test_ambiguous_finding_is_surfaced_as_a_weak_field(self):
+        spec = minimal_resolved_spec()
+        # unspecified status on a high-impact field -> DISPOSITION_MATRIX flags it
+        # (NEEDS_HUMAN_CONFIRMATION, not AUTO_APPROVE).
+        from src.infra.models.method_spec import EvidenceStatus
+
+        spec.paper.signal.direction.status = EvidenceStatus.UNSPECIFIED
+        section = build_spec_quality(spec)
+        assert section["available"] is True
+        assert any(f["field_path"] == "signal.direction" for f in section["weak_fields"])
+
+    def test_clear_status_fields_are_not_weak(self):
+        spec = minimal_resolved_spec()
+        section = build_spec_quality(spec)
+        assert section["weak_fields"] == []
+
+
+class TestMenuDeviations:
+    def test_no_spec_reports_unavailable(self):
+        section = build_menu_deviations(None, TRACKS)
+        assert section["available"] is False
+        assert section["unsupported_paper_fields"] == []
+        assert section["clamped_by_track"] == {}
+
+    def test_unsupported_value_is_surfaced(self):
+        spec = minimal_resolved_spec()
+        spec.paper.portfolio.weighting.value = "other"
+        spec.paper.portfolio.weighting.unsupported_value = "capped VW at 5% per stock"
+        section = build_menu_deviations(spec, TRACKS)
+        assert section["available"] is True
+        assert {
+            "field_path": "portfolio.weighting",
+            "unsupported_value": "capped VW at 5% per stock",
+        } in section["unsupported_paper_fields"]
+
+    def test_clamped_defaults_are_read_from_each_track_config(self):
+        spec = minimal_resolved_spec()
+        tracks = {
+            "original_method": {
+                "config": {
+                    "defaults_applied": [
+                        {"config_key": "accounting_lag_months", "value": 6, "reason": "unspecified"}
+                    ]
+                },
+                "metrics": {},
+            },
+            "standardized_hxz": {"config": {}, "metrics": {}},
+        }
+        section = build_menu_deviations(spec, tracks)
+        assert section["clamped_by_track"] == {
+            "original_method": [
+                {"config_key": "accounting_lag_months", "value": 6, "reason": "unspecified"}
+            ]
+        }
+
+
+class TestBridgeComparison:
+    def test_no_bridge_track_is_unavailable(self):
+        section = build_bridge_comparison(TRACKS, PAPER)
+        assert section["available"] is False
+        assert "no bridge track" in section["reason"]
+
+    def test_both_reproduce(self):
+        tracks = dict(TRACKS)
+        tracks["cz_bridge_x"] = {
+            "config": {},
+            "metrics": {"mean_return": -0.009, "t_stat": -4.5, "n_months": 870},
+            "is_bridge_track": True,
+        }
+        section = build_bridge_comparison(tracks, PAPER)
+        assert section["available"] is True
+        assert section["bridge_track"] == "cz_bridge_x"
+        assert section["own_track"] == "original_method"
+        assert section["bridge_reproduces_paper"] is True
+        assert section["own_reproduces_paper"] is True
+        assert section["signal_implementation_agreement"] == "both_reproduce"
+
+    def test_only_bridge_reproduces(self):
+        tracks = {
+            "original_method": TRACKS["standardized_hxz"],  # sign disagrees w/ paper
+            "cz_bridge_x": {
+                "config": {},
+                "metrics": {"mean_return": -0.009, "t_stat": -4.5, "n_months": 870},
+                "is_bridge_track": True,
+            },
+        }
+        section = build_bridge_comparison(tracks, PAPER)
+        assert section["signal_implementation_agreement"] == "only_bridge"
+
+
+class TestPublicationDecay:
+    def test_no_by_sample_period_is_unavailable(self):
+        section = build_publication_decay(TRACKS)
+        assert section["available"] is False
+        assert "by_sample_period" in section["reason"] or "sample_start_year" in section["reason"]
+
+    def test_decayed_track_is_flagged(self):
+        tracks = {
+            "original_method": {
+                "config": {},
+                "metrics": {
+                    "by_sample_period": {
+                        "insamp": {"t_stat": 3.5},
+                        "postpub": {"t_stat": 0.5},
+                    }
+                },
+            }
+        }
+        section = build_publication_decay(tracks)
+        assert section["available"] is True
+        entry = section["tracks"]["original_method"]
+        assert entry["insamp_significant"] is True
+        assert entry["postpub_significant"] is False
+        assert entry["decayed"] is True
+
+    def test_stable_track_is_not_flagged_as_decayed(self):
+        tracks = {
+            "original_method": {
+                "config": {},
+                "metrics": {
+                    "by_sample_period": {
+                        "insamp": {"t_stat": 3.5},
+                        "postpub": {"t_stat": 2.5},
+                    }
+                },
+            }
+        }
+        section = build_publication_decay(tracks)
+        assert section["tracks"]["original_method"]["decayed"] is False
+
+
+class TestRobustnessSummary:
+    def test_no_ablation_tracks_is_unavailable(self):
+        section = build_robustness_summary(TRACKS)
+        assert section["available"] is False
+        assert "ablation" in section["reason"]
+
+    def test_robust_when_no_sign_or_significance_flips(self):
+        tracks = dict(TRACKS)
+        tracks["ablation_breakpoint"] = {
+            "config": {},
+            "metrics": {"t_stat": -3.5},
+        }
+        section = build_robustness_summary(tracks)
+        assert section["available"] is True
+        assert section["n_ablation_tracks"] == 1
+        assert section["sign_flips"] == 0
+        assert section["significance_flips"] == 0
+        assert section["robust"] is True
+
+    def test_fragile_when_ablation_flips_sign(self):
+        tracks = dict(TRACKS)
+        tracks["ablation_weighting"] = {
+            "config": {},
+            "metrics": {"t_stat": 2.0},  # opposite sign of baseline's -4.0
+        }
+        section = build_robustness_summary(tracks)
+        assert section["sign_flips"] == 1
+        assert section["robust"] is False
 
 
 def _bundle() -> dict:
@@ -576,6 +749,257 @@ class TestReplicationDiagnoser:
         llm._payload = "not json at all"
         report = ReplicationDiagnoser(llm_client=llm).diagnose(bundle)
         assert report.claims == []
+
+
+def _bundle_with_extras() -> dict:
+    """`_bundle()` plus the newer reason-layer evidence sections (spec_quality/
+    menu_deviations/bridge_comparison/publication_decay/robustness_summary),
+    hand-built the way `build_evidence_bundle()` would actually produce them."""
+    bundle = _bundle()
+    bundle["spec_quality"] = {
+        "available": True,
+        "weak_fields": [
+            {"field_path": "portfolio.weighting", "reason": "evidence_status=unspecified", "disposition": "needs_human_confirmation"}
+        ],
+    }
+    bundle["menu_deviations"] = {"available": True, "unsupported_paper_fields": [], "clamped_by_track": {}}
+    bundle["bridge_comparison"] = {
+        "available": True,
+        "bridge_track": "cz_bridge_x",
+        "own_track": "original_method",
+        "bridge_reproduces_paper": True,
+        "own_reproduces_paper": True,
+        "signal_implementation_agreement": "both_reproduce",
+    }
+    bundle["publication_decay"] = {
+        "available": True,
+        "tracks": {
+            "original_method": {
+                "insamp_t_stat": 3.5, "postpub_t_stat": 0.5,
+                "insamp_significant": True, "postpub_significant": False, "decayed": True,
+            }
+        },
+    }
+    bundle["robustness_summary"] = {
+        "available": True, "n_ablation_tracks": 1, "t_stat_range": 1.0,
+        "sign_flips": 0, "significance_flips": 0, "robust": True,
+    }
+    bundle["evidence_keys"].update(flatten({
+        "spec_quality": bundle["spec_quality"],
+        "menu_deviations": bundle["menu_deviations"],
+        "bridge_comparison": bundle["bridge_comparison"],
+        "publication_decay": bundle["publication_decay"],
+        "robustness_summary": bundle["robustness_summary"],
+    }))
+    return bundle
+
+
+class TestValidateClaimsNewTypes:
+    """docs/tools-plus-llm-plan.md §4.3's three new claim types:
+    signal_reproducibility (bridge track), publication_decay (McLean-Pontiff
+    style decay), implementation_robustness (OAT aggregate)."""
+
+    def setup_method(self):
+        self.evidence = _bundle_with_extras()["evidence_keys"]
+
+    def _validate_one(self, claim: dict):
+        return validate_claims([claim], self.evidence)
+
+    def test_signal_reproducibility_accepted_when_relation_matches_agreement(self):
+        accepted, rejected = self._validate_one({
+            "claim_type": "signal_reproducibility",
+            "relation": "reproduces",
+            "subject_track": "original_method",
+            "evidence_keys": ["bridge_comparison.signal_implementation_agreement"],
+        })
+        assert rejected == []
+        assert accepted[0].reason_layer == "signal_fidelity"
+
+    def test_signal_reproducibility_rejected_when_relation_contradicts(self):
+        accepted, rejected = self._validate_one({
+            "claim_type": "signal_reproducibility",
+            "relation": "diverges",
+            "subject_track": "original_method",
+            "evidence_keys": ["bridge_comparison.signal_implementation_agreement"],
+        })
+        assert accepted == []
+        assert "contradicts" in rejected[0].reason
+
+    def test_signal_reproducibility_requires_subject_track_be_bridge_or_own(self):
+        accepted, rejected = self._validate_one({
+            "claim_type": "signal_reproducibility",
+            "relation": "reproduces",
+            "subject_track": "standardized_hxz",
+            "evidence_keys": ["bridge_comparison.signal_implementation_agreement"],
+        })
+        assert accepted == []
+        assert "bridge_comparison" in rejected[0].reason
+
+    def test_publication_decay_accepted_and_subject_track_auto_derived(self):
+        accepted, rejected = self._validate_one({
+            "claim_type": "publication_decay",
+            "relation": "decayed",
+            "evidence_keys": ["publication_decay.tracks.original_method.decayed"],
+        })
+        assert rejected == []
+        assert accepted[0].subject_track == "original_method"
+        assert accepted[0].reason_layer == "temporal_pattern"
+
+    def test_publication_decay_rejected_when_relation_contradicts(self):
+        accepted, rejected = self._validate_one({
+            "claim_type": "publication_decay",
+            "relation": "stable",
+            "evidence_keys": ["publication_decay.tracks.original_method.decayed"],
+        })
+        assert accepted == []
+        assert "contradicts" in rejected[0].reason
+
+    def test_implementation_robustness_accepted(self):
+        accepted, rejected = self._validate_one({
+            "claim_type": "implementation_robustness",
+            "relation": "robust",
+            "evidence_keys": ["robustness_summary.robust"],
+        })
+        assert rejected == []
+        assert accepted[0].reason_layer == "config_sensitivity"
+
+    def test_implementation_robustness_rejected_when_relation_contradicts(self):
+        accepted, rejected = self._validate_one({
+            "claim_type": "implementation_robustness",
+            "relation": "fragile",
+            "evidence_keys": ["robustness_summary.robust"],
+        })
+        assert accepted == []
+        assert "contradicts" in rejected[0].reason
+
+    def test_existing_claim_types_get_config_sensitivity_reason_layer(self):
+        accepted, rejected = self._validate_one({
+            "claim_type": "sign_agreement",
+            "relation": "agrees",
+            "evidence_keys": ["derived.tracks.original_method.vs_paper.sign_agrees"],
+        })
+        assert rejected == []
+        assert accepted[0].reason_layer == "config_sensitivity"
+
+
+class _CyclingFakeLLM:
+    """Returns each payload in `payloads` in turn (one per call); repeats the
+    last payload if more calls happen than payloads supplied."""
+
+    def __init__(self, payloads: list[dict]):
+        self._payloads = payloads
+        self.calls: list[dict] = []
+        outer = self
+
+        class _Completions:
+            def create(self, messages, **kwargs):
+                outer.calls.append({"messages": messages, "kwargs": kwargs})
+                idx = min(len(outer.calls) - 1, len(outer._payloads) - 1)
+                content = json.dumps(outer._payloads[idx])
+                return type(
+                    "R", (),
+                    {"choices": [type("C", (), {"message": type("M", (), {"content": content})()})()]},
+                )()
+
+        self.chat = type("Chat", (), {"completions": _Completions()})()
+
+
+class TestDiagnoseRetryLoop:
+    """docs/tools-plus-llm-plan.md §4.3: a bounded (max 1 extra) retry round
+    resubmits ONLY previously-rejected claims with their rejection reason."""
+
+    def test_rejected_claim_gets_one_retry_and_can_be_fixed(self):
+        bundle = _bundle()
+        bad_claim = {
+            "claim_type": "magnitude_gap", "relation": "larger",
+            "evidence_keys": ["derived.tracks.original_method.vs_paper.spread_delta"],
+        }
+        fixed_claim = {
+            "claim_type": "magnitude_gap", "relation": "similar",
+            "evidence_keys": ["derived.tracks.original_method.vs_paper.abs_spread_ratio"],
+        }
+        llm = _CyclingFakeLLM([{"claims": [bad_claim]}, {"claims": [fixed_claim]}])
+        report = ReplicationDiagnoser(llm_client=llm, model="fake").diagnose(bundle)
+        assert len(llm.calls) == 2
+        assert len(report.claims) == 1
+        assert report.claims[0].relation == "similar"
+        assert report.rejected_claims == []
+
+    def test_retry_prompt_carries_the_rejection_reason(self):
+        bundle = _bundle()
+        bad_claim = {
+            "claim_type": "magnitude_gap", "relation": "larger",
+            "evidence_keys": ["derived.tracks.original_method.vs_paper.spread_delta"],
+        }
+        llm = _CyclingFakeLLM([{"claims": [bad_claim]}, {"claims": []}])
+        ReplicationDiagnoser(llm_client=llm, model="fake").diagnose(bundle)
+        round2_user_msg = llm.calls[1]["messages"][1]["content"]
+        assert "Previously rejected claims" in round2_user_msg
+        assert "abs_spread_ratio" in round2_user_msg
+
+    def test_no_retry_call_when_round1_has_no_rejections(self):
+        bundle = _bundle()
+        llm = _CyclingFakeLLM([{"claims": []}])
+        ReplicationDiagnoser(llm_client=llm, model="fake").diagnose(bundle)
+        assert len(llm.calls) == 1
+
+    def test_repeated_full_resubmission_does_not_double_count_accepted_claims(self):
+        """A client that ignores the retry instructions and resubmits its
+        WHOLE original answer (good + bad) every round must not duplicate
+        the already-accepted claim."""
+        bundle = _bundle()
+        good_claim = {
+            "claim_type": "sign_agreement", "relation": "agrees",
+            "evidence_keys": ["derived.tracks.original_method.vs_paper.sign_agrees"],
+        }
+        bad_claim = {
+            "claim_type": "magnitude_gap", "relation": "larger",
+            "evidence_keys": ["derived.tracks.original_method.vs_paper.spread_delta"],
+        }
+        llm = _CyclingFakeLLM([{"claims": [good_claim, bad_claim]}])  # same payload every round
+        report = ReplicationDiagnoser(llm_client=llm, model="fake").diagnose(bundle)
+        assert len(report.claims) == 1
+        assert len(report.rejected_claims) == 1
+
+
+class TestFieldEvidenceDetailOptIn:
+    def test_requested_tool_result_reaches_the_retry_prompt(self):
+        from src.infra.models.method_spec import EvidenceCitation, EvidenceStatus
+
+        spec = minimal_resolved_spec()
+        spec.paper.portfolio.weighting.status = EvidenceStatus.UNSPECIFIED
+        spec.paper.portfolio.weighting.evidence = [
+            EvidenceCitation(quote="the paper never states a weighting scheme")
+        ]
+        bundle = _bundle_with_extras()
+
+        bad_claim = {
+            "claim_type": "magnitude_gap", "relation": "larger",
+            "evidence_keys": ["derived.tracks.original_method.vs_paper.spread_delta"],
+        }
+        llm = _CyclingFakeLLM([
+            {"claims": [bad_claim], "tool_requests": ["field_evidence_detail"]},
+            {"claims": []},
+        ])
+        ReplicationDiagnoser(llm_client=llm, model="fake").diagnose(bundle, resolved_spec=spec)
+        assert len(llm.calls) == 2
+        round2_user_msg = llm.calls[1]["messages"][1]["content"]
+        assert "field_evidence_detail" in round2_user_msg
+        assert "the paper never states a weighting scheme" in round2_user_msg
+
+    def test_unavailable_without_resolved_spec(self):
+        bundle = _bundle_with_extras()
+        bad_claim = {
+            "claim_type": "magnitude_gap", "relation": "larger",
+            "evidence_keys": ["derived.tracks.original_method.vs_paper.spread_delta"],
+        }
+        llm = _CyclingFakeLLM([
+            {"claims": [bad_claim], "tool_requests": ["field_evidence_detail"]},
+            {"claims": []},
+        ])
+        ReplicationDiagnoser(llm_client=llm, model="fake").diagnose(bundle)  # no resolved_spec
+        round2_user_msg = llm.calls[1]["messages"][1]["content"]
+        assert "no resolved_spec supplied" in round2_user_msg
 
 
 class TestRenderMarkdown:

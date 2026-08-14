@@ -203,7 +203,7 @@ STEP_IO_CONTRACT: dict[int, dict[str, list[str]]] = {
     },
     3: {
         "input_refs": ["methodspec_ref", "review_report_ref"],
-        "output_refs": ["plugin_ref", "script_ref", "script_sha256"],
+        "output_refs": ["plugin_ref", "script_ref", "script_sha256", "config_ref"],
     },
     4: {
         "input_refs": ["methodspec_ref", "plugin_ref", "script_ref", "script_sha256"],

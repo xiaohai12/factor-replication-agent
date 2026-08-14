@@ -21,8 +21,20 @@ class ValidationReport(BaseModel):
     # executes_ok stays True when no slice was supplied (the check is skipped),
     # so static-only validation paths still pass.
     executes_ok: bool = True
+    # faithful_ok: LLM-based check that compute_signal implements the SAME
+    # approved signal.formula from the ResolvedMethodSpec (not whether that
+    # formula is the right economic choice -- that stays Review Gate's job).
+    # Opt-in (only runs when AdversarialSandbox was given an llm_client), so
+    # it stays True (skipped) for every static/default validation path.
+    faithful_ok: bool = True
     errors: list[str] = Field(default_factory=list)
     warnings: list[str] = Field(default_factory=list)
+    # Whitelisted technical metrics from the execution smoke test (NaN ratio,
+    # row/permno/month counts, signal dtype) -- see docs/tools-plus-llm-plan.md
+    # §4.2. Audit-only: never any return/alpha/t-stat/Sharpe number, and never
+    # used to gate `passed` (that's still errors/warnings above). Empty when
+    # the execution check didn't run (no script_text/data supplied).
+    technical_metrics: dict = Field(default_factory=dict)
 
 
 

@@ -12,6 +12,7 @@ from src.infra.data_layer import catalog, sources
 from src.infra.data_layer.sources import (
     build_crsp_monthly_panel_ciz as build_crsp_monthly_panel_ciz,
     load_daily_msf_ciz as load_daily_msf_ciz,
+    load_institutional_ownership_13f as load_institutional_ownership_13f,
 )
 
 
@@ -154,11 +155,14 @@ class DataDictionary:
         return mapping
 
 
-def _catalog_menu_text() -> str:
+def catalog_menu_text() -> str:
     """Render `catalog.DATA_CATALOG` as a human/LLM-readable "menu": every
     registered source, its description, and every physical column it owns
-    with its description. This is the ONLY vocabulary `_llm_match_unresolved_
-    fields` is allowed to pick from."""
+    with its description. Public (2026-08-13) -- also used by Step1's
+    extraction prompt (`src/steps/step1_extractor/extractor.py`'s
+    `CATALOG_MENU_TOOL`) to let the extraction LLM pick `RequiredField.
+    source_table`/`source_column`, not just `_llm_match_unresolved_fields`'s
+    resolve-stage fallback anymore."""
     lines: list[str] = []
     for name, entry in catalog.DATA_CATALOG.items():
         desc = entry.get("description", "")
@@ -203,7 +207,7 @@ def _llm_match_unresolved_fields(unresolved_fields: list, llm_client) -> dict[st
         "catalog below -- never invent a source or column name that isn't "
         "listed. If you are not confident a field matches any listed column, "
         "OMIT it entirely from your answer (do not guess).\n\n"
-        f"## Registered data catalog\n{_catalog_menu_text()}\n\n"
+        f"## Registered data catalog\n{catalog_menu_text()}\n\n"
         "## Fields to match\n" + "\n".join(field_lines) + "\n\n"
         'Return ONLY a JSON object of the form {"<field>": {"source": '
         '"<source>", "column": "<column>"}, ...} using EXACTLY the source/'
@@ -432,56 +436,16 @@ def load_liquidity_factors(data_dir: str | Path) -> pd.DataFrame:
 # source nothing uses yet would be guessing at a paper's actual needs. Add a
 # proper catalog entry (+ point this at `RAW_CSV_SOURCE_FILES`) once a real
 # MethodSpec needs one of these.
+#
+# 2026-08-13: 13F graduated out of this bucket -- `load_institutional_
+# ownership_13f` moved to `sources.py` (`ThirteenFSignalSource`, registered
+# as "tr_13f") since a real MethodSpec now needs it; re-exported above for
+# import-path compatibility. `load_liquidity_factors` above stays here
+# unregistered -- it has no `permno` column (a market-wide time series, not a
+# per-stock signal input), so it doesn't fit `sources.py`'s registry at all;
+# it's wired the same ad-hoc way as `ff_factors_path` instead (see
+# `step5_backtest_runner`/`script_generator`).
 # ---------------------------------------------------------------------------
-
-def load_institutional_ownership_13f(
-    data_dir: str | Path,
-    *,
-    crsp_cusip_map: pd.DataFrame | None = None,
-    nrows: int | None = None,
-) -> pd.DataFrame:
-    """Best-effort loader for the 13F institutional-ownership export
-    (data/local/13F.csv).
-
-    KNOWN LIMITATION (see docs/decision-log.md 2026-07-30 entry): this export
-    has no `permno` column -- its own key is `cusip` -- and is resolved here
-    via a CUSIP match against `CRSP_STOCK_MONTH.csv`'s own (permno, CUSIP)
-    pairs using each CUSIP's MOST RECENT observed permno. This is NOT a
-    point-in-time link (no validity window, unlike the CCM/IBES-CRSP link
-    tables) -- a CUSIP reassigned across permnos at some point in CRSP's
-    history could resolve to the wrong one. Do not treat this as production-
-    quality until that's replaced with a real point-in-time CUSIP history.
-
-    Args:
-        crsp_cusip_map: optional pre-built [cusip, permno] map (e.g. from a
-            prior call) to avoid re-reading the multi-GB CRSP monthly file
-            for repeated 13F loads.
-        nrows: dev/test-only row cap for the 13F export itself.
-    """
-    d = Path(data_dir) / "local"
-    thirteen_f = pd.read_csv(d / "13F.csv", usecols=["rdate", "cusip", "InstOwn_Perc"], nrows=nrows)
-    thirteen_f = thirteen_f.rename(columns={"InstOwn_Perc": "instown_perc"})
-    thirteen_f["cusip"] = thirteen_f["cusip"].astype(str).str.zfill(8).str[:8]
-
-    if crsp_cusip_map is None:
-        crsp_monthly = pd.read_csv(
-            d / "CRSP_STOCK_MONTH.csv",
-            usecols=["PERMNO", "CUSIP"],
-            dtype={"PERMNO": "int64", "CUSIP": "string"},
-            low_memory=False,
-        )
-        crsp_cusip_map = (
-            crsp_monthly.rename(columns={"PERMNO": "permno", "CUSIP": "cusip"})
-            .dropna(subset=["cusip"])
-            .drop_duplicates(subset=["cusip"], keep="last")[["cusip", "permno"]]
-        )
-
-    out = thirteen_f.merge(crsp_cusip_map, on="cusip", how="left")
-    out["rdate"] = pd.to_datetime(out["rdate"], format="%Y-%m-%d", errors="coerce")
-    out = out.dropna(subset=["permno", "rdate"]).copy()
-    out["yyyymm"] = (out["rdate"].dt.year * 100 + out["rdate"].dt.month).astype(int)
-    out["permno"] = out["permno"].astype(int)
-    return out[["permno", "yyyymm", "instown_perc"]].reset_index(drop=True)
 
 
 def load_ibes_recommendation_detail(data_dir: str | Path, *, nrows: int | None = None) -> pd.DataFrame:

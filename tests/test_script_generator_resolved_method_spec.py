@@ -7,7 +7,7 @@ Phase D).
 
 from __future__ import annotations
 
-from src.infra.models.method_spec import SourceColumn
+from src.infra.models.method_spec import FilterOp, FilterSpec, SourceColumn
 from src.steps.step3_codegen.script_generator import (
     generate_backtest_script,
     pick_signal_input_mode,
@@ -50,3 +50,21 @@ class TestGenerateBacktestScript:
         assert 'FACTOR_ID = "' in script
         assert resolved.paper.factor_id in script
         assert "compute_signal" in script
+
+
+class TestUniverseFilterJoinInGeneratedScript:
+    """A universe filter resolved to a real registered non-native column
+    (e.g. comp_funda.at) makes the generated script join it onto the
+    returns panel before the engine runs (2026-08-13)."""
+
+    def test_script_calls_join_and_config_carries_join_sources(self):
+        resolved = _resolved_spec()
+        resolved.paper.universe.filters.append(FilterSpec(concept_id="total_assets", op=FilterOp.GTE, value=0))
+        resolved.resolution.concept_mapping["total_assets"] = SourceColumn(source="comp_funda", column="at")
+        script = generate_backtest_script(
+            resolved, plugin_code="def compute_signal(df):\n    return df\n",
+        )
+        assert "def join_universe_filter_sources(msf" in script
+        assert "msf = join_universe_filter_sources(msf)" in script
+        assert '"universe_filter_join_sources": {\'comp_funda\': [\'at\']}' in script
+        compile(script, "<generated>", "exec")

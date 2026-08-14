@@ -20,7 +20,7 @@ def _paper_with_unresolvable_field():
     paper = resolved.paper
     paper.data.fields.append(
         RequiredField(
-            concept_id="firm_beta_estimate", paper_name="rolling market beta",
+            concept_id="firm_beta_estimate", name_in_paper="rolling market beta",
             paper_source_hint="", roles=[FieldRole.SIGNAL_INPUT],
         )
     )

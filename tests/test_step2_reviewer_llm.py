@@ -86,8 +86,10 @@ def _minimal_raw_spec(**overrides) -> dict:
             "sources": [],
             "fields": [
                 {
-                    "concept_id": "at", "paper_name": "total assets",
+                    "concept_id": "at", "name_in_paper": "total assets",
                     "paper_source_hint": "Compustat annual", "roles": ["signal_input"], "evidence": [],
+                    "source_table": {"value": "comp_funda", "evidence": [], "status": "clear"},
+                    "source_column": {"value": "at", "evidence": [], "status": "clear"},
                 }
             ],
             "coverage_notes": [],
@@ -109,7 +111,9 @@ def _minimal_raw_spec(**overrides) -> dict:
             "sorts": [
                 {
                     "sort_id": "sort1", "concept_id": "at", "role": "target", "order": 1,
-                    "mode": "independent", "group_type": "quantile", "group_count": 10,
+                    "mode": {"value": "independent", "evidence": [], "status": "clear"},
+                    "group_type": {"value": "quantile", "evidence": [], "status": "clear"},
+                    "group_count": 10,
                     "breakpoints": {"basis": {"value": "nyse", "evidence": [], "status": "clear"}, "values": []},
                 }
             ],
@@ -366,6 +370,64 @@ class TestFullyTrustedRewrite:
         assert outcome.llm_notes["value_corrections"][0]["field_path"] == "timing.formation_rule"
 
 
+class TestPreLlmTools:
+    """docs/resolve-diagnostics-gaps.md problem 2 follow-up: `review_method_
+    spec`'s findings (previously only computed for the standalone `/review`
+    endpoint) are now surfaced to the LLM review loop itself, as one of
+    Step2's registered Tool Prelude tools (see docs/tools-plus-llm-plan.md
+    §5) -- rendered as a `### tool_name` block with a JSON payload, not the
+    old hand-tagged `[tool_name]` text."""
+
+    @staticmethod
+    def _tool_block(user_message: str, name: str) -> str:
+        start = user_message.find(f"### {name}")
+        assert start != -1, f"no ### {name} block in message"
+        rest = user_message[start:]
+        next_marker = rest.find("\n### ", 1)
+        return rest if next_marker == -1 else rest[:next_marker]
+
+    def test_engine_menu_finding_is_included_in_the_prompt_once_schema_is_valid(self):
+        raw = _minimal_raw_spec()
+        raw["portfolio"]["weighting"] = {
+            "value": "other", "unsupported_value": "capped VW at 5% per stock", "evidence": [], "status": "clear",
+        }
+        client = _FakeLlmClient([
+            {"spec": raw, "field_assessments": [], "value_corrections": [], "evidence_assessments": [], "additional_findings": []},
+        ])
+        build_reviewed_method_spec(raw, "cooper2008", "asset_growth", "paper text", client, max_rounds=1)
+        user_message = client.chat.completions.calls[0][1]["content"]
+        block = self._tool_block(user_message, "engine_menu_and_capability")
+        assert "portfolio.weighting" in block
+        assert "capped VW at 5% per stock" in block
+
+    def test_no_engine_menu_report_when_spec_is_clean(self):
+        raw = _minimal_raw_spec()
+        client = _FakeLlmClient([
+            {"spec": raw, "field_assessments": [], "value_corrections": [], "evidence_assessments": [], "additional_findings": []},
+        ])
+        build_reviewed_method_spec(raw, "cooper2008", "asset_growth", "paper text", client, max_rounds=1)
+        user_message = client.chat.completions.calls[0][1]["content"]
+        block = self._tool_block(user_message, "engine_menu_and_capability")
+        assert '"report"' not in block
+
+    def test_schema_validation_report_present_when_invalid_and_tool_skipped(self):
+        """When schema validation fails, the engine-menu tool self-reports
+        `status="skipped"` (no valid `MethodSpec` object to check yet)."""
+        raw = _minimal_raw_spec()
+        raw["timing"]["formation_month"] = 6  # bare scalar -> validate fails
+        client = _FakeLlmClient([
+            {"spec": raw, "field_assessments": [], "value_corrections": [], "evidence_assessments": [], "additional_findings": []},
+        ])
+        build_reviewed_method_spec(raw, "cooper2008", "asset_growth", "paper text", client, max_rounds=1)
+        user_message = client.chat.completions.calls[0][1]["content"]
+        schema_block = self._tool_block(user_message, "schema_validation")
+        assert "formation_month" in schema_block
+        engine_block = self._tool_block(user_message, "engine_menu_and_capability")
+        assert "status: skipped" in engine_block
+        assert '"report"' not in engine_block
+
+
+
 class TestDiffAndHistory:
     def test_round_records_before_and_after_snapshots(self):
         raw = _minimal_raw_spec()
@@ -395,4 +457,54 @@ class TestDiffAndHistory:
         outcome = build_reviewed_method_spec(raw, "cooper2008", "asset_growth", "paper text", client, max_rounds=2)
         assert outcome.error is None
         assert any(d["field_path"] == "timing.formation_month" for d in outcome.total_diff)
+
+
+class TestToolResultsAndRequests:
+    """docs/tools-plus-llm-plan.md §5: `SpecBuildOutcome.tool_results` is the
+    LAST round's results (same "final state" semantics as `spec`/`review`),
+    and `tool_requests` -- even though Step2 registers no `opt_in` tools --
+    is parsed uniformly and surfaces as an "unknown tool name" catalog
+    notice next round, never a crash."""
+
+    def test_outcome_tool_results_is_the_last_rounds(self):
+        raw = _minimal_raw_spec()
+        raw["timing"]["formation_month"] = 6  # round 1 fails schema validation
+        fixed = dict(raw)
+        fixed["timing"] = dict(raw["timing"])
+        fixed["timing"]["formation_month"] = {"value": 6, "evidence": [], "status": "unspecified"}
+        client = _FakeLlmClient([
+            {"spec": fixed, "field_assessments": [], "value_corrections": [], "evidence_assessments": [], "additional_findings": []},
+        ])
+        outcome = build_reviewed_method_spec(raw, "cooper2008", "asset_growth", "paper text", client, max_rounds=2)
+        assert len(outcome.history) == 2
+        assert outcome.tool_results == outcome.history[-1].tool_results
+        # Round 1: schema_validation failed -> engine_menu self-skips.
+        r1_engine = next(r for r in outcome.history[0].tool_results if r.name == "engine_menu_and_capability")
+        assert r1_engine.status == "skipped"
+        # Round 2: schema now valid -> engine_menu actually ran.
+        r2_engine = next(r for r in outcome.history[1].tool_results if r.name == "engine_menu_and_capability")
+        assert r2_engine.status == "ok"
+
+    def test_unknown_tool_request_surfaces_as_a_notice_next_round_without_crashing(self):
+        raw = _minimal_raw_spec()
+        raw["timing"]["formation_month"] = 6  # round 1: schema invalid -> continues to round 2
+        fixed = dict(raw)
+        fixed["timing"] = dict(raw["timing"])
+        fixed["timing"]["formation_month"] = {"value": 6, "evidence": [], "status": "unspecified"}
+        client = _FakeLlmClient([
+            {
+                "spec": fixed, "field_assessments": [], "value_corrections": [],
+                "evidence_assessments": [], "additional_findings": [],
+                "tool_requests": ["made_up_tool"],
+            },
+            {"spec": fixed, "field_assessments": [], "value_corrections": [], "evidence_assessments": [], "additional_findings": []},
+        ])
+        outcome = build_reviewed_method_spec(raw, "cooper2008", "asset_growth", "paper text", client, max_rounds=2)
+        assert outcome.error is None
+        assert len(client.chat.completions.calls) == 2
+        round2_system_prompt = client.chat.completions.calls[1][0]["content"]
+        assert "未知工具名" in round2_system_prompt
+        assert "made_up_tool" in round2_system_prompt
+
+
 

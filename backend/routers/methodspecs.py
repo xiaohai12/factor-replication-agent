@@ -34,6 +34,9 @@ from backend.state import (
     pipeline,
 )
 from src.infra.models.method_spec import (
+    RETURNS_PANEL_NATIVE_COLUMNS,
+    Disposition,
+    Finding,
     MethodReview,
     MethodSpec,
     ResolvedMethodSpec,
@@ -96,6 +99,7 @@ def _extract_job(document_id: str, target_name: str, paper_text: str, llm_provid
                 "error": result.error,
                 "token_usage": result.token_usage,
                 "paper_text": paper_text,
+                "tool_results": result.tool_results,
             }
         log(f"Extraction call succeeded (token usage: {result.token_usage}).")
 
@@ -106,6 +110,7 @@ def _extract_job(document_id: str, target_name: str, paper_text: str, llm_provid
             "error": None,
             "token_usage": result.token_usage,
             "paper_text": paper_text,
+            "tool_results": result.tool_results,
         }
 
     return run
@@ -146,6 +151,7 @@ def _review_loop_job(
             "history": outcome.history,
             "total_diff": outcome.total_diff,
             "llm_notes": outcome.llm_notes,
+            "tool_results": outcome.tool_results,
         }
 
     return run
@@ -226,6 +232,10 @@ class PatchValueRequest(BaseModel):
     patches: dict[str, Any]  # field_path -> corrected value
     reason: str = ""
     session_id: str | None = None
+    #: field_path -> paper's literal wording, only used for a patch that
+    #: sets that same field_path's value to the enum's "other" member (see
+    #: `apply_value_patches`).
+    unsupported_values: dict[str, str] = {}
 
 
 @router.post("/patch-value")
@@ -240,7 +250,7 @@ def patch_value(req: PatchValueRequest) -> dict:
     """
     paper = _validate_paper_spec(req.paper)
     try:
-        patched = apply_value_patches(paper, req.patches, req.reason, source="human")
+        patched = apply_value_patches(paper, req.patches, req.reason, source="human", unsupported_values=req.unsupported_values)
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc))
 
@@ -253,6 +263,43 @@ def patch_value(req: PatchValueRequest) -> dict:
             level="info",
         )
     return to_jsonable(patched)
+
+
+def _unsupported_universe_filter_findings(
+    paper: MethodSpec, resolution, resolved: ResolvedMethodSpec
+) -> list[Finding]:
+    """`ResolvedMethodSpec.unsupported_universe_filters()` only returns a bare
+    concept_id list, computed at RESOLVE time (needs `resolution.
+    concept_mapping`, unavailable at Step2 `review_method_spec(paper)` time --
+    see docs/resolve-diagnostics-gaps.md problem 1). Reuses the same
+    `Finding`/`Disposition` model and UI rendering language as the Step2
+    review findings, so a human sees this the same way, just attached to the
+    resolve result instead.
+    """
+    unsupported = set(resolved.unsupported_universe_filters())
+    findings = []
+    for i, filt in enumerate(paper.universe.filters):
+        if filt.concept_id not in unsupported:
+            continue
+        column = resolution.concept_mapping[filt.concept_id].column
+        findings.append(
+            Finding(
+                field_path=f"universe.filters[{i}].concept_id",
+                kind="unsupported",
+                reason=(
+                    f"resolves to column {column!r}, which isn't on the engine's returns "
+                    f"panel (native columns: {sorted(RETURNS_PANEL_NATIVE_COLUMNS)}) and isn't "
+                    "registered in the data catalog for its source either, so the generated "
+                    "script has no way to join it in. Register this column in the catalog "
+                    "(src/infra/data_layer/sources.py), or mark this filter accepted_unapplied "
+                    "with a reason."
+                ),
+                empirical_impact="high",
+                disposition=Disposition.NEEDS_HUMAN_CONFIRMATION,
+                paper_value=filt.concept_id,
+            )
+        )
+    return findings
 
 
 class ResolveRequest(BaseModel):
@@ -299,6 +346,7 @@ def resolve(req: ResolveRequest) -> dict:
     )
 
     unmapped = resolved.unmapped_concepts()
+    resolution_findings = _unsupported_universe_filter_findings(paper, resolution, resolved)
     if req.session_id:
         detail = f"is_ready={resolved.is_ready}" + (f", unmapped concepts: {unmapped}" if unmapped else "")
         if resolution.llm_matched_concepts:
@@ -313,6 +361,7 @@ def resolve(req: ResolveRequest) -> dict:
         "is_ready": resolved.is_ready,
         "unmapped_concepts": unmapped,
         "llm_matched_concepts": resolution.llm_matched_concepts,
+        "resolution_findings": [to_jsonable(f) for f in resolution_findings],
     }
 
 

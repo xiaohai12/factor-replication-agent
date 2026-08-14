@@ -94,7 +94,7 @@ def _single_sort_spec() -> MethodSpec:
             signal_frequency=SourcedValue(value=TimeUnit.YEAR, status=EvidenceStatus.CLEAR),
             return_frequency=SourcedValue(value=TimeUnit.MONTH, status=EvidenceStatus.CLEAR),
             fields=[
-                RequiredField(concept_id="at", paper_name="total assets", paper_source_hint="Compustat annual", roles=[FieldRole.SIGNAL_INPUT]),
+                RequiredField(concept_id="at", name_in_paper="total assets", paper_source_hint="Compustat annual", roles=[FieldRole.SIGNAL_INPUT]),
             ],
         ),
         sample=SampleSpec(data_coverage=_period(), formation=_period(), reported_returns=_period()),
@@ -111,7 +111,7 @@ def _single_sort_spec() -> MethodSpec:
             sorts=[
                 SortDimension(
                     sort_id="sort1", concept_id="at", role=SortRole.TARGET, order=1,
-                    mode=SortMode.INDEPENDENT, group_type=GroupType.QUANTILE, group_count=10,
+                    mode=SourcedValue(value=SortMode.INDEPENDENT, status=EvidenceStatus.CLEAR), group_type=SourcedValue(value=GroupType.QUANTILE, status=EvidenceStatus.CLEAR), group_count=10,
                     breakpoints=BreakpointSpec(basis=SourcedValue(value="nyse", status=EvidenceStatus.CLEAR)),
                 )
             ],
@@ -175,6 +175,57 @@ class TestBuildConfigSingleSort:
         assert any(d["config_key"] == "accounting_lag_months" for d in config.get("defaults_applied", []))
 
 
+class TestUniverseFilterValueEncodingTranslation:
+    """docs/resolve-diagnostics-gaps.md problem 3: a universe filter's
+    physical column may be a registered `RETURNS_PANEL_NATIVE_COLUMNS`
+    member but its `value` is still the paper's own wording (e.g.
+    "NYSE"/"Amex"/"NASDAQ" against numeric `exchcd`) -- translated via
+    `FILTER_VALUE_ENCODINGS`, never silently passed through as-is."""
+
+    def _resolved_with_exchange_filter(self, value):
+        paper = _single_sort_spec()
+        paper.universe.filters.append(
+            FilterSpec(concept_id="listing_exchange", op=FilterOp.IN, value=value)
+        )
+        return _resolved(paper, {
+            "at": SourceColumn(source="comp_funda", column="at"),
+            "listing_exchange": SourceColumn(source="crsp_msf", column="exchcd"),
+        })
+
+    def test_paper_vocabulary_translated_to_physical_codes(self):
+        resolved = self._resolved_with_exchange_filter(["NYSE", "Amex", "NASDAQ"])
+        config = build_config(resolved, None)
+        assert config["universe_filters"] == [{"field": "exchcd", "op": "in", "value": [1, 2, 3]}]
+
+    def test_translation_is_case_insensitive(self):
+        resolved = self._resolved_with_exchange_filter(["nyse", "AMEX"])
+        config = build_config(resolved, None)
+        assert config["universe_filters"][0]["value"] == [1, 2]
+
+    def test_already_numeric_value_passes_through_unchanged(self):
+        resolved = self._resolved_with_exchange_filter([1, 2, 3])
+        config = build_config(resolved, None)
+        assert config["universe_filters"][0]["value"] == [1, 2, 3]
+
+    def test_unregistered_label_fails_loud_not_silently_all_false(self):
+        resolved = self._resolved_with_exchange_filter(["NYSE", "Some Regional Exchange"])
+        with pytest.raises(ValueError, match="Some Regional Exchange"):
+            build_config(resolved, None)
+
+    def test_column_without_registered_encoding_passes_value_through(self):
+        """`me` (market equity) has no registered encoding -- values pass
+        through unchanged, whatever they are (numeric filters on it are
+        already unambiguous)."""
+        paper = _single_sort_spec()
+        paper.universe.filters.append(FilterSpec(concept_id="size_floor", op=FilterOp.GTE, value=100))
+        resolved = _resolved(paper, {
+            "at": SourceColumn(source="comp_funda", column="at"),
+            "size_floor": SourceColumn(source="crsp_msf", column="me"),
+        })
+        config = build_config(resolved, None)
+        assert config["universe_filters"][0] == {"field": "me", "op": "gte", "value": 100}
+
+
 class TestAcceptedUnappliedUniverseFilter:
     """`FilterSpec.accepted_unapplied` -- the "other" escape hatch: a human
     explicitly records that a stated universe restriction is NOT applied,
@@ -232,16 +283,53 @@ class TestAcceptedUnappliedUniverseFilter:
         assert config["unapplied_universe_filters"][0]["concept_id"] == "compustat_listing_duration"
 
 
+class TestUniverseFilterJoinSources:
+    """A universe filter resolved to a REAL registered non-native column
+    (e.g. comp_funda.at) is joined onto the returns panel by the generated
+    script (2026-08-13) instead of being blocked -- `build_config` records
+    which {source: [columns]} the script needs to join."""
+
+    def test_registered_non_native_column_recorded_for_join(self):
+        paper = _single_sort_spec()
+        paper.universe.filters.append(FilterSpec(concept_id="total_assets", op=FilterOp.GTE, value=0))
+        resolved = _resolved(paper, {
+            "at": SourceColumn(source="comp_funda", column="at"),
+            "total_assets": SourceColumn(source="comp_funda", column="at"),
+        })
+        config = build_config(resolved, None)
+        assert config["universe_filter_join_sources"] == {"comp_funda": ["at"]}
+
+    def test_native_column_needs_no_join(self):
+        paper = _single_sort_spec()
+        paper.universe.filters.append(FilterSpec(concept_id="listing_exchange", op=FilterOp.IN, value=[1, 2]))
+        resolved = _resolved(paper, {
+            "at": SourceColumn(source="comp_funda", column="at"),
+            "listing_exchange": SourceColumn(source="crsp_msf", column="exchcd"),
+        })
+        config = build_config(resolved, None)
+        assert config["universe_filter_join_sources"] == {}
+
+    def test_unregistered_column_is_not_recorded_for_join(self):
+        paper = _single_sort_spec()
+        paper.universe.filters.append(FilterSpec(concept_id="compustat_listing_duration", op=FilterOp.GTE, value=2))
+        resolved = _resolved(paper, {
+            "at": SourceColumn(source="comp_funda", column="at"),
+            "compustat_listing_duration": SourceColumn(source="comp_funda", column="listing_duration_years"),
+        })
+        config = build_config(resolved, None)
+        assert config["universe_filter_join_sources"] == {}
+
+
 def _double_sort_spec() -> MethodSpec:
     paper = _single_sort_spec()
     size_sort = SortDimension(
         sort_id="size", concept_id="me", role=SortRole.CONDITIONING, order=1,
-        mode=SortMode.INDEPENDENT, group_type=GroupType.QUANTILE, group_count=2,
+        mode=SourcedValue(value=SortMode.INDEPENDENT, status=EvidenceStatus.CLEAR), group_type=SourcedValue(value=GroupType.QUANTILE, status=EvidenceStatus.CLEAR), group_count=2,
         breakpoints=BreakpointSpec(basis=SourcedValue(value="nyse", status=EvidenceStatus.CLEAR)),
     )
     target_sort = SortDimension(
         sort_id="sort1", concept_id="at", role=SortRole.TARGET, order=2,
-        mode=SortMode.INDEPENDENT, group_type=GroupType.QUANTILE, group_count=2,
+        mode=SourcedValue(value=SortMode.INDEPENDENT, status=EvidenceStatus.CLEAR), group_type=SourcedValue(value=GroupType.QUANTILE, status=EvidenceStatus.CLEAR), group_count=2,
         breakpoints=BreakpointSpec(basis=SourcedValue(value="nyse", status=EvidenceStatus.CLEAR)),
     )
     paper.portfolio.sorts = [size_sort, target_sort]
@@ -250,9 +338,111 @@ def _double_sort_spec() -> MethodSpec:
         PortfolioLeg(leg_id="short", side="short", selector={"sort1": 1}),
     ]
     paper.data.fields.append(
-        RequiredField(concept_id="me", paper_name="market equity", paper_source_hint="CRSP", roles=[FieldRole.WEIGHTING_INPUT])
+        RequiredField(concept_id="me", name_in_paper="market equity", paper_source_hint="CRSP", roles=[FieldRole.WEIGHTING_INPUT])
     )
     return paper
+
+
+class TestEngineMenuAutoClamp:
+    """docs/resolve-diagnostics-gaps.md problem 2: every engine-menu field
+    (group_type, sort.mode, rebalance_frequency, lag_unit, sort-dimension
+    count) auto-clamps to a documented default when off-menu, recorded in
+    `defaults_applied`, never blocking `is_ready`/`build_config`."""
+
+    def test_non_quantile_group_type_is_recorded_not_executed_differently(self):
+        paper = _single_sort_spec()
+        paper.portfolio.sorts[0].group_type = SourcedValue(value=GroupType.CATEGORICAL, status=EvidenceStatus.CLEAR)
+        resolved = _resolved(paper, {"at": SourceColumn(source="comp_funda", column="at")})
+        config = build_config(resolved, None)
+        assert any(
+            d["config_key"] == "sorts[0].group_type" and d["value"] == "quantile"
+            for d in config.get("defaults_applied", [])
+        )
+
+    def test_within_group_mode_passed_through_not_defaulted(self):
+        paper = _single_sort_spec()
+        size_sort = SortDimension(
+            sort_id="size", concept_id="me", role=SortRole.CONDITIONING, order=2,
+            mode=SourcedValue(value=SortMode.WITHIN_GROUP, status=EvidenceStatus.CLEAR),
+            group_type=SourcedValue(value=GroupType.QUANTILE, status=EvidenceStatus.CLEAR), group_count=2,
+            breakpoints=BreakpointSpec(basis=SourcedValue(value="nyse", status=EvidenceStatus.CLEAR)),
+        )
+        paper.portfolio.sorts.append(size_sort)
+        paper.data.fields.append(
+            RequiredField(concept_id="me", name_in_paper="market equity", paper_source_hint="CRSP", roles=[FieldRole.WEIGHTING_INPUT])
+        )
+        resolved = _resolved(paper, {
+            "at": SourceColumn(source="comp_funda", column="at"),
+            "me": SourceColumn(source="crsp_msf", column="me"),
+        })
+        config = build_config(resolved, None)
+        conditioning_dim = next(d for d in config["sort_dims"] if d["role"] == "conditioning")
+        assert conditioning_dim["mode"] == "within_group"
+        # never silently coerced to sequential/independent, no defaults_applied entry
+        assert not any(d["config_key"].endswith(".mode") for d in config.get("defaults_applied", []))
+
+    def test_other_mode_clamped_to_independent_and_recorded(self):
+        """`sort_dims` is only built when there are >=2 sorts -- add a second
+        dimension so the clamped `mode` is actually observable in config."""
+        paper = _single_sort_spec()
+        paper.portfolio.sorts[0].mode = SourcedValue(
+            value=SortMode.OTHER, unsupported_value="some novel relationship", status=EvidenceStatus.CLEAR,
+        )
+        paper.portfolio.sorts.append(
+            SortDimension(
+                sort_id="size", concept_id="me", role=SortRole.CONDITIONING, order=2,
+                mode=SourcedValue(value=SortMode.INDEPENDENT, status=EvidenceStatus.CLEAR),
+                group_type=SourcedValue(value=GroupType.QUANTILE, status=EvidenceStatus.CLEAR), group_count=2,
+                breakpoints=BreakpointSpec(basis=SourcedValue(value="nyse", status=EvidenceStatus.CLEAR)),
+            )
+        )
+        paper.data.fields.append(
+            RequiredField(concept_id="me", name_in_paper="market equity", paper_source_hint="CRSP", roles=[FieldRole.WEIGHTING_INPUT])
+        )
+        resolved = _resolved(paper, {
+            "at": SourceColumn(source="comp_funda", column="at"),
+            "me": SourceColumn(source="crsp_msf", column="me"),
+        })
+        config = build_config(resolved, None)
+        target_dim = next(d for d in config["sort_dims"] if d["role"] == "target")
+        assert target_dim["mode"] == "independent"
+        assert target_dim["independent"] is True
+        assert any(d["config_key"] == "sorts[0].mode" for d in config.get("defaults_applied", []))
+
+    def test_daily_rebalance_frequency_clamps_to_monthly_and_is_recorded(self):
+        paper = _single_sort_spec()
+        paper.timing.rebalance_frequency = SourcedValue(value=TimeUnit.DAY, status=EvidenceStatus.CLEAR)
+        resolved = _resolved(paper, {"at": SourceColumn(source="comp_funda", column="at")})
+        config = build_config(resolved, None)
+        assert config["rebalance_frequency"] == "monthly"
+        assert any(d["config_key"] == "rebalance_frequency" for d in config.get("defaults_applied", []))
+
+    def test_daily_lag_unit_defaults_to_6_months_with_honest_reason(self):
+        paper = _single_sort_spec()
+        paper.timing.data_availability = DataAvailability(lag_value=5, lag_unit=TimeUnit.DAY)
+        resolved = _resolved(paper, {"at": SourceColumn(source="comp_funda", column="at")})
+        config = build_config(resolved, None)
+        assert config["accounting_lag_months"] == 6
+        entry = next(d for d in config["defaults_applied"] if d["config_key"] == "accounting_lag_months")
+        assert "5" in entry["reason"] and "day" in entry["reason"]
+        assert "unspecified" not in entry["reason"]
+
+    def test_excess_sort_dimensions_are_clamped_to_max_keeping_target(self):
+        paper = _single_sort_spec()
+        for i in range(2):
+            paper.portfolio.sorts.append(
+                SortDimension(
+                    sort_id=f"extra{i}", concept_id="at", role=SortRole.CONTROL, order=i + 2,
+                    mode=SourcedValue(value=SortMode.INDEPENDENT, status=EvidenceStatus.CLEAR),
+                    group_type=SourcedValue(value=GroupType.QUANTILE, status=EvidenceStatus.CLEAR), group_count=2,
+                    breakpoints=BreakpointSpec(basis=SourcedValue(value="nyse", status=EvidenceStatus.CLEAR)),
+                )
+            )
+        resolved = _resolved(paper, {"at": SourceColumn(source="comp_funda", column="at")})
+        assert resolved.is_ready
+        config = build_config(resolved, None)
+        assert len(config["sort_dims"]) == 2
+        assert any(d["config_key"] == "sort_dims" for d in config.get("defaults_applied", []))
 
 
 class TestBuildConfigDoubleSort:

@@ -17,6 +17,7 @@ class TestCollectRuntimeProvenance:
         assert set(prov.keys()) == {
             "git_commit", "git_dirty", "engine_source_hash",
             "python_version", "package_versions", "ff_factors_hash",
+            "liquidity_factors_hash",
         }
 
     def test_git_commit_is_a_real_hash_in_this_repo_checkout(self):
@@ -61,6 +62,17 @@ class TestCollectRuntimeProvenance:
         prov = collect_runtime_provenance(ff_factors_path=str(f))
         assert prov["ff_factors_hash"] is not None
         assert len(prov["ff_factors_hash"]) == 64
+
+    def test_liquidity_factors_hash_none_when_not_supplied(self):
+        prov = collect_runtime_provenance()
+        assert prov["liquidity_factors_hash"] is None
+
+    def test_liquidity_factors_hash_computed_when_file_exists(self, tmp_path):
+        f = tmp_path / "liquidity_factors.csv"
+        f.write_bytes(b"fake csv bytes")
+        prov = collect_runtime_provenance(liquidity_factors_path=str(f))
+        assert prov["liquidity_factors_hash"] is not None
+        assert len(prov["liquidity_factors_hash"]) == 64
 
     def test_never_raises_even_with_bogus_input(self):
         # Should not raise regardless of a nonsense path.

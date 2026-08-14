@@ -43,6 +43,29 @@ class TestApplyHumanValuePatches:
         assert patched.portfolio.sorts[0].breakpoints.basis.value == "full_sample"
         assert patched.portfolio.sorts[0].breakpoints.basis.status == EvidenceStatus.CLEAR
 
+    def test_patching_to_other_stores_unsupported_value(self):
+        paper = _base_spec()
+        patched = apply_value_patches(
+            paper,
+            {"portfolio.sorts[0].breakpoints.basis": "other"},
+            unsupported_values={"portfolio.sorts[0].breakpoints.basis": "quintile breakpoints on total assets"},
+        )
+        assert patched.portfolio.sorts[0].breakpoints.basis.value == "other"
+        assert (
+            patched.portfolio.sorts[0].breakpoints.basis.unsupported_value
+            == "quintile breakpoints on total assets"
+        )
+
+    def test_patching_away_from_other_clears_stale_unsupported_value(self):
+        paper = _base_spec()
+        paper.portfolio.sorts[0].breakpoints.basis.value = "other"
+        paper.portfolio.sorts[0].breakpoints.basis.unsupported_value = "some stale wording"
+
+        patched = apply_value_patches(paper, {"portfolio.sorts[0].breakpoints.basis": "nyse"})
+
+        assert patched.portfolio.sorts[0].breakpoints.basis.value == "nyse"
+        assert patched.portfolio.sorts[0].breakpoints.basis.unsupported_value is None
+
     def test_multiple_patches_in_one_call(self):
         paper = _base_spec()
         patched = apply_value_patches(

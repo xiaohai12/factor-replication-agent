@@ -10,10 +10,9 @@ import { PROVIDER_MODELS, useLlm } from "@/lib/llmContext"
 import { cn } from "@/lib/utils"
 
 const NAV_ITEMS = [
-  { to: "/sessions", label: "Sessions" },
+  { to: "/runs", label: "Runs" },
   { to: "/extract", label: "Extractor" },
   { to: "/review", label: "Review & Resolve" },
-  { to: "/pipeline", label: "Pipeline — End to End" },
   { to: "/backtest", label: "Backtest & Experiments" },
   { to: "/trace", label: "Trace & Logs" },
   { to: "/schema", label: "Schema Reference" },

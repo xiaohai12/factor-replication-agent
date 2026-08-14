@@ -12,6 +12,9 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
+import subprocess
+import sys
 from pathlib import Path
 from typing import Optional
 
@@ -257,6 +260,10 @@ def build_step3_script(session_id: str, req: BuildScriptRequest) -> dict:
     # for step4/5's `spec` to be auto-filled from -- persist it here too so
     # the frontend's buildAutoFilledRequest always has a fallback.
     (step_dir / f"{script_sha256}.spec.json").write_text(json.dumps(spec.model_dump(mode="json")))
+    # Resolved config (registry.build_config's output) -- was already computed
+    # for diagnostics below but previously discarded; persisted so the UI can
+    # show what the engine actually resolved (breakpoints, weighting, lag, ...).
+    (step_dir / f"{script_sha256}.config.json").write_text(json.dumps(built["config"]))
 
     diagnostics = step_diagnostics.step3_diagnostics(plugin, built["config"])
     manifest = session_store.complete_attempt(
@@ -269,6 +276,7 @@ def build_step3_script(session_id: str, req: BuildScriptRequest) -> dict:
             "script_ref": f"{script_sha256}.py",
             "script_sha256": script_sha256,
             "spec_ref": f"{script_sha256}.spec.json",
+            "config_ref": f"{script_sha256}.config.json",
         },
         diagnostics=diagnostics,
     )
@@ -295,13 +303,22 @@ async def validate_step4_artifact(session_id: str, req: ValidateArtifactRequest)
 
     No user-facing `snapshot_id`: always validates against the small
     `VALIDATION_SAMPLE_SNAPSHOT_ID` real-data sample (fast, genuinely real
-    data) via `Pipeline._build_validation_slice`, wired through the shared
+    data). Two stages: (1) a cheap `Pipeline._build_validation_slice`-based
+    smoke test of `compute_signal` alone, wired through the shared
     `RepairLoop` (a technical-only build->validate->repair->rebuild cycle,
     same one `Pipeline.run_from_method_spec`/`DualTrackController` use) so a
     repairable syntax/schema failure is fixed automatically instead of just
-    reported. Runs as a background job since a multi-attempt repair loop can
-    involve LLM calls that take a while; `log` streams progress into the
-    job's SSE log.
+    reported; (2) a MANDATORY full run of the exact validated script via
+    `BacktestRunner.execute()` -- the SAME call `execute_step5` makes, just
+    pointed at `VALIDATION_SAMPLE_SNAPSHOT_ID`'s data instead of
+    `REAL_WRDS_SNAPSHOT_ID` -- so step4 exercises the identical
+    compute_signal -> BacktestExecutor.run_with_config code path Step5 will
+    run, never just the formula in isolation. Stage 2 has NO leniency: any
+    exception (e.g. a universe filter that can't run on real columns) is a
+    hard validation failure, not a warning, and is NOT auto-repaired (same
+    posture as `execute_step5` itself). Runs as a background job since a
+    multi-attempt repair loop and a real backtest run can both take a while;
+    `log` streams progress into the job's SSE log.
     """
     manifest = _get_or_404(session_id)
     step3_dir = session_store.step_dir(session_id, 3)
@@ -320,8 +337,6 @@ async def validate_step4_artifact(session_id: str, req: ValidateArtifactRequest)
         raise HTTPException(status_code=404, detail=f"No spec/plugin artifact for script '{req.script_sha256}'")
     spec = _validate_spec(json.loads(spec_path.read_text()))
     plugin = _validate_plugin(json.loads(plugin_path.read_text()))
-
-    _concurrent_or_409(lambda: session_store.start_attempt(session_id, req.expected_revision, step=4))
 
     def run(log):
         ensure_validation_sample_snapshot()
@@ -365,6 +380,58 @@ async def validate_step4_artifact(session_id: str, req: ValidateArtifactRequest)
                 )
                 output_refs["plugin_ref"] = f"{validated_sha256}.plugin.json"
                 output_refs["spec_ref"] = f"{validated_sha256}.spec.json"
+
+        # Stage 2: mandatory, no-leniency full run of the EXACT validated
+        # script bytes -- the same subprocess mechanism
+        # `BacktestRunner.execute()`/execute_step5 use (env-var data-path
+        # override), only pointed at VALIDATION_SAMPLE_SNAPSHOT_ID's data
+        # instead of REAL_WRDS_SNAPSHOT_ID. Run directly (not via `execute()`
+        # itself) because that helper reads the CSV/metrics path back from a
+        # FRESH `build_script()` call -- reusing it here with swapped-in
+        # script text would read back the wrong output path whenever the
+        # original script was built under a different `track_name`. Step4
+        # only needs pass/fail, not the metrics, so a plain subprocess run is
+        # both correct and simpler. Never skipped and never repaired here
+        # (same posture as execute_step5 itself) -- any failure hard-fails
+        # validation.
+        if report.passed:
+            validated_text = (
+                outcome.built["script_text"] if repair_history else script_text
+            )
+            sample_snapshot = pipeline.data_layer.snapshots.get_snapshot(VALIDATION_SAMPLE_SNAPSHOT_ID)
+            if sample_snapshot is None:
+                report.passed = False
+                report.executes_ok = False
+                report.errors.append(f"Snapshot '{VALIDATION_SAMPLE_SNAPSHOT_ID}' not registered")
+            else:
+                sample_storage_path = Path(sample_snapshot.storage_path)
+                validation_script_path = (
+                    pipeline.runner.scripts_path / f"{spec.paper.factor_id}__step4_validation_backtest.py"
+                )
+                validation_script_path.parent.mkdir(parents=True, exist_ok=True)
+                validation_script_path.write_text(validated_text)
+                repo_root = Path(__file__).resolve().parents[2]
+                env = {
+                    **os.environ,
+                    "PYTHONPATH": f"{repo_root}{os.pathsep}{os.environ.get('PYTHONPATH', '')}",
+                    "BACKTEST_DATA_PATH": str(sample_storage_path / "crsp_msf.parquet"),
+                    "BACKTEST_SIGNAL_DATA_DIR": str(sample_storage_path),
+                }
+                log("Running the full validated script against the validation sample (same engine path as Step5)...")
+                proc = subprocess.run(
+                    [sys.executable, str(validation_script_path)],
+                    capture_output=True, text=True, env=env,
+                )
+                for line in (proc.stdout or "").splitlines():
+                    log(line)
+                if proc.returncode != 0:
+                    report.passed = False
+                    report.executes_ok = False
+                    tail = ((proc.stdout or "") + (proc.stderr or ""))[-4000:]
+                    report.errors.append(
+                        f"Full-script run against the validation sample failed (exit {proc.returncode}): {tail}"
+                    )
+
         (step3_dir / f"{validated_sha256}.validation.json").write_text(
             json.dumps(to_jsonable(report), indent=2)
         )
@@ -395,6 +462,7 @@ async def validate_step4_artifact(session_id: str, req: ValidateArtifactRequest)
         }
 
     job_id = job_manager.create_job(run, session_id=session_id, step=4, stage="validate")
+    _concurrent_or_409(lambda: session_store.start_attempt(session_id, req.expected_revision, step=4, job_id=job_id))
     return {"job_id": job_id}
 
 
@@ -470,8 +538,6 @@ async def execute_step5(session_id: str, req: ExecuteArtifactRequest) -> dict:
         raise HTTPException(status_code=404, detail=f"No plugin artifact for script '{req.script_sha256}'")
     plugin = _validate_plugin(json.loads(plugin_path.read_text()))
 
-    _concurrent_or_409(lambda: session_store.start_attempt(session_id, req.expected_revision, step=5))
-
     def run(log):
         try:
             ensure_real_wrds_snapshot()
@@ -530,4 +596,5 @@ async def execute_step5(session_id: str, req: ExecuteArtifactRequest) -> dict:
         }
 
     job_id = job_manager.create_job(run, session_id=session_id, step=5, stage="execute")
+    _concurrent_or_409(lambda: session_store.start_attempt(session_id, req.expected_revision, step=5, job_id=job_id))
     return {"job_id": job_id}

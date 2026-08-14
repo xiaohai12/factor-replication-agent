@@ -78,7 +78,9 @@ def _package_versions() -> dict[str, str]:
     return versions
 
 
-def collect_runtime_provenance(ff_factors_path: str | None = None) -> dict[str, Any]:
+def collect_runtime_provenance(
+    ff_factors_path: str | None = None, liquidity_factors_path: str | None = None
+) -> dict[str, Any]:
     """Collect a best-effort snapshot of "what actually ran" for a RunRecord.
 
     Returns a plain JSON-serializable dict (never raises):
@@ -94,6 +96,9 @@ def collect_runtime_provenance(ff_factors_path: str | None = None) -> dict[str, 
       - package_versions: pinned versions of numerics-affecting dependencies.
       - ff_factors_hash: sha256 of the external FF-factor file actually
         consumed for alpha computation, if one was supplied and exists.
+      - liquidity_factors_hash: sha256 of the external Pastor-Stambaugh
+        liquidity_factors.csv actually consumed for `alpha_liq`, if one was
+        supplied and exists (2026-08-13).
     """
     return {
         "git_commit": _git_commit(),
@@ -103,5 +108,8 @@ def collect_runtime_provenance(ff_factors_path: str | None = None) -> dict[str, 
         "package_versions": _package_versions(),
         "ff_factors_hash": (
             _file_sha256(Path(ff_factors_path)) if ff_factors_path else None
+        ),
+        "liquidity_factors_hash": (
+            _file_sha256(Path(liquidity_factors_path)) if liquidity_factors_path else None
         ),
     }

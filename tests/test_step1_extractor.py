@@ -84,7 +84,7 @@ def _valid_raw_llm_output() -> dict:
             "fields": [
                 {
                     "concept_id": "at",
-                    "paper_name": "total assets",
+                    "name_in_paper": "total assets",
                     "paper_source_hint": "Compustat annual",
                     "roles": ["signal_input"],
                     "evidence": [],
@@ -192,6 +192,51 @@ class TestExtractReturnsRawDict:
             assert False, "expected RuntimeError"
         except RuntimeError:
             pass
+
+
+class _CapturingFakeLLMClient(_FakeLLMClient):
+    """Same shape as `_FakeLLMClient` but records the messages it was
+    called with, so tests can inspect what actually reached the LLM."""
+
+    def __init__(self, content: str):
+        super().__init__(content)
+        self.calls: list[dict] = []
+
+    def create(self, **kwargs):
+        self.calls.append(kwargs)
+        return super().create(**kwargs)
+
+
+class TestStep1ToolPrelude:
+    """Step1's tools+LLM wiring: a prelude-only (no round loop, no
+    `tool_requests`) run of `STEP1_TOOLS` before the single LLM call --
+    see docs/tools-plus-llm-plan.md §4.1."""
+
+    def test_tool_results_are_recorded_on_the_extraction_result(self):
+        raw = _valid_raw_llm_output()
+        client = _CapturingFakeLLMClient(json.dumps(raw))
+        extractor = MethodSpecExtractor(llm_client=client, call_delay=0.0)
+        result = extractor.extract("cooper2008", "asset_growth", "paper text")
+        assert [r.name for r in result.tool_results] == ["schema_skeleton", "data_catalog"]
+        assert result.tool_results[0].status == "ok"
+
+    def test_catalog_is_spliced_into_the_system_prompt(self):
+        raw = _valid_raw_llm_output()
+        client = _CapturingFakeLLMClient(json.dumps(raw))
+        extractor = MethodSpecExtractor(llm_client=client, call_delay=0.0)
+        extractor.extract("cooper2008", "asset_growth", "paper text")
+        system_prompt = client.calls[0]["messages"][0]["content"]
+        assert "## TOOL CATALOG" in system_prompt
+        assert "schema_skeleton" in system_prompt
+
+    def test_tool_results_json_reaches_the_user_message(self):
+        raw = _valid_raw_llm_output()
+        client = _CapturingFakeLLMClient(json.dumps(raw))
+        extractor = MethodSpecExtractor(llm_client=client, call_delay=0.0)
+        extractor.extract("cooper2008", "asset_growth", "paper text")
+        user_msg = client.calls[0]["messages"][1]["content"]
+        assert "## TOOL RESULTS" in user_msg
+        assert "schema_skeleton" in user_msg
 
 
 class TestPersistRawSpec:

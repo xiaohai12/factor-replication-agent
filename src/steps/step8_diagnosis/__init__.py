@@ -26,6 +26,7 @@ from __future__ import annotations
 
 import json
 import re
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
@@ -36,9 +37,21 @@ from src.infra.models.diagnosis import (
     CLAIM_RELATIONS,
     EVIDENCE_STRENGTH_BY_IDENTIFICATION,
     IDENTIFICATION_BY_CLAIM_TYPE,
+    REASON_LAYER_BY_CLAIM_TYPE,
     DiagnosisClaim,
     RejectedClaim,
     ReplicationDiagnosisReport,
+)
+from src.infra.models.method_spec import ResolvedMethodSpec
+from src.infra.tooling import (
+    Tool,
+    ToolContext,
+    ToolPolicy,
+    ToolResult,
+    ToolRunner,
+    render_tool_catalog,
+    render_tool_results,
+    splice_tool_catalog,
 )
 from src.steps.step7_replication_diff.bundle import CLOSE_REPLICATION_RATIO_BAND, stage_of
 
@@ -55,7 +68,14 @@ _DIGIT_RE = re.compile(r"\d")
 
 _TRACK_FROM_VS_PAPER_KEY = re.compile(r"^derived\.tracks\.([^.]+)\.vs_paper\.")
 _TRACK_FROM_CONFIG_DIFF_KEY = re.compile(r"^config_diff\.pairs\.([^.]+)\.details\.")
+_TRACK_FROM_PUBLICATION_DECAY_KEY = re.compile(r"^publication_decay\.tracks\.([^.]+)\.")
 _SWITCH_FROM_CONTRIBUTION_KEY = re.compile(r"\.contributions\.([^.]+)$")
+
+# Bounded rounds for the claim-rejection retry loop (docs/tools-plus-llm-plan.md
+# §4.3): round 1 drafts claims from scratch; any additional round resubmits
+# ONLY the rejected ones with their rejection reason, never re-asks about
+# already-accepted claims.
+MAX_DIAGNOSIS_ROUNDS = 2
 
 # An ablation_<switch> track's n_months collapsing relative to the baseline
 # (e.g. an annual signal losing its forward-fill once rebalance_frequency
@@ -65,19 +85,6 @@ _SWITCH_FROM_CONTRIBUTION_KEY = re.compile(r"\.contributions\.([^.]+)$")
 # if the two tracks shared a sample.
 GAP_ATTRIBUTION_N_MONTHS_RATIO_THRESHOLD = 2.0
 
-# Sections of comparison.json the model needs in order to reason. The full file
-# also carries `evidence_keys`, which is passed separately as the citation
-# whitelist.
-_BUNDLE_SECTIONS = (
-    "factor_id",
-    "paper_ref",
-    "paper_reported",
-    "tracks",
-    "derived",
-    "config_diff",
-    "gap_decomposition",
-)
-
 
 class ReplicationDiagnoser:
     """Turns a deterministic evidence bundle into evidence-cited narrative."""
@@ -86,13 +93,35 @@ class ReplicationDiagnoser:
         self.llm_client = llm_client
         self.model = model
 
-    def diagnose(self, bundle: dict[str, Any]) -> ReplicationDiagnosisReport:
+    def diagnose(
+        self,
+        bundle: dict[str, Any],
+        resolved_spec: ResolvedMethodSpec | None = None,
+        tool_policy: ToolPolicy | None = None,
+        max_rounds: int = MAX_DIAGNOSIS_ROUNDS,
+    ) -> ReplicationDiagnosisReport:
         """Produce a validated diagnosis report for one comparison bundle.
 
-        `bundle` is the parsed `comparison.json` (schema v2), which must
+        `bundle` is the parsed `comparison.json` (schema v2+), which must
         already contain the deterministic `derived` / `config_diff` /
-        `gap_decomposition` / `evidence_keys` sections.
+        `gap_decomposition` / `evidence_keys` sections (and, when present,
+        the newer `spec_quality`/`menu_deviations`/`bridge_comparison`/
+        `publication_decay`/`robustness_summary` sections -- see
+        `src.steps.step7_replication_diff.bundle`).
+
+        `resolved_spec`, when supplied, powers the opt_in
+        `field_evidence_detail` tool (reads `SourcedValue.evidence[]`);
+        without it that tool is unavailable (any request for it is ignored,
+        same as an unknown tool name).
+
+        Bounded retry (docs/tools-plus-llm-plan.md §4.3): if round 1 has any
+        rejected claims, one further round resubmits ONLY those (with their
+        rejection reason) for a chance to fix or drop them -- never re-asks
+        about already-accepted claims. Accepted claims are deduped across
+        rounds by content, so a client that resubmits its whole answer
+        verbatim (rather than only the fixed subset) never double-counts.
         """
+        policy = tool_policy or ToolPolicy()
         evidence_keys = bundle.get("evidence_keys") or {}
         report = ReplicationDiagnosisReport(
             factor_id=bundle.get("factor_id", "unknown"),
@@ -100,31 +129,56 @@ class ReplicationDiagnoser:
             overall_tag=(bundle.get("derived") or {}).get("overall_tag", "inconclusive"),
         )
 
-        response = self.llm_client.chat.completions.create(
-            messages=[
-                {"role": "system", "content": DIAGNOSIS_SYSTEM_PROMPT},
-                {"role": "user", "content": self._build_prompt(bundle)},
-            ],
-            temperature=0.0,
-            response_format={"type": "json_object"},
-        )
-        raw = response.choices[0].message.content or ""
-        raw_claims = _parse_claims(raw)
+        ctx = Step8ToolContext(bundle=bundle, resolved_spec=resolved_spec)
+        requested: list[str] = []
+        accepted: list[DiagnosisClaim] = []
+        rejected: list[RejectedClaim] = []
+        seen: set[str] = set()
 
-        accepted, rejected = validate_claims(raw_claims, evidence_keys)
+        for round_num in range(1, max_rounds + 1):
+            run = ToolRunner().run_all(STEP8_TOOLS, ctx, policy, requested=requested)
+            system_prompt = splice_tool_catalog(
+                DIAGNOSIS_SYSTEM_PROMPT, render_tool_catalog(STEP8_TOOLS, run.results, run.unknown_requests),
+            )
+            if round_num == 1:
+                user_prompt = self._build_prompt(bundle, run.results)
+            else:
+                if not rejected:
+                    break
+                user_prompt = self._build_retry_prompt(rejected, run.results)
+
+            response = self.llm_client.chat.completions.create(
+                messages=[
+                    {"role": "system", "content": system_prompt},
+                    {"role": "user", "content": user_prompt},
+                ],
+                temperature=0.0,
+                response_format={"type": "json_object"},
+            )
+            payload = _parse_payload(response.choices[0].message.content or "")
+            raw_claims = payload.get("claims") or []
+            requested = (payload.get("tool_requests") or []) if policy.allow_llm_requests else []
+
+            new_accepted, rejected = validate_claims(raw_claims, evidence_keys)
+            for claim in new_accepted:
+                key = json.dumps(claim.model_dump(mode="json"), sort_keys=True, default=str)
+                if key in seen:
+                    continue
+                seen.add(key)
+                accepted.append(claim)
+
+            if not rejected:
+                break
+
         report.claims = accepted
         report.rejected_claims = rejected
         return report
 
-    def _build_prompt(self, bundle: dict[str, Any]) -> str:
-        facts = {k: bundle[k] for k in _BUNDLE_SECTIONS if k in bundle}
+    def _build_prompt(self, bundle: dict[str, Any], tool_results: list[ToolResult]) -> str:
         whitelist = sorted((bundle.get("evidence_keys") or {}).keys())
         return "\n".join(
             [
-                "## Deterministic results",
-                "```json",
-                json.dumps(facts, indent=2, default=str),
-                "```",
+                render_tool_results(tool_results),
                 "",
                 "## Citable evidence keys (the ONLY keys you may reference)",
                 "```json",
@@ -135,19 +189,164 @@ class ReplicationDiagnoser:
             ]
         )
 
+    def _build_retry_prompt(self, rejected: list[RejectedClaim], tool_results: list[ToolResult]) -> str:
+        """Round 2+: resubmit ONLY the previously-rejected claims, each with
+        its rejection reason, and ask for revised (or dropped) versions --
+        never re-ask about claims that already passed. Also carries any
+        newly-run tool results (e.g. a requested `field_evidence_detail`),
+        so an opt_in tool's payload actually reaches the LLM here too, not
+        only in round 1's prompt."""
+        lines = [
+            "## Previously rejected claims",
+            "",
+            "Each of these was rejected by the deterministic validator for the "
+            "reason shown. Return a revised version of each you can fix (same "
+            "JSON shape as before), or omit it entirely if it cannot be fixed. "
+            "Do not resubmit claims that were not listed here.",
+            "",
+        ]
+        for i, r in enumerate(rejected, start=1):
+            lines += [
+                f"### Rejected claim {i}",
+                f"Reason: {r.reason}",
+                "```json",
+                json.dumps(r.claim, indent=2, default=str),
+                "```",
+                "",
+            ]
+        lines.append(render_tool_results(tool_results))
+        lines.append("")
+        lines.append('Return the same JSON object shape: {"claims": [...], "tool_requests": []}.')
+        return "\n".join(lines)
 
-def _parse_claims(raw: str) -> list[dict]:
-    """Extract the claim list from the model's raw response."""
+
+@dataclass
+class Step8ToolContext(ToolContext):
+    bundle: dict = field(default_factory=dict)
+    #: Only needed by the opt_in `field_evidence_detail` tool -- unavailable
+    #: (tool self-skips) when not supplied.
+    resolved_spec: ResolvedMethodSpec | None = None
+
+
+def _bundle_section_tool(name: str, description: str, produces: str) -> Tool[Step8ToolContext]:
+    """Most of Step8's tools are placeholders in the same sense as Step1's
+    `schema_skeleton`: the actual computation already happened in Step7's
+    `build_evidence_bundle()` (see docs/tools-plus-llm-plan.md §4.3) --
+    `fn` here just reads the already-computed section out of `ctx.bundle`,
+    it never computes anything itself.
+    """
+    def fn(ctx: Step8ToolContext) -> ToolResult:
+        section = ctx.bundle.get(name)
+        if section is None:
+            return ToolResult(name=name, status="skipped", error=f"bundle has no {name!r} section")
+        return ToolResult(name=name, status="ok", payload=section)
+    return Tool(name=name, description=description, produces=produces, fn=fn, tier="always")
+
+
+SPEC_QUALITY_TOOL = _bundle_section_tool(
+    "spec_quality",
+    "paper spec fields with weak evidence (unspecified/inferred/conflicting)",
+    "field_path + evidence status summary; does not mean the field is wrong, only that it's our best guess",
+)
+MENU_DEVIATIONS_TOOL = _bundle_section_tool(
+    "menu_deviations",
+    "where the paper's method fell off the engine's menu (unsupported_value) + per-track clamped config defaults (defaults_applied)",
+    "may be incomplete (empty on an older comparison.json without this section)",
+)
+DERIVED_TOOL = _bundle_section_tool(
+    "derived",
+    "each track vs the paper (sign_agrees/abs_spread_ratio/significance/etc) + the overall_tag verdict",
+    "observational comparison only, never implies causation",
+)
+CONFIG_DIFF_TOOL = _bundle_section_tool(
+    "config_diff", "config differences between tracks (which keys differ, by how much)", "observational, not a controlled experiment"
+)
+GAP_DECOMPOSITION_TOOL = _bundle_section_tool(
+    "gap_decomposition", "one-at-a-time (OAT) per-switch contribution decomposition", "harmonized evidence, non-additive, not guaranteed to sum"
+)
+BRIDGE_COMPARISON_TOOL = _bundle_section_tool(
+    "bridge_comparison",
+    "C&Z reference signal run through the identical downstream config, vs our own track's independent reproduction of the paper's sign",
+    "unavailable when no bridge track is registered for this factor -- never fabricate this evidence",
+)
+PUBLICATION_DECAY_TOOL = _bundle_section_tool(
+    "publication_decay",
+    "per-track in-sample vs post-publication t-stat comparison (McLean-Pontiff style decay)",
+    "unavailable when no track configured a publication-year sample split; orthogonal to replication quality, a property of the factor's own time series",
+)
+ROBUSTNESS_SUMMARY_TOOL = _bundle_section_tool(
+    "robustness_summary",
+    "aggregate sign-flip/significance-flip count across all ablation_* tracks vs baseline",
+    "requires a baseline track plus at least one ablation_* track",
+)
+
+
+def _field_evidence_detail_fn(ctx: Step8ToolContext) -> ToolResult:
+    """Opt_in: full `SourcedValue.evidence[]` citations for every field
+    `spec_quality` flagged as weak -- the summary (`weak_fields`) only lists
+    field_path+status, this expands to the actual paper quotes when the LLM
+    requests it (needs `resolved_spec`, unlike the always-tier tools).
+    """
+    if ctx.resolved_spec is None:
+        return ToolResult(name="field_evidence_detail", status="skipped", error="no resolved_spec supplied")
+    weak_fields = ((ctx.bundle.get("spec_quality") or {}).get("weak_fields")) or []
+    detail = {}
+    for entry in weak_fields:
+        field_path = entry.get("field_path")
+        if not field_path:
+            continue
+        try:
+            obj: Any = ctx.resolved_spec.paper
+            for part in field_path.replace("]", "").replace("[", ".").split("."):
+                obj = obj[int(part)] if part.isdigit() else getattr(obj, part)
+        except (AttributeError, IndexError, TypeError, ValueError):
+            continue
+        evidence = getattr(obj, "evidence", None)
+        if evidence:
+            detail[field_path] = [
+                {"quote": e.quote, "table_ref": e.table_ref.model_dump() if e.table_ref else None}
+                for e in evidence
+            ]
+    return ToolResult(name="field_evidence_detail", status="ok", payload=detail)
+
+
+FIELD_EVIDENCE_DETAIL_TOOL: Tool[Step8ToolContext] = Tool(
+    name="field_evidence_detail",
+    description="full paper-quote citations for one weak field (spec_quality only gives a summary)",
+    produces="{field_path: [{quote, table_ref}]}; requires resolved_spec to be supplied",
+    fn=_field_evidence_detail_fn,
+    tier="opt_in",
+)
+
+STEP8_TOOLS: list[Tool[Step8ToolContext]] = [
+    SPEC_QUALITY_TOOL,
+    MENU_DEVIATIONS_TOOL,
+    DERIVED_TOOL,
+    CONFIG_DIFF_TOOL,
+    GAP_DECOMPOSITION_TOOL,
+    BRIDGE_COMPARISON_TOOL,
+    PUBLICATION_DECAY_TOOL,
+    ROBUSTNESS_SUMMARY_TOOL,
+    FIELD_EVIDENCE_DETAIL_TOOL,
+]
+
+
+def _parse_payload(raw: str) -> dict[str, Any]:
+    """Extract the full response object (`claims` + optional `tool_requests`)
+    from the model's raw response."""
     from src.infra.llm import extract_json_object_text
 
     try:
         payload = json.loads(extract_json_object_text(raw))
     except (ValueError, TypeError):
-        return []
-    if isinstance(payload, dict):
-        claims = payload.get("claims", [])
-        return [c for c in claims if isinstance(c, dict)]
-    return []
+        return {}
+    return payload if isinstance(payload, dict) else {}
+
+
+def _parse_claims(raw: str) -> list[dict]:
+    """Extract just the claim list from the model's raw response."""
+    claims = _parse_payload(raw).get("claims", [])
+    return [c for c in claims if isinstance(c, dict)]
 
 
 def validate_claims(
@@ -217,13 +416,17 @@ def _rejection_reason(raw: dict, evidence_keys: dict[str, Any]) -> str | None:
     if subject_reason:
         return subject_reason
 
-    return _entailment_reason(claim_type, relation, keys, evidence_keys)
+    return _entailment_reason(claim_type, relation, keys, evidence_keys, raw)
 
 
 def _cited_tracks(keys: list[str]) -> set[str]:
     tracks: set[str] = set()
     for k in keys:
-        m = _TRACK_FROM_VS_PAPER_KEY.match(k) or _TRACK_FROM_CONFIG_DIFF_KEY.match(k)
+        m = (
+            _TRACK_FROM_VS_PAPER_KEY.match(k)
+            or _TRACK_FROM_CONFIG_DIFF_KEY.match(k)
+            or _TRACK_FROM_PUBLICATION_DECAY_KEY.match(k)
+        )
         if m:
             tracks.add(m.group(1))
     return tracks
@@ -288,7 +491,7 @@ def _n_months_mismatch_reason(contribution_key: str, evidence_keys: dict[str, An
 
 
 def _entailment_reason(
-    claim_type: str, relation: str, keys: list[str], evidence_keys: dict[str, Any]
+    claim_type: str, relation: str, keys: list[str], evidence_keys: dict[str, Any], raw: dict | None = None,
 ) -> str | None:
     """Reject a claim whose asserted relation contradicts the value it cites.
 
@@ -352,6 +555,48 @@ def _entailment_reason(
                 "value is null (i.e. genuinely missing evidence), not an arbitrary result"
             )
 
+    elif claim_type == "signal_reproducibility":
+        agreement = evidence_keys.get("bridge_comparison.signal_implementation_agreement")
+        own_track = evidence_keys.get("bridge_comparison.own_track")
+        bridge_track = evidence_keys.get("bridge_comparison.bridge_track")
+        subject = (raw or {}).get("subject_track")
+        if agreement is None or subject not in (own_track, bridge_track):
+            return (
+                "signal_reproducibility must cite bridge_comparison.signal_implementation_agreement "
+                "and name subject_track as either bridge_comparison.own_track or .bridge_track"
+            )
+        if subject == own_track:
+            expected = "reproduces" if agreement in ("both_reproduce", "only_own") else "diverges"
+        else:
+            expected = "reproduces" if agreement in ("both_reproduce", "only_bridge") else "diverges"
+        if relation != expected:
+            return (
+                f"relation {relation!r} contradicts signal_implementation_agreement={agreement!r} "
+                f"for subject_track={subject!r}"
+            )
+
+    elif claim_type == "publication_decay":
+        decay_key = next((k for k in keys if k.endswith(".decayed")), None)
+        if decay_key is None:
+            return "publication_decay must cite a publication_decay.tracks.<track>.decayed value"
+        value = evidence_keys.get(decay_key)
+        if value is None:
+            return "publication_decay's cited .decayed value is null; cite evidence_limitation instead"
+        expected = "decayed" if value else "stable"
+        if relation != expected:
+            return f"relation {relation!r} contradicts the cited decayed value ({value!r})"
+
+    elif claim_type == "implementation_robustness":
+        robust_key = next((k for k in keys if k.endswith(".robust")), None)
+        if robust_key is None:
+            return "implementation_robustness must cite a robustness_summary.robust value"
+        value = evidence_keys.get(robust_key)
+        if value is None:
+            return "implementation_robustness's cited .robust value is null"
+        expected = "robust" if value else "fragile"
+        if relation != expected:
+            return f"relation {relation!r} contradicts the cited robust value ({value!r})"
+
     return None
 
 
@@ -389,10 +634,12 @@ def _derive_claim_fields(raw: dict, evidence_keys: dict[str, Any]) -> dict[str, 
         identification_level = found or identification_level
 
     evidence_strength = EVIDENCE_STRENGTH_BY_IDENTIFICATION.get(identification_level, "low")
+    reason_layer = REASON_LAYER_BY_CLAIM_TYPE.get(claim_type, "config_sensitivity")
 
     return {
         "subject_track": subject_track,
         "stage": stage,
         "identification_level": identification_level,
         "evidence_strength": evidence_strength,
+        "reason_layer": reason_layer,
     }

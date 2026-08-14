@@ -34,6 +34,7 @@ from src.infra.models.method_spec import (
     SortRole,
     SourceColumn,
     SourcedValue,
+    SourceName,
     MetricStatistic,
     TableRef,
     EvidenceCitation,
@@ -77,7 +78,17 @@ def minimal_resolved_spec(
         data=DataSpec(
             signal_frequency=SourcedValue(value=TimeUnit.YEAR, status=EvidenceStatus.CLEAR),
             return_frequency=SourcedValue(value=TimeUnit.MONTH, status=EvidenceStatus.CLEAR),
-            fields=[RequiredField(concept_id="x", paper_name="test field", paper_source_hint="Compustat annual", roles=[FieldRole.SIGNAL_INPUT])],
+            fields=[RequiredField(
+                concept_id="x", name_in_paper="test field", paper_source_hint="Compustat annual",
+                roles=[FieldRole.SIGNAL_INPUT],
+                # Deliberately NOT tied to `concept_source`/`concept_column` (those feed
+                # `resolution.concept_mapping` below, a free-form field with no catalog
+                # validation) -- a fixed, always-real catalog column so this "fully
+                # is_ready" fixture stays fully clean under the source_table/source_column
+                # high-impact check too.
+                source_table=SourcedValue(value=SourceName.COMP_FUNDA, status=EvidenceStatus.CLEAR),
+                source_column=SourcedValue(value="at", status=EvidenceStatus.CLEAR),
+            )],
         ),
         sample=SampleSpec(data_coverage=period, formation=period, reported_returns=period),
         timing=TimingSpec(
@@ -93,7 +104,7 @@ def minimal_resolved_spec(
             sorts=[
                 SortDimension(
                     sort_id="sort1", concept_id="x", role=SortRole.TARGET, order=1,
-                    mode=SortMode.INDEPENDENT, group_type=GroupType.QUANTILE, group_count=10,
+                    mode=SourcedValue(value=SortMode.INDEPENDENT, status=EvidenceStatus.CLEAR), group_type=SourcedValue(value=GroupType.QUANTILE, status=EvidenceStatus.CLEAR), group_count=10,
                     breakpoints=BreakpointSpec(basis=SourcedValue(value=breakpoint_source, status=EvidenceStatus.CLEAR)),
                 )
             ],
@@ -158,7 +169,12 @@ def asset_growth_resolved_spec(factor_id: str = "cooper_gulen_schill_2008_asset_
         data=DataSpec(
             signal_frequency=SourcedValue(value=TimeUnit.YEAR, status=EvidenceStatus.CLEAR),
             return_frequency=SourcedValue(value=TimeUnit.MONTH, status=EvidenceStatus.CLEAR),
-            fields=[RequiredField(concept_id="total_assets", paper_name="Total assets", paper_source_hint="Compustat data item 6", roles=[FieldRole.SIGNAL_INPUT])],
+            fields=[RequiredField(
+                concept_id="total_assets", name_in_paper="Total assets", paper_source_hint="Compustat data item 6",
+                roles=[FieldRole.SIGNAL_INPUT],
+                source_table=SourcedValue(value=SourceName.COMP_FUNDA, status=EvidenceStatus.CLEAR),
+                source_column=SourcedValue(value="at", status=EvidenceStatus.CLEAR),
+            )],
         ),
         sample=SampleSpec(data_coverage=period, formation=period, reported_returns=period),
         timing=TimingSpec(
@@ -174,7 +190,7 @@ def asset_growth_resolved_spec(factor_id: str = "cooper_gulen_schill_2008_asset_
             sorts=[
                 SortDimension(
                     sort_id="assetg", concept_id="total_assets", role=SortRole.TARGET, order=1,
-                    mode=SortMode.INDEPENDENT, group_type=GroupType.QUANTILE, group_count=10,
+                    mode=SourcedValue(value=SortMode.INDEPENDENT, status=EvidenceStatus.CLEAR), group_type=SourcedValue(value=GroupType.QUANTILE, status=EvidenceStatus.CLEAR), group_count=10,
                     breakpoints=BreakpointSpec(basis=SourcedValue(value="nyse", status=EvidenceStatus.CLEAR)),
                 )
             ],
@@ -241,7 +257,12 @@ def accruals_resolved_spec() -> ResolvedMethodSpec:
             signal_frequency=SourcedValue(value=TimeUnit.YEAR, status=EvidenceStatus.CLEAR),
             return_frequency=SourcedValue(value=TimeUnit.MONTH, status=EvidenceStatus.CLEAR),
             fields=[
-                RequiredField(concept_id=c, paper_name=c, paper_source_hint="Compustat annual", roles=[FieldRole.SIGNAL_INPUT])
+                RequiredField(
+                    concept_id=c, name_in_paper=c, paper_source_hint="Compustat annual",
+                    roles=[FieldRole.SIGNAL_INPUT],
+                    source_table=SourcedValue(value=SourceName.COMP_FUNDA, status=EvidenceStatus.CLEAR),
+                    source_column=SourcedValue(value=columns[c], status=EvidenceStatus.CLEAR),
+                )
                 for c in concepts
             ],
         ),
@@ -259,7 +280,7 @@ def accruals_resolved_spec() -> ResolvedMethodSpec:
             sorts=[
                 SortDimension(
                     sort_id="accruals", concept_id="total_assets", role=SortRole.TARGET, order=1,
-                    mode=SortMode.INDEPENDENT, group_type=GroupType.QUANTILE, group_count=10,
+                    mode=SourcedValue(value=SortMode.INDEPENDENT, status=EvidenceStatus.CLEAR), group_type=SourcedValue(value=GroupType.QUANTILE, status=EvidenceStatus.CLEAR), group_count=10,
                     breakpoints=BreakpointSpec(basis=SourcedValue(value="nyse", status=EvidenceStatus.CLEAR)),
                 )
             ],

@@ -1012,6 +1012,113 @@ register(SignalSource(SourceSpec(
 )))
 
 
+def load_institutional_ownership_13f(
+    data_dir: str | Path,
+    *,
+    crsp_cusip_map: pd.DataFrame | None = None,
+    nrows: int | None = None,
+) -> pd.DataFrame:
+    """Best-effort loader for the 13F institutional-ownership export
+    (data/local/13F.csv). Lives here (not `_load_generic_signal_frame`'s
+    caller `SignalSource`) because its CUSIP->permno resolution is bespoke --
+    see `ThirteenFSignalSource` below.
+
+    KNOWN LIMITATION (see docs/decision-log.md 2026-07-30 entry): this export
+    has no `permno` column -- its own key is `cusip` -- and is resolved here
+    via a CUSIP match against `CRSP_STOCK_MONTH.csv`'s own (permno, CUSIP)
+    pairs using each CUSIP's MOST RECENT observed permno. This is NOT a
+    point-in-time link (no validity window, unlike the CCM/IBES-CRSP link
+    tables) -- a CUSIP reassigned across permnos at some point in CRSP's
+    history could resolve to the wrong one. Do not treat this as production-
+    quality until that's replaced with a real point-in-time CUSIP history.
+
+    Args:
+        crsp_cusip_map: optional pre-built [cusip, permno] map (e.g. from a
+            prior call) to avoid re-reading the multi-GB CRSP monthly file
+            for repeated 13F loads.
+        nrows: dev/test-only row cap for the 13F export itself.
+    """
+    d = Path(data_dir) / "local"
+    thirteen_f = pd.read_csv(d / "13F.csv", usecols=["rdate", "cusip", "InstOwn_Perc"], nrows=nrows)
+    thirteen_f = thirteen_f.rename(columns={"InstOwn_Perc": "instown_perc"})
+    thirteen_f["cusip"] = thirteen_f["cusip"].astype(str).str.zfill(8).str[:8]
+
+    if crsp_cusip_map is None:
+        crsp_monthly = pd.read_csv(
+            d / "CRSP_STOCK_MONTH.csv",
+            usecols=["PERMNO", "CUSIP"],
+            dtype={"PERMNO": "int64", "CUSIP": "string"},
+            low_memory=False,
+        )
+        crsp_cusip_map = (
+            crsp_monthly.rename(columns={"PERMNO": "permno", "CUSIP": "cusip"})
+            .dropna(subset=["cusip"])
+            .drop_duplicates(subset=["cusip"], keep="last")[["cusip", "permno"]]
+        )
+
+    out = thirteen_f.merge(crsp_cusip_map, on="cusip", how="left")
+    out["rdate"] = pd.to_datetime(out["rdate"], format="%Y-%m-%d", errors="coerce")
+    out = out.dropna(subset=["permno", "rdate"]).copy()
+    out["yyyymm"] = (out["rdate"].dt.year * 100 + out["rdate"].dt.month).astype(int)
+    out["permno"] = out["permno"].astype(int)
+    return out[["permno", "yyyymm", "instown_perc"]].reset_index(drop=True)
+
+
+class ThirteenFSignalSource(DataSource):
+    """13F institutional-ownership signal source (2026-08-13). NOT a generic
+    `SignalSource` -- `load_institutional_ownership_13f`'s CUSIP->permno match
+    is "most-recently-observed", not a point-in-time link table like CCM/IBES,
+    so it bypasses `_load_generic_signal_frame`/`link_to_permno` entirely and
+    hand-computes `time_avail_m`, same reason `CrspSignalSource` bypasses them.
+    `spec` still carries a `SourceSpec` purely for `concept_columns`/
+    `physical_columns` (what `catalog.py`'s concept-map derivation reads) --
+    its `source_key`/`observation_date`/`crsp_link` fields are unused
+    placeholders here, same as `CrspSignalSource`'s.
+    """
+
+    def __init__(self, spec: SourceSpec):
+        self.spec = spec
+
+    def load(self, data_dir, columns=None, ctx=None) -> pd.DataFrame:
+        raw = load_institutional_ownership_13f(data_dir)
+        # 13F filings are due ~45 calendar days after quarter-end -- with
+        # monthly granularity, a flat 2-month lag is a conservative (never
+        # look-ahead-biased) approximation, not a modeled per-filing lag.
+        lag = 2
+        total = (raw["yyyymm"] // 100) * 12 + (raw["yyyymm"] % 100 - 1) + lag
+        raw = raw.copy()
+        raw["time_avail_m"] = (total // 12) * 100 + (total % 12) + 1
+        cols = list(columns or [])
+        keep = ["permno", "time_avail_m", *[c for c in cols if c in raw.columns]]
+        return raw[keep]
+
+
+register(ThirteenFSignalSource(SourceSpec(
+    name="tr_13f", role="signal", raw_file="13F.csv",
+    physical_columns={"permno", "yyyymm", "instown_perc"},
+    concept_columns={
+        "institutional_ownership": "instown_perc", "instown_perc": "instown_perc",
+        "institutional ownership": "instown_perc",
+        "institutional ownership percentage": "instown_perc",
+        "pct_institutional_ownership": "instown_perc",
+        "13f institutional ownership": "instown_perc",
+    },
+    source_key="permno", observation_date="yyyymm", lag=2,
+    crsp_link=CrspLinkSpec(native_key="permno", link_table=None),
+    description=(
+        "Thomson Reuters 13F institutional-ownership export (quarterly), "
+        "resolved to permno via a best-effort MOST-RECENTLY-OBSERVED CUSIP "
+        "match against CRSP's own (permno, CUSIP) history -- NOT a "
+        "point-in-time link like CCM/IBES (see docs/decision-log.md "
+        "2026-07-30); a CUSIP reassigned across permnos could resolve to "
+        "the wrong one."
+    ),
+    column_descriptions={
+        "instown_perc": "Percent of shares outstanding held by 13F institutional filers, as of this quarter's report date.",
+    },
+)))
+
+
 # ---------------------------------------------------------------------------
 # Catalog view builders — the derivations `catalog.py` uses so its public
 # query surface (DATA_CATALOG / LINK_TABLES / signal_sources / concept_map /

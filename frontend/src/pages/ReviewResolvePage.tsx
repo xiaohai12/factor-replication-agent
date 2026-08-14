@@ -197,7 +197,7 @@ export function ReviewResolvePage() {
                 <JsonTree name="implementation_resolution" data={resolveState.resolution} />
                 {resolveState.resolved && <JsonTree name="resolved_methodspec" data={resolveState.resolved} />}
                 {resolveState.is_ready && (
-                  <Button onClick={() => navigate("/sessions")}>
+                  <Button onClick={() => navigate("/runs")}>
                     Continue in a session from Step 3
                   </Button>
                 )}

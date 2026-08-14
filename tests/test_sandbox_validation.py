@@ -18,6 +18,8 @@ without pyarrow.
 
 from __future__ import annotations
 
+import json
+
 import pandas as pd
 import pytest
 
@@ -77,8 +79,17 @@ def compute_signal(df):
     return out.rename(columns={"time_avail_m": "yyyymm"})[["permno", "yyyymm", "signal"]]
 """
 
+_NON_NUMERIC_SIGNAL = """
+import pandas as pd
 
-def _script_for(plugin: PluginRecord, spec=None) -> str:
+def compute_signal(df):
+    out = df[["permno", "time_avail_m"]].copy()
+    out["signal"] = "not_a_number"  # wrong dtype, but doesn't raise
+    return out.rename(columns={"time_avail_m": "yyyymm"})[["permno", "yyyymm", "signal"]]
+"""
+
+
+def _script_for(plugin: PluginRecord) -> str:
     """Build the ONE complete standalone script for a plugin, the same way
     Pipeline._build_script does -- so the execution smoke test validates the
     real artifact, not a hand-rolled stand-in. `signal_input_mode="crsp_only"`
@@ -87,7 +98,7 @@ def _script_for(plugin: PluginRecord, spec=None) -> str:
     touched.
     """
     return generate_backtest_script(
-        spec if spec is not None else _spec(), plugin.code, data_path="data/does_not_exist/msf.parquet",
+        _spec(), plugin.code, data_path="data/does_not_exist/msf.parquet",
         signal_input_mode="crsp_only",
     )
 
@@ -135,73 +146,140 @@ class TestExecutionSmoke:
         assert report.passed
 
 
-def _returns_panel_slice() -> pd.DataFrame:
-    """Same shape as `_slice()` plus the returns-panel's own columns -- the
-    "crsp_only" mode case where the signal-input slice IS also a valid
-    (if thin -- only 3 permnos) returns panel."""
-    rows = []
-    for permno in (1, 2, 3):
-        for m in range(1, 13):
-            rows.append({
-                "permno": permno, "time_avail_m": 200000 + m, "x": float(permno * m),
-                "ret": 0.01 * permno, "me": float(100 + permno), "exchcd": 1,
-                "shrcd": 11, "siccd": 2000,
-            })
-    return pd.DataFrame(rows)
+class TestTechnicalMetricsAndDtype:
+    """docs/tools-plus-llm-plan.md §4.2: `technical_metrics` is a whitelisted,
+    audit-only payload (nan_ratio/n_permno/n_months/missing_columns/dtype);
+    a non-numeric `signal` dtype is a NEW deterministic hard failure that
+    reuses the existing errors -> repair_plugin path, no new code path."""
 
-
-class TestFullEngineSmokeTest:
-    """Best-effort `BacktestExecutor.run_with_config()` attempt on a slice
-    that already has returns-panel columns -- never a hard failure, only a
-    warning (see `_check_executes` docstring)."""
-
-    def test_returns_panel_shaped_slice_runs_engine_without_warning(self):
-        """A well-formed thin slice (only 3 permnos) doesn't actually crash
-        the engine (breakpoint/quantile logic degrades gracefully on small
-        samples) -- confirms the engine attempt runs and doesn't spuriously
-        warn when nothing is actually wrong."""
-        plugin = _plugin(_GOOD_SIGNAL)
-        report = AdversarialSandbox().validate(
-            plugin, _spec(), script_text=_script_for(plugin), data=_returns_panel_slice()
-        )
-        assert report.executes_ok
-        assert report.passed
-        assert not any("full-engine smoke test" in w for w in report.warnings)
-
-    def test_engine_failure_on_slice_warns_but_does_not_fail(self):
-        """A universe filter resolved to a column the returns panel simply
-        doesn't have (the exact real-world class of bug this whole session
-        started from) makes the engine raise -- proves that failure is
-        surfaced as a non-blocking warning here, not a hard failure."""
-        from src.infra.models.method_spec import FilterOp, FilterSpec, SourceColumn
-
-        spec = _spec()
-        spec.paper.universe.filters.append(
-            FilterSpec(concept_id="missing_concept", op=FilterOp.NONMISSING)
-        )
-        spec.resolution.concept_mapping["missing_concept"] = SourceColumn(
-            source="comp_funda", column="not_on_returns_panel"
-        )
-        plugin = _plugin(_GOOD_SIGNAL)
-        report = AdversarialSandbox().validate(
-            plugin, spec, script_text=_script_for(plugin, spec=spec), data=_returns_panel_slice()
-        )
-        assert report.executes_ok
-        assert report.passed
-        assert any("full-engine smoke test" in w for w in report.warnings)
-        assert any("not_on_returns_panel" in w for w in report.warnings)
-
-    def test_non_returns_panel_slice_skips_engine_attempt_silently(self):
-        """The default `_slice()` fixture has no ret/me/exchcd/shrcd/siccd --
-        the engine attempt must be skipped entirely (no engine-related
-        warning), same as every "compustat"/"multi_source" mode slice today."""
+    def test_good_signal_reports_technical_metrics(self):
         plugin = _plugin(_GOOD_SIGNAL)
         report = AdversarialSandbox().validate(
             plugin, _spec(), script_text=_script_for(plugin), data=_slice()
         )
-        assert report.executes_ok
+        assert report.technical_metrics["n_permno"] == 3
+        assert report.technical_metrics["n_months"] == 12
+        assert report.technical_metrics["missing_columns"] == []
+        assert report.technical_metrics["nan_ratio"] == 0.0
+        assert report.technical_metrics["dtype"].startswith("float")
+
+    def test_non_numeric_signal_dtype_fails_deterministically(self):
+        plugin = _plugin(_NON_NUMERIC_SIGNAL)
+        report = AdversarialSandbox().validate(
+            plugin, _spec(), script_text=_script_for(plugin), data=_slice()
+        )
+        assert not report.executes_ok
+        assert not report.passed
+        assert any("non-numeric dtype" in e for e in report.errors)
+
+    def test_technical_metrics_never_contains_performance_numbers(self):
+        plugin = _plugin(_GOOD_SIGNAL)
+        report = AdversarialSandbox().validate(
+            plugin, _spec(), script_text=_script_for(plugin), data=_slice()
+        )
+        forbidden = {"mean_return", "t_stat", "alpha", "sharpe", "return"}
+        assert forbidden.isdisjoint(report.technical_metrics.keys())
+
+
+class _FakeMessage:
+    def __init__(self, content: str):
+        self.content = content
+
+
+class _FakeChoice:
+    def __init__(self, content: str):
+        self.message = _FakeMessage(content)
+
+
+class _FakeCompletion:
+    def __init__(self, content: str):
+        self.choices = [_FakeChoice(content)]
+
+
+class _FakeCompletions:
+    def __init__(self, content: str):
+        self._content = content
+
+    def create(self, **kwargs):
+        return _FakeCompletion(self._content)
+
+
+class _FakeChatNamespace:
+    def __init__(self, content: str):
+        self.completions = _FakeCompletions(content)
+
+
+class _FakeLLMClient:
+    """Minimal stand-in for the `llm_client.chat.completions.create(...)`
+    surface, returning a fixed JSON verdict string (mirrors the fakes used
+    elsewhere for MetaCoder/ReplicationDiagnoser tests)."""
+
+    def __init__(self, content: str):
+        self.chat = _FakeChatNamespace(content)
+
+
+class TestFaithfulnessCheck:
+    """Opt-in LLM check: does compute_signal implement the SAME approved
+    signal.formula (never whether the formula itself is the right economic
+    choice -- see docs/decision-log.md and step4_validator's docstring)."""
+
+    def test_skipped_without_llm_client(self):
+        """Default AdversarialSandbox() never calls an LLM -- faithful_ok
+        stays True and no extra warnings/errors appear."""
+        plugin = _plugin(_GOOD_SIGNAL)
+        report = AdversarialSandbox().validate(plugin, _spec())
+        assert report.faithful_ok
         assert report.passed
-        assert not any("full-engine smoke test" in w for w in report.warnings)
+
+    def test_faithful_verdict_passes(self):
+        verdict = '{"faithful": true, "reason": "matches", "quoted_code": "", "quoted_spec": ""}'
+        sandbox = AdversarialSandbox(llm_client=_FakeLLMClient(verdict))
+        plugin = _plugin(_GOOD_SIGNAL)
+        report = sandbox.validate(plugin, _spec())
+        assert report.faithful_ok
+        assert report.passed
+
+    def test_verified_mismatch_fails_and_feeds_repair_loop(self):
+        plugin = _plugin(_GOOD_SIGNAL)
+        # Quotes must be verbatim substrings of the code/spec to be trusted.
+        code_quote = 'out["signal"] = out["x"] * 2.0'
+        spec_quote = "(x_t - x_t-1) / x_t-1"
+        verdict = json.dumps({
+            "faithful": False,
+            "reason": "sign is flipped",
+            "quoted_code": code_quote,
+            "quoted_spec": spec_quote,
+        })
+        sandbox = AdversarialSandbox(llm_client=_FakeLLMClient(verdict))
+        report = sandbox.validate(plugin, _spec())
+        assert not report.faithful_ok
+        assert not report.passed
+        assert any("Faithfulness check FAILED" in e for e in report.errors)
+
+    def test_unverifiable_quote_is_inconclusive_not_a_failure(self):
+        """A quote that doesn't actually appear in the code/spec is dropped
+        as inconclusive -- the check can never block on an unverifiable claim
+        (same anti-hallucination discipline as Step 8's evidence-cited claims)."""
+        verdict = json.dumps({
+            "faithful": False,
+            "reason": "hallucinated mismatch",
+            "quoted_code": "this substring is not in the code at all",
+            "quoted_spec": "",
+        })
+        sandbox = AdversarialSandbox(llm_client=_FakeLLMClient(verdict))
+        plugin = _plugin(_GOOD_SIGNAL)
+        report = sandbox.validate(plugin, _spec())
+        assert report.faithful_ok
+        assert report.passed
+        assert any("inconclusive" in w for w in report.warnings)
+
+    def test_malformed_llm_response_is_inconclusive_not_a_failure(self):
+        sandbox = AdversarialSandbox(llm_client=_FakeLLMClient("not json at all"))
+        plugin = _plugin(_GOOD_SIGNAL)
+        report = sandbox.validate(plugin, _spec())
+        assert report.faithful_ok
+        assert report.passed
+        assert any("inconclusive" in w for w in report.warnings)
 
 
 if __name__ == "__main__":

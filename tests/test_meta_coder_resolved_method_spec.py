@@ -114,7 +114,7 @@ def _resolved_spec() -> ResolvedMethodSpec:
         data=DataSpec(
             signal_frequency=SourcedValue(value=TimeUnit.YEAR, status=EvidenceStatus.CLEAR),
             return_frequency=SourcedValue(value=TimeUnit.MONTH, status=EvidenceStatus.CLEAR),
-            fields=[RequiredField(concept_id="at", paper_name="total assets", paper_source_hint="Compustat annual", roles=[FieldRole.SIGNAL_INPUT])],
+            fields=[RequiredField(concept_id="at", name_in_paper="total assets", paper_source_hint="Compustat annual", roles=[FieldRole.SIGNAL_INPUT])],
         ),
         sample=SampleSpec(data_coverage=_period(), formation=_period(), reported_returns=_period()),
         timing=TimingSpec(
@@ -130,7 +130,7 @@ def _resolved_spec() -> ResolvedMethodSpec:
             sorts=[
                 SortDimension(
                     sort_id="sort1", concept_id="at", role=SortRole.TARGET, order=1,
-                    mode=SortMode.INDEPENDENT, group_type=GroupType.QUANTILE, group_count=10,
+                    mode=SourcedValue(value=SortMode.INDEPENDENT, status=EvidenceStatus.CLEAR), group_type=SourcedValue(value=GroupType.QUANTILE, status=EvidenceStatus.CLEAR), group_count=10,
                     breakpoints=BreakpointSpec(basis=SourcedValue(value="nyse", status=EvidenceStatus.CLEAR)),
                 )
             ],
@@ -180,10 +180,24 @@ class TestGeneratePluginFromResolved:
         except ValueError:
             pass
 
-    def test_prompt_includes_formula_steps_and_column_mapping(self):
+    def test_prompt_includes_formula_steps_but_not_column_mapping(self):
         coder = MetaCoder(llm_client=_FakeLLMClient())
         prompt = coder._build_prompt_from_resolved(_resolved_spec())
         assert "compute the growth ratio" in prompt
-        assert 'at → df["at"]' in prompt
         assert "Accounting lag: 6 months" in prompt
         assert "Portfolio formation: end of month 6" in prompt
+        # Column mapping moved to the `column_mapping` prelude tool (see
+        # docs/tools-plus-llm-plan.md §4.2) -- no longer hand-rendered here.
+        assert 'at → df["at"]' not in prompt
+
+    def test_column_mapping_tool_result_reaches_the_llm_prompt(self):
+        client = _FakeLLMClient()
+        coder = MetaCoder(llm_client=client)
+        coder.generate_plugin(_resolved_spec())
+        system_prompt = client.chat.completions.last_messages[0]["content"]
+        user_prompt = client.chat.completions.last_messages[1]["content"]
+        assert "## TOOL CATALOG" in system_prompt
+        assert "column_mapping" in system_prompt
+        assert "## TOOL RESULTS" in user_prompt
+        assert '"at"' in user_prompt
+        assert '"comp_funda"' in user_prompt

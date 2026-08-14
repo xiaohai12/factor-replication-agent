@@ -20,6 +20,12 @@ class RunMetrics(BaseModel):
     coverage: Optional[float] = None
     microcap_share: Optional[float] = None
     n_months: Optional[int] = None
+    # `insamp`/`between`/`postpub` sub-period metrics (see backtest_engine's
+    # `compute_metrics`), only present when the run's config carries
+    # `sample_start_year`/`sample_end_year`/`publication_year`. Previously
+    # computed but silently dropped here -- see step8_diagnosis's
+    # publication_decay evidence, which needs it.
+    by_sample_period: Optional[dict] = None
 
 
 class RepairAttempt(BaseModel):

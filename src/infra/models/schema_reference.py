@@ -23,7 +23,7 @@ from enum import Enum
 from pydantic import BaseModel
 from pydantic.fields import FieldInfo
 
-from src.infra.models.method_spec import MethodSpec, SourcedValue
+from src.infra.models.method_spec import EvidenceCitation, MethodSpec, SourcedValue
 
 # Dotted paths the deterministic backtest engine (registry.build_config /
 # BacktestExecutor) actually reads to produce its resolved numeric config --
@@ -89,7 +89,13 @@ _FIELD_NOTES: dict[str, dict[str, str]] = {
     },
     "universe.description": {"description": "Free-text description of the paper's stock universe (exchanges, exclusions)."},
     "universe.filters": {
-        "description": "Structured universe filters (exchange listing, SIC exclusions, listing-history requirements, etc).",
+        "description": (
+            "Structured universe filters (exchange listing, SIC exclusions, listing-history "
+            "requirements, etc). `derivation` (optional) describes how to compute the filter's "
+            "value from its concept_id's underlying physical column, when the paper's vocabulary "
+            "doesn't match the column's raw encoding (e.g. 'NYSE/Amex/NASDAQ' -> exchcd 1/2/3) -- "
+            "same shape as signal.formula, codegen'd the same way compute_signal is."
+        ),
         "usage": "Read by registry.build_config as config['universe_filters'], applied by the engine's filter_universe step.",
     },
     "portfolio.construction_type": {
@@ -206,6 +212,8 @@ def _allowed_values_for(annotation: typing.Any) -> list[str] | None:
 
 
 def _notes_for(path: str) -> dict[str, str]:
+    if path.endswith(".evidence") and path not in _FIELD_NOTES:
+        return {"description": "Paper citation(s) supporting this field's value -- same {location, quote, interpretation, table_ref} shape everywhere."}
     return _FIELD_NOTES.get(path, {})
 
 
@@ -272,14 +280,42 @@ def _walk_model(model_cls: type[BaseModel], prefix: str, out: dict[str, _FieldEn
                 out[path] = _list_entry(path, ["value", "evidence", "status"])
             elif isinstance(item_type, type) and issubclass(item_type, BaseModel):
                 out[path] = _list_entry(path, list(item_type.model_fields.keys()))
+                # Recurse into the item model under the SAME path (no `[i]`
+                # segment) -- matches how the frontend strips `[\d+]` before
+                # looking a field up, so e.g. `portfolio.sorts[0].breakpoints.basis`
+                # resolves to `portfolio.sorts.breakpoints.basis` here. Without
+                # this, nested list-item fields (e.g. breakpoints.basis) never
+                # got an entry at all, so the review page fell back to a plain
+                # text input instead of a dropdown even though the field is a
+                # 3-value enum (full_sample/nyse/other).
+                # EXCEPTION: EvidenceCitation is the exact same {location, quote,
+                # interpretation, table_ref} shape under every single evidence-
+                # bearing field in the schema -- recursing into it here would
+                # duplicate those same 4 leaf entries under dozens of parent
+                # paths for zero extra information. Its own field names are
+                # already listed via list_item_fields above.
+                if item_type is not EvidenceCitation:
+                    nested_items: dict[str, _FieldEntry] = {}
+                    _walk_model(item_type, path, nested_items)
+                    out.update(nested_items)
             else:
                 out[path] = _list_entry(path, None)
             continue
 
         if isinstance(unwrapped, type) and issubclass(unwrapped, BaseModel):
+            # `sub_fields` must be only unwrapped's OWN direct field names --
+            # computed from `unwrapped.model_fields` BEFORE recursing, not
+            # from `nested`'s keys afterward. `_walk_model` recursion writes
+            # grandchild (and deeper) paths into the same `nested` dict (so
+            # the frontend tree can resolve them at their own path when
+            # expanded), which used to make `list(nested.keys())` silently
+            # include those descendants too -- flattening e.g. `signal.
+            # formula.steps.step_id` into `signal.formula`'s own sub_fields
+            # as if it were a direct child, one level shallower than reality.
+            direct_children = [f"{path}.{child_name}" for child_name in unwrapped.model_fields]
             nested: dict[str, _FieldEntry] = {}
             _walk_model(unwrapped, path, nested)
-            out[path] = _composite_entry(path, list(nested.keys()))
+            out[path] = _composite_entry(path, direct_children)
             out.update(nested)
             continue
 

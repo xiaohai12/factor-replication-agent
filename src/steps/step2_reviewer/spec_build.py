@@ -32,7 +32,18 @@ from typing import Any
 
 from pydantic import ValidationError
 
+from src.infra.data_layer import catalog_menu_text
 from src.infra.models.method_spec import MethodReview, MethodSpec
+from src.infra.tooling import (
+    Tool,
+    ToolContext,
+    ToolPolicy,
+    ToolResult,
+    ToolRunner,
+    render_tool_catalog,
+    render_tool_results,
+    splice_tool_catalog,
+)
 from src.steps.step2_reviewer.review import load_llm_review_system_prompt, review_method_spec
 
 MAX_REVIEW_ROUNDS = 3
@@ -48,10 +59,7 @@ Current MethodSpec JSON (round {round_num} of at most {total_rounds}):
 
 {spec_json}
 
-Latest model_validate() error (empty string means the spec above already
-validates against the schema):
-
-{error_log}
+{tool_results_block}
 
 Return the JSON object described in the system prompt.
 """
@@ -89,12 +97,26 @@ def _diff_json(old: Any, new: Any, path: str = "") -> list[dict]:
 @dataclass
 class ReviewRound:
     round_num: int
-    error_log: str
     spec_before: dict
+    tool_results: list[ToolResult] = field(default_factory=list)
     spec_after: dict | None = None
     llm_raw: dict | None = None
     diff: list[dict] = field(default_factory=list)
     call_error: str | None = None
+
+    @property
+    def error_log(self) -> str:
+        """Renders `tool_results` back into the old `[tool_name]\\nreport`
+        tagged-block text -- kept for the UI and existing tests
+        ([tests/test_step2_reviewer_llm.py](../../../tests/test_step2_reviewer_llm.py)
+        only asserts `==""`/`!=""`/substring, never the exact tag format, so
+        this is a safe compatibility shim over the new `tool_results`."""
+        parts = []
+        for r in self.tool_results:
+            report = r.payload.get("report")
+            if report:
+                parts.append(f"[{r.name}]\n{report}")
+        return "\n\n".join(parts)
 
 
 @dataclass
@@ -111,6 +133,9 @@ class SpecBuildOutcome:
     #: if the LLM emitted any -- informational only (explains WHY a diff
     #: entry changed), never a merge gate. See module docstring.
     llm_notes: dict = field(default_factory=dict)
+    #: Last round's tool results (same semantics as `spec`/`review`: the
+    #: "final state"). Full per-round history is in `history[i].tool_results`.
+    tool_results: list[ToolResult] = field(default_factory=list)
 
 
 def _inject_deterministic_fields(raw: dict, document_id: str, target_name: str) -> dict:
@@ -131,10 +156,20 @@ def _inject_deterministic_fields(raw: dict, document_id: str, target_name: str) 
 
 
 def _call_llm_review(
-    spec_dict: dict, paper_text: str, error_log: str, round_num: int, total_rounds: int, llm_client
+    spec_dict: dict,
+    paper_text: str,
+    tool_results: list[ToolResult],
+    unknown_requests: list[str],
+    round_num: int,
+    total_rounds: int,
+    llm_client,
 ) -> dict:
+    system_prompt = splice_tool_catalog(
+        load_llm_review_system_prompt(),
+        render_tool_catalog(STEP2_TOOLS, tool_results, unknown_requests),
+    )
     messages = [
-        {"role": "system", "content": load_llm_review_system_prompt()},
+        {"role": "system", "content": system_prompt},
         {
             "role": "user",
             "content": _USER_TEMPLATE.format(
@@ -142,7 +177,7 @@ def _call_llm_review(
                 round_num=round_num,
                 total_rounds=total_rounds,
                 spec_json=json.dumps(spec_dict, indent=2, default=str),
-                error_log=error_log,
+                tool_results_block=render_tool_results(tool_results),
             ),
         },
     ]
@@ -155,6 +190,127 @@ def _call_llm_review(
     return json.loads(response.choices[0].message.content)
 
 
+@dataclass
+class Step2ToolContext(ToolContext):
+    spec_dict: dict = field(default_factory=dict)
+    #: Written by `_schema_validation_fn` so `_engine_menu_fn` can read a
+    #: real `MethodSpec` instead of a possibly-invalid raw dict -- a
+    #: dedicated field rather than `ctx.results` (which is typed
+    #: `dict[str, ToolResult]`, not a place for arbitrary objects).
+    parsed_spec: MethodSpec | None = None
+
+
+def _schema_validation_tool(spec_dict: dict) -> tuple[MethodSpec | None, str]:
+    """Pydantic structural validation. Returns the parsed `MethodSpec` (so
+    later tools can run on a real object, not a raw dict) plus a report
+    string (empty when it passes).
+    """
+    try:
+        return MethodSpec.model_validate(spec_dict), ""
+    except ValidationError as exc:
+        return None, str(exc)
+
+
+def _engine_menu_and_capability_tool(spec: MethodSpec) -> str:
+    """Every `review_method_spec` Finding (D2 evidence-status + missing_
+    mapping + the engine-menu/capability checks) -- informational only,
+    never gates loop convergence (see `build_reviewed_method_spec`'s
+    docstring).
+    """
+    findings = review_method_spec(spec).findings
+    if not findings:
+        return ""
+    lines = [f"- [{f.kind}/{f.disposition.value}] {f.field_path}: {f.reason}" for f in findings]
+    return "\n".join(lines)
+
+
+def _schema_validation_fn(ctx: Step2ToolContext) -> ToolResult:
+    spec, report = _schema_validation_tool(ctx.spec_dict)
+    ctx.parsed_spec = spec
+    return ToolResult(
+        name="schema_validation",
+        status="ok" if spec is not None else "error",
+        payload={"report": report} if report else {},
+    )
+
+
+def _engine_menu_fn(ctx: Step2ToolContext) -> ToolResult:
+    if ctx.parsed_spec is None:
+        return ToolResult(
+            name="engine_menu_and_capability",
+            status="skipped",
+            error="requires a validated MethodSpec (schema_validation must pass first)",
+        )
+    report = _engine_menu_and_capability_tool(ctx.parsed_spec)
+    return ToolResult(
+        name="engine_menu_and_capability",
+        status="ok",
+        payload={"report": report} if report else {},
+    )
+
+
+SCHEMA_VALIDATION_TOOL: Tool[Step2ToolContext] = Tool(
+    name="schema_validation",
+    description="Pydantic 结构校验 MethodSpec",
+    produces="校验通过与否 + 错误列表。局限：只查结构，不查经验参数合理性",
+    fn=_schema_validation_fn,
+    tier="always",
+)
+
+ENGINE_MENU_TOOL: Tool[Step2ToolContext] = Tool(
+    name="engine_menu_and_capability",
+    description="review_method_spec 的全部 Finding（D2证据状态 + missing_mapping + 引擎菜单/能力检查）",
+    produces="字段级 finding 列表，仅供参考，从不阻塞循环收敛",
+    fn=_engine_menu_fn,
+    tier="always",
+)
+
+
+def _catalog_menu_fn(ctx: Step2ToolContext) -> ToolResult:
+    """Live data-catalog menu (every registered source + column + WRDS
+    definition), SAME text `Step1`'s `data_catalog` tool exposes -- lets the
+    review LLM check/correct `data.fields[].source_table`/`source_column`
+    against real options (see prompts/review_gate/llm_review.md). This is
+    just a static reference listing (cheap, no LLM cost, safe to recompute
+    every round) -- NOT a live `build_implementation_resolution` attempt,
+    which is deliberately still excluded from this loop (see `STEP2_TOOLS`
+    docstring: a real resolve attempt on a still-changing spec would be
+    wasted work)."""
+    return ToolResult(name="data_catalog", status="ok", payload={"menu": catalog_menu_text()})
+
+
+CATALOG_MENU_TOOL: Tool[Step2ToolContext] = Tool(
+    name="data_catalog",
+    description="当前已注册的数据源清单：每个数据源 + 每一列 + 列的WRDS定义",
+    produces="纯信息性列表，用于核对/纠正 data.fields[].source_table/source_column；跟具体spec无关，是静态参考",
+    fn=_catalog_menu_fn,
+    tier="always",
+)
+
+#: Step2's tool registry. `data_catalog` is a static reference menu (safe
+#: every round, zero extra LLM cost) -- but an actual `build_implementation_
+#: resolution` RESOLVE ATTEMPT is still deliberately excluded from this loop
+#: (see docs/tools-plus-llm-plan.md §5): the spec is still being rewritten
+#: round to round, so a real resolve attempt here would be wasted/stale
+#: work. `tool_requests` parsing still runs uniformly (see §5's “circuit
+#: stays consistent across steps” decision) for any future `opt_in` tool.
+STEP2_TOOLS: list[Tool[Step2ToolContext]] = [SCHEMA_VALIDATION_TOOL, ENGINE_MENU_TOOL, CATALOG_MENU_TOOL]
+
+
+def _run_step2_tools(
+    spec_dict: dict, policy: ToolPolicy, requested: list[str] | None = None
+) -> tuple[bool, list[ToolResult], list[str]]:
+    """Runs `STEP2_TOOLS` (schema validation first, since
+    `engine_menu_and_capability` needs a validated `MethodSpec`) and returns
+    `(validate_passed, tool_results, unknown_requests)` -- `validate_passed`
+    still means ONLY "schema validation passed" (the loop's convergence
+    check depends only on this; findings are informational, see module
+    docstring)."""
+    ctx = Step2ToolContext(spec_dict=spec_dict)
+    run = ToolRunner().run_all(STEP2_TOOLS, ctx, policy, requested=requested)
+    return ctx.parsed_spec is not None, run.results, run.unknown_requests
+
+
 def build_reviewed_method_spec(
     raw: dict,
     document_id: str,
@@ -163,33 +319,32 @@ def build_reviewed_method_spec(
     llm_client,
     max_rounds: int = MAX_REVIEW_ROUNDS,
     log=None,
+    tool_policy: ToolPolicy | None = None,
 ) -> SpecBuildOutcome:
     log = log or (lambda msg: None)
+    policy = tool_policy or ToolPolicy()
     total_rounds = max_rounds  # exactly max_rounds validate+LLM-review cycles, no +1
     outcome = SpecBuildOutcome()
     log("Injecting deterministic fields (factor_id/schema_version/paper.document_id)...")
     initial_spec = _inject_deterministic_fields(raw, document_id, target_name)
     spec_dict = initial_spec
+    requested: list[str] = []
 
     for round_num in range(1, total_rounds + 1):
-        log(f"Round {round_num}/{total_rounds}: running model_validate()...")
-        try:
-            MethodSpec.model_validate(spec_dict)
-            validate_passed = True
-            error_log = ""
-            log(f"Round {round_num}/{total_rounds}: model_validate() passed.")
-        except ValidationError as exc:
-            validate_passed = False
-            error_log = str(exc)
-            log(f"Round {round_num}/{total_rounds}: model_validate() failed ({len(exc.errors())} error(s)).")
+        log(f"Round {round_num}/{total_rounds}: running pre-LLM tools (schema validation + engine-menu/capability findings)...")
+        validate_passed, tool_results, unknown_requests = _run_step2_tools(spec_dict, policy, requested)
+        log(f"Round {round_num}/{total_rounds}: pre-LLM tools done (validate_passed={validate_passed}).")
 
-        round_record = ReviewRound(round_num=round_num, error_log=error_log, spec_before=spec_dict)
+        round_record = ReviewRound(round_num=round_num, tool_results=tool_results, spec_before=spec_dict)
         log(f"Round {round_num}/{total_rounds}: calling LLM review...")
         try:
-            llm_raw = _call_llm_review(spec_dict, paper_text, error_log, round_num, total_rounds, llm_client)
+            llm_raw = _call_llm_review(
+                spec_dict, paper_text, tool_results, unknown_requests, round_num, total_rounds, llm_client,
+            )
         except Exception as exc:  # noqa: BLE001 - any LLM/client failure just ends this round with no progress
             round_record.call_error = str(exc)
             outcome.history.append(round_record)
+            outcome.tool_results = tool_results
             log(f"Round {round_num}/{total_rounds}: LLM call failed: {exc}")
             if validate_passed:
                 log(f"Round {round_num}/{total_rounds}: spec already valid -- stopping here despite the failed call.")
@@ -206,10 +361,16 @@ def build_reviewed_method_spec(
         round_record.spec_after = new_spec
         round_record.diff = diff
         outcome.history.append(round_record)
+        outcome.tool_results = tool_results
         outcome.llm_notes = {
             "value_corrections": (llm_raw or {}).get("value_corrections") or [],
             "additional_findings": (llm_raw or {}).get("additional_findings") or [],
         }
+        # Step2 currently registers no `opt_in` tools (see STEP2_TOOLS), so
+        # any request here always falls into next round's "unknown tool
+        # name" catalog notice -- harmless, kept for cross-step loop-shape
+        # consistency (docs/tools-plus-llm-plan.md §5).
+        requested = (llm_raw or {}).get("tool_requests") or [] if policy.allow_llm_requests else []
         log(f"Round {round_num}/{total_rounds}: diff has {len(diff)} changed field(s).")
 
         spec_dict = new_spec

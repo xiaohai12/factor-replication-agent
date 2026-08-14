@@ -36,7 +36,29 @@ ClaimType = Literal[
     "config_divergence",
     "gap_attribution",
     "evidence_limitation",
+    "signal_reproducibility",
+    "publication_decay",
+    "implementation_robustness",
 ]
+
+#: Which of the three reason layers (docs/tools-plus-llm-plan.md §4.3) a
+#: claim_type belongs to -- NOT LLM-authored, derived from claim_type alone.
+#: `temporal_pattern` (publication_decay) is deliberately its own layer: it's
+#: orthogonal to "did we replicate correctly", it's a property of the
+#: factor's own time series.
+ReasonLayer = Literal["config_sensitivity", "signal_fidelity", "temporal_pattern"]
+
+REASON_LAYER_BY_CLAIM_TYPE: dict[str, str] = {
+    "sign_agreement": "config_sensitivity",
+    "magnitude_gap": "config_sensitivity",
+    "significance": "config_sensitivity",
+    "config_divergence": "config_sensitivity",
+    "gap_attribution": "config_sensitivity",
+    "evidence_limitation": "config_sensitivity",
+    "signal_reproducibility": "signal_fidelity",
+    "publication_decay": "temporal_pattern",
+    "implementation_robustness": "config_sensitivity",
+}
 
 #: The directional assertion a claim makes. Deliberately non-causal: even
 #: `associated_change` says only "this switch is associated with a measured
@@ -52,6 +74,12 @@ Relation = Literal[
     "differs",
     "associated_change",
     "unavailable",
+    "reproduces",
+    "diverges",
+    "decayed",
+    "stable",
+    "robust",
+    "fragile",
 ]
 
 Stage = Literal[
@@ -83,6 +111,9 @@ CLAIM_RELATIONS: dict[str, tuple[str, ...]] = {
     "config_divergence": ("differs",),
     "gap_attribution": ("associated_change",),
     "evidence_limitation": ("unavailable",),
+    "signal_reproducibility": ("reproduces", "diverges"),
+    "publication_decay": ("decayed", "stable"),
+    "implementation_robustness": ("robust", "fragile"),
 }
 
 #: Every claim type must cite at least one key whose dotted path starts with
@@ -97,6 +128,9 @@ CLAIM_EVIDENCE_REQUIREMENTS: dict[str, tuple[str, ...]] = {
     "config_divergence": ("config_diff.",),
     "gap_attribution": ("gap_decomposition.contributions.",),
     "evidence_limitation": ("gap_decomposition.", "derived.tracks."),
+    "signal_reproducibility": ("bridge_comparison.",),
+    "publication_decay": ("publication_decay.",),
+    "implementation_robustness": ("robustness_summary.",),
 }
 
 #: Additional per-claim-type substring requirement, checked against the same
@@ -106,6 +140,9 @@ CLAIM_EVIDENCE_SUBSTRINGS: dict[str, tuple[str, ...]] = {
     "sign_agreement": ("sign_agrees",),
     "magnitude_gap": ("spread",),
     "significance": ("significant",),
+    "signal_reproducibility": ("signal_implementation_agreement",),
+    "publication_decay": ("decayed",),
+    "implementation_robustness": ("robust",),
 }
 
 #: Identification level implied by each claim type's evidence. Attribution is
@@ -118,6 +155,9 @@ IDENTIFICATION_BY_CLAIM_TYPE: dict[str, str] = {
     "config_divergence": "observational",
     "gap_attribution": "harmonized",
     "evidence_limitation": "unidentified",
+    "signal_reproducibility": "observational",
+    "publication_decay": "observational",
+    "implementation_robustness": "harmonized",
 }
 
 #: Deterministic map from identification level to reported strength. Replaces
@@ -166,6 +206,10 @@ class DiagnosisClaim(BaseModel):
     identification_level: IdentificationLevel = "observational"
     #: Derived deterministically from `identification_level`.
     evidence_strength: Literal["low", "medium", "high"] = "low"
+    #: Which of the three reason layers this claim belongs to -- derived
+    #: from `claim_type` alone via `REASON_LAYER_BY_CLAIM_TYPE`, never
+    #: authored by the LLM.
+    reason_layer: ReasonLayer = "config_sensitivity"
 
 
 class RejectedClaim(BaseModel):

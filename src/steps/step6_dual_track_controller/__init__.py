@@ -469,6 +469,7 @@ class DualTrackController:
             r.track: {
                 "config": build_config(spec, track_overrides.get(r.track)),
                 "metrics": r.metrics.model_dump(),
+                "is_bridge_track": r.is_bridge_track,
             }
             for r in runs
             if r.status == "success"

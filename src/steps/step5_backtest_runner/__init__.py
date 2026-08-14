@@ -46,7 +46,10 @@ from src.steps.step7_replication_diff.bundle import build_evidence_bundle
 # Bumped to 2 when comparison.json gained the deterministic evidence bundle
 # (derived / config_diff / gap_decomposition / evidence_keys) that the step-8
 # LLM diagnosis layer consumes. v1 files carried only paper_reported + tracks.
-COMPARISON_SCHEMA_VERSION = 2
+# Bumped to 3 when the bundle gained spec_quality / menu_deviations /
+# bridge_comparison / publication_decay / robustness_summary -- the richer
+# reason-layer evidence for step8's diagnosis redesign (docs/tools-plus-llm-plan.md).
+COMPARISON_SCHEMA_VERSION = 3
 
 
 def _spec_factor_id(spec: ResolvedMethodSpec) -> str:
@@ -166,6 +169,21 @@ class BacktestRunner:
                 ff_factors_path = str(candidate)
                 break
 
+        # Same idea for the Pastor-Stambaugh liquidity factor (2026-08-13) --
+        # SEPARATE from ff_factors_path (a market-wide time series with no
+        # permno, so it doesn't fit sources.py's per-stock registry).
+        # `load_liquidity_factors(data_dir)` wants the OUTER dir (it appends
+        # "local/liquidity_factors.csv" itself), so the candidate here is a
+        # directory, not the CSV path.
+        liquidity_factors_data_dir = None
+        liquidity_factors_path = None
+        for candidate_dir in (storage_path, self.data_layer.data_path):
+            candidate_csv = candidate_dir / "local" / "liquidity_factors.csv"
+            if candidate_csv.exists():
+                liquidity_factors_data_dir = str(candidate_dir)
+                liquidity_factors_path = str(candidate_csv)
+                break
+
         # Resolve config ONCE, before script generation -- per
         # docs/multi-config-evidence-plan.md Phase 0.4, a run's identity
         # (`config_hash`/`execution_id` below) must be knowable
@@ -183,6 +201,7 @@ class BacktestRunner:
             output_path=str(output_csv),
             config_overrides=config_overrides,
             ff_factors_path=ff_factors_path,
+            liquidity_factors_data_dir=liquidity_factors_data_dir,
             signal_data_dir=str(storage_path),
             resolved_config=config,
             precomputed_signal_path=precomputed_signal_path,
@@ -210,6 +229,7 @@ class BacktestRunner:
             "config_hash": config_hash,
             "execution_id": execution_id,
             "ff_factors_path": ff_factors_path,
+            "liquidity_factors_path": liquidity_factors_path,
             "data_snapshot_hash": snapshot_manifest_hash(storage_path),
         }
 
@@ -311,6 +331,7 @@ class BacktestRunner:
             "config_hash": built.get("config_hash"),
             "execution_id": built.get("execution_id"),
             "ff_factors_path": built.get("ff_factors_path"),
+            "liquidity_factors_path": built.get("liquidity_factors_path"),
             "data_snapshot_hash": built.get("data_snapshot_hash"),
             "script_path": str(script_path),
             "output_csv": str(output_csv),
@@ -377,7 +398,7 @@ class BacktestRunner:
             "tracks": tracks,
             "batch": batch_info or {},
         }
-        payload.update(build_evidence_bundle(paper_reported, tracks, diff_result))
+        payload.update(build_evidence_bundle(paper_reported, tracks, diff_result, spec=spec))
         path = results_dir / "comparison.json"
         path.write_text(json.dumps(payload, indent=2, default=str))
         return path
@@ -406,7 +427,7 @@ class BacktestRunner:
             json.dumps(result["config"], sort_keys=True, default=str).encode()
         ).hexdigest()[:16]
         run_id = result.get("execution_id") or f"{_spec_factor_id(spec)}_{track}_{plugin.code_hash[:8]}"
-        provenance = collect_runtime_provenance(result.get("ff_factors_path"))
+        provenance = collect_runtime_provenance(result.get("ff_factors_path"), result.get("liquidity_factors_path"))
         return RunRecord(
             run_id=run_id,
             factor_id=_spec_factor_id(spec),
@@ -432,6 +453,7 @@ class BacktestRunner:
                 alpha_capm=metrics.get("alpha_capm"),
                 alpha_ff3=metrics.get("alpha_ff3"),
                 alpha_ff5=metrics.get("alpha_ff5"),
+                by_sample_period=metrics.get("by_sample_period"),
             ),
             status="success",
         )

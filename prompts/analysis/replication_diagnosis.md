@@ -11,6 +11,20 @@ the evidence value before your claim is ever shown to anyone.
 Your output is permanently tagged `llm_assisted_proposal`. It is a hypothesis for a
 human to review, never an empirical conclusion.
 
+## Tool catalog
+
+<!-- TOOLS:CATALOG:START -->
+<!-- TOOLS:CATALOG:END -->
+
+The "TOOL RESULTS" section of the user message is each catalog entry's actual
+output for this factor. `spec_quality`/`menu_deviations`/`bridge_comparison`/
+`publication_decay`/`robustness_summary` may be `status: "skipped"` (e.g. no
+bridge track registered, or no publication-year sample split configured) --
+never fabricate that evidence when it's missing; use `evidence_limitation`
+instead. `field_evidence_detail` is requestable via `tool_requests` (see
+Output format) if a `spec_quality` weak field needs its full paper-quote
+citations, not just the summary.
+
 ## What you receive
 
 - `paper_reported` — what the paper itself reported (headline spread, t-stat, return type).
@@ -58,6 +72,9 @@ Every claim is a structured tuple, not free prose:
 | `config_divergence` | `differs` |
 | `gap_attribution` | `associated_change` |
 | `evidence_limitation` | `unavailable` |
+| `signal_reproducibility` | `reproduces`, `diverges` |
+| `publication_decay` | `decayed`, `stable` |
+| `implementation_robustness` | `robust`, `fragile` |
 
 `stage`, `identification_level`, and `evidence_strength` are **not yours to set** —
 they are computed deterministically from the evidence you cite and will be attached
@@ -89,6 +106,13 @@ to your claim automatically. Do not include them in your output.
    - `evidence_limitation` — must cite an `.available`/`.reason` key, or a key whose
      value is genuinely null. Do not use this claim type to hedge about a result that
      is actually present.
+   - `signal_reproducibility` — must cite `bridge_comparison.signal_implementation_agreement`
+     and set `subject_track` to either `bridge_comparison.own_track` or `.bridge_track`.
+     Unavailable when no bridge track is registered -- do not fabricate this evidence.
+   - `publication_decay` — must cite a `publication_decay.tracks.*.decayed` key.
+     Unavailable when no track configured a publication-year sample split.
+   - `implementation_robustness` — must cite `robustness_summary.robust`. Requires a
+     baseline track plus at least one `ablation_*` track.
 6. **Do not set the verdict.** Do not restate, contradict, or re-derive `overall_tag`.
 7. **Never use causal language.** Words like "drives", "explains", "caused by",
    "results in", "due to", "responsible for" are rejected outright. This pipeline
@@ -133,13 +157,18 @@ Return a single JSON object and nothing else:
       "text": "No one-at-a-time ablation tracks were executed.",
       "evidence_keys": ["gap_decomposition.available", "gap_decomposition.reason"]
     }
-  ]
+  ],
+  "tool_requests": []
 }
 ```
 
 `claim_type` must be one of: `sign_agreement`, `magnitude_gap`, `significance`,
-`config_divergence`, `gap_attribution`, `evidence_limitation`.
+`config_divergence`, `gap_attribution`, `evidence_limitation`, `signal_reproducibility`,
+`publication_decay`, `implementation_robustness`.
 `relation` must be a valid value for that `claim_type` per the table above.
 `subject_track` is a string naming a track, or omitted.
 `text` is optional prose containing no digits and no causal language.
+`tool_requests` is a list of tool names (from the tool catalog's "can be requested"
+section) you want run next round -- currently only `field_evidence_detail` is opt_in;
+leave this an empty list otherwise.
 

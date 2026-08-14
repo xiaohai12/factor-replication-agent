@@ -28,6 +28,9 @@ _CLAIM_TYPE_HEADINGS = {
     "config_divergence": "Configuration divergence",
     "gap_attribution": "Gap attribution",
     "evidence_limitation": "Evidence limitations",
+    "signal_reproducibility": "Signal reproducibility (bridge track)",
+    "publication_decay": "Post-publication decay",
+    "implementation_robustness": "Implementation robustness",
 }
 
 #: Canonical sentence per (claim_type, relation). The LLM contributes only the
@@ -67,6 +70,27 @@ _RELATION_TEMPLATES: dict[str, dict[str, str]] = {
     },
     "evidence_limitation": {
         "unavailable": "The evidence needed to determine {subject} is not available.",
+    },
+    "signal_reproducibility": {
+        "reproduces": "The {subject} track's signal reproduces the paper's headline sign.",
+        "diverges": "The {subject} track's signal diverges from the paper's headline sign.",
+    },
+    "publication_decay": {
+        "decayed": (
+            "The {subject} track's spread is significant in-sample but not statistically "
+            "significant post-publication."
+        ),
+        "stable": "The {subject} track's significance is stable across the in-sample/post-publication split.",
+    },
+    "implementation_robustness": {
+        "robust": (
+            "Across the one-at-a-time ablation tracks, the result shows no sign flip and no "
+            "significance-threshold flip relative to the baseline."
+        ),
+        "fragile": (
+            "Across the one-at-a-time ablation tracks, the result flips sign or crosses the "
+            "significance threshold relative to the baseline for at least one implementation choice."
+        ),
     },
 }
 

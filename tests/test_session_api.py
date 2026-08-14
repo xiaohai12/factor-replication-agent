@@ -106,7 +106,7 @@ def test_get_step_reports_missing_input_refs():
         sid = client.post("/api/sessions", json={"factor_id": "factor_a"}).json()["session_id"]
         step3 = client.get(f"/api/sessions/{sid}/steps/3").json()
         assert "methodspec_ref" in step3["missing_input_refs"]
-        assert step3["contract"]["output_refs"] == ["plugin_ref", "script_ref", "script_sha256"]
+        assert step3["contract"]["output_refs"] == ["plugin_ref", "script_ref", "script_sha256", "config_ref"]
 
 
 def test_events_journal_records_session_creation():

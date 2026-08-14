@@ -20,6 +20,26 @@ FORBIDDEN_PATTERNS = [
     "lead(",
 ]
 
+_FAITHFULNESS_PROMPT_PATH = (
+    Path(__file__).resolve().parents[3] / "prompts" / "meta_coder" / "faithfulness_check.md"
+)
+_FAITHFULNESS_PROMPT_TEMPLATE = (
+    _FAITHFULNESS_PROMPT_PATH.read_text(encoding="utf-8")
+    if _FAITHFULNESS_PROMPT_PATH.exists()
+    else ""
+)
+
+
+def _extract_json_object(text: str) -> str:
+    """Pull the first top-level `{...}` object out of an LLM response,
+    tolerating stray code fences/prose around it (mirrors the leniency
+    `_strip_code_fences` gives codegen responses in step3_codegen)."""
+    start = text.find("{")
+    end = text.rfind("}")
+    if start == -1 or end == -1 or end < start:
+        return text
+    return text[start : end + 1]
+
 # Seconds a compute_signal execution smoke test may run before it's treated as
 # a hang (a hang is a real defect, not an inconclusive result -- see
 # _check_executes). Deliberately generous: the slice is small, but the plugin
@@ -43,17 +63,27 @@ class AdversarialSandbox:
       (`_build_script`) is imported (not run as `__main__` -- its `main()` is
       guarded, so no full-data load is triggered by the import itself) in a
       subprocess, and its `compute_signal` is called on a small real-data
-      slice, confirming it doesn't raise (lenient -- an empty/degenerate
-      result on a thin slice is inconclusive, not a failure; only a raised
-      exception fails it). When the slice happens to already be returns-
-      panel-shaped, a best-effort `BacktestExecutor.run_with_config()` is
-      ALSO attempted on it (non-blocking -- any failure is a warning, since a
-      thin slice can legitimately be too small for e.g. decile breakpoints).
-      This validates the EXACT artifact Step5 will later
-      execute -- no separate hand-rolled "exec the plugin code" runner. A
-      Step-5 run failure is the guaranteed safety net that feeds any remaining
-      full-data bugs back to repair.
+      slice (already table-joined the same way the generated script would --
+      see `Pipeline._build_validation_slice`), confirming it doesn't raise
+      (lenient -- an empty/degenerate result on a thin slice is inconclusive,
+      not a failure; only a raised exception fails it). This validates the
+      EXACT artifact Step5 will later execute -- no separate hand-rolled
+      "exec the plugin code" runner. Deliberately stops at compute_signal --
+      no full-engine (breakpoints/portfolio construction) attempt here, since
+      that layer's failures aren't something `MetaCoder.repair_plugin` (which
+      only rewrites `compute_signal`) could ever fix. A Step-5 run failure on
+      full data is the guaranteed safety net for full-engine bugs.
+    - Faithfulness check (opt-in, only when `llm_client` is supplied): an LLM
+      re-reads `spec.paper.signal.formula` and `plugin.code` and reports
+      whether the code correctly implements that SAME approved formula --
+      never whether the formula itself is the right empirical choice (that
+      stays Review Gate's job, see docs/decision-log.md). Skipped entirely
+      (stays passing) when no `llm_client` was given, so every existing
+      static/default validation path is unaffected.
     """
+
+    def __init__(self, llm_client=None):
+        self.llm_client = llm_client
 
     def validate(
         self,
@@ -92,6 +122,7 @@ class AdversarialSandbox:
             report.no_future_leak = self._check_no_future_leak(plugin, report)
             report.reproducible = self._check_reproducibility(plugin, report)
             report.executes_ok = self._check_executes(script_text, data, report)
+            report.faithful_ok = self._check_faithfulness(plugin, spec, report)
 
         report.passed = all([
             report.syntax_ok,
@@ -99,6 +130,7 @@ class AdversarialSandbox:
             report.no_future_leak,
             report.reproducible,
             report.executes_ok,
+            report.faithful_ok,
         ])
         return report
 
@@ -170,22 +202,12 @@ class AdversarialSandbox:
         compute_signal AND every hook on full data and feeds failures back to
         repair).
 
-        Best-effort full-engine attempt: when `data` already has the returns-
-        panel's own columns (true for "crsp_only"-mode slices, since the CRSP
-        monthly file IS both the signal input and the returns panel -- see
-        `Pipeline._build_validation_slice`), the driver ALSO tries
-        `BacktestExecutor.run_with_config()` on the same slice after
-        `compute_signal` succeeds, surfacing engine-lifecycle failures (e.g.
-        `filter_universe`) here instead of only at Step5. This is
-        NEVER a hard failure -- a 40-permno slice can legitimately be too thin
-        for decile breakpoints/annual formation validation to succeed even
-        with entirely correct code, so any engine exception is recorded as a
-        warning, same posture as the empty/degenerate case above. Skipped
-        entirely (no engine attempt at all) when `data` lacks the returns-
-        panel columns ("compustat"/"multi_source" modes' slice is signal-
-        source-shaped, not returns-panel-shaped) -- feeding it to the engine
-        would fail on every single run regardless of code correctness, which
-        would just be noise, not signal.
+        Deliberately does NOT also run the full backtest engine here (no
+        breakpoints/portfolio construction) -- that layer's failures on a thin
+        validation slice are not attributable to `compute_signal`, so they'd
+        be noise the LLM repair loop can't act on anyway (`MetaCoder.
+        repair_plugin` only rewrites `compute_signal`). Full-engine
+        correctness is Step5's job, on full data.
 
         Skipped (returns True) when no `script_text` or no `data` slice is
         supplied.
@@ -244,20 +266,88 @@ class AdversarialSandbox:
             report.errors.append(f"compute_signal raised: {result['error']}")
             return False
 
+        report.technical_metrics = result.get("technical_metrics") or {}
+
         if result.get("empty"):
             report.warnings.append(
                 "compute_signal execution smoke test inconclusive: empty/degenerate "
                 "output on the validation slice (likely data coverage, not a code "
                 "defect) -- deferring to the full Step-5 run"
             )
-        elif result.get("engine_error"):
-            report.warnings.append(
-                "full-engine smoke test on the validation slice raised (non-blocking -- "
-                "likely a thin-slice artifact, e.g. too few stocks for the configured "
-                "breakpoint quantiles; the real Step-5 run on full data is the guaranteed "
-                f"net): {result['engine_error']}"
-            )
         return True
+
+    def _check_faithfulness(
+        self,
+        plugin: PluginRecord,
+        spec: ResolvedMethodSpec,
+        report: ValidationReport,
+    ) -> bool:
+        """Ask an LLM whether `plugin.code` correctly implements the SAME
+        approved `spec.paper.signal.formula` -- never whether that formula is
+        the right empirical choice (see class docstring). Skipped (returns
+        True) when no `llm_client` was configured.
+
+        Anti-hallucination guard (same discipline as Step 8's evidence-cited
+        claims, see docs/tools-plus-llm-plan.md): the LLM must quote a
+        verbatim substring of the code AND of the formula text back to us.
+        Any unparsed response, or a quote that doesn't actually appear in the
+        code/formula, is treated as inconclusive (a warning, not a failure)
+        rather than blocking the plugin on an unverifiable claim.
+        """
+        if self.llm_client is None:
+            return True
+
+        formula = spec.paper.signal.formula
+        step_lines = [
+            f"  {i}. {s.description}" + (f" ({s.expression})" if s.expression else "")
+            for i, s in enumerate(formula.steps, start=1)
+        ]
+        spec_text = "\n".join([
+            f"Paper expression: {formula.paper_expression}",
+            f"Output concept: {formula.output_concept}",
+            f"Inputs: {', '.join(formula.inputs)}",
+            "Calculation steps:" if step_lines else "Calculation steps: (none given)",
+            *step_lines,
+        ])
+
+        prompt = _FAITHFULNESS_PROMPT_TEMPLATE.format(spec_text=spec_text, code=plugin.code)
+        try:
+            response = self.llm_client.chat.completions.create(
+                messages=[{"role": "user", "content": prompt}],
+                temperature=0.0,
+            )
+            raw = response.choices[0].message.content or ""
+            verdict = json.loads(_extract_json_object(raw))
+        except Exception as e:
+            report.warnings.append(f"Faithfulness check inconclusive (LLM/parse error: {e})")
+            return True
+
+        if verdict.get("faithful", True):
+            return True
+
+        reason = str(verdict.get("reason", ""))
+        quoted_code = str(verdict.get("quoted_code", ""))
+        quoted_spec = str(verdict.get("quoted_spec", ""))
+
+        if quoted_code and quoted_code not in plugin.code:
+            report.warnings.append(
+                f"Faithfulness check flagged a mismatch but its quoted code snippet "
+                f"wasn't found verbatim in the plugin -- treating as inconclusive: {reason}"
+            )
+            return True
+        if quoted_spec and quoted_spec not in spec_text:
+            report.warnings.append(
+                f"Faithfulness check flagged a mismatch but its quoted formula snippet "
+                f"wasn't found verbatim in the approved formula -- treating as inconclusive: {reason}"
+            )
+            return True
+
+        report.errors.append(
+            "Faithfulness check FAILED: compute_signal does not correctly implement "
+            f"the approved formula. {reason} Approved formula/steps:\n{spec_text}\n"
+            f"Offending code fragment: {quoted_code!r}"
+        )
+        return False
 
 
 # Generic driver exec'd in a subprocess by _check_executes: imports whatever
@@ -306,28 +396,21 @@ def _main():
     if missing:
         return {{"error": "compute_signal output missing columns: " + repr(missing)}}
 
+    signal_dtype = str(out["signal"].dtype)
+    if len(out) and not pd.api.types.is_numeric_dtype(out["signal"]):
+        return {{"error": "compute_signal output 'signal' column has non-numeric dtype: " + signal_dtype}}
+
+    technical_metrics = {{
+        "nan_ratio": float(out["signal"].isna().mean()) if len(out) else None,
+        "n_permno": int(out["permno"].nunique()) if len(out) else 0,
+        "n_months": int(out["yyyymm"].nunique()) if len(out) else 0,
+        "missing_columns": missing,
+        "dtype": signal_dtype,
+    }}
+
     empty = len(out) == 0 or out["signal"].notna().sum() == 0
 
-    # Best-effort full-engine attempt (see `_check_executes` docstring): only
-    # when the slice already looks like a returns panel, and never a hard
-    # failure -- any exception here is reported back as `engine_error`, not
-    # raised, so a too-thin slice can never fail the overall check.
-    engine_error = None
-    returns_cols = {{"ret", "me", "exchcd", "shrcd", "siccd"}}
-    if not empty and returns_cols.issubset(df.columns):
-        try:
-            from src.infra.backtest_engine import BacktestExecutor
-            from src.infra.models.plugin import PluginRecord
-
-            returns_panel = df.rename(columns={{"time_avail_m": "yyyymm"}}) if "yyyymm" not in df.columns else df
-            plugin = PluginRecord(
-                plugin_id="validation_slice", factor_id=getattr(mod, "FACTOR_ID", "factor"), code="",
-            )
-            BacktestExecutor().run_with_config(out, mod.CONFIG, plugin=plugin, data=returns_panel)
-        except Exception as e:  # noqa: BLE001
-            engine_error = repr(e)
-
-    return {{"error": None, "empty": bool(empty), "n_rows": int(len(out)), "engine_error": engine_error}}
+    return {{"error": None, "empty": bool(empty), "n_rows": int(len(out)), "technical_metrics": technical_metrics}}
 
 
 print(json.dumps(_main()))

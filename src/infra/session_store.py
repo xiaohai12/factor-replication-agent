@@ -200,10 +200,23 @@ class SessionStore:
 
         return self.update(session_id, expected_revision, _mutate)
 
-    def start_attempt(self, session_id: str, expected_revision: int, step: int) -> SessionManifest:
+    def start_attempt(
+        self, session_id: str, expected_revision: int, step: int, job_id: Optional[str] = None
+    ) -> SessionManifest:
         """Append a new (not_started->running) attempt for `step`, and mark
         every step AFTER it stale (this pipeline's step dependency is a
-        strict chain -- a finer per-ref dependency graph is future work)."""
+        strict chain -- a finer per-ref dependency graph is future work).
+
+        `job_id` (when the caller already has one, i.e. the step runs as a
+        background job) is recorded on the attempt in this SAME
+        compare-and-set write -- not a second one afterwards -- so it never
+        perturbs the revision-counting contract callers/tests rely on
+        (`expected_revision` must match exactly one bump per logical
+        action). It's what lets the frontend resume a live log stream
+        (`GET /api/jobs/{job_id}/stream`) after navigating away and back,
+        instead of only recovering running/success/failed status with no
+        way to re-subscribe to in-flight logs.
+        """
 
         def _mutate(manifest: SessionManifest) -> None:
             record = manifest.steps[step]
@@ -211,6 +224,7 @@ class SessionStore:
                 attempt_index=len(record.attempts),
                 status=StepStatus.RUNNING,
                 started_at=datetime.now(),
+                job_id=job_id,
             )
             record.attempts.append(attempt)
             record.stale = False

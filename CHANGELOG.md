@@ -2,6 +2,887 @@
 
 ## [Unreleased]
 
+### Step4 gained an opt-in LLM "faithfulness" check: does compute_signal match the approved formula? (2026-08-14)
+
+Discussed with the user a proposal to run a sample + have an LLM judge
+generated-code correctness and loop back to Step 3 on failure. Scoped it down
+to ONLY a code-vs-approved-formula faithfulness check (never empirical/
+economic correctness -- that stays Review Gate's job, see
+docs/decision-log.md's 2026-08-14 entry for the full discussion).
+
+`AdversarialSandbox` now takes an optional `llm_client` (`None` by default,
+so every existing/default validation path is unchanged) and, when set, runs
+`_check_faithfulness()` after the static checks: an LLM compares
+`plugin.code` against `spec.paper.signal.formula` (paper_expression + steps)
+and must quote a verbatim substring of each to support a "not faithful"
+verdict (`prompts/meta_coder/faithfulness_check.md`) -- an unparsed response
+or an unverifiable quote is treated as inconclusive (a warning), never a
+failure. A verified mismatch appends to `ValidationReport.errors` (new
+`faithful_ok` field) and reuses the EXISTING `RepairLoop` ->
+`MetaCoder.repair_plugin` path -- no new loop/retry budget.
+`Pipeline(check_faithfulness=True)` wires an already-supplied `llm_client`
+into the sandbox (mirrors the existing `run_diagnosis` opt-in pattern for
+Step 8). `repair_plugin.md`/its inline fallback now explain how to react to
+a "Faithfulness check FAILED" error (fix the implementation of the SAME
+quoted approved formula, never invent a different one).
+See `tests/test_sandbox_validation.py::TestFaithfulnessCheck`.
+
+### Step4 removed the non-blocking best-effort full-engine smoke test; only `compute_signal` execution is checked now (2026-08-14)
+
+Discussed and agreed the best-effort `BacktestExecutor.run_with_config()`
+attempt inside `_check_executes` (`src/steps/step4_validator/__init__.py`)
+added complexity without changing any pass/fail decision — it never affected
+`report.passed`/`executes_ok`, so it could never actually trigger the repair
+loop, and `MetaCoder.repair_plugin` can only rewrite `compute_signal` anyway
+(never portfolio-construction/engine-lifecycle code), so a full-engine
+failure fed back there would be unactionable noise. Removed the engine
+attempt from both the subprocess driver (`_EXECUTE_DRIVER`) and the parent
+Python (`engine_error` handling), leaving `_check_executes` scoped to exactly
+"join tables the same way the generated script does (`Pipeline.
+_build_validation_slice`) -> call `compute_signal` -> only a raised
+exception/timeout fails". Full-engine correctness stays Step5's job on full
+data, as before. Removed the now-dead `TestFullEngineSmokeTest` class and
+`_returns_panel_slice` helper from `tests/test_sandbox_validation.py`.
+
+### 带 `derivation` 的 universe filter 现在自动跳过运行时应用，不再字面量比较（2026-08-13）
+
+延续上一条 changelog 的排查:发现 `compustat_fiscal_year_end >= 2` 这条 filter
+之所以能一路无声通过 review/resolve、直到 step4/5 才崩,是因为 `FilterSpec.
+derivation` 字段(表示这个条件需要先算出一个派生值,而不是直接拿物理列做字面量
+比较)从未被任何代码读取过。用户要求:只要 `derivation != None`,这条 filter
+就不应该被当成字面量 op/value 比较去执行。
+
+修复:`src/steps/step3_codegen/registry.py` 的 `_applied_universe_filters`
+(唯一被 `config["universe_filters"]` 和 `_universe_filter_join_sources`
+共同调用的函数)现在同时排除 `accepted_unapplied` 和 `derivation is not None`
+的 filter——两者都不会再进入运行时。`_unapplied_universe_filters`(嵌入
+resolved config 的 `unapplied_universe_filters` 审计列表)也同步记录被
+derivation 跳过的条目(reason: "derivation not executable by the engine"),
+保持"跳过是可审计的,不是静默丢弃"这一原则。刻意没有改动
+`ResolvedMethodSpec.unmapped_concepts()`/`unsupported_universe_filters()`
+(那是控制 `is_ready`/是否阻断的另一个问题,不在本次改动范围内)。
+
+验证:全量套件 624 passed/18 skipped,零回归。
+
+### session step4 validate 现在真正跑一遍 step5 会跑的完整脚本，不再有"引擎报错只算 warning"的放过机制（2026-08-13）
+
+用户报告：step4 显示 `Validation passed`，step5 用同一个 factor 在全量数据上却
+直接崩了（`TypeError: Invalid comparison between dtype=datetime64[ns] and int`，
+来自一条把 `datadate`（日期列）和字面量 `2` 直接比较的 universe filter——本意是
+"在 Compustat 至少挂了 2 年"这类派生条件，但从未真正被求值成"年数"，这是已知但
+未修的 gap，见下方 `compustat_fiscal_year_end` 记录）。追查发现 step4
+(`validate_step4_artifact`) 之前只跑 `AdversarialSandbox._check_executes` 这套
+宽松的 in-process smoke test：只在内存里对一个小切片调用 `compute_signal`，
+只有当这个切片碰巧长得像 returns panel 时才 best-effort 尝试跑一次完整
+`BacktestExecutor.run_with_config()`（这次踩雷的 `filter_universe` 就在里面），
+而且引擎跑出任何异常都只记 `warning`，从不算失败——所以这个 bug 在 step4 里
+从未被真正执行到。
+
+用户明确要求：step4 必须和 step5 跑一模一样的代码（`compute_signal` ->
+`BacktestExecutor.run_with_config`），只是数据不同；不允许任何"引擎报错只是
+warning"式的放过。改法（只动 `validate_step4_artifact`，没有碰
+`AdversarialSandbox`/`RepairLoop` 共享给 `Pipeline.run_from_method_spec`/
+`DualTrackController`/`app.py`/`codegen.py` 的部分）：静态检查+
+compute_signal 级别的技术修复循环通过之后，新增一个**强制**的第二阶段——把
+已验证的脚本原文本真正当子进程跑一遍（`python <script>.py`），用和 step5 execute
+一样的 `BACKTEST_DATA_PATH`/`BACKTEST_SIGNAL_DATA_DIR` 环境变量覆盖机制指向
+`VALIDATION_SAMPLE_SNAPSHOT_ID` 的小样本数据（而不是 step5 用的
+`REAL_WRDS_SNAPSHOT_ID`），非零退出码直接判 `report.passed=False`，不再修复
+（和 `execute_step5` 本身"执行失败不自动修复"的姿态一致）。
+
+实现过程中自己踩了一个坑（被测试抓到，不是靠 review）：第一版想直接复用
+`BacktestRunner.execute()`，为此用一个新 `track_name="step4_validation"`
+重新 `build_script()` 拿路径/config，再把 `built["script_text"]` 换成真正验证过
+的原文——但 `execute()` 读 CSV/metrics 是从这次"新 build"算出的
+`output_csv` 读回，而脚本里真正写死（不可用环境变量覆盖，只有 DATA_PATH/
+SIGNAL_DATA_DIR 可以）的 `OUTPUT_PATH` 仍然是原始脚本的 track（如
+`original_method`），两边路径对不上——脚本其实跑成功了，但 `execute()`
+去读一个从没写过的 `step4_validation.metrics.json` 时 `FileNotFoundError`。
+3 个测试（`test_hard_delete_never_touches_evidence`/
+`test_full_chain_matches_golden_numbers`/
+`test_execute_rejects_hash_mismatch_against_validated_artifact`）都因此报错。
+修复：step4 根本不需要 metrics，只需要成功/失败，所以改成直接
+`subprocess.run` 跑这个脚本文件、只看 `proc.returncode`，完全不走
+`execute()`的 CSV/metrics 回读那套逻辑。
+
+验证：`tests/test_session_api.py`（16 passed）、`tests/test_backend_api.py`+
+`test_step_diagnostics.py`+`test_sandbox_validation.py`（28 passed）、全量套件
+624 passed/18 skipped，零回归。
+
+仍未修复（本次只解决"step4 能不能真正暴露这个 bug"，没有解决 bug 本身）：
+`099f6e1136bd316c` 这份 MethodSpec 里 `compustat_fiscal_year_end >= 2`
+这条 universe filter 依然是错的——它的 `derivation` 字段本来就写明需要
+"count_years_since_first_observed"，但引擎的 `apply_universe_filters`/
+`_apply_filter_op` 从不读取/执行 `derivation`，只会做字面量比较。真正的修复
+需要在 review 阶段拦截（任何 `universe.filters[].concept_id` 若
+`derivation` 非空就不该被解析成字面量列比较）或者手动修正/去掉这条过滤器。
+
+### `schema_reference.py` `_walk_model` 递归 bug：composite 字段的 `sub_fields` 被孙子字段污染（2026-08-13）
+
+用户在 Schema Reference 页面发现 `signal` 部分展开树形结构不对。排查发现
+`src/infra/models/schema_reference.py::_walk_model` 的 composite（`BaseModel`
+嵌 `BaseModel`）分支有真实 bug：`out[path] = _composite_entry(path,
+list(nested.keys()))` 在递归调用 `_walk_model(unwrapped, path, nested)`
+**之后**才读取 `nested.keys()`，而递归调用本身会把孙子/曾孙字段路径也写进同一个
+`nested` 字典（这是故意的，为了让前端能在自己的路径上查到它们）——导致
+`sub_fields` 把孙子字段错误地拍平成了当前节点的直接子字段。实测
+`signal.formula.sub_fields` 之前包含了 11 项（6 个真正的直接子字段 + `steps`
+自己的 5 个孙子字段 `step_id`/`description`/`expression`/`status`/`evidence`），
+`signal.estimation` 同样把 `estimation_window`/`measurement_window`
+各自的 5 个 `WindowSpec` 叶子字段拍平了进去。前端 `SchemaReferencePage.tsx`
+的 `childPaths()` 直接信任 `sub_fields` 是"直接子字段"列表，所以展开 `formula`
+节点时孙子字段会作为兄弟节点重复出现、层级不对。
+
+修复：在递归**之前**先用 `unwrapped.model_fields` 算出真正的直接子字段路径
+列表，只把这份列表传给 `_composite_entry`，`nested`（含孙子字段）仍然正常
+`out.update()` 进全局字典供前端按路径查询，只是不再污染父节点自己的
+`sub_fields`。验证：`signal.formula.sub_fields` 从 11 项降到正确的 6 项，
+`signal.estimation.sub_fields` 从 17 项降到正确的 7 项。
+`pytest tests/test_schema_reference.py`（9 passed）+ 全量套件（518 passed，
+32 failed/5 errors 均为环境缺 `pyarrow`/`yaml` 导致，与本次改动无关，逐条核对
+确认不含 method_spec/schema_reference 相关用例）验证无回归。
+
+### MethodSpec 信息重复审查记录 + Schema Reference 分组补全 8 个模块（2026-08-13）
+
+用户提出"MethodSpec 有没有信息重复"的讨论。逐条核对了一份真实样本
+(`runs/method_specs/resolved/099f6e1136bd316c.resolved.json`) 后写成
+[docs/methodspec-redundancy-review.md](docs/methodspec-redundancy-review.md)，
+列出 4 处重复点并分类（已修复/建议处理/已知技术债不建议动）。已修复的一处：
+`frontend/src/pages/SchemaReferencePage.tsx` 的 `sectionOf`/`SECTION_ORDER`/
+`SECTION_LABEL` 之前硬编码只识别 `data`/`signal`/`portfolio`/
+`reported_results` 四个前缀，把 `paper`/`sample`/`timing`/`universe` 全部
+塞进兜底的 "Top-level" 分组——改为列出 `MethodSpec` 真实的全部 8 个顶层模块，
+`other` 只兜底 `factor_id`/`target_name`/`notes`/`schema_version` 这类裸顶层
+字段。另外两处（`review.findings` 与 `review.all_high_impact_fields` 的物理
+重复、`signal.formula.evidence` 顶层字段确认无消费者）记录在案，等用户确认
+后再实现。`npx tsc --noEmit` 无类型错误。
+
+### Schema Reference 页面去重 + 折叠树展示（2026-08-13）
+
+用户反馈 Schema Reference 页面"一口气展示太多，看不过来"。排查发现两处问题：
+
+- `src/infra/models/schema_reference.py`：`_walk_model` 之前会对每一个带
+  `evidence: list[EvidenceCitation]` 字段的父路径，把 `EvidenceCitation` 自身的
+  `location`/`quote`/`interpretation`/`table_ref`（以及 `table_ref` 里的
+  `table`/`row`/`column`）都重新递归展开成独立叶子条目——但这个 citation 结构在
+  全 schema 里处处相同，纯粹是同一份信息被复制了 16 遍。改为遇到
+  `item_type is EvidenceCitation` 时不再递归展开，只保留父级 `*.evidence`
+  这一条 list 摘要（`list_item_fields` 仍列出这四个字段名）。字段总数从 186 降到
+  169，去掉的都是纯重复条目。`_notes_for` 顺带给所有 `*.evidence` 路径补了一条
+  统一的 fallback 说明文字。
+- 确认 `name_in_paper`（早前从 `paper_name` 改名）和 `table_ref` 的
+  free-form（非 enum）状态在后端/模型层都已经是对的——之前反馈的"没更新"应是浏览
+  器/前端旧构建缓存导致,不是代码问题。
+- `frontend/src/pages/SchemaReferencePage.tsx`：把原来"186 个字段全部铺平、每个
+  都是一整块详情卡片"的展示方式，改成按 `sub_fields`/`list_item_fields` 组装的可
+  折叠树——每个 section 只有一个根节点默认展开，其余节点默认折叠，点击展开才显示
+  description/usage/allowed values/example 以及子字段。搜索框仍然保留原来的扁平
+  过滤列表（在树里查找深层字段不方便，输入过滤词时临时切换回扁平搜索结果）。
+- 验证：`pytest tests/` 624 passed / 18 skipped（无回归），`npx tsc --noEmit`
+  无类型错误。
+
+### Universe filter 解析到真实 Compustat 列时，生成脚本自动 join，不再强制 `accepted_unapplied`（2026-08-13）
+
+详细讨论/权衡见 `docs/decision-log.md` 同日条目。实现清单：
+
+- `src/steps/step3_codegen/registry.py`：新增 `_universe_filter_join_sources(paper,
+  resolution)`，把已应用（非 `accepted_unapplied`）且 resolve 到「真实注册物理列
+  但非 CRSP 原生列」（如 `comp_funda.at`）的 filter 按 `{source: [columns]}` 分组,
+  写入新 config key `universe_filter_join_sources`（已注册进
+  `KNOWN_CONFIG_KEYS`/`CONFIG_KEY_STAGE`）。
+- `src/steps/step3_codegen/script_generator.py`：模板新增
+  `join_universe_filter_sources(msf)`,复用 `assemble_signal_master_table_from_
+  sources()`（跟 `compute_signal` 自己输入同一套 point-in-time join 机制）把这些
+  列左连接到 `msf` 上,在 `main()` 里 `msf` 构建完之后、`compute_signal`/
+  `engine.run_with_config` 之前调用——`BacktestExecutor` 本身零改动。
+- `src/infra/models/method_spec.py`：`ResolvedMethodSpec.unsupported_universe_
+  filters()` 改为只在「resolve 到的列压根没在 `catalog.DATA_CATALOG` 里注册」时
+  才拦截（真的没法加载）,不再对「已注册但非原生」的列一律拦截。
+- `backend/routers/methodspecs.py`：`_unsupported_universe_filter_findings` 的
+  提示文案同步更新（说明 join 机制,提示去 catalog 注册缺失列,而不是笼统地说
+  "engine 不支持"）。
+- 新增/更新测试：`tests/test_method_spec_contract.py::TestUnsupportedUniverseFilter`
+  （新增"真实非原生列不再 unsupported"用例,虚构列仍保持拦截）,
+  `tests/test_registry_resolved_method_spec.py::TestUniverseFilterJoinSources`
+  （新增,3个用例覆盖真实列/原生列/未注册列三种情况）,
+  `tests/test_script_generator_resolved_method_spec.py::
+  TestUniverseFilterJoinInGeneratedScript`（新增,确认生成脚本包含 join 调用且
+  `compile()` 通过）。624 passed / 18 skipped（`.venv/bin/python3 -m pytest
+  tests/`）。
+- `docs/todo.md`：拆分成"真实注册列 join——已完成"与"派生列（groupby-min,如
+  `compustat_first_datadate`）——仍 deferred，继续用 `accepted_unapplied`"两部分。
+
+### Resolve 面板新增 `accepted_unapplied`/`unapplied_reason` 人工开关（2026-08-13）
+
+`docs/todo.md` 记录过的空白：`FilterSpec.accepted_unapplied`/`unapplied_reason`
+字段一直存在但没有任何写入路径。`SessionDetailPage.tsx` 的 resolve 面板里,紧挨着
+现有的 `derivation` JSON 编辑框,给每条 `universe.filters[i]` 加了一个理由输入框
++ "Mark accepted_unapplied" 按钮（标记后显示 badge + "Undo" 按钮可反悔）。跟
+`derivation` 编辑框同一个模式——纯前端编辑 `state.paper`,不需要新后端接口
+（`state.paper` 本来就在每次 `/resolve` 调用时整体重发）。这也是之前讨论的
+Compustat-listing-eligibility filter 临时方案的具体落地入口（先标记
+`accepted_unapplied` 绕过引擎限制,真正的引擎支持继续留在 `docs/todo.md`）。
+`npx tsc --noEmit`/`npm run lint` 均干净。
+
+### `RequiredField` 新增 `source_table`/`source_column`：物理数据源选择进入 MethodSpec（2026-08-13）
+
+详细讨论/权衡见 `docs/decision-log.md` 同日条目（推翻"论文事实层禁止物理映射"
+设计原则）。这里只记实现清单：
+
+- 新增 `src/infra/models/source_enum.py`：动态 `SourceName` 枚举，import 时从
+  `catalog.DATA_CATALOG` 生成成员（当前 `crsp_msf`/`comp_funda`/`comp_fundq`/
+  `ibes_statsumu`/`tr_13f`）+ `OTHER` 逃生舱，新数据源注册后自动多一个合法选项，
+  零手工维护。
+- `RequiredField` 新增 `source_table: SourcedValue[SourceName]` +
+  `source_column: SourcedValue[str]`，交叉校验器确保列真的属于选中的表（`other`
+  时跳过校验，走 `unsupported_value`）。
+- `src/infra/data_layer/__init__.py`：`_catalog_menu_text()` 改名公开为
+  `catalog_menu_text()`（现在有两个调用方：Step1 新工具 + resolve 阶段 LLM 兜底）。
+- `src/steps/step1_extractor/extractor.py`：新增真实的 `CATALOG_MENU_TOOL`
+  （`data_catalog`），把完整 catalog 菜单塞进 Step1 的 Tool Prelude。
+  `prompts/extractor/method_spec_extractor.md` 删掉"禁止写物理表/列名"的旧规则，
+  新增 §1.8d 指导怎么填这两个字段（含 other + unsupported_value 的用法）。
+- `src/steps/step2_reviewer/spec_build.py`：review 循环也加了同一个 catalog
+  菜单工具（`CATALOG_MENU_TOOL`，静态参考、零额外 LLM 开销）。**没有**在循环里
+  跑真正的 resolve 尝试——这条边界维持不变（`docs/tools-plus-llm-plan.md` §5：
+  spec 还在改，跑一次意义不大）。`prompts/review_gate/llm_review.md` 新增指导
+  review LLM 核对/纠正这两个字段。
+- `src/steps/step2_reviewer/review.py`：`data.fields[].source_table`/
+  `source_column` 加进 `high_impact_sourced_values`，走跟 `weighting` 一样的
+  D2/engine-menu 审查 + 现有的人工纠正 UI（零新前端组件，`schemaFieldInfo`/
+  `patch-value` 机制天然支持索引路径）。
+- `src/steps/step2_reviewer/implementation_resolution.py`：
+  `build_implementation_resolution` 现在优先直接读 `source_table`/
+  `source_column`（已经在 spec 构建时被 Pydantic 按真实 catalog 校验过），只有
+  未设置/`other`的字段、以及 `universe.filters[]`独有的 filter-only 概念，才
+  退回旧的 `normalize_fields()`/`normalize_fields_with_llm()` 字符串匹配路径
+  （完全向后兼容，旧 spec 行为不变）。
+- 前端：`sessionApi.getDataCatalog()`（复用现成的 `GET /api/data-catalog`
+  endpoint，无需新后端代码）+ `SessionDetailPage.tsx` 的 `sourceColumnOptions()`
+  —— `source_column` 下拉框的选项跟随同一条目 `source_table` 的当前值动态过滤，
+  `source_table` 本身的下拉框零改动就能用（`allowed_values` 自动从动态枚举生成）。
+- 新增测试 `tests/test_step2_reviewer.py::TestResolutionBuilder::
+  test_explicit_source_table_and_column_win_over_string_matching`（故意用字符串
+  匹配器找不到的 `paper_source_hint`，证明 `source_table`/`source_column` 优先
+  生效）。过程中顺带修了一个自己引入的真实 bug：`_spec_test_helpers.py`
+  `minimal_resolved_spec` 默认用了不存在于 catalog 里的占位列名 "x"，改为固定用
+  真实存在的 `comp_funda.at`，跟它自己的 `concept_source`/`concept_column`
+  参数（喂给 OLD `resolution.concept_mapping`，无 catalog 校验）解耦。
+  `.venv/bin/python3 -m pytest tests/ -q` 619 passed / 18 skipped，`npm run
+  build`（`tsc --noEmit`）/`npm run lint` 均干净。
+
+### `RequiredField.paper_name` renamed to `name_in_paper`（2026-08-13）
+
+用户指出 `paper_name` 容易被误读成"论文的名字/标题"，实际存的是"论文对这个概念的
+措辞"（如 "total assets"）。用 `vscode_renameSymbol` 改了 Python 侧全部引用
+（`method_spec.py`/`implementation_resolution.py`/`review.py`/
+`step3_codegen/__init__.py` + 9 个测试文件），再手动补了 rename 工具碰不到的字符
+串字面量（3 个测试里的 JSON dict key、`MethodSpecBoard.tsx` 的 `f.paper_name`、
+`prompts/extractor/method_spec_extractor.md` 的 prose、`docs/methodspec-v2-plan.md`
+的示例代码块）。不算 schema breaking change（字段改名，非结构变化），无已提交的
+`tests/fixtures/`/`data/test_method_specs_human_labeled/` JSON 用到这个 key，无需
+迁移数据。历史 CHANGELOG 条目（如 2026-08-08 那条 `paper_name` 提及）按惯例不回填
+改名。全量相关测试 126 passed，零回归。
+
+### 新增 `docs/todo.md`：记录 Compustat 派生 universe-eligibility filter 的延后修法（2026-08-13）
+
+讨论背景：一次 resolve 卡在 `compustat_listing_start_date`（无物理列）+
+`total_assets` filter（解析到列但引擎不支持,`RETURNS_PANEL_NATIVE_COLUMNS`
+之外)。当场决定：先用 `FilterSpec.accepted_unapplied`/`unapplied_reason`
+把这两条记录成已知未套用的偏差,解锁 resolve -> step3,不碰引擎。真正的修法
+（`comp_funda` 派生 `first_datadate` 列 + 给 `BacktestExecutor` 加一条
+point-in-time 的 Compustat-eligibility join 通道,插在 `apply_signal_
+holding_period`/`form_portfolios` 之间)记录进 `docs/todo.md`,留待以后作为
+正式的引擎改动/architecture decision 排期。同时记录了 `accepted_unapplied`/
+`unapplied_reason` 目前在 `backend/`/`frontend/` 里零写入路径这个已知空白。
+
+### Step3-8：导航离开再回来能恢复实时日志流（2026-08-13）
+
+Step1/2 的进度存在前端 `localStorage`（见下一条 entry），但 step3-8 是走后端
+session manifest 的（`session_store.start_attempt`/`complete_attempt_with_retry`），
+manifest 本身一直能正确恢复 running/success/failed 状态——唯独 SSE 实时日志流
+丢失：`StepAttempt.job_id` 字段虽然一直存在于 schema 里，但从来没有代码写过它，
+永远是 `None`，导航离开再回来时前端拿不到 job_id 就没法重新订阅
+`GET /api/jobs/{id}/stream`。
+
+- `SessionStore.start_attempt` 新增可选 `job_id` 参数，在**同一次** CAS 写入里
+  连同 running 状态一起记录（而不是额外再写一次——最初实现过一版"先
+  `start_attempt`,再单独一次`update`回填`job_id`"的方案,会多消耗一次
+  `revision`,破坏了大量测试硬编码`expected_revision`序号的假设,已撤销）。
+  为了让 `job_id` 在 `start_attempt` 调用时就已知，四个后台 job 路由
+  （`backend/routers/sessions.py` 的 step4 validate / step5 execute，
+  `experiments.py` 的 step6，`diagnosis.py` 的 step8）调整为**先**
+  `job_manager.create_job(...)` 拿到 `job_id`，**再** `start_attempt(...,
+  job_id=job_id)`——这个顺序是安全的：路由 handler 在这两行之间没有
+  `await`，`asyncio.ensure_future` 调度的 job 协程要等 handler 让出控制权
+  （返回或 await）之后才会真正开始跑，不会在 `start_attempt` 落盘前就抢先
+  调用 `complete_attempt_with_retry`。
+- 前端 `SessionDetailPage.tsx` 的通用 step runner（steps 3-8 共用同一个
+  组件）新增一个 effect：`jobId` 为空时,如果 `stepQuery`（session manifest
+  的 step attempt）显示最新一次 attempt 是 `running` 且带 `job_id`,就
+  `setJobId(attempt.job_id)` 自动接回那个 job 的 `useJobStream` 订阅——不需要
+  额外的前端持久化层（不像 step1/2 那样得自己存 localStorage,这里"running"
+  这份真相本来就活在 session manifest 里）。
+- 回归验证：`tests/test_backend_api.py`/`test_experiment_replication_diagnosis_api.py`/
+  `test_session_store.py`/`test_batch_invalidation.py`（43 passed）+ 全量
+  `pytest tests/`（618 passed, 18 skipped，跟改动前基线一致）+ `tsc --noEmit`
+  干净。
+
+### 前端：新增 Tool Prelude 结果面板（"tool panel"）（2026-08-13）
+
+后端 `src/infra/tooling/` 基础设施 + Step1/Step2 接入其实 2026-08-12 已经落地
+（`ExtractionResult.tool_results`/`SpecBuildOutcome.tool_results`），只是从未
+在前端展示过——之前误判成"整个 Tool Prelude 方案都还没做"（只看了
+`docs/tools-plus-llm-plan.md` 头部仍写着"待实施"的过期状态行）。这次补的是
+纯展示层：
+
+- `backend/routers/methodspecs.py`：`_extract_job`/`_review_loop_job` 的返回
+  dict 里补上 `tool_results` 字段（`ExtractionResult`/`SpecBuildOutcome` 早就
+  有这个字段，只是没被 job 返回值转发出去）。`to_jsonable` 本来就会递归处理
+  `ToolResult` dataclass，无需额外序列化代码。
+- 新增 `frontend/src/components/ToolResultsPanel.tsx`：渲染 `name`/`status`
+  （ok/error/skipped 三态 badge）/`error`，`payload` 折叠展开后 JSON 美化输出。
+- `frontend/src/lib/types.ts` 新增镜像 `src/infra/tooling/types.py` 的
+  `ToolResult` 接口；`methodSpecStore.ts` 新增 `extractToolResults`/
+  `reviewToolResults` 持久化字段（同一个 localStorage 存储,理由同上一条
+  entry）。`SessionDetailPage.tsx` 的 Step1/Step2 面板各挂一个
+  `ToolResultsPanel`（Step1 显示 `schema_skeleton` 占位工具结果；Step2 显示
+  `schema_validation`/`engine_menu_and_capability` 最后一轮的结果）。
+- Step3/Step8 的工具化（`docs/tools-plus-llm-plan.md` §7 步骤 5-8：
+  `sandbox_validate` 技术指标白名单、`field_evidence_detail` opt-in 工具、
+  伪 tool call `tool_requests` 解析、原生 tool use 后门）仍未实现——本次只补
+  已经存在的 Step1/Step2 结果的前端展示，不是把整个方案做完。
+
+### 前端：移除 Pipeline E2E 页面 + Step1/Step2 状态持久化改为 localStorage（2026-08-13）
+
+- 删除 `frontend/src/pages/PipelineE2EPage.tsx`（旧的手动串联 extract/review/
+  codegen/backtest 的演示页），及 `App.tsx`/`AppLayout.tsx` 里对应的路由、
+  导航项；首页重定向从 `/pipeline` 改为 `/runs`（session-centric 流程是唯一
+  入口）。`sessionApi.ts`/`types.ts` 里提到它的注释同步更新。
+- `methodSpecStore.ts`（Step1/Step2 的前端进度存储）从 `sessionStorage` 换成
+  `localStorage`：前者关标签页就清空、且各标签页互相隔离，导致"重新打开
+  session 就要重跑 step1"。同时把 `extractJobId`/`reviewJobId` 也存进去，
+  组件挂载时从存储恢复——之前这两个 job id 只活在 React state 里，切换页面
+  卸载组件就丢失，即使后端 job 其实还在跑/已经跑完（`JobManager` 是独立于
+  HTTP 连接的 asyncio 任务，`GET /api/jobs/{id}` 保留结果 `JOB_TTL_SECONDS`=
+  3600 秒），前端也无法再找回。
+
+### 13F 正式注册 + liquidity_factors 走 ff_factors_path 同款路径 + LLM 自动生成 derivation（2026-08-13）
+
+讨论详见对话记录（13F 是否已注册的追问）。三件事：
+
+- **13F 正式注册进 `sources.py` 的 concept-mapping 目录**：`load_institutional_
+  ownership_13f()` 从 `data_layer/__init__.py` 挪到 `sources.py`（`__init__.py`
+  改为 re-export,保持 import 路径不变),新增 `ThirteenFSignalSource`（跟
+  `CrspSignalSource` 一样绕开通用的 `_load_generic_signal_frame`/
+  `link_to_permno`,因为它自己的 CUSIP→permno 匹配是"取最近一次观察到的
+  permno",不是 CCM/IBES 那种带 valid_from/valid_to 的点时点 link table),
+  注册为 `tr_13f`（`instown_perc` 概念,固定 2 个月上报滞后的保守近似)。
+  2026-07-31 曾经因为"假设 permno-keyed 但实际是 cusip-keyed"移除过一次
+  `tr_13f`——这次不是同一个错误,已经在类文档里写清楚区别。更新了
+  `tests/test_data_catalog.py` 的黄金字面量（新增 `tr_13f` 条目)。
+- **liquidity_factors（Pastor-Stambaugh)**：没有 `permno` 列,是市场层面时间
+  序列,跟 Compustat/IBES 那种按股票的 signal source 不是一回事,硬塞进
+  `sources.py` 注册表在架构上是错的。改为跟 `ff_factors_path` 完全同款的
+  写死路径机制——`step5_backtest_runner.build_script()` 跟 `ff_factors.
+  parquet` 一样探测 `<snapshot>/local/liquidity_factors.csv` /
+  `<data_layer>/local/liquidity_factors.csv`,新增
+  `liquidity_factors_data_dir` 参数一路传进 `generate_backtest_script()`,
+  生成脚本里的 `load_factors()` 现在把 FF factors 和 liquidity factors
+  merge 成同一个 `factors` frame（按 `yyyymm` outer join)。
+  `BacktestExecutor.compute_factor_alphas()` 的 `factor_specs` 新增
+  `"liq": ["ps_vwf"]`——只要 `factors` 里有 `ps_vwf` 列就会算出
+  `alpha_liq`/`beta_liq_ps_vwf`,不影响原有 capm/ff3/ff5。
+  `collect_runtime_provenance()` 新增 `liquidity_factors_hash`（跟
+  `ff_factors_hash` 同款审计字段)。新增测试：
+  `tests/test_factor_alphas.py::TestComputeFactorAlphasLiquidity`（2）、
+  `tests/test_runtime_provenance.py` 的两条 liquidity_factors_hash 测试。
+- **LLM 自动生成 `derivation`（而不是人工手填 JSON)**：`prompts/extractor/
+  method_spec_extractor.md` 新增 §1.8c——某个 universe filter 如果真的是
+  "需要计算"（比如"上市满 2 年"),提取阶段就该顺手把
+  `universe.filters[].derivation`（一个 `FormulaSpec`,跟 `signal.formula`
+  同构)填上,而不是只留一个 `data.fields` 条目干等着；如果只是读原始列
+  （比如"SIC code == 49"),`derivation` 保持 `null`。`prompts/review_gate/
+  llm_review.md` 同步加了对应的复查项——检查 `derivation` 该填的填了、不该
+  填的没瞎填,列进"commonly error-prone areas"清单。两个文件都是纯 prompt
+  改动,`derivation` 字段本身早已是 `FilterSpec`/`MethodSpec` 的一部分,
+  JSON shape 的自动拼接（`schema_render.render_model`)不用改代码就已经会
+  展示这个字段。
+- 全量测试 618 passed / 18 skipped（较之前 +4,零回归)。
+
+### 修复 re-run Step2 时 stepper 显示错乱（Step1 变 not_started、Step2 不显示 running）（2026-08-13）
+
+上一条改动引入的连锁 bug：`reviewLoopMutation`/`reviewMutation` 的
+`onMutate` 会清空 `paper`（Step2 的输出),而 `StepStepper.tsx` 的
+`specStepStatus()` 一直是**用 `paper` 是否存在来判断 Step1 是否成功**——
+两个字段搞混了（`rawSpec` 才是 Step1 自己的输出,`paper` 是 Step2 的收敛
+结果,`MethodSpecWorkflowState` 的注释本来就写清楚了),所以清空 `paper`
+连带把 Step1 的徽章从 success 打回 not_started。同时 Step2 自己的状态判断
+只看 `review`/`resolved` 是否有值,压根不知道"现在有个 job 正在跑",所以
+重新拉起 loop 时 Step2 会显示 not_started 而不是 running。
+
+- **`StepStepper.tsx`**：Step1 状态改成看 `specState.rawSpec`（不再是
+  `paper`),不会再被 Step2 的清空动作连带影响。
+- **`MethodSpecWorkflowState` 新增 `reviewRunning?: boolean`**
+  （`methodSpecStore.ts`）——纯前端瞬时标志,`reviewLoopMutation`/
+  `reviewMutation` 的 `onMutate` 置 true,`reviewJob` 的 completed/failed
+  分支（loop 版)和各自的 `onSuccess`/`onError`（rules-only 版)置 false。
+  `specStepStatus()` 现在优先看这个标志,为 true 时直接返回 `"running"`,
+  不用等 `review`/`resolved` 有内容才能显示状态。
+- `tsc --noEmit`、`npm run build` 均通过。
+
+### Re-run 时立即清空这个 step 当前显示的旧输出（2026-08-13）
+
+上一条加的几个 re-run 按钮点击后,新结果要等一次网络往返才回来——这段时间
+页面上一直显示的是"这一步"旧的、马上要被扔掉的输出,容易让人误以为按钮没反应
+或者新结果已经出来了。改成点击的瞬间（`onMutate`,请求真正发出前)就清空：
+
+- **Step 3-8 通用面板**：`runMutation` 新增 `onMutate`——清空
+  `jobId`/`syncResult`/`requestError`,并用 `queryClient.removeQueries()`
+  丢掉 `["session-step", sessionId, step]` 的缓存（`setQueryData(key,
+  undefined)` 在 TanStack Query 里是空操作,不会真的清空,只能用
+  `removeQueries`),让"Result"卡片里的 readiness/diagnostics 框跟着变回
+  "还没有数据"而不是停留在上一次的旧内容上。
+- **Step 2 Review 面板**：`reviewMutation`（"Re-run rules-only review")
+  新增 `onMutate`,立即 `patch({ review: undefined, resolved: undefined,
+  ... })`；`reviewLoopMutation`（"Re-run from Step 1 output"/首次自动触发的
+  loop）新增 `onMutate`,立即清空 `paper`/`review`/`resolved`/`totalDiff`/
+  `history` 并重置 `reviewJobId`——顺带的好处是 `paper` 变成
+  `undefined` 后,页面会自动落回"Step2 review loop 正在跑"那个已有的
+  fallback 界面,不用另外写一个"正在重跑"的状态。
+- `tsc --noEmit`、`npm run build` 均通过。
+
+### 每个 step 页面加"用上游最新输出重跑"按钮（2026-08-13）
+
+- **Step 3-8（通用 request/response 面板）**：`runMutation` 支持
+  `{ fromUpstream: true }` 变体——重新拉一次 session manifest,用跟首次进页面
+  同一套 `buildAutoFilledRequest()` 逻辑,从上游 step 的最新一次成功输出重建
+  request body（不是用当前文本框里的内容,那可能是这个 step 自己之前手改/
+  跑过的旧内容),写回文本框后立即提交。原来的"Run {label}"按钮不变（还是提交
+  文本框里现有的内容),旁边新增"Re-run from upstream output"按钮。
+- **Step 2（Review 自定义面板)**：新增"Re-run from Step 1 output"按钮,丢弃
+  这个 step 里做过的任何编辑（value patch/status override 等),直接拿
+  Step 1 的原始 `rawSpec` 重新跑一遍完整 LLM review loop（`reviewLoopMutation`)。
+  跟原有的"Re-run rules-only review"（只对当前 spec 重跑无 LLM 的规则检查)
+  是两个不同粒度的操作,文案里做了区分。
+- Step 1 没有上游 step,不适用,未加按钮。
+- `tsc --noEmit`、`npm run build` 均通过。
+
+### Review 面板显示全部 high-impact 字段,按 disposition 决定是否可编辑（2026-08-12）
+
+之前 Review 面板只显示"需要人工确认"的字段（`MethodReview.findings`,
+`AUTO_APPROVE` 的字段被静默跳过,人工完全看不到)。现在改成：全部展示,
+`AUTO_APPROVE` 的只读、不出下拉框,其余 disposition 保持原来的可编辑行为。
+
+- **`MethodReview` 新增 `all_high_impact_fields: list[Finding]`**（`src/infra/
+  models/method_spec.py`）——纯新增字段,不影响 `findings` 原有语义（`findings`
+  依然只表示"需要关注",既有的"no findings"徽章、`isBlocked`、LLM review loop
+  的 `needs_human` 判断全部不变)。
+- **`review.py` 新增 `_all_high_impact_field_findings()`**：跟 `_compute_findings`
+  同样的 per-field disposition 逻辑,但对 `AUTO_APPROVE` 也构造一条 `Finding`
+  （复用 `_evidence_status_finding` 新增的 `always=True` 参数),而不是像
+  `_compute_findings` 那样直接跳过。`review_method_spec()` 把结果写进
+  `all_high_impact_fields`。
+- **前端 `SessionDetailPage.tsx`**：Review 列表的渲染源从 `findings` 换成
+  `[...allHighImpactFields, ...findings 里路径不在 all_high_impact_fields 里的那些]`
+  （保留 `missing_mapping`/非 high-impact 的 capability finding,不丢失原有信息)。
+  `canPatch` 判断不变（只有 `disposition === "needs_human_confirmation"` 才出
+  下拉框/输入框),`auto_approve` 的条目改用 `secondary` 徽章、只读展示
+  `paper_value`,没有编辑控件。新增测试
+  `tests/test_step2_reviewer.py::TestReviewCleanBaseline::
+  test_fully_clear_spec_still_lists_every_high_impact_field`/
+  `test_all_high_impact_fields_includes_needs_human_confirmation_entries`。
+  全量测试 614 passed / 18 skipped,零回归。
+
+### Review 面板两处修复（2026-08-12）
+
+- **`schema_reference.py::_walk_model` 递归进 `list[BaseModel]` 字段的子模型**：
+  之前遇到 `portfolio.sorts: list[SortDimension]` 这类字段只登记了一条摘要
+  （`list_item_fields` 列子字段名),从不递归进 `SortDimension` 本身,导致
+  `portfolio.sorts[i].breakpoints.basis`（实际是个三值 enum:
+  `full_sample`/`nyse`/`other`）在 schema 里查不到,前端 review 面板只能退化
+  成自由文本框而不是下拉框。现在递归进子模型时复用同一个不带下标的
+  `path`（跟前端 `fieldPath.replace(/\[\d+\]/g, "")` 的查找方式对齐),`data.
+  fields.concept_id` 之类的路径现在也会出现在 schema 里。更新
+  `tests/test_schema_reference.py` 里原先把这个 gap 断言成"预期行为"的
+  测试。
+- **`apply_value_patches` 新增 `unsupported_values` 参数 + `/patch-value`
+  新增 `unsupported_values` 请求字段**：human 把某个高影响字段的下拉值改成
+  `other` 时,现在能同时填一份 `SourcedValue.unsupported_value`（论文的原始
+  措辞),不再是"选了 other 但没地方记录论文原话是什么"。补的字段只在目标值
+  确实是 `"other"` 时才写入,从 `other` 改回其他值时会清空残留的
+  `unsupported_value`（配合模型自身的校验器）。前端
+  `SessionDetailPage.tsx`：drafted 值等于 `"other"` 时,在下拉框下面多渲染
+  一个"Paper's original wording (unsupported_value)"文本框,提交时随
+  `patches` 一起发给后端。新增测试
+  `tests/test_apply_human_value_patches.py::test_patching_to_other_stores_
+  unsupported_value`/`test_patching_away_from_other_clears_stale_
+  unsupported_value`。
+- **前端：resolve 阻断面板里新增 `universe.filters[i].derivation`（`FormulaSpec`）
+  的最小可用编辑器** -- 一个 unmapped concept（如 `compustat_listing_history`）
+  未必真的缺物理列映射,可能只是需要一个"计算派生条件"（`derivation`,2026-08-12
+  那次 resolve 诊断盲区 problem 1 修复引入的字段,`FilterSpec.derivation:
+  FormulaSpec | None`,见 `docs/resolve-diagnostics-gaps.md`）。这个字段不是
+  `SourcedValue`,走不了 `/patch-value`,所以是纯前端态编辑：只读展示当前
+  `derivation`（`JsonTree`）+ 一个大文本框粘贴/编辑整段 `FormulaSpec` JSON,
+  "Apply"直接更新 `state.paper`（不落后端,跟其余 in-session 编辑一样,靠下次
+  /review 或 /resolve 把整份 paper 重新发过去）。留空文本框等于清空该 filter
+  的 `derivation`。JSON 解析失败会显示错误,不静默吞掉。
+
+### `/runs` 列表页上线（UI 重设计 Part 1，2026-08-12）
+
+按 [docs/ui-redesign-plan.md](docs/ui-redesign-plan.md) §2.1 落地第一个页面：
+
+- `frontend/src/pages/SessionsPage.tsx` 重命名为 `RunsPage.tsx`（`git mv` 保留历史），
+  新增搜索框（按 factor_id/paper_id 模糊匹配）、Paper 列、基于 `STEP_REGISTRY` 的
+  8 点进度摘要（`ProgressDots`， stale 步骤额外加珀色环）。
+- 去掉归档按钮，只保留删除（二次确认）。（`POST .../archive` 仍保留在 `sessionApi`
+  里供后端使用，只是不在 UI 上暴露。）
+- 前端路由从 `/sessions`，`/sessions/:sessionId/steps/:step` 改为
+  `/runs`，`/runs/:sessionId/step/:step`（`App.tsx`、`AppLayout.tsx` 导航项、
+  `SessionDetailPage.tsx` 内部导航、`ReviewResolvePage.tsx` 同步更新）。后端
+  `/api/sessions/*` 端点未变。
+- 未实现（需后端支持，待后续阶段）：Fork 血缘标记、行内展开 tool 调用。
+
+### 新增 UI 重新设计方案文档（2026-08-12，仅文档）
+
+新增 [docs/ui-redesign-plan.md](docs/ui-redesign-plan.md)：把前端从 9 个各自为政的
+页面收敛为 4 个区（Runs / Telemetry / Reference / Settings），核心是 8 个步骤共用一个
+`StepWorkbench` 组件，「单步测试」表达为 step 的输入来源（上一步产物 / 其他 run /
+fixture / 手写 JSON）而不是另一个页面。另含统一 telemetry 事件流
+（`llm_call` + `tool_call` 同流、token 用量含 `~估算` 标记）、data 与 MethodSpec 两个
+可反查字典、以及后端端点统一（三套风格 → `POST /api/sessions/{id}/steps/{n}/run`）。
+决策记录见 [docs/decision-log.md](docs/decision-log.md) 同日条目。**尚未实施代码。**
+
+### Step8 完整重新设计落地：三个新 claim_type + `reason_layer` + Tool 化 + 重试循环 + `field_evidence_detail`（2026-08-12）
+
+按 [docs/tools-plus-llm-plan.md](docs/tools-plus-llm-plan.md) §4.3 把 Step8 的
+剩余部分（新 claim_type 命名、Tool 注册、重试循环、opt_in 工具）全部落地，这是
+"tools+LLM"改造里唯一新增了真正扩大 LLM 能力边界的一步。
+
+- **`src/infra/models/diagnosis.py`**：新增 3 个 claim_type
+  （`signal_reproducibility`/`publication_decay`/`implementation_robustness`，
+  各自的 relation 见下表）+ `reason_layer` 字段（`config_sensitivity`/
+  `signal_fidelity`/`temporal_pattern`，由 `claim_type` 确定性推导，不是 LLM
+  写的）。
+
+  | claim_type | relation | 引用要求 | reason_layer |
+  |---|---|---|---|
+  | `signal_reproducibility` | `reproduces`/`diverges` | `bridge_comparison.signal_implementation_agreement` + `subject_track` 必须是 own_track 或 bridge_track | `signal_fidelity` |
+  | `publication_decay` | `decayed`/`stable` | `publication_decay.tracks.*.decayed` | `temporal_pattern` |
+  | `implementation_robustness` | `robust`/`fragile` | `robustness_summary.robust` | `config_sensitivity` |
+
+- **`src/steps/step8_diagnosis/__init__.py`**：
+  - `_entailment_reason` 新增 3 个新 claim_type 的关系校验分支（跟现有
+    `sign_agreement`/`magnitude_gap` 等同一套模式：断言的 relation 必须匹配
+    引用证据的实际值）；`_cited_tracks` 扩展识别
+    `publication_decay.tracks.<track>.` 前缀，让 `subject_track` 能自动推导
+  - `Step8ToolContext` + 8 个占位型 `Tool`（`spec_quality`/`menu_deviations`/
+    `derived`/`config_diff`/`gap_decomposition`/`bridge_comparison`/
+    `publication_decay`/`robustness_summary`）——真正的计算都发生在 Step7 的
+    `build_evidence_bundle()`，`fn` 只是从 `ctx.bundle` 读现成结果（跟 Step1
+    的 `schema_skeleton` 同一种占位模式）
+  - **`diagnose()` 加有界重试循环**（默认 `max_rounds=2`）：round1 之后如果有
+    `rejected_claims`，round2 只把被拒的 claim + 拒绝原因重新喂给 LLM，让它
+    修或删；接受的 claim 跨轮按内容去重（防止一个"傻" LLM 每轮都原样重交整份
+    答案时被重复计数——这是实现阶段发现的真实 bug，用 dedup 而不是信任
+    "LLM 只会交被拒的那几条"这个假设来修复）
+  - **`field_evidence_detail`**（唯一真正 `opt_in` 工具）：LLM 通过
+    `tool_requests` 请求后，才现场从 `resolved_spec.paper` 读取某个弱字段完整
+    的 `SourcedValue.evidence[]`（论文原文引用），没传 `resolved_spec` 时
+    自报 `status="skipped"`。**简化**（跟 plan 最初设想的
+    `"field_evidence_detail:field_path"` 冒号参数化不同）：一次性返回
+    `spec_quality.weak_fields` 里全部弱字段的证据，不做单字段参数化——避免
+    给 `ToolRunner` 引入"请求名里带参数"的解析机制，这类字段数量本来就有限
+  - `diagnose()` 新增可选参数 `resolved_spec`/`tool_policy`/`max_rounds`，
+    现有 5 个非测试调用点（`backend/routers/diagnosis.py`、
+    `scripts/analyze_comparison.py`、`step6_dual_track_controller`）零改动
+- **`src/steps/step8_diagnosis/render.py`**：3 个新 claim_type 的确定性句子
+  模板
+- **`prompts/analysis/replication_diagnosis.md`**：加 `TOOLS:CATALOG` marker、
+  3 个新 claim_type 的文档、输出 JSON 加 `tool_requests`
+- 14 个新测试（新 claim_type 校验、`reason_layer`、重试循环去重、
+  `field_evidence_detail` 请求/不可用两种情况）。全量测试 609 通过/18 跳过
+  （609 = 595 + 14 新，零回归）。
+
+### Step3 迁移：`column_mapping` 变成 Tool + `sandbox_validate` 新增 dtype 检查/技术指标（2026-08-12）
+
+按 [docs/tools-plus-llm-plan.md](docs/tools-plus-llm-plan.md) §4.2/§5 的结论——
+Step3 不加任何新循环（"成功也强制回喂一轮"已在讨论阶段撤销），只做两件事。
+
+- **`column_mapping` 从手写箭头文本迁移成 `Tool`**
+  （[src/steps/step3_codegen/__init__.py](src/steps/step3_codegen/__init__.py)）：
+  `_build_prompt_from_resolved()` 里 `at → df["at"]` 那段硬编码渲染删掉，改成
+  `COLUMN_MAPPING_TOOL`（`Step3ToolContext`），`generate_plugin()` 在唯一一次
+  LLM 调用之前跑一次（跟 Step1 一样是 prelude-only，`generate_plugin()` 本身
+  就是单次调用，不新增循环）。`prompts/meta_coder/signal_plugin_system.md`
+  加了 `TOOLS:CATALOG` marker。[tests/test_meta_coder_resolved_method_spec.py](tests/test_meta_coder_resolved_method_spec.py)
+  里断言精确箭头文本的用例按计划改成断言 JSON payload。
+- **`sandbox_validate` 新增 `technical_metrics` + `dtype` 硬性检查**
+  （[src/steps/step4_validator/__init__.py](src/steps/step4_validator/__init__.py)）：
+  `_EXECUTE_DRIVER` 子进程 driver 在算完 `compute_signal` 后，顺手算
+  `nan_ratio`/`n_permno`/`n_months`/`missing_columns`/`dtype`（白名单字段，
+  绝不含任何 return/alpha/t-stat/Sharpe），写进 `ValidationReport.
+  technical_metrics`（新字段，纯加，不影响 `passed` 判定）。`signal` 列非数值
+  dtype（比如意外输出字符串但不抛异常）现在是**新的确定性失败条件**，直接走
+  现有的 `report.errors → repair_plugin` 分支——`repair_plugin(plugin,
+  errors: list[str])` 本身是通用字符串列表接口，不需要任何新代码路径。
+- `sandbox_validate` **没有**包成 `Tool`——它的实际调用方是 `RepairLoop`
+  的多轮 build→validate→repair 循环，不是一次性 prelude，没有自然的
+  `ToolRunner` 接入点，本次不强行包装。
+- `column_mapping` 迁移新增/更新 2 个测试，`sandbox_validate` 新增 3 个测试
+  （dtype 硬失败、technical_metrics 内容、白名单不含绩效数字）。全量测试
+  595 通过/18 跳过（595 = 591 + 4 新，零回归）。
+
+### Step2 LLM review循环迁移到 Tool Prelude 基础设施（2026-08-12）
+
+按 [docs/tools-plus-llm-plan.md](docs/tools-plus-llm-plan.md) §5 把
+`spec_build.py` 现有的 `_PRE_LLM_TOOLS`/`_run_pre_llm_tools` 雏形改造成正式的
+`Tool`/`ToolRunner` 用法，这是"tools+LLM"改造里第一个真正有多轮循环的 step。
+
+- `_schema_validation_tool`/`_engine_menu_and_capability_tool` 原样保留逻辑，
+  各自包一层 `Tool`（`SCHEMA_VALIDATION_TOOL`/`ENGINE_MENU_TOOL`，均
+  `tier="always"`），组成 `STEP2_TOOLS` 注册表。新增 `Step2ToolContext`
+  （`spec_dict` + `parsed_spec`——`parsed_spec` 是专门字段，不是塞进
+  `ctx.results`，因为 `ctx.results` 类型是 `dict[str, ToolResult]`，不该放
+  裸的 `MethodSpec` 对象，这是实现时对 plan 原始伪代码的一处必要修正）。
+  `_engine_menu_fn` 读不到 `ctx.parsed_spec` 时自己返回
+  `status="skipped"`（无 `depends_on`/拓扑排序，见 §2）。
+- `ReviewRound.error_log` 从存储字段降级为**渲染 property**（从新增的
+  `tool_results: list[ToolResult]` 字段拼出旧格式文本），兼容
+  [tests/test_step2_reviewer_llm.py](tests/test_step2_reviewer_llm.py) 原有的
+  宽松断言（`==""`/`!=""`/子串匹配），但 3 个直接断言精确旧标签格式
+  （`[schema_validation]`/`[engine_menu_and_capability_findings]`）的测试
+  按计划改成断言新的 `### tool_name` 渲染格式。
+- `SpecBuildOutcome` 新增 `tool_results`（存最后一轮，语义同 `spec`/`review`）。
+- **循环骨架加了 `tool_requests` 解析**（即使 Step2 目前没有任何 `opt_in`
+  工具，仍按跨 step 一致性要求接入）：LLM 输出 JSON 新增可选字段
+  `tool_requests: list[str]`（`.get(..., [])` 兜底，不破坏现有 Fake LLM 测试），
+  下一轮把请求的名字传给 `ToolRunner`；请求了未注册的名字会在下一轮的
+  catalog 里追加"未知工具名"提示，不中断循环。
+- **`prompts/review_gate/llm_review.md`**：第 0 节从手写的 `[tag]` 说明文字
+  换成 `<!-- TOOLS:CATALOG:START/END -->` 动态渲染；第 6 节输出 JSON 加
+  `tool_requests: []`。
+- 4 个新测试（2 个更新格式断言 + 2 个新增：`SpecBuildOutcome.tool_results`
+  取最后一轮、未知工具请求下一轮出现提示不崩溃）。全量测试 591 通过/18
+  跳过（591 = 589 + 2 新，零回归）。
+
+### 新增 `src/infra/tooling/`（Tool Prelude 基础设施）+ Step1 接入（2026-08-12）
+
+按 [docs/tools-plus-llm-plan.md](docs/tools-plus-llm-plan.md) §2/§4.1 实现的第一批
+代码：通用的 Tool Prelude 基础设施，以及 Step1（抽取）的接入——Step1 架构上是严格
+单次 LLM 调用，所以这次接入不含任何轮次/`tool_requests`，纯前置。
+
+- **`src/infra/tooling/`**：`Tool`（单层 dataclass，同时是说明书和可执行单元，
+  无 Protocol/`FunctionTool` 两层）、`ToolContext`（共享基类）、`ToolResult`、
+  `ToolPolicy`、`ToolRunner`（按 list 顺序跑，无 `depends_on`/拓扑排序；`always`/
+  `on_failure`/`opt_in` 三档；失败隔离；`prior_round_failed` 由调用方计算好传入，
+  runner 自己不判断"什么算失败"）、`catalog.py`（`render_tool_catalog`/
+  `render_tool_results`/`splice_tool_catalog`，splice 行为照抄
+  `schema_render.splice_schema_skeleton`：marker 缺失就原样返回，不报错）。
+  15 个新测试（`tests/test_tooling.py`），覆盖失败隔离/自报告依赖/`disable`/
+  `opt_in`+`tool_requests`/未知工具名/`on_failure`分档/tracer可选/catalog splice。
+- **Step1 接入**（[src/steps/step1_extractor/extractor.py](src/steps/step1_extractor/extractor.py)）：
+  新增 `Step1ToolContext`、占位型 `SCHEMA_SKELETON_TOOL`（payload 只指向系统
+  prompt 里"Required JSON Shape"示例，不重复渲染 JSON 骨架本身）、`STEP1_TOOLS`
+  注册表。`MethodSpecExtractor.extract()`/`_call_llm_extract()` 新增可选参数
+  `tool_policy`（默认全跑），跑一次 `ToolRunner` 后把 catalog 拼进 system prompt
+  （`prompts/extractor/method_spec_extractor.md` 新增"# 0. Tool catalog"段 +
+  `TOOLS:CATALOG` marker）、把 `TOOL RESULTS` JSON 拼进 user message；结果存进
+  新增字段 `ExtractionResult.tool_results`。**没有加 `tool_requests` 字段**——
+  Step1 是单次调用，没有下一轮可以执行它。3 个新测试
+  （`tests/test_step1_extractor.py::TestStep1ToolPrelude`）。
+- 全量测试 589 通过/18 跳过（589 = 571 + 18 新，零回归）。
+
+### Step8 诊断新增三层归因证据：spec_quality / menu_deviations / bridge_comparison / publication_decay / robustness_summary（2026-08-12）
+
+按 [docs/tools-plus-llm-plan.md](docs/tools-plus-llm-plan.md) §4.3 的 Step8 重设计，
+先落地不依赖 tooling 基础设施的部分——五个新的 `bundle.py` 纯函数，`comparison.json`
+的 `evidence_keys` 白名单随之扩大，为以后接入 LLM diagnosis 的三层归因框架打基础。
+
+- **`build_spec_quality(spec)`**：现场重新调用 `review_method_spec(spec.paper)`
+  （纯函数，Step2 用过一次就再没人调），摘出 `kind="ambiguous"` 的 Finding 作为
+  "弱字段"列表。**零新持久化**。
+- **`build_menu_deviations(spec, tracks)`**：读 `spec.paper` 里各高影响字段的
+  `SourcedValue.unsupported_value`（论文方法在引擎菜单外时的原始措辞）+ 每条
+  track 的 `config["defaults_applied"]`（`registry.build_config` 早已内嵌，一路
+  原样写进了 `comparison.json`，核实后发现之前"算了但丢了"的判断是错的）。
+  **零新持久化**。
+- **`build_bridge_comparison(tracks, paper_reported)`**：找到 `is_bridge_track=
+  True` 的 track（C&Z 参考信号跑过跟我们相同的下游配置）配对常规 track，比较
+  两者各自是否独立复现论文的符号，产出 `signal_implementation_agreement`
+  （`both_reproduce`/`only_bridge`/`only_own`/`neither`）——直接回答"信号本身能否
+  复现"（inter-implementer agreement），不只是"收益差多少"。**小改动**：
+  `write_comparison_summary` 组装 `tracks_summary` 时补一行
+  `"is_bridge_track": r.is_bridge_track`（[step6_dual_track_controller](src/steps/step6_dual_track_controller/__init__.py)）。
+- **`build_publication_decay(tracks)`**：对比每条 track 样本内/发表后的 t-stat
+  （McLean-Pontiff 式衰减）。**真正的 schema 新增**：`RunMetrics`
+  （[src/infra/models/run_record.py](src/infra/models/run_record.py)）此前根本
+  没有 `by_sample_period` 字段——`backtest_engine` 算出的这份数据会在构造
+  `RunMetrics(...)` 时被静默丢弃，现已补上并在 `make_run_record` 里接上。
+- **`build_robustness_summary(tracks)`**：汇总所有 `ablation_*` track 相对
+  baseline 的 t-stat 极差/符号翻转数/显著性翻转数，给出整体 `robust: true/false`
+  判断（实现敏感度/鲁棒性），零新持久化。
+- `build_evidence_bundle()` 新增可选参数 `spec: ResolvedMethodSpec | None`，五个
+  新 section 都进了 `evidence_keys` 白名单。`COMPARISON_SCHEMA_VERSION` 从 2 bump
+  到 3（纯加字段，不破坏现有消费方）。
+- `src/steps/step2_reviewer/review.py`：`_high_impact_sourced_values` 改名为
+  公开的 `high_impact_sourced_values`（重命名，非私有），供 `bundle.py` 复用。
+- 15 个新测试（`tests/test_replication_diagnosis.py`），全量测试 571 通过/18
+  跳过（571 = 556 + 15，零回归）。
+- 尚未做的部分（`Tool` 包装、`diagnose()` 的重试循环、`field_evidence_detail`
+  opt_in 工具、新 claim_type/`reason_layer`）留给后续依赖 `src/infra/tooling/`
+  基础设施的阶段。
+
+### 新增 Tools + LLM（Tool Prelude 模式）重构方案文档（2026-08-12）
+
+新增 [docs/tools-plus-llm-plan.md](docs/tools-plus-llm-plan.md)：把每个有 LLM 参与的
+步骤统一改造成「确定性工具全跑 → 工具说明书 + JSON 输出进 prompt → LLM 只做判断/生成」。
+因为走 CLI 调用，LLM 无法在推理中途选工具，所以是 Tool Prelude 而非 function calling。
+
+- 该模式在 `spec_build.py` 的 `_PRE_LLM_TOOLS` 已有雏形，本次是抽成通用基础设施
+  （计划中的 `src/infra/tooling/`）后推广到 step1 / step3 / step8。
+- 兼容策略：所有 LLM 入口只加可选参数 `tool_policy`，8 个非测试调用点零改动；
+  持久化的 Pydantic 模型（`PluginRecord` / `ReplicationDiagnosisReport` /
+  `comparison.json`）一律不动，工具结果只进 `trace.py` 事件流。
+- 目前仅文档，尚未动代码。
+
+### Step2 LLM review loop 现在能看到 `review_method_spec` 的 Finding（2026-08-12）
+
+跟进问题 3 讨论中发现的一个独立缺口：`spec_build.build_reviewed_method_spec`
+的 `error_log` 此前只有 `model_validate()` 的 Pydantic 校验错误一个来源，
+`review_method_spec(paper).findings`（D2 + missing_mapping + 这次新加的
+engine-menu/capability 系列）从来没有喂给过 LLM——只有人工调用独立的
+`/review` 端点时才会被算出来展示给人看。
+
+- **`spec_build.py`** 新增两个"pre-LLM tool"函数：`_schema_validation_tool`
+  （现有 `model_validate` 逻辑，不变）+ `_engine_menu_and_capability_tool`
+  （跑 `review_method_spec`，把 findings 转成带 `[engine_menu_and_capability_
+  findings]` 标签的文本）。`_run_pre_llm_tools()` 依次跑完所有 tool（schema
+  校验优先，因为后续 tool 需要一个真正校验过的 `MethodSpec`，不是可能无效的
+  裸 dict），输出拼成一份 `error_log` 喂给 LLM。`_PRE_LLM_TOOLS` 列表设计成
+  可扩展——以后加新检查只需要往列表里加函数。
+- 循环收敛条件**不变**——仍然只看 schema 校验通不通过，Finding 只是给 LLM
+  的额外上下文，不阻塞循环退出（跟 Finding 本身"非阻塞"的设计一致）。
+- **`prompts/review_gate/llm_review.md`** 新增"第 0 节"，介绍每个带标签的
+  block 是什么意思（`[schema_validation]`/`[engine_menu_and_capability_
+  findings]`），让 LLM 在看到具体内容之前先知道这些"工具"各自的用途——
+  第 2 节措辞同步更新，明确指向 `[schema_validation]` 这个标签。
+- 新增测试：`tests/test_step2_reviewer_llm.py::TestPreLlmTools`（3：engine-
+  menu finding 出现在 prompt 里、spec 干净时不出现、schema 校验失败时
+  engine-menu tool 跳过不跑）。全量测试 556 passed / 18 skipped（零回归）。
+
+### Resolve 诊断盲区 problem 3 修复：universe filter 的值编码翻译（2026-08-12）
+
+讨论详见 `docs/resolve-diagnostics-gaps.md`（"问题 3"节讨论结论）。
+
+- **真实事故修复**：filter 的 `concept_id` 正确解析到了 `exchcd` 这类物理
+  native 列后，`value` 之前一直是论文原文措辞（`["NYSE","Amex","NASDAQ"]`），
+  直接传给 `.isin()` 对数字列永远是 `False`——universe 被悄悄筛成 0 行，
+  错误几步之后才在 `compute_breakpoints` 冒出一个不相关的报错。
+- **`FILTER_VALUE_ENCODINGS`**（`src/infra/models/method_spec.py`，紧挨
+  `RETURNS_PANEL_NATIVE_COLUMNS`）：`exchcd`/`shrcd` 两列的"论文措辞(小写)
+  -> 物理编码"手工登记表，一次性注册、对所有论文复用——不做成 LLM 生成，
+  因为这是 WRDS/CRSP 数据源自己的编码约定，论文原文通常不解释，LLM 只能
+  凭常识猜、没有论文证据可验证。`siccd`（行业排除通常是 SIC 区间而非单值
+  标签）本次不做，留给以后单独设计。
+- **`registry._translate_filter_value()`**：`universe_filters` 构造时对每
+  个 filter 的 `value` 做一次翻译，查到就换成编码；已是数字或列没注册映射
+  的原样透传；**字符串查不到对应编码时 `ValueError`**（不悄悄放过，避免
+  重演"全筛空 + 报不相关的错"）。
+- 跟问题 1 的 `FilterSpec.derivation`/LLM codegen 是两回事、不复用——那套
+  机制适合"需要逐行计算"的场景（如上市时长），值编码翻译只是纯静态查表。
+- 新增测试：`tests/test_registry_resolved_method_spec.py::
+  TestUniverseFilterValueEncodingTranslation`（5）。全量测试
+  553 passed / 18 skipped（零回归）。
+
+### Resolve 诊断盲区 problem 2 修复：construction-capability 不再阻塞 `is_ready`，改为统一自动降级 + 通知（2026-08-12）
+
+讨论详见 `docs/resolve-diagnostics-gaps.md`（"问题 2"节 + "实现前复查"）+
+`docs/decision-log.md` 同日条目（"部分恢复 D4 的可见性"）。
+
+- **`ResolvedMethodSpec._construction_within_capability()` 删除**，`is_ready`
+  不再检查 sort 维度数/`group_type`——全部改为 `registry.build_config` 自动
+  clamp + `defaults_applied` 记录 + `review.py` 无条件 Finding 通知，不阻塞。
+- **模型改动**（`src/infra/models/method_spec.py`）：`GroupType`/`SortMode`
+  加 `OTHER` 成员（`categorical`/`threshold`/`within_group` 仍是具名的已知
+  引擎能力缺口，不折叠进 `other`）；`SortDimension.mode`/`group_type` 从裸
+  枚举升级为 `SourcedValue[Enum]`；新增 `ReturnCombinationScheme` 枚举（含
+  `OTHER`），`PortfolioSpec.return_combination` 从 `SourcedValue[str]` 升级
+  为 `SourcedValue[ReturnCombinationScheme]`，与 `weighting` 同构。
+- **`registry.py` 统一自动降级**：sort 维度数超过 `MAX_SUPPORTED_SORT_
+  DIMENSIONS` 时保留 target + 按 `order`（同序按 `sort_id` 字母序 tie-break）
+  排前的非 target 维度，多余的砍掉；非 quantile 的 `group_type` 只记录偏差
+  （引擎本来就只执行 quantile 分组，无需真的切换执行逻辑）；
+  `rebalance_frequency`/`accounting_lag_months` 的 `lag_unit` 遇到
+  `TimeUnit.DAY` 时给出诚实归因（不再谎称"unspecified"，因为论文其实说了
+  只是换算不了）；`sort.mode="within_group"` 原样透传给引擎（新增
+  `"mode"` config key），不再被裸 `==` 判断误判成 `sequential`——只有真正
+  的 `"other"` 才 clamp 成 `independent` 默认值。
+- **引擎 fail-loud**（`src/infra/backtest_engine/__init__.py::
+  assign_portfolios_multi`）：收到 `mode="within_group"`（尚未实现）时直接
+  报错，不再静默当 `sequential` 跑错误的经济学假设。
+- **`review.py` 统一通知层**：新增 `_engine_menu_unsupported_finding()`（对
+  `weighting`/`return_combination`/`construction_type`/`breakpoints.basis`/
+  `missing_policies[].action`/`group_type`/`sort.mode` 生效，`value=="other"`
+  时无条件生成 Finding，替代而非叠加 D2 的 evidence-status 检查——修复了
+  D2 只看 `EvidenceStatus`、`status=clear` 时 `(CLEAR,HIGH)=AUTO_APPROVE`
+  导致"分类成 other 却完全没有可见性"的真实 bug）+ 三个独立的
+  paper-only 检查（`_rebalance_frequency_capability_finding`/
+  `_lag_unit_capability_finding`/`_sort_dimension_count_finding`，对应
+  `TimeUnit.DAY`/结构性 sort 维度超限，这些不是"other"分类问题，是"已知
+  但特定下游用不了"问题，不需要给 `TimeUnit` 加 `OTHER`）。
+- **`prompts/review_gate/llm_review.md` 同步更新**：高影响字段清单、
+  `unsupported_value` 适用字段清单、第 3 节分类规则都补上
+  `return_combination`/`group_type`/`sort.mode` 的判断标准。
+- 新增/更新测试：`tests/test_registry_resolved_method_spec.py::
+  TestEngineMenuAutoClamp`（6）、`tests/test_step2_reviewer.py::
+  TestEngineMenuUnconditionalFindings`（7）、
+  `tests/test_double_sort_engine.py::TestWithinGroupModeFailsLoud`（1）、
+  更新 `tests/test_method_spec_contract.py`/`tests/_spec_test_helpers.py`/
+  多个既有测试文件里手动构造 `SortDimension` 的地方（`mode`/`group_type`
+  包 `SourcedValue`）。全量测试 548 passed / 18 skipped（较之前 +14，零
+  回归）。前端 `MethodSpecBoard.tsx` 同步修正 `mode`/`group_type` 的
+  `SourcedValue` 解包，`npm run build` 干净。
+
+### Resolve 诊断盲区 problem 1 修复：`FilterSpec.derivation` + resolve-time `resolution_findings`（2026-08-12）
+
+讨论详见 `docs/resolve-diagnostics-gaps.md`（"问题 1"节 + 讨论结论）。
+
+- **`FilterSpec.derivation: FormulaSpec | None = None`**（`src/infra/models/
+  method_spec.py`）：描述如何从 concept 的底层物理列推导出 filter 用到的值
+  （如 "NYSE/Amex/NASDAQ" -> exchcd 1/2/3 的编码映射，或"上市满 2 年"这类需要
+  计算的派生条件）。跟 `SignalSpec.formula` 同构（`inputs` 引用抽象
+  concept_id，不含物理列），因此可以在 Step2 review 阶段被完整审查，不需要
+  等 resolve 之后。新增字段带默认值，非 breaking change，`schema_version`
+  不变。
+- **`/resolve` 新增 `resolution_findings` 字段**（`backend/routers/
+  methodspecs.py`）：`_unsupported_universe_filter_findings()` 用
+  `resolution.concept_mapping`（resolve 阶段才有）构造 `Finding`
+  （`kind="unsupported"`，复用 D4 移除后空出的 literal；
+  `disposition=NEEDS_HUMAN_CONFIRMATION`），暴露"哪个 filter 解析到了哪一列、
+  但引擎的 returns panel 不认识这一列"，而不是让用户只看到一个不透明的
+  `is_ready: false`。之所以没有塞进 Step2 `review_method_spec(paper)`（跟其余
+  9 个 high-impact 字段共用同一条路径）：那个函数只吃 `paper`，拿不到
+  `concept_mapping`，判断天然依赖 resolve 之后才有的数据。
+- **`schema_reference.py`**：`universe.filters` 的 `_FIELD_NOTES` 描述文字
+  补充说明 `derivation` 字段用途。
+- **Step3 codegen**：`MetaCoder` 新增 `generate_filter_derivation_plugin()` +
+  `_build_prompt_for_filter_derivation()`，跟 `generate_plugin`/
+  `_build_prompt_from_resolved` 同构（读 `filt.derivation` + resolve 阶段的
+  物理列，生成 `compute_filter_value(df) -> pd.Series`），复用同一个
+  LLM 调用/`_strip_code_fences`/repair 基础设施，新增独立 system prompt
+  `prompts/meta_coder/filter_derivation_plugin_system.md`（filter derivation
+  的规则跟 signal 公式不同，不能共用同一份 prompt）。**尚未**接入
+  `script_generator`/Step4/Step5——这次只做了 codegen 入口，实际把生成的
+  derivation 代码接进回测执行链路是后续工作。
+- 新增/更新测试：`tests/test_method_spec_contract.py::
+  TestFilterDerivation`（3）、`tests/test_filter_derivation_codegen.py`（3，
+  新文件）、`tests/test_backend_methodspecs_api.py::
+  test_unsupported_universe_filter_findings_reports_column_and_native_list`
+  （1）。全量测试 534 passed / 18 skipped（零回归）。前端 `npm run build`/
+  `npm run lint` 均干净。
+
 ### Follow-up (2026-08-11，第三次)：轮次语义修正 + Step1/Step2 拆成两个独立 job
 
 - **`MAX_REVIEW_ROUNDS` 语义修正**：`spec_build.py` 的 `total_rounds` 之前是

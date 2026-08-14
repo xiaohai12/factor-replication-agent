@@ -48,11 +48,6 @@ async def run_step8_diagnosis(session_id: str, req: DiagnosisRequest) -> dict:
             detail="step7 has not recorded a comparison_ref for this session yet",
         )
 
-    try:
-        session_store.start_attempt(session_id, req.expected_revision, step=8)
-    except ConcurrentModificationError as exc:
-        raise HTTPException(status_code=409, detail=str(exc))
-
     def run(log):
         bundle = json.loads(Path(comparison_ref).read_text())
         log(f"Building {req.llm_provider} LLM client...")
@@ -80,6 +75,10 @@ async def run_step8_diagnosis(session_id: str, req: DiagnosisRequest) -> dict:
         return {"report": to_jsonable(report), "diagnosis_json_path": str(json_path), "diagnosis_md_path": str(md_path)}
 
     job_id = job_manager.create_job(run, session_id=session_id, step=8, stage="diagnosis")
+    try:
+        session_store.start_attempt(session_id, req.expected_revision, step=8, job_id=job_id)
+    except ConcurrentModificationError as exc:
+        raise HTTPException(status_code=409, detail=str(exc))
     return {"job_id": job_id}
 
 

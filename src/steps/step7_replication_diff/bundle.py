@@ -19,13 +19,16 @@ off.
 
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, TYPE_CHECKING
 
 from src.steps.step3_codegen.registry import (
     CONFIG_KEY_STAGE,  # noqa: F401 -- re-exported for existing `from .bundle import CONFIG_KEY_STAGE` call sites
     stage_of,
 )
 from src.steps.step7_replication_diff import ReplicationDiffResult
+
+if TYPE_CHECKING:
+    from src.infra.models.method_spec import ResolvedMethodSpec
 
 
 # |t| at which a spread is called statistically distinguishable from zero.
@@ -284,17 +287,212 @@ def build_gap_decomposition(
     }
 
 
+def build_spec_quality(spec: "ResolvedMethodSpec | None") -> dict[str, Any]:
+    """Layer 1 of step8's diagnosis: which high-impact MethodSpec fields are
+    only our best guess (`unspecified`/`inferred`/`conflicting`), not
+    something the paper stated clearly.
+
+    Recomputes `review_method_spec` fresh from `spec.paper` -- that function
+    is pure and deterministic, so nothing new needs to be persisted to
+    expose this to step8; it is simply never called again after Step2 today.
+    """
+    if spec is None:
+        return {"available": False, "reason": "no resolved spec supplied", "weak_fields": []}
+    from src.steps.step2_reviewer.review import review_method_spec
+
+    review = review_method_spec(spec.paper)
+    weak_fields = [
+        {"field_path": f.field_path, "reason": f.reason, "disposition": f.disposition.value}
+        for f in review.findings
+        if f.kind == "ambiguous"
+    ]
+    return {"available": True, "weak_fields": weak_fields}
+
+
+def build_menu_deviations(
+    spec: "ResolvedMethodSpec | None", tracks: dict[str, dict]
+) -> dict[str, Any]:
+    """Layer 2 of step8's diagnosis: where the paper's stated method fell
+    off the engine's fixed menu (`SourcedValue.unsupported_value`) and,
+    per track, which config keys got clamped to a menu default
+    (`defaults_applied`, already inside each track's resolved config --
+    see `registry.build_config`). Neither piece needs new persistence:
+    `unsupported_value` lives on `spec.paper` and `defaults_applied` is
+    already threaded into `tracks[name]["config"]`.
+    """
+    if spec is None:
+        return {
+            "available": False,
+            "reason": "no resolved spec supplied",
+            "unsupported_paper_fields": [],
+            "clamped_by_track": {},
+        }
+    from src.steps.step2_reviewer.review import high_impact_sourced_values
+
+    unsupported = [
+        {"field_path": path, "unsupported_value": sv.unsupported_value}
+        for path, sv in high_impact_sourced_values(spec.paper)
+        if getattr(sv, "unsupported_value", None)
+    ]
+    clamped_by_track = {
+        name: payload["config"]["defaults_applied"]
+        for name, payload in tracks.items()
+        if (payload.get("config") or {}).get("defaults_applied")
+    }
+    return {
+        "available": True,
+        "unsupported_paper_fields": unsupported,
+        "clamped_by_track": clamped_by_track,
+    }
+
+
+def build_bridge_comparison(
+    tracks: dict[str, dict], paper_reported: dict[str, Any]
+) -> dict[str, Any]:
+    """Evidence for a `signal_reproducibility` claim: pairs a bridge track
+    (the C&Z reference signal run through our identical downstream config,
+    `RunRecord.is_bridge_track`) with a companion track, and compares
+    whether each independently reproduces the paper's headline sign.
+    """
+    bridge_name = next((n for n, p in tracks.items() if p.get("is_bridge_track")), None)
+    if bridge_name is None:
+        return {
+            "available": False,
+            "identification_level": MISSING_IDENTIFICATION,
+            "reason": "no bridge track (cz_bridge) registered for this factor",
+        }
+    own_name = BASELINE_TRACK if BASELINE_TRACK in tracks else next(
+        (n for n in tracks if n != bridge_name), None
+    )
+    if own_name is None:
+        return {
+            "available": False,
+            "identification_level": MISSING_IDENTIFICATION,
+            "reason": "bridge track exists but no companion track to compare it against",
+        }
+    bridge_vs_paper = build_track_vs_paper(paper_reported, tracks[bridge_name].get("metrics") or {})
+    own_vs_paper = build_track_vs_paper(paper_reported, tracks[own_name].get("metrics") or {})
+    bridge_reproduces = bridge_vs_paper.get("sign_agrees")
+    own_reproduces = own_vs_paper.get("sign_agrees")
+    if bridge_reproduces is None or own_reproduces is None:
+        agreement = "unavailable"
+    elif bridge_reproduces and own_reproduces:
+        agreement = "both_reproduce"
+    elif bridge_reproduces and not own_reproduces:
+        agreement = "only_bridge"
+    elif own_reproduces and not bridge_reproduces:
+        agreement = "only_own"
+    else:
+        agreement = "neither"
+    return {
+        "available": True,
+        "bridge_track": bridge_name,
+        "own_track": own_name,
+        "bridge_reproduces_paper": bridge_reproduces,
+        "own_reproduces_paper": own_reproduces,
+        "signal_implementation_agreement": agreement,
+    }
+
+
+def build_publication_decay(tracks: dict[str, dict]) -> dict[str, Any]:
+    """Evidence for a `publication_decay` claim: in-sample vs
+    post-publication t-stat per track, when `by_sample_period` was
+    configured (`RunMetrics.by_sample_period`, requires
+    `sample_start_year`/`sample_end_year`/`publication_year` in the run's
+    config)."""
+    per_track: dict[str, Any] = {}
+    for name, payload in tracks.items():
+        by_period = (payload.get("metrics") or {}).get("by_sample_period")
+        if not by_period:
+            continue
+        insamp_t = _as_float((by_period.get("insamp") or {}).get("t_stat"))
+        postpub_t = _as_float((by_period.get("postpub") or {}).get("t_stat"))
+        insamp_sig = None if insamp_t is None else abs(insamp_t) >= SIGNIFICANCE_T_THRESHOLD
+        postpub_sig = None if postpub_t is None else abs(postpub_t) >= SIGNIFICANCE_T_THRESHOLD
+        decayed = (
+            None if insamp_sig is None or postpub_sig is None else (insamp_sig and not postpub_sig)
+        )
+        per_track[name] = {
+            "insamp_t_stat": insamp_t,
+            "postpub_t_stat": postpub_t,
+            "insamp_significant": insamp_sig,
+            "postpub_significant": postpub_sig,
+            "decayed": decayed,
+        }
+    if not per_track:
+        return {
+            "available": False,
+            "identification_level": MISSING_IDENTIFICATION,
+            "reason": "no track configured sample_start_year/sample_end_year/publication_year",
+        }
+    return {"available": True, "tracks": per_track}
+
+
+def build_robustness_summary(tracks: dict[str, dict]) -> dict[str, Any]:
+    """Evidence for an `implementation_robustness` claim: aggregates every
+    `ablation_*` track's t-stat against the baseline (`original_method`) --
+    the range, how many sign flips, and how many significance-threshold
+    flips -- into a single robust/fragile verdict."""
+    baseline_name = BASELINE_TRACK if BASELINE_TRACK in tracks else None
+    ablation_names = [n for n in tracks if n.startswith("ablation_")]
+    if baseline_name is None or not ablation_names:
+        return {
+            "available": False,
+            "identification_level": MISSING_IDENTIFICATION,
+            "reason": "requires a baseline (original_method) track plus at least one ablation_* track",
+        }
+    baseline_t = _as_float((tracks[baseline_name].get("metrics") or {}).get("t_stat"))
+    baseline_sign = _sign(baseline_t)
+    baseline_sig = None if baseline_t is None else abs(baseline_t) >= SIGNIFICANCE_T_THRESHOLD
+
+    t_stats = [baseline_t] if baseline_t is not None else []
+    sign_flips = 0
+    significance_flips = 0
+    for name in ablation_names:
+        t = _as_float((tracks[name].get("metrics") or {}).get("t_stat"))
+        if t is None:
+            continue
+        t_stats.append(t)
+        if baseline_sign is not None and _sign(t) is not None and _sign(t) != baseline_sign:
+            sign_flips += 1
+        if baseline_sig is not None:
+            sig = abs(t) >= SIGNIFICANCE_T_THRESHOLD
+            if sig != baseline_sig:
+                significance_flips += 1
+
+    if not t_stats:
+        return {
+            "available": False,
+            "identification_level": MISSING_IDENTIFICATION,
+            "reason": "no t-stat available on baseline or ablation tracks",
+        }
+    return {
+        "available": True,
+        "n_ablation_tracks": len(ablation_names),
+        "t_stat_range": max(t_stats) - min(t_stats),
+        "sign_flips": sign_flips,
+        "significance_flips": significance_flips,
+        "robust": sign_flips == 0 and significance_flips == 0,
+    }
+
+
 def build_evidence_bundle(
     paper_reported: dict[str, Any],
     tracks: dict[str, dict],
     diff_result: ReplicationDiffResult | None = None,
+    spec: "ResolvedMethodSpec | None" = None,
 ) -> dict[str, Any]:
     """Assemble the full deterministic evidence bundle.
 
     Returns the `derived` / `config_diff` / `gap_decomposition` sections plus
-    `evidence_keys`, the flat whitelist of every citable scalar (spanning the
-    paper's numbers, each track's config + metrics, and everything derived
-    here).
+    the newer `spec_quality` / `menu_deviations` / `bridge_comparison` /
+    `publication_decay` / `robustness_summary` sections, plus
+    `evidence_keys`, the flat whitelist of every citable scalar.
+
+    `spec`, when supplied, is the `ResolvedMethodSpec` this comparison was
+    built from -- required for `spec_quality`/`menu_deviations` (both read
+    `spec.paper`); omitted, both sections report `available=False` rather
+    than raising.
     """
     derived: dict[str, Any] = {"tracks": {}}
     for name, payload in tracks.items():
@@ -314,6 +512,11 @@ def build_evidence_bundle(
 
     config_diff = build_config_diff(tracks, baseline)
     gap_decomposition = build_gap_decomposition(diff_result)
+    spec_quality = build_spec_quality(spec)
+    menu_deviations = build_menu_deviations(spec, tracks)
+    bridge_comparison = build_bridge_comparison(tracks, paper_reported)
+    publication_decay = build_publication_decay(tracks)
+    robustness_summary = build_robustness_summary(tracks)
 
     citable = {
         "paper_reported": paper_reported,
@@ -321,10 +524,20 @@ def build_evidence_bundle(
         "derived": derived,
         "config_diff": config_diff,
         "gap_decomposition": gap_decomposition,
+        "spec_quality": spec_quality,
+        "menu_deviations": menu_deviations,
+        "bridge_comparison": bridge_comparison,
+        "publication_decay": publication_decay,
+        "robustness_summary": robustness_summary,
     }
     return {
         "derived": derived,
         "config_diff": config_diff,
         "gap_decomposition": gap_decomposition,
+        "spec_quality": spec_quality,
+        "menu_deviations": menu_deviations,
+        "bridge_comparison": bridge_comparison,
+        "publication_decay": publication_decay,
+        "robustness_summary": robustness_summary,
         "evidence_keys": flatten(citable),
     }

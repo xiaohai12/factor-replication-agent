@@ -10,11 +10,22 @@ from __future__ import annotations
 
 import hashlib
 import re
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Optional
 
 from src.infra.models.method_spec import FieldRole, ResolvedMethodSpec
 from src.infra.models.plugin import PluginRecord
+from src.infra.tooling import (
+    Tool,
+    ToolContext,
+    ToolPolicy,
+    ToolResult,
+    ToolRunner,
+    render_tool_catalog,
+    render_tool_results,
+    splice_tool_catalog,
+)
 
 
 PLUGIN_OUTPUT_COLS = ["permno", "yyyymm", "signal"]
@@ -23,6 +34,7 @@ PLUGIN_OUTPUT_COLS = ["permno", "yyyymm", "signal"]
 _PROMPTS_DIR = Path(__file__).resolve().parents[3] / "prompts" / "meta_coder"
 _SIGNAL_SYSTEM_PROMPT_PATH = _PROMPTS_DIR / "signal_plugin_system.md"
 _REPAIR_PROMPT_PATH = _PROMPTS_DIR / "repair_plugin.md"
+_FILTER_DERIVATION_SYSTEM_PROMPT_PATH = _PROMPTS_DIR / "filter_derivation_plugin_system.md"
 
 
 def _load_prompt(path: Path, fallback: str = "") -> str:
@@ -34,6 +46,7 @@ def _load_prompt(path: Path, fallback: str = "") -> str:
 
 # Load prompts from files (with inline fallbacks for backward compat)
 METACODER_SYSTEM_PROMPT = _load_prompt(_SIGNAL_SYSTEM_PROMPT_PATH)
+FILTER_DERIVATION_SYSTEM_PROMPT = _load_prompt(_FILTER_DERIVATION_SYSTEM_PROMPT_PATH)
 
 
 _UNICODE_QUOTE_MAP = str.maketrans({
@@ -108,11 +121,55 @@ def _strip_code_fences(text: str) -> str:
     return text
 
 
-class MetaCoder:
-    """Generates factor-specific signal construction plugins.
+@dataclass
+class Step3ToolContext(ToolContext):
+    resolved_spec: ResolvedMethodSpec | None = None
 
-    The Meta-Coder is ONLY allowed to generate signal construction code.
-    It CANNOT:
+
+def _signal_input_fields(resolved: ResolvedMethodSpec):
+    """The `data.fields[]` entries the formula actually references (same
+    filter `_build_prompt_from_resolved` uses) -- shared so the
+    `column_mapping` tool and the prompt builder can't silently drift."""
+    formula_inputs = set(resolved.paper.signal.formula.inputs)
+    return [
+        f for f in resolved.paper.data.fields
+        if FieldRole.SIGNAL_INPUT in f.roles and f.concept_id in formula_inputs
+    ]
+
+
+def _column_mapping_fn(ctx: Step3ToolContext) -> ToolResult:
+    if ctx.resolved_spec is None:
+        return ToolResult(name="column_mapping", status="skipped", error="no resolved spec supplied")
+    mapping = {}
+    for f in _signal_input_fields(ctx.resolved_spec):
+        source_column = ctx.resolved_spec.resolution.concept_mapping.get(f.concept_id)
+        if source_column is not None:
+            mapping[f.concept_id] = {"source": source_column.source, "column": source_column.column}
+    return ToolResult(name="column_mapping", status="ok", payload={"concept_to_column": mapping})
+
+
+COLUMN_MAPPING_TOOL: Tool[Step3ToolContext] = Tool(
+    name="column_mapping",
+    description="论文概念(concept_id) 到实际 DataFrame 列名的对照表",
+    produces="{concept_id: {source, column}} -- compute_signal 写公式时引用哪列就看这份映射，不要自己猜列名",
+    fn=_column_mapping_fn,
+    tier="always",
+)
+
+#: Step3's tool registry (generate_plugin() is a single LLM call per
+#: invocation, same prelude-only shape as Step1 -- see
+#: docs/tools-plus-llm-plan.md §4.2/§4).
+STEP3_TOOLS: list[Tool[Step3ToolContext]] = [COLUMN_MAPPING_TOOL]
+
+
+class MetaCoder:
+    """Generates factor-specific signal construction plugins, and (see
+    `generate_filter_derivation_plugin`) universe-filter-concept derivation
+    plugins -- same codegen infrastructure (LLM call, code-fence stripping,
+    repair loop), different system prompt per generation kind.
+
+    For SIGNAL plugins, the Meta-Coder is ONLY allowed to generate signal
+    construction code. It CANNOT:
     - Compute portfolio returns
     - Decide breakpoints or weighting
     - Construct long-short portfolios
@@ -125,25 +182,34 @@ class MetaCoder:
         self.llm_client = llm_client
         self.reference_code_path = Path(reference_code_path) if reference_code_path else None
 
-    def generate_plugin(self, spec: ResolvedMethodSpec) -> PluginRecord:
+    def generate_plugin(self, spec: ResolvedMethodSpec, tool_policy: ToolPolicy | None = None) -> PluginRecord:
         """Generate a signal construction plugin from an approved, ready
         `ResolvedMethodSpec` (`spec.is_ready` gates readiness -- see
-        `ResolvedMethodSpec.is_ready`). Implementation decisions (physical
-        column mapping, timing, missing-data policy) are read from the
-        resolved paper/resolution fields via `_build_prompt_from_resolved`.
+        `ResolvedMethodSpec.is_ready`). Implementation decisions (timing,
+        missing-data policy) are read from the resolved paper/resolution
+        fields via `_build_prompt_from_resolved`; physical column mapping is
+        the `column_mapping` prelude tool (`STEP3_TOOLS`), run once before
+        this single LLM call (same prelude-only shape as Step1 -- see
+        docs/tools-plus-llm-plan.md §4.2).
         """
         if not spec.is_ready:
             raise ValueError("Cannot generate plugin from a ResolvedMethodSpec that isn't ready")
         if not self.llm_client:
             raise RuntimeError("llm_client required for MetaCoder.generate_plugin()")
 
+        ctx = Step3ToolContext(resolved_spec=spec)
+        run = ToolRunner().run_all(STEP3_TOOLS, ctx, tool_policy or ToolPolicy())
+        system_prompt = splice_tool_catalog(
+            METACODER_SYSTEM_PROMPT, render_tool_catalog(STEP3_TOOLS, run.results),
+        )
         user_prompt = self._build_prompt_from_resolved(spec)
+        user_prompt = f"{user_prompt}\n\n{render_tool_results(run.results)}"
 
         from src.infra.llm import extract_usage
 
         response = self.llm_client.chat.completions.create(
             messages=[
-                {"role": "system", "content": METACODER_SYSTEM_PROMPT},
+                {"role": "system", "content": system_prompt},
                 {"role": "user", "content": user_prompt},
             ],
             temperature=0.0,
@@ -166,12 +232,12 @@ class MetaCoder:
 
     def _build_prompt_from_resolved(self, resolved: ResolvedMethodSpec) -> str:
         """Reads
-        `signal.formula.steps`/`paper_expression`, `timing.*`, and physical
-        columns via `resolution.concept_mapping` instead of v1's flat
-        `formula.expression`/`normalized_mapping` fields.
+        `signal.formula.steps`/`paper_expression`/`timing.*` -- physical
+        column mapping is now the `column_mapping` prelude tool
+        (`STEP3_TOOLS`), not rendered here (see docs/tools-plus-llm-plan.md
+        §4.2).
         """
         paper = resolved.paper
-        resolution = resolved.resolution
         formula = paper.signal.formula
 
         formula_str = formula.paper_expression
@@ -197,13 +263,11 @@ class MetaCoder:
             lines += ["", "## Calculation Steps"] + step_lines
 
         formula_inputs = set(formula.inputs)
-        signal_input_fields = [
-            f for f in paper.data.fields if FieldRole.SIGNAL_INPUT in f.roles and f.concept_id in formula_inputs
-        ]
+        signal_input_fields = _signal_input_fields(resolved)
         if signal_input_fields:
             lines += ["", "## Data Fields"]
             for f in signal_input_fields:
-                lines.append(f"  - {f.concept_id}: {f.paper_name} (source: {f.paper_source_hint})")
+                lines.append(f"  - {f.concept_id}: {f.name_in_paper} (source: {f.paper_source_hint})")
 
         lines += [
             "",
@@ -243,18 +307,97 @@ class MetaCoder:
                     lines.append(f"  - Paper evidence: \"{ev.quote}\"")
                     break
 
-        if signal_input_fields:
-            lines += ["", "## Column Mapping (paper field → physical DataFrame column)"]
-            for f in signal_input_fields:
-                mapping = resolution.concept_mapping.get(f.concept_id)
-                if mapping is None:
-                    continue
-                lines.append(f"  - {f.concept_id} → df[\"{mapping.column}\"]")
-
         lines += [
             "",
             "## Instructions",
             "Write the complete `compute_signal(df)` function. Output ONLY the Python code, no explanation.",
+        ]
+        return "\n".join(lines)
+
+    def generate_filter_derivation_plugin(self, spec: ResolvedMethodSpec, filter_index: int) -> PluginRecord:
+        """Generate a small plugin computing ONE universe filter's derived
+        value from its `resolution.concept_mapping` physical column, per
+        `paper.universe.filters[filter_index].derivation` (a `FormulaSpec`,
+        same shape/review posture as `signal.formula` -- see
+        docs/resolve-diagnostics-gaps.md problem 1/3). Not yet wired into
+        `script_generator`/Step4/Step5 -- this is the codegen entry point
+        only, mirroring `generate_plugin`'s LLM-call/repair infrastructure
+        with a dedicated system prompt (filter derivation has different
+        rules than signal computation: return a derived Series, not a mask
+        or a signal column).
+        """
+        filt = spec.paper.universe.filters[filter_index]
+        if filt.derivation is None:
+            raise ValueError(f"universe.filters[{filter_index}] ({filt.concept_id!r}) has no derivation to codegen")
+        if not self.llm_client:
+            raise RuntimeError("llm_client required for MetaCoder.generate_filter_derivation_plugin()")
+
+        user_prompt = self._build_prompt_for_filter_derivation(spec, filter_index)
+
+        from src.infra.llm import extract_usage
+
+        response = self.llm_client.chat.completions.create(
+            messages=[
+                {"role": "system", "content": FILTER_DERIVATION_SYSTEM_PROMPT},
+                {"role": "user", "content": user_prompt},
+            ],
+            temperature=0.0,
+        )
+        code = _strip_code_fences(response.choices[0].message.content or "")
+        token_usage = extract_usage(response)
+
+        spec_hash = spec.paper.content_hash()[:16]
+        code_hash = hashlib.sha256(code.encode()).hexdigest()[:16]
+
+        record = PluginRecord(
+            plugin_id=f"{spec.paper.factor_id}::filter_derivation::{filt.concept_id}",
+            factor_id=spec.paper.factor_id,
+            method_spec_hash=spec_hash,
+            code=code,
+            code_hash=code_hash,
+            entry_function="compute_filter_value",
+        )
+        record.__dict__["_token_usage"] = token_usage
+        return record
+
+    def _build_prompt_for_filter_derivation(self, spec: ResolvedMethodSpec, filter_index: int) -> str:
+        """Mirrors `_build_prompt_from_resolved`: reads `derivation.steps`/
+        `paper_expression` (paper side, reviewed) + the physical column via
+        `resolution.concept_mapping` (resolution side) -- combined here at
+        codegen time only, same division of labor as compute_signal.
+        """
+        paper = spec.paper
+        resolution = spec.resolution
+        filt = paper.universe.filters[filter_index]
+        derivation = filt.derivation
+        assert derivation is not None
+
+        mapping = resolution.concept_mapping.get(filt.concept_id)
+        if mapping is None:
+            raise ValueError(f"universe.filters[{filter_index}] ({filt.concept_id!r}) has no concept_mapping entry")
+
+        step_lines = [
+            f"  {i}. {s.description}" + (f" ({s.expression})" if s.expression else "")
+            for i, s in enumerate(derivation.steps, start=1)
+        ]
+
+        lines = [
+            f"Generate a Python filter-derivation plugin for factor: {paper.target_name}",
+            f"Factor ID: {paper.factor_id}",
+            f"Universe filter concept: {filt.concept_id}",
+            "",
+            "## Derivation",
+            f"Paper notation:    {derivation.paper_expression}",
+        ]
+        if step_lines:
+            lines += ["", "## Calculation Steps"] + step_lines
+        lines += [
+            "",
+            "## Column Mapping (underlying physical column)",
+            f"  - {filt.concept_id} -> df[\"{mapping.column}\"]",
+            "",
+            "## Instructions",
+            "Write the complete `compute_filter_value(df)` function. Output ONLY the Python code, no explanation.",
         ]
         return "\n".join(lines)
 
@@ -273,7 +416,8 @@ class MetaCoder:
             repair_prompt = repair_template.replace("{errors}", error_block).replace("{code}", plugin.code)
         else:
             repair_prompt = (
-                f"Fix the following Python signal plugin. Correct ONLY syntax errors and schema issues.\n"
+                f"Fix the following Python signal plugin. Correct ONLY syntax errors, "
+                f"schema issues, and faithfulness-to-approved-formula bugs.\n"
                 f"Do NOT change the empirical formula or any data assumptions.\n\n"
                 f"## Errors to fix\n{error_block}\n\n"
                 f"## Current code\n{plugin.code}\n\n"

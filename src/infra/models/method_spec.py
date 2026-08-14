@@ -31,6 +31,9 @@ from typing import Any, Generic, Literal, TypeVar
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
+from src.infra.data_layer import catalog
+from src.infra.models.source_enum import SourceName
+
 T = TypeVar("T")
 
 
@@ -232,11 +235,41 @@ class RequiredField(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     concept_id: str
-    paper_name: str
+    name_in_paper: str
     description: str = ""
     paper_source_hint: str = ""
     roles: list[FieldRole] = Field(default_factory=list)
     evidence: list[EvidenceCitation] = Field(default_factory=list)
+    #: Which registered `DataSource` this concept physically comes from
+    #: (dynamic `SourceName` enum, one member per `sources.py` registration
+    #: + `OTHER`). `value=None` means not yet chosen (backward-compatible
+    #: default for specs written before this field existed). `OTHER` means
+    #: "the paper names a data source with no registered match" -- pairs
+    #: with `SourcedValue.unsupported_value` (the paper's own wording), same
+    #: escape-hatch pattern as `WeightingScheme.OTHER`. See docs/decision-log.md
+    #: 2026-08-13 for why this now lives on `MethodSpec` instead of being
+    #: deferred entirely to `ImplementationResolution`.
+    source_table: SourcedValue[SourceName] = Field(default_factory=SourcedValue)
+    #: Physical column name within `source_table`. Only meaningful when
+    #: `source_table.value` is a real registered source (not `None`/`OTHER`);
+    #: cross-validated below against that source's actual `physical_columns`.
+    source_column: SourcedValue[str] = Field(default_factory=SourcedValue)
+
+    @model_validator(mode="after")
+    def _source_column_belongs_to_source_table(self) -> RequiredField:
+        table = self.source_table.value
+        if table is None or str(table.value) == "other":
+            return self
+        column = self.source_column.value
+        if column is None:
+            return self
+        registered = catalog.DATA_CATALOG.get(table.value, {}).get("physical_columns", set())
+        if column not in registered:
+            raise ValueError(
+                f"source_column {column!r} is not a registered physical column of "
+                f"source_table {table.value!r} (has: {sorted(registered)})"
+            )
+        return self
 
 
 class DataSpec(BaseModel):
@@ -341,6 +374,18 @@ class FilterSpec(BaseModel):
     op: FilterOp = FilterOp.NONMISSING
     value: Any = None
     evidence: list[EvidenceCitation] = Field(default_factory=list)
+    #: How to derive this filter's value from `concept_id`'s underlying
+    #: physical column, when the paper's vocabulary doesn't match the
+    #: column's raw encoding (e.g. "NYSE/Amex/NASDAQ" -> exchcd 1/2/3) or the
+    #: concept itself must be computed (e.g. "listing duration >= 2 years"
+    #: from an ipodate column) -- same shape as `SignalSpec.formula`
+    #: (`inputs` references abstract concept_ids, never physical columns) so
+    #: it can be reviewed at Step2 without waiting for resolve, and later
+    #: codegen'd by Step3 the same way `compute_signal` is (paper-side
+    #: formula + resolution-side `concept_mapping`, combined at codegen
+    #: time). `None` means the concept's `concept_mapping` column is used
+    #: as-is, no transform needed.
+    derivation: FormulaSpec | None = None
     #: Human-approved escape hatch: this stated universe restriction is NOT
     #: applied at runtime (e.g. its field can't yet be resolved against any
     #: registered data source/panel). Never set by `build_config` itself --
@@ -428,15 +473,49 @@ class SortRole(str, Enum):
 
 
 class SortMode(str, Enum):
+    """`WITHIN_GROUP` is a known, specific engine capability gap (see
+    `docs/resolve-diagnostics-gaps.md` problem 2) -- not yet implemented by
+    `BacktestExecutor.assign_portfolios_multi` (independent/sequential only).
+    Unlike `WeightingScheme.OTHER` etc., it is NOT a free-text escape hatch;
+    it's passed through to the engine as-is, which fails loud rather than
+    silently treating it as sequential. `OTHER` is the genuine free-text
+    escape hatch, for a paper-stated dimension relationship that isn't any
+    of the three named modes -- registry.py clamps only `OTHER` to a default.
+    """
+
     INDEPENDENT = "independent"
     SEQUENTIAL = "sequential"
     WITHIN_GROUP = "within_group"
+    OTHER = "other"
 
 
 class GroupType(str, Enum):
+    """`CATEGORICAL`/`THRESHOLD` are known, specific engine capability gaps
+    (see docs/resolve-diagnostics-gaps.md problem 2) -- the engine only
+    implements quantile grouping. `OTHER` is the genuine free-text escape
+    hatch for a grouping scheme that's neither of those two named ones.
+    """
+
     QUANTILE = "quantile"
     CATEGORICAL = "categorical"
     THRESHOLD = "threshold"
+    OTHER = "other"
+
+
+class ReturnCombinationScheme(str, Enum):
+    """Mirrors `ENGINE_RETURN_COMBINATION_MENU` (src/steps/step2_reviewer/
+    review.py) -- same OTHER-escape-hatch pattern as `WeightingScheme`.
+    Promoted from a bare `SourcedValue[str]` (docs/resolve-diagnostics-gaps.md
+    problem 2) so an out-of-menu choice is recorded via `unsupported_value`
+    like every other engine-menu field, instead of silently accepted as any
+    string.
+    """
+
+    EXTREME_GROUP_SPREAD = "extreme_group_spread"
+    AVERAGE_LEG_SPREAD = "average_leg_spread"
+    SINGLE_SIGNAL_PORTFOLIO_RETURN = "single_signal_portfolio_return"
+    FULL_PORTFOLIO_RETURN = "full_portfolio_return"
+    OTHER = "other"
 
 
 class WeightingScheme(str, Enum):
@@ -478,8 +557,8 @@ class SortDimension(BaseModel):
     concept_id: str
     role: SortRole
     order: int
-    mode: SortMode
-    group_type: GroupType
+    mode: SourcedValue[SortMode]
+    group_type: SourcedValue[GroupType]
     group_count: int | None = None
     breakpoints: BreakpointSpec
     condition_on_sort_id: str | None = None
@@ -502,7 +581,7 @@ class PortfolioSpec(BaseModel):
     sorts: list[SortDimension] = Field(default_factory=list)
     legs: list[PortfolioLeg] = Field(default_factory=list)
     weighting: SourcedValue[WeightingScheme]
-    return_combination: SourcedValue[str]
+    return_combination: SourcedValue[ReturnCombinationScheme]
     missing_policies: list[MissingPolicy] = Field(default_factory=list)
     transforms: list[TransformSpec] = Field(default_factory=list)
 
@@ -707,6 +786,13 @@ class MethodReview(BaseModel):
     factor_id: str
     capability_version: str
     findings: list[Finding] = Field(default_factory=list)
+    #: One `Finding` per `high_impact_sourced_values` field, UNCONDITIONALLY
+    #: (including `AUTO_APPROVE` ones, which `findings` above omits) -- lets
+    #: the review UI show every high-impact field's current value, gating
+    #: editability on `disposition` rather than on "did it produce a
+    #: finding". Purely additive: `findings` keeps meaning "needs your
+    #: attention" for existing badge/blocking logic.
+    all_high_impact_fields: list[Finding] = Field(default_factory=list)
     status_overrides: dict[str, EvidenceStatus] = Field(default_factory=dict)
     reextraction_attempts: int = 0
 
@@ -803,6 +889,24 @@ RETURNS_PANEL_NATIVE_COLUMNS: frozenset[str] = frozenset(
     {"permno", "yyyymm", "ret", "me", "exchcd", "shrcd", "siccd", "dlret"}
 )
 
+#: Paper vocabulary -> CRSP physical code, for a universe filter whose
+#: resolved column IS a `RETURNS_PANEL_NATIVE_COLUMNS` member but whose
+#: `FilterSpec.value` is still the paper's own wording (e.g. `["NYSE",
+#: "Amex", "NASDAQ"]` against the numeric `exchcd` column) -- see
+#: docs/resolve-diagnostics-gaps.md problem 3. Keys are matched case-
+#: insensitively by `registry._translate_filter_value`. Hand-registered
+#: once per physical column and reused across every paper -- deliberately
+#: NOT LLM-inferred (see docs/decision-log.md 2026-08-12 "value-encoding
+#: mapping" entry): this is an external data-vendor coding convention, not
+#: something extractable/verifiable from the paper's own text. `siccd` is
+#: deliberately excluded -- industry exclusions are usually SIC *ranges*
+#: (e.g. financials = 6000-6999), a different shape than a single-code
+#: label map, and need a real industry-to-range table, not this.
+FILTER_VALUE_ENCODINGS: dict[str, dict[str, int]] = {
+    "exchcd": {"nyse": 1, "amex": 2, "nasdaq": 3},
+    "shrcd": {"common stock": 10, "common shares": 10, "ordinary common shares": 11},
+}
+
 
 class ResolvedMethodSpec(BaseModel):
     """Deterministic aggregate view of the three source artifacts (D1).
@@ -847,21 +951,30 @@ class ResolvedMethodSpec(BaseModel):
     def unsupported_universe_filters(self) -> list[str]:
         """Concept ids of every APPLIED (not `accepted_unapplied`) universe
         filter that DOES resolve to a physical column (so it's not already
-        caught by `unmapped_concepts`), but whose column isn't one the
-        engine's returns panel actually supplies (`RETURNS_PANEL_NATIVE_
-        COLUMNS`) -- e.g. a Compustat-only backfill-bias screen. This is the
-        "unsupported, needs a human decision" case, same posture as a D4
-        engine-capability finding: either register real eligibility-panel
-        support (out of scope today) or explicitly mark the filter
-        `accepted_unapplied=True` with a reason, recorded and surfaced here
-        rather than crashing at Step5 runtime.
+        caught by `unmapped_concepts`), but whose column can't actually be
+        supplied to `filter_universe` at runtime -- either it's a
+        CRSP-native column (`RETURNS_PANEL_NATIVE_COLUMNS`, already on the
+        panel, trivially fine) or a REAL registered physical column of its
+        source (2026-08-13: the generated script now point-in-time joins
+        any such column onto the returns panel BEFORE `filter_universe`
+        runs -- see `registry._universe_filter_join_sources`/
+        `script_generator.join_universe_filter_sources` -- the same
+        mechanism `compute_signal`'s own input already used). What remains
+        genuinely unsupported is a `SourceColumn` naming a column that isn't
+        even registered in `catalog.DATA_CATALOG` for its source -- there is
+        no way to load it at all. Same posture as a D4 engine-capability
+        finding either way: register the missing catalog column, or
+        explicitly mark the filter `accepted_unapplied=True` with a reason.
         """
         out = []
         for f in self.paper.universe.filters:
             if f.accepted_unapplied:
                 continue
             mapping = self.resolution.concept_mapping.get(f.concept_id)
-            if mapping is not None and mapping.column not in RETURNS_PANEL_NATIVE_COLUMNS:
+            if mapping is None or mapping.column in RETURNS_PANEL_NATIVE_COLUMNS:
+                continue
+            registered_columns = catalog.DATA_CATALOG.get(mapping.source, {}).get("physical_columns", set())
+            if mapping.column not in registered_columns:
                 out.append(f.concept_id)
         return out
 
@@ -879,12 +992,6 @@ class ResolvedMethodSpec(BaseModel):
         # resolution at the source instead.
         return not self.unmapped_concepts()
 
-    def _construction_within_capability(self) -> bool:
-        sorts = self.paper.portfolio.sorts
-        if len(sorts) > MAX_SUPPORTED_SORT_DIMENSIONS:
-            return False
-        return all(s.group_type == GroupType.QUANTILE for s in sorts)
-
     @property
     def is_ready(self) -> bool:
         """Replaces v1's `codegen_ready` boolean flag -- derived, not stored.
@@ -892,10 +999,20 @@ class ResolvedMethodSpec(BaseModel):
         detection was removed 2026-08-09 -- see docs/decision-log.md); a
         review/resolution computed against an EARLIER version of the paper
         is silently treated as still valid here.
+
+        Construction capability (sort dimension count, `group_type`,
+        `sort.mode`, `rebalance_frequency`, `lag_unit`) is deliberately NOT
+        checked here anymore (`_construction_within_capability` removed
+        2026-08-12, see docs/resolve-diagnostics-gaps.md problem 2): an
+        out-of-menu value for any of those is auto-clamped to a documented
+        default by `registry.build_config`, recorded in `defaults_applied`,
+        and surfaced as a non-blocking Finding -- the same "record, don't
+        block" posture the weighting/return_combination/breakpoints.basis/
+        missing_action menu fields already had since the 2026-08-10 D4
+        removal.
         """
         return (
             self._all_concepts_mapped()
             and self._universe_filters_supported()
-            and self._construction_within_capability()
         )
 

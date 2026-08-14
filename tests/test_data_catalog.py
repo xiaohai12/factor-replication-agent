@@ -4,9 +4,14 @@ to the historical hand-written literals so nothing moves, plus lookups behave.
 As of 2026-07-31 the catalog only registers sources actually backed by real
 data (see catalog.py's DATA_CATALOG comment): `optionm_vsurf`/
 `optionm_crsp_link` (no OptionMetrics data anywhere in this project) and
-`tr_13f`/`patents_nber` (tr_13f's assumed permno-keyed shape doesn't match
+`tr_13f`/`patents_nber` (tr_13f's assumed permno-keyed shape didn't match
 the real, cusip-keyed data/local/13F.csv export; no NBER patents data
 exists) were removed -- see docs/decision-log.md (2026-07-31 entry).
+
+2026-08-13: `tr_13f` came back, this time correctly -- `ThirteenFSignalSource`
+(`sources.py`) does the real CUSIP->permno match itself (best-effort,
+most-recently-observed, not point-in-time -- see its docstring) instead of
+assuming permno-keyed input.
 """
 
 from __future__ import annotations
@@ -21,6 +26,7 @@ _HISTORICAL_SIGNAL_SOURCES = {
     "comp_funda":    {"key": "gvkey",  "link": "ccm",               "date": "datadate", "lag": "accounting_lag_months"},
     "comp_fundq":    {"key": "gvkey",  "link": "ccm",               "date": "datadate", "lag": "accounting_lag_months"},
     "ibes_statsumu": {"key": "ticker", "link": "ibes_crsp_link",    "date": "statpers", "lag": 0},
+    "tr_13f":        {"key": "permno", "link": None,                "date": "yyyymm",   "lag": 2},
 }
 
 _HISTORICAL_LINK_TABLES = {
@@ -54,6 +60,7 @@ def test_source_of_column_known_and_unknown():
     assert catalog.source_of_column("ceq") == "comp_funda"
     # Other registered sources
     assert catalog.source_of_column("meanest") == "ibes_statsumu"
+    assert catalog.source_of_column("instown_perc") == "tr_13f"
     # Unknown -> "" (fail loud, never guess) -- also covers a source that WAS
     # registered before 2026-07-31 (no real data ever backed it)
     assert catalog.source_of_column("impl_volatility") == ""

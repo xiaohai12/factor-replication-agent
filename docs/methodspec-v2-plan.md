@@ -98,6 +98,15 @@ schema 可以描述比引擎当前可执行能力更广的方法。schema 覆盖
 3. **证据按字段归属。** 关键值应携带自身 citation，而不是依赖一个覆盖整段内容的总 citation。
 4. **论文词汇与引擎菜单分离。** 不支持方法要按原样保留，只能在显式 resolution 中被阻断或映射。
 5. **一项选择一个责任方。** 论文抽取、评审、物理映射和执行各自对应独立工件。
+
+> **部分推翻（2026-08-13）**：`data.fields[].source_table`/`source_column`（物理数据源/列选择）现在
+> 移回 `PaperMethodSpec` 本体，由 Step1 提取时基于实时 catalog 菜单直接选择、Step2 review 循环复核——
+> 不再完全等到 `ImplementationResolution` 才决定。见 `docs/decision-log.md` 同日条目：这是应用户明确
+> 要求做出的取舍（工程上更统一、体验一致，代价是 `MethodSpec` 不再与 catalog 完全解耦、也不再是
+> "纯读论文、零外部信息"的产物）。`ImplementationResolution.concept_mapping` 仍然存在，仍是 codegen/
+> 回测唯一读取的权威来源——只是现在优先直接读 `source_table`/`source_column`（已在spec构建时被
+> Pydantic 按 catalog 校验过），只有未设置/`other`的字段、以及 `universe.filters[]`独有的
+> filter-only concept，才退回到原来的字符串匹配。除了这两个字段之外，本节其余各条原则不变。
 6. **不引入论文特化字段。** Beta、残差动量、组织资本等方法应复用通用的公式、估计、窗口和状态模型。
 7. **比较语义必须类型化。** 仅当单位、期限、方向、样本和调整基准已知时，报告数值才可比较。
 8. **引擎限制必须可见地失败。** 不支持的构造不能被静默钳制成单变量特征排序。
@@ -129,7 +138,9 @@ ExecutionConfig                fixed-menu engine input from registry
 
 由 Step 1 负责。仅包含来源于论文的事实、规范化解释与证据。不得包含：
 
-- 物理来源/列映射；
+- 物理来源/列映射（**例外，2026-08-13**：`data.fields[].source_table`/`source_column` 现在是
+  例外——见上方设计原则5的推翻说明。其余物理映射信息，如 universe filter 概念的物理列，仍然
+  完全不出现在这一层，继续由 `ImplementationResolution` 负责）；
 - 收益股票池默认值；
 - C&Z 缩写或桥接标识；
 - 评审状态或 resolution 日志；
@@ -355,11 +366,14 @@ class FieldRole(str, Enum):
 
 class RequiredField(BaseModel):
     concept_id: str            # spec 内唯一，公式与过滤器都引用它
-    paper_name: str            # 论文里的叫法，如 "total assets"
+    name_in_paper: str         # 论文里的叫法，如 "total assets"
     description: str = ""
     paper_source_hint: str = ""  # 论文说的数据集，如 "Compustat annual"
     roles: list[FieldRole]       # 取代 v1 的 is_signal_input: bool
     evidence: list[EvidenceCitation] = []
+    # 2026-08-13 新增（见上方设计原则5的推翻说明）：
+    # source_table: SourcedValue[SourceName]  -- 动态enum，来自 catalog.DATA_CATALOG + "other"
+    # source_column: SourcedValue[str]        -- 交叉校验属于 source_table 选中的那个source
 
 
 class DataSpec(BaseModel):
@@ -372,6 +386,11 @@ class DataSpec(BaseModel):
 
 > **`normalized_mapping` 已移出**：物理 source/column 属于 `ImplementationResolution`，
 > 不是论文事实。这是 v1 权威混合最严重的一处。
+>
+> **2026-08-13 部分修正**：上面这条对 `data.fields[].concept_id` 之外的物理映射（比如
+> universe filter 独有的概念、`ImplementationResolution.concept_mapping` 本身）仍然成立；
+> 但 `RequiredField` 本身现在直接携带 `source_table`/`source_column`，见本节前面的字段定义
+> 和设计原则5的推翻说明。
 
 ### 6.5 样本期（三个期间独立）
 

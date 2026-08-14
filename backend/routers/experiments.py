@@ -42,11 +42,6 @@ async def run_step6_experiment(session_id: str, req: ExperimentRequest) -> dict:
     except SessionNotFoundError:
         raise HTTPException(status_code=404, detail=f"No session '{session_id}'")
 
-    try:
-        session_store.start_attempt(session_id, req.expected_revision, step=6)
-    except ConcurrentModificationError as exc:
-        raise HTTPException(status_code=409, detail=str(exc))
-
     def run(log):
         spec = parse_spec(req.spec)
         plugin = PluginRecord.model_validate(req.plugin)
@@ -97,4 +92,8 @@ async def run_step6_experiment(session_id: str, req: ExperimentRequest) -> dict:
         }
 
     job_id = job_manager.create_job(run, session_id=session_id, step=6, stage="experiment")
+    try:
+        session_store.start_attempt(session_id, req.expected_revision, step=6, job_id=job_id)
+    except ConcurrentModificationError as exc:
+        raise HTTPException(status_code=409, detail=str(exc))
     return {"job_id": job_id}

@@ -2,7 +2,7 @@
 // StepAttempt. Kept as the ONE typed surface the session pages/components
 // use (Phase 4 of the session-centric UI redesign) instead of each page
 // re-declaring its own ad hoc interface (the pre-existing pattern in
-// PipelineE2EPage/BacktestExperimentsPage, which duplicated shapes).
+// BacktestExperimentsPage, which duplicated shapes).
 
 export type SessionState =
   | "created"
@@ -77,3 +77,16 @@ export interface SessionEvent {
   detail: string
   level: "info" | "warning" | "error"
 }
+
+// Mirrors src/infra/tooling/types.py's ToolResult -- one deterministic
+// tool's output from the Tool Prelude pattern (docs/tools-plus-llm-plan.md),
+// surfaced via Step1's ExtractionResult.tool_results / Step2's
+// SpecBuildOutcome.tool_results.
+export interface ToolResult {
+  name: string
+  status: "ok" | "error" | "skipped"
+  payload: Record<string, unknown>
+  error: string | null
+  truncated: boolean
+}
+

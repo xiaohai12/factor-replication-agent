@@ -46,18 +46,33 @@ def test_composite_field_lists_its_children_as_sub_fields():
     assert "paper.citation" in ref["fields"]
 
 
-def test_list_of_model_field_has_list_item_fields_not_recursed_paths():
+def test_list_of_model_field_has_list_item_fields_and_recursed_paths():
+    """`list_item_fields` still lists the item model's direct field names
+    for display, but the item model's own fields are ALSO recursed into
+    `out` (under the same un-indexed path the frontend looks up after
+    stripping `[i]`) -- otherwise a nested list-item field like
+    `portfolio.sorts[i].breakpoints.basis` (a real 3-value enum) would never
+    get an entry and the review page would silently fall back to a free-text
+    box instead of a dropdown."""
     ref = build_schema_reference()
     entry = ref["fields"]["data.fields"]
     assert entry["list_item_fields"] == [
         "concept_id",
-        "paper_name",
+        "name_in_paper",
         "description",
         "paper_source_hint",
         "roles",
         "evidence",
+        "source_table",
+        "source_column",
     ]
-    assert "data.fields.concept_id" not in ref["fields"]
+    assert "data.fields.concept_id" in ref["fields"]
+
+
+def test_list_item_nested_enum_field_gets_allowed_values():
+    ref = build_schema_reference()
+    entry = ref["fields"]["portfolio.sorts.breakpoints.basis"]
+    assert entry["allowed_values"] == ["full_sample", "nyse", "other"]
 
 
 def test_list_of_sourced_value_field_has_value_evidence_status_item_fields():

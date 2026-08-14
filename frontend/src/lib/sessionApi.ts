@@ -1,5 +1,5 @@
 // Typed API layer for the Session control plane (Phase 4). Existing pages
-// (PipelineE2EPage/BacktestExperimentsPage) call `api.get`/`api.post`
+// (BacktestExperimentsPage) call `api.get`/`api.post`
 // directly with locally-declared response shapes; this module gives the
 // NEW session pages one typed surface instead of repeating that pattern.
 
@@ -103,12 +103,14 @@ export const sessionApi = {
     patches: Record<string, unknown>,
     reason?: string,
     sessionId?: string,
+    unsupportedValues?: Record<string, string>,
   ) =>
     api.post<Record<string, unknown>>("/api/methodspecs/patch-value", {
       paper,
       patches,
       reason: reason ?? "",
       session_id: sessionId,
+      unsupported_values: unsupportedValues ?? {},
     }),
   /** Cached full text for a paper, keyed by `document_id` -- populated by
    * `/api/methodspecs/extract`/`extract-pdf` (and `/api/papers/upload`) so a
@@ -131,6 +133,7 @@ export const sessionApi = {
       is_ready: boolean
       unmapped_concepts: string[]
       llm_matched_concepts: string[]
+      resolution_findings: Array<Record<string, unknown>>
     }>("/api/methodspecs/resolve", {
       paper,
       review,
@@ -152,6 +155,18 @@ export const sessionApi = {
         { description: string; example: string; allowed_values: string[] | null; usage: string }
       >
     }>("/api/methodspecs/schema"),
+
+  /** Registered signal sources -- physical columns + per-column WRDS
+   * definitions, sourced from `catalog.DATA_CATALOG` (same data
+   * `DataCatalogPage.tsx` shows). Used to build the `source_table` ->
+   * `source_column` cascading dropdown in the Step2 review panel. */
+  getDataCatalog: () =>
+    api.get<{
+      signal_sources: Record<
+        string,
+        { physical_columns: string[]; column_descriptions: Record<string, string> }
+      >
+    }>("/api/data-catalog"),
 
   getStepArtifact: (sessionId: string, step: number, filename: string) =>
     api.get<{ filename: string; content: string }>(

@@ -4,6 +4,7 @@ import { JsonTree } from "@/components/JsonTree"
 import { CodeView } from "@/components/CodeView"
 import { DiffView } from "@/components/DiffView"
 import { GapWaterfallChart } from "@/components/GapWaterfallChart"
+import { MetricsTable } from "@/components/MetricsTable"
 import { MultiTrackChart, type TrackSeries } from "@/components/MultiTrackChart"
 import { ReturnChart, type ReturnRow } from "@/components/ReturnChart"
 import { api } from "@/lib/api"
@@ -16,6 +17,7 @@ interface RunRecordLike {
   track: string
   factor_id: string
   status: string
+  metrics?: Record<string, unknown>
 }
 
 async function fetchReturnSeries(factorId: string, runId: string): Promise<ReturnRow[]> {
@@ -56,6 +58,11 @@ export function StepOutputView({
     queryKey: ["step-artifact", sessionId, 3, refs.script_ref],
     queryFn: () => sessionApi.getStepArtifact(sessionId, 3, refs.script_ref),
     enabled: step === 3 && !!refs.script_ref,
+  })
+  const step3Config = useQuery({
+    queryKey: ["step-artifact", sessionId, 3, refs.config_ref],
+    queryFn: () => sessionApi.getStepArtifact(sessionId, 3, refs.config_ref),
+    enabled: step === 3 && !!refs.config_ref,
   })
 
   // --- step4: validation report ---
@@ -103,9 +110,15 @@ export function StepOutputView({
     enabled: step === 8 && !!refs.diagnosis_ref,
   })
 
-  if (step === 3 && (step3Plugin.data || step3Script.data)) {
+  if (step === 3 && (step3Plugin.data || step3Script.data || step3Config.data)) {
     return (
       <div className="flex flex-col gap-3">
+        {step3Config.data && (
+          <div>
+            <p className="mb-1 text-xs font-medium">Resolved config</p>
+            <MetricsTable metrics={JSON.parse(step3Config.data.content)} />
+          </div>
+        )}
         {step3Plugin.data && (
           <div>
             <p className="mb-1 text-xs font-medium">compute_signal plugin</p>
@@ -150,14 +163,37 @@ export function StepOutputView({
   }
 
   if (step === 5 && step5Series.data) {
-    return <ReturnChart data={step5Series.data} />
+    const step5Metrics = (syncResult as { metrics?: Record<string, unknown> } | undefined)?.metrics
+    return (
+      <div className="flex flex-col gap-3">
+        <ReturnChart data={step5Series.data} />
+        {step5Metrics && (
+          <div>
+            <p className="mb-1 text-xs font-medium">Performance metrics</p>
+            <MetricsTable metrics={step5Metrics} />
+          </div>
+        )}
+      </div>
+    )
   }
 
   if (step === 6 && relevantRuns.length > 0) {
     const series: TrackSeries[] = relevantRuns
       .map((run, i) => ({ track: run.track, rows: step6Series[i]?.data ?? [] }))
       .filter((s) => s.rows.length > 0)
-    return <MultiTrackChart series={series} />
+    return (
+      <div className="flex flex-col gap-3">
+        <MultiTrackChart series={series} />
+        {relevantRuns.map((run) =>
+          run.metrics ? (
+            <div key={run.run_id}>
+              <p className="mb-1 text-xs font-medium">{run.track} performance metrics</p>
+              <MetricsTable metrics={run.metrics} />
+            </div>
+          ) : null,
+        )}
+      </div>
+    )
   }
 
   if (step === 7 && step7Bundle.data) {

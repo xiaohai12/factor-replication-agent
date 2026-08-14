@@ -80,6 +80,26 @@ class TestComputeFactorAlphasFF3AndFF5:
         assert "alpha_capm" in result
 
 
+class TestComputeFactorAlphasLiquidity:
+    def test_recovers_known_alpha_and_beta_when_ps_vwf_present(self):
+        factors = _factors()
+        factors["ps_vwf"] = np.random.default_rng(7).normal(0.0, 0.03, len(factors))
+        true_alpha, true_beta = 0.002, 0.6
+        ls = pd.DataFrame({
+            "yyyymm": factors["yyyymm"],
+            "ls_return": true_alpha + true_beta * factors["ps_vwf"],
+        })
+        result = BacktestExecutor().compute_factor_alphas(ls, factors, config={})
+        assert result["alpha_liq"] == pytest.approx(true_alpha, abs=1e-9)
+        assert result["beta_liq_ps_vwf"] == pytest.approx(true_beta, abs=1e-9)
+
+    def test_omitted_when_ps_vwf_missing(self):
+        factors = _factors()
+        ls = pd.DataFrame({"yyyymm": factors["yyyymm"], "ls_return": factors["mktrf"]})
+        result = BacktestExecutor().compute_factor_alphas(ls, factors, config={})
+        assert "alpha_liq" not in result
+
+
 class TestComputeFactorAlphasEdgeCases:
     def test_full_portfolio_return_shape_returns_empty(self):
         factors = _factors()

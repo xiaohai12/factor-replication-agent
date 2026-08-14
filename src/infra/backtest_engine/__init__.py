@@ -167,9 +167,12 @@ class BacktestExecutor:
                              path) load the file themselves and pass it in directly.
             factors:         Optional FF factor + rf DataFrame (`yyyymm` +
                              `mktrf`/`smb`/`hml`/`rmw`/`cma`; see
-                             `scripts/fetch_ff_factors.py`). When given,
-                             `alpha_capm`/`alpha_ff3`/`alpha_ff5` (+ betas) are
-                             added to the metrics dict.
+                             `scripts/fetch_ff_factors.py`), optionally also
+                             carrying `ps_vwf` (Pastor-Stambaugh liquidity
+                             factor; see `load_liquidity_factors`). When
+                             given, `alpha_capm`/`alpha_ff3`/`alpha_ff5`/
+                             `alpha_liq` (+ betas) are added to the metrics
+                             dict, whichever columns are present.
 
         Returns:
             Dict with keys: metrics, return_series, config
@@ -982,6 +985,15 @@ class BacktestExecutor:
             self.portfolios = pd.DataFrame()
             return self.portfolios
 
+        for dim in dims:
+            if dim.get("mode") == "within_group":
+                raise ValueError(
+                    "sort_dims entry has mode='within_group', which "
+                    "assign_portfolios_multi does not implement (only "
+                    "independent/sequential) -- see docs/resolve-diagnostics-"
+                    "gaps.md problem 2. Never silently treated as sequential."
+                )
+
         chunks: list[pd.DataFrame] = []
         for cohort, cohort_df in df.groupby("cohort"):
             cohort_df = cohort_df.copy()
@@ -1497,10 +1509,12 @@ class BacktestExecutor:
                 `full_portfolio_return` shape, which has no single series to
                 regress).
             factors: DataFrame with a `yyyymm` column plus whichever of
-                `mktrf`/`smb`/`hml`/`rmw`/`cma` are available (see
-                `scripts/fetch_ff_factors.py`). CAPM needs `mktrf`; FF3 needs
-                `mktrf`+`smb`+`hml`; FF5 adds `rmw`+`cma`. An alpha is silently
-                omitted if its required columns aren't present.
+                `mktrf`/`smb`/`hml`/`rmw`/`cma`/`ps_vwf` are available (see
+                `scripts/fetch_ff_factors.py` / `load_liquidity_factors`).
+                CAPM needs `mktrf`; FF3 needs `mktrf`+`smb`+`hml`; FF5 adds
+                `rmw`+`cma`; the liquidity model (`alpha_liq`) needs only
+                `ps_vwf`. An alpha is silently omitted if its required
+                columns aren't present.
 
         Returns {} (no error) if `statsmodels` isn't installed -- it's an
         optional `research` dependency (see pyproject.toml), not a core one, so
@@ -1527,6 +1541,11 @@ class BacktestExecutor:
             "capm": ["mktrf"],
             "ff3": ["mktrf", "smb", "hml"],
             "ff5": ["mktrf", "smb", "hml", "rmw", "cma"],
+            #: Pastor-Stambaugh (2003) traded liquidity factor -- independent
+            #: one-factor model, only computed when `factors` actually
+            #: carries `ps_vwf` (see `load_liquidity_factors`/
+            #: `script_generator.py`'s `load_factors()`, 2026-08-13).
+            "liq": ["ps_vwf"],
         }
         for name, cols in factor_specs.items():
             if not all(c in merged.columns for c in cols):

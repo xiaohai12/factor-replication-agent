@@ -267,9 +267,9 @@ export function MethodSpecBoard({ spec }: { spec: Record<string, any> }) {
                     <TableCell className="text-xs">{s.sort_id}</TableCell>
                     <TableCell className="text-xs">{s.concept_id}</TableCell>
                     <TableCell className="text-xs">{s.role}</TableCell>
-                    <TableCell className="text-xs">{s.mode}</TableCell>
+                    <TableCell className="text-xs">{fmt(s.mode?.value)}</TableCell>
                     <TableCell className="text-xs">
-                      {s.group_type} / {fmt(s.group_count)}
+                      {fmt(s.group_type?.value)} / {fmt(s.group_count)}
                     </TableCell>
                     <TableCell className="text-xs">{fmt(s.breakpoints?.basis?.value)}</TableCell>
                   </TableRow>
@@ -361,7 +361,7 @@ export function MethodSpecBoard({ spec }: { spec: Record<string, any> }) {
               {fields.map((f) => (
                 <TableRow key={f.concept_id}>
                   <TableCell className="text-xs">{f.concept_id}</TableCell>
-                  <TableCell className="text-xs">{f.paper_name}</TableCell>
+                  <TableCell className="text-xs">{f.name_in_paper}</TableCell>
                   <TableCell className="text-xs">{f.paper_source_hint}</TableCell>
                   <TableCell className="text-xs">{(f.roles ?? []).join(", ")}</TableCell>
                 </TableRow>

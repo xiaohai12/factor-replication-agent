@@ -39,6 +39,8 @@ from src.infra.models.method_spec import (
     SortMode,
     SortRole,
     SourcedValue,
+    SourceColumn,
+    SourceName,
     MetricStatistic,
     TableRef,
     EvidenceCitation,
@@ -48,7 +50,7 @@ from src.infra.models.method_spec import (
     UniverseSpec,
 )
 from src.steps.step2_reviewer.implementation_resolution import build_implementation_resolution
-from src.steps.step2_reviewer.review import review_method_spec
+from src.steps.step2_reviewer.review import high_impact_sourced_values, review_method_spec
 
 
 def _period() -> Period:
@@ -65,7 +67,7 @@ def _base_spec(**portfolio_overrides) -> MethodSpec:
         sorts=[
             SortDimension(
                 sort_id="sort1", concept_id="at", role=SortRole.TARGET, order=1,
-                mode=SortMode.INDEPENDENT, group_type=GroupType.QUANTILE, group_count=10,
+                mode=SourcedValue(value=SortMode.INDEPENDENT, status=EvidenceStatus.CLEAR), group_type=SourcedValue(value=GroupType.QUANTILE, status=EvidenceStatus.CLEAR), group_count=10,
                 breakpoints=BreakpointSpec(basis=SourcedValue(value="nyse", status=EvidenceStatus.CLEAR)),
             )
         ],
@@ -95,8 +97,10 @@ def _base_spec(**portfolio_overrides) -> MethodSpec:
             return_frequency=SourcedValue(value=TimeUnit.MONTH, status=EvidenceStatus.CLEAR),
             fields=[
                 RequiredField(
-                    concept_id="at", paper_name="total assets",
+                    concept_id="at", name_in_paper="total assets",
                     paper_source_hint="Compustat annual", roles=[FieldRole.SIGNAL_INPUT],
+                    source_table=SourcedValue(value=SourceName.COMP_FUNDA, status=EvidenceStatus.CLEAR),
+                    source_column=SourcedValue(value="at", status=EvidenceStatus.CLEAR),
                 )
             ],
         ),
@@ -128,6 +132,27 @@ class TestReviewCleanBaseline:
     def test_fully_clear_spec_has_no_findings(self):
         review = review_method_spec(_base_spec())
         assert review.findings == []
+
+    def test_fully_clear_spec_still_lists_every_high_impact_field(self):
+        # `findings` stays empty (nothing needs attention), but
+        # `all_high_impact_fields` unconditionally lists every field
+        # `high_impact_sourced_values` checks, all AUTO_APPROVE here.
+        paper = _base_spec()
+        review = review_method_spec(paper)
+        expected_paths = {path for path, _ in high_impact_sourced_values(paper)}
+        actual_paths = {f.field_path for f in review.all_high_impact_fields}
+        assert actual_paths == expected_paths
+        assert all(f.disposition == Disposition.AUTO_APPROVE for f in review.all_high_impact_fields)
+
+    def test_all_high_impact_fields_includes_needs_human_confirmation_entries(self):
+        paper = _base_spec()
+        paper.timing.formation_rule.status = EvidenceStatus.INFERRED
+        review = review_method_spec(paper)
+        matches = [f for f in review.all_high_impact_fields if f.field_path == "timing.formation_rule"]
+        assert len(matches) == 1
+        assert matches[0].disposition == Disposition.NEEDS_HUMAN_CONFIRMATION
+        # still also in `findings`, unchanged behavior
+        assert any(f.field_path == "timing.formation_rule" for f in review.findings)
 
 
 class TestEvidenceStatusFindings:
@@ -166,11 +191,18 @@ class TestMissingMappingFindings:
     unmappable concept is a hard Step3 crash risk, not an engine-capability
     gap."""
 
-    def test_unsupported_weighting_scheme_not_flagged(self):
+    def test_unsupported_weighting_scheme_is_flagged_but_not_blocked(self):
+        """docs/resolve-diagnostics-gaps.md problem 2 (2026-08-12): a menu
+        field classified `other` now ALWAYS gets a (non-blocking) Finding,
+        even when `status=clear` -- D2's evidence-status check alone would
+        miss this (CLEAR+HIGH is AUTO_APPROVE), which is exactly the "no
+        visibility at all" gap that prompted the fix. Still never `BLOCKED`
+        -- `disposition` is `NEEDS_HUMAN_CONFIRMATION`, informational only."""
         paper = _base_spec()
         paper.portfolio.weighting = SourcedValue(value="other", status=EvidenceStatus.CLEAR)
         review = review_method_spec(paper)
-        assert not any(f.field_path == "portfolio.weighting" for f in review.findings)
+        finding = next(f for f in review.findings if f.field_path == "portfolio.weighting")
+        assert finding.disposition == Disposition.NEEDS_HUMAN_CONFIRMATION
 
     def test_universe_filter_concept_not_in_data_fields_needs_human_confirmation(self):
         """docs/known-gaps-paper-first-v2.md gap #3: a universe filter
@@ -197,6 +229,89 @@ class TestMissingMappingFindings:
         assert not any(f.field_path == "universe.filters[0].concept_id" for f in review.findings)
 
 
+class TestEngineMenuUnconditionalFindings:
+    """docs/resolve-diagnostics-gaps.md problem 2: engine-menu fields
+    classified `other` get an unconditional Finding regardless of
+    `EvidenceStatus` (replacing, not duplicating, the D2 evidence-status
+    check for that same field_path)."""
+
+    def test_return_combination_other_is_flagged(self):
+        paper = _base_spec()
+        paper.portfolio.return_combination = SourcedValue(
+            value="other", unsupported_value="a novel spread definition", status=EvidenceStatus.CLEAR,
+        )
+        review = review_method_spec(paper)
+        matches = [f for f in review.findings if f.field_path == "portfolio.return_combination"]
+        assert len(matches) == 1
+        assert matches[0].disposition == Disposition.NEEDS_HUMAN_CONFIRMATION
+        assert matches[0].paper_value == "a novel spread definition"
+
+    def test_group_type_other_is_flagged(self):
+        paper = _base_spec()
+        paper.portfolio.sorts[0].group_type = SourcedValue(value="other", unsupported_value="ad-hoc buckets", status=EvidenceStatus.CLEAR)
+        review = review_method_spec(paper)
+        assert any(f.field_path == "portfolio.sorts[0].group_type" for f in review.findings)
+
+    def test_categorical_group_type_is_not_flagged_by_the_other_check(self):
+        """`categorical`/`threshold` are known, named, unsupported values --
+        not the free-text `other` bucket -- so the unconditional check does
+        NOT fire for them (they're handled by registry.build_config's
+        auto-clamp + defaults_applied instead, not a review-time Finding)."""
+        paper = _base_spec()
+        paper.portfolio.sorts[0].group_type = SourcedValue(value=GroupType.CATEGORICAL, status=EvidenceStatus.CLEAR)
+        review = review_method_spec(paper)
+        assert not any(f.field_path == "portfolio.sorts[0].group_type" for f in review.findings)
+
+    def test_engine_menu_other_replaces_not_duplicates_d2_finding(self):
+        """A field that's BOTH `value=="other"` and `status=inferred` must
+        produce exactly ONE Finding for that field_path, not two."""
+        paper = _base_spec()
+        paper.portfolio.weighting = SourcedValue(
+            value="other", unsupported_value="capped VW at 5%", status=EvidenceStatus.INFERRED,
+        )
+        review = review_method_spec(paper)
+        matches = [f for f in review.findings if f.field_path == "portfolio.weighting"]
+        assert len(matches) == 1
+        assert matches[0].paper_value == "capped VW at 5%"
+
+    def test_daily_rebalance_frequency_is_flagged(self):
+        paper = _base_spec()
+        paper.timing.rebalance_frequency = SourcedValue(value=TimeUnit.DAY, status=EvidenceStatus.CLEAR)
+        review = review_method_spec(paper)
+        matches = [f for f in review.findings if f.field_path == "timing.rebalance_frequency"]
+        assert len(matches) == 1
+        assert matches[0].disposition == Disposition.NEEDS_HUMAN_CONFIRMATION
+
+    def test_daily_lag_unit_is_flagged(self):
+        paper = _base_spec()
+        paper.timing.data_availability = DataAvailability(lag_value=5, lag_unit=TimeUnit.DAY)
+        review = review_method_spec(paper)
+        assert any(f.field_path == "timing.data_availability.lag_unit" for f in review.findings)
+
+    def test_excess_sort_dimension_count_is_flagged(self):
+        paper = _base_spec()
+        paper.portfolio.sorts.append(
+            SortDimension(
+                sort_id="s2", concept_id="at", role=SortRole.CONTROL, order=2,
+                mode=SourcedValue(value=SortMode.INDEPENDENT, status=EvidenceStatus.CLEAR),
+                group_type=SourcedValue(value=GroupType.QUANTILE, status=EvidenceStatus.CLEAR), group_count=2,
+                breakpoints=BreakpointSpec(basis=SourcedValue(value="nyse", status=EvidenceStatus.CLEAR)),
+            )
+        )
+        paper.portfolio.sorts.append(
+            SortDimension(
+                sort_id="s3", concept_id="at", role=SortRole.CONTROL, order=3,
+                mode=SourcedValue(value=SortMode.INDEPENDENT, status=EvidenceStatus.CLEAR),
+                group_type=SourcedValue(value=GroupType.QUANTILE, status=EvidenceStatus.CLEAR), group_count=2,
+                breakpoints=BreakpointSpec(basis=SourcedValue(value="nyse", status=EvidenceStatus.CLEAR)),
+            )
+        )
+        review = review_method_spec(paper)
+        matches = [f for f in review.findings if f.field_path == "portfolio.sorts"]
+        assert len(matches) == 1
+        assert matches[0].paper_value == 3
+
+
 
 class TestResolutionBuilder:
     def test_resolves_known_concept_binds_factor_id(self):
@@ -210,7 +325,7 @@ class TestResolutionBuilder:
         paper = _base_spec()
         paper.data.fields.append(
             RequiredField(
-                concept_id="totally_made_up_concept_xyz", paper_name="nonsense",
+                concept_id="totally_made_up_concept_xyz", name_in_paper="nonsense",
                 paper_source_hint="", roles=[FieldRole.SIGNAL_INPUT],
             )
         )
@@ -229,3 +344,23 @@ class TestResolutionBuilder:
         review = review_method_spec(paper)
         resolution = build_implementation_resolution(paper, review, data_dictionary=DataDictionary())
         assert resolution.concept_mapping["exchange"].column == "exchcd"
+
+    def test_explicit_source_table_and_column_win_over_string_matching(self):
+        """2026-08-13: a field's own `source_table`/`source_column` (set by
+        the extractor/reviewed by the LLM against the live catalog) is used
+        directly, bypassing `normalize_fields()` entirely -- proven here
+        with a deliberately unmatchable `paper_source_hint` ("xyz123", which
+        the string matcher can't resolve to anything) that still resolves
+        correctly because `source_table`/`source_column` are set."""
+        paper = _base_spec()
+        paper.data.fields.append(
+            RequiredField(
+                concept_id="book_equity", name_in_paper="xyz123", paper_source_hint="xyz123",
+                roles=[FieldRole.SIGNAL_INPUT],
+                source_table=SourcedValue(value=SourceName.COMP_FUNDA, status=EvidenceStatus.CLEAR),
+                source_column=SourcedValue(value="ceq", status=EvidenceStatus.CLEAR),
+            )
+        )
+        review = review_method_spec(paper)
+        resolution = build_implementation_resolution(paper, review, data_dictionary=DataDictionary())
+        assert resolution.concept_mapping["book_equity"] == SourceColumn(source="comp_funda", column="ceq")

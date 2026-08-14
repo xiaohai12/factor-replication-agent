@@ -97,6 +97,7 @@ def generate_backtest_script(
     output_path: str | None = None,
     config_overrides: dict[str, Any] | None = None,
     ff_factors_path: str | None = None,
+    liquidity_factors_data_dir: str | None = None,
     signal_data_dir: str = "",
     resolved_config: dict[str, Any] | None = None,
     precomputed_signal_path: str | None = None,
@@ -124,6 +125,15 @@ def generate_backtest_script(
             `BacktestExecutor.run_with_config(..., factors=...)` so
             `alpha_capm`/`alpha_ff3`/`alpha_ff5` get computed.
             When omitted, no factor-model alphas are computed.
+        liquidity_factors_data_dir: Optional directory containing a
+            `local/liquidity_factors.csv` (Pastor-Stambaugh 2003; see
+            `src.infra.data_layer.load_liquidity_factors`) -- SEPARATE from
+            `ff_factors_path` (a market-wide time series, no permno, doesn't
+            fit `sources.py`'s per-stock registry -- 2026-08-13 decision).
+            When given and the file exists at run time, its `ps_vwf` column
+            is merged into the same `factors` frame `ff_factors_path`
+            populates (outer join on `yyyymm`), adding `alpha_liq` to the
+            metrics dict whenever `ps_vwf` is present.
         signal_data_dir: Directory of raw WRDS-shaped source tables
             (crsp_msf/comp_funda/ibes_*/optionm_*/... + link tables);
             required for "multi_source" mode, ignored otherwise.
@@ -203,6 +213,7 @@ def generate_backtest_script(
         config_dict=config_lines,
         plugin_code_literal=repr(plugin_code),
         ff_factors_path=ff_factors_path or "",
+        liquidity_factors_data_dir=liquidity_factors_data_dir or "",
         precomputed_signal_path=precomputed_signal_path or "",
     )
 
@@ -287,6 +298,7 @@ SIGNAL_DATA_DIR = os.environ.get("BACKTEST_SIGNAL_DATA_DIR", "{signal_data_dir}"
 SIGNAL_INPUT_SOURCES = {signal_sources_map}  # multi_source only: {{source: [columns]}}
 OUTPUT_PATH = "{output_path}"
 FF_FACTORS_PATH = "{ff_factors_path}"  # optional; empty string if not supplied
+LIQUIDITY_FACTORS_DATA_DIR = "{liquidity_factors_data_dir}"  # optional; dir containing local/liquidity_factors.csv
 PRECOMPUTED_SIGNAL_PATH = "{precomputed_signal_path}"  # optional; when set, skip compute_signal() (C&Z bridge track)
 
 
@@ -347,17 +359,42 @@ def build_signal_input(msf: pd.DataFrame) -> pd.DataFrame:
     return msf.rename(columns={{"yyyymm": "time_avail_m"}})
 
 
+def join_universe_filter_sources(msf: pd.DataFrame) -> pd.DataFrame:
+    """Point-in-time join any non-CRSP-native columns a `universe_filters`
+    entry needs (CONFIG["universe_filter_join_sources"]: {{source: [columns]}},
+    see `registry._universe_filter_join_sources`) onto the returns panel
+    BEFORE the engine runs -- so `filter_universe`/`apply_universe_filters`
+    see these columns as ordinary panel columns, exactly like `exchcd`/
+    `shrcd`, and BacktestExecutor itself needs zero changes. Reuses the SAME
+    point-in-time assembler `build_signal_input` already uses for
+    compute_signal's own input. No-op (returns `msf` unchanged) when no
+    universe filter needs a non-native column."""
+    join_sources = CONFIG.get("universe_filter_join_sources") or {{}}
+    if not join_sources:
+        return msf
+    from src.infra.data_layer import assemble_signal_master_table_from_sources
+    extra = assemble_signal_master_table_from_sources(SIGNAL_DATA_DIR, join_sources, ACCOUNTING_LAG_MONTHS)
+    extra = extra.rename(columns={{"time_avail_m": "yyyymm"}})
+    return msf.merge(extra, on=["permno", "yyyymm"], how="left")
+
+
+
 def load_factors() -> pd.DataFrame | None:
-    """Load FF factor + rf data if FF_FACTORS_PATH was supplied and the file
-    exists at run time -- fetched once, ahead of time, via
-    scripts/fetch_ff_factors.py; never fetched here. Returns None (no
-    factor-model alphas computed) if not supplied/not found."""
-    if not FF_FACTORS_PATH:
-        return None
-    p = Path(FF_FACTORS_PATH)
-    if not p.exists():
-        return None
-    return pd.read_parquet(p)
+    """Load FF factor + rf data (FF_FACTORS_PATH) and/or Pastor-Stambaugh
+    liquidity factor data (LIQUIDITY_FACTORS_DATA_DIR), merged into ONE
+    `factors` frame on `yyyymm` -- fetched/exported ahead of time via
+    scripts/fetch_ff_factors.py / a real WRDS liquidity_factors.csv export,
+    never fetched here. Returns None if neither was supplied/found."""
+    factors = None
+    if FF_FACTORS_PATH:
+        p = Path(FF_FACTORS_PATH)
+        if p.exists():
+            factors = pd.read_parquet(p)
+    if LIQUIDITY_FACTORS_DATA_DIR and (Path(LIQUIDITY_FACTORS_DATA_DIR) / "local" / "liquidity_factors.csv").exists():
+        from src.infra.data_layer import load_liquidity_factors
+        liq = load_liquidity_factors(LIQUIDITY_FACTORS_DATA_DIR)
+        factors = liq if factors is None else factors.merge(liq, on="yyyymm", how="outer")
+    return factors
 
 
 def main():
@@ -381,6 +418,12 @@ def main():
         msf = build_crsp_monthly_panel_ciz(Path(SIGNAL_DATA_DIR) / "local")
     else:
         msf = load_msf(DATA_PATH)
+
+    # Point-in-time join any non-CRSP-native universe-filter columns (e.g. a
+    # Compustat-only screen like total_assets) onto the returns panel BEFORE
+    # the engine runs -- see join_universe_filter_sources() above. No-op
+    # when no universe filter needs a non-native column.
+    msf = join_universe_filter_sources(msf)
 
     if PRECOMPUTED_SIGNAL_PATH:
         # C&Z bridge track (docs/multi-config-evidence-plan.md Phase C/D):

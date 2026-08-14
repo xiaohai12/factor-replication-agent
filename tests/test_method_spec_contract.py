@@ -85,7 +85,7 @@ def _minimal_data_spec(concept_id: str = "at") -> DataSpec:
         fields=[
             RequiredField(
                 concept_id=concept_id,
-                paper_name="total assets",
+                name_in_paper="total assets",
                 paper_source_hint="Compustat annual",
                 roles=[FieldRole.SIGNAL_INPUT],
             )
@@ -161,8 +161,8 @@ def _simple_accounting_ratio_spec() -> MethodSpec:
                     concept_id="at",
                     role=SortRole.TARGET,
                     order=1,
-                    mode=SortMode.INDEPENDENT,
-                    group_type=GroupType.QUANTILE,
+                    mode=SourcedValue(value=SortMode.INDEPENDENT, status=EvidenceStatus.CLEAR),
+                    group_type=SourcedValue(value=GroupType.QUANTILE, status=EvidenceStatus.CLEAR),
                     group_count=10,
                     breakpoints=BreakpointSpec(basis=SourcedValue(value="nyse", status=EvidenceStatus.CLEAR)),
                 )
@@ -248,12 +248,12 @@ class TestUniqueIdValidators:
                 sorts=[
                     SortDimension(
                         sort_id="dup", concept_id="a", role=SortRole.TARGET, order=1,
-                        mode=SortMode.INDEPENDENT, group_type=GroupType.QUANTILE,
+                        mode=SourcedValue(value=SortMode.INDEPENDENT, status=EvidenceStatus.CLEAR), group_type=SourcedValue(value=GroupType.QUANTILE, status=EvidenceStatus.CLEAR),
                         breakpoints=BreakpointSpec(basis=SourcedValue()),
                     ),
                     SortDimension(
                         sort_id="dup", concept_id="b", role=SortRole.CONTROL, order=2,
-                        mode=SortMode.INDEPENDENT, group_type=GroupType.QUANTILE,
+                        mode=SourcedValue(value=SortMode.INDEPENDENT, status=EvidenceStatus.CLEAR), group_type=SourcedValue(value=GroupType.QUANTILE, status=EvidenceStatus.CLEAR),
                         breakpoints=BreakpointSpec(basis=SourcedValue()),
                     ),
                 ],
@@ -269,7 +269,7 @@ class TestUniqueIdValidators:
                 sorts=[
                     SortDimension(
                         sort_id="sort1", concept_id="a", role=SortRole.TARGET, order=1,
-                        mode=SortMode.INDEPENDENT, group_type=GroupType.QUANTILE,
+                        mode=SourcedValue(value=SortMode.INDEPENDENT, status=EvidenceStatus.CLEAR), group_type=SourcedValue(value=GroupType.QUANTILE, status=EvidenceStatus.CLEAR),
                         breakpoints=BreakpointSpec(basis=SourcedValue()),
                     ),
                 ],
@@ -343,12 +343,12 @@ class TestSequentialDoubleSort:
         """Case 3: sequential double sort (size then value), within engine capability (<=3 dims)."""
         size_sort = SortDimension(
             sort_id="size", concept_id="me", role=SortRole.CONDITIONING, order=1,
-            mode=SortMode.SEQUENTIAL, group_type=GroupType.QUANTILE, group_count=2,
+            mode=SourcedValue(value=SortMode.SEQUENTIAL, status=EvidenceStatus.CLEAR), group_type=SourcedValue(value=GroupType.QUANTILE, status=EvidenceStatus.CLEAR), group_count=2,
             breakpoints=BreakpointSpec(basis=SourcedValue(value="nyse", status=EvidenceStatus.CLEAR)),
         )
         value_sort = SortDimension(
             sort_id="value", concept_id="bm", role=SortRole.TARGET, order=2,
-            mode=SortMode.SEQUENTIAL, group_type=GroupType.QUANTILE, group_count=3,
+            mode=SourcedValue(value=SortMode.SEQUENTIAL, status=EvidenceStatus.CLEAR), group_type=SourcedValue(value=GroupType.QUANTILE, status=EvidenceStatus.CLEAR), group_count=3,
             breakpoints=BreakpointSpec(basis=SourcedValue(value="nyse", status=EvidenceStatus.CLEAR)),
             condition_on_sort_id="size",
         )
@@ -476,18 +476,22 @@ class TestResolvedMethodSpecReadiness:
         resolved.resolution.concept_mapping = {}
         assert not resolved.is_ready
 
-    def test_not_ready_when_sort_dimensions_exceed_capability(self):
+    def test_ready_even_when_sort_dimensions_exceed_capability(self):
+        """docs/resolve-diagnostics-gaps.md problem 2 (2026-08-12): sort-
+        dimension-count/construction capability no longer blocks `is_ready`
+        -- `registry.build_config` auto-clamps to `MAX_SUPPORTED_SORT_
+        DIMENSIONS`, recorded in `defaults_applied`, never blocking."""
         resolved = self._build_ready_resolved_spec()
         extra_sorts = [
             SortDimension(
                 sort_id=f"extra{i}", concept_id="at", role=SortRole.CONTROL, order=i + 2,
-                mode=SortMode.INDEPENDENT, group_type=GroupType.QUANTILE,
+                mode=SourcedValue(value=SortMode.INDEPENDENT, status=EvidenceStatus.CLEAR), group_type=SourcedValue(value=GroupType.QUANTILE, status=EvidenceStatus.CLEAR),
                 breakpoints=BreakpointSpec(basis=SourcedValue()),
             )
             for i in range(3)
         ]
         resolved.paper.portfolio.sorts.extend(extra_sorts)
-        assert not resolved.is_ready
+        assert resolved.is_ready
 
     def test_factor_id_mismatch_rejected(self):
         paper = _simple_accounting_ratio_spec()
@@ -501,13 +505,19 @@ class TestResolvedMethodSpecReadiness:
 
 
 class TestUnsupportedUniverseFilter:
-    """A universe filter that DOES resolve to a physical column but not one
-    the returns panel actually supplies (e.g. a Compustat-only backfill-bias
-    screen) is `unsupported` -- blocks `is_ready` -- unless a human
-    explicitly records `FilterSpec.accepted_unapplied` (the same "paper
-    vocabulary vs engine menu" escape hatch as `WeightingScheme.OTHER`)."""
+    """A universe filter that resolves to a physical column not on the
+    returns panel (`RETURNS_PANEL_NATIVE_COLUMNS`) is `unsupported` only if
+    that column isn't even registered in `catalog.DATA_CATALOG` for its
+    source -- there's no way to load it at all. A filter resolved to a REAL
+    registered non-native column (e.g. comp_funda.at) is supported: the
+    generated script joins it onto the returns panel before
+    filter_universe runs (2026-08-13, `registry._universe_filter_join_
+    sources`/`script_generator.join_universe_filter_sources`). Either way, a
+    human can still explicitly record `FilterSpec.accepted_unapplied` (the
+    same "paper vocabulary vs engine menu" escape hatch as
+    `WeightingScheme.OTHER`)."""
 
-    def _resolved_with_filter(self, filter_spec: FilterSpec) -> ResolvedMethodSpec:
+    def _resolved_with_filter(self, filter_spec: FilterSpec, filter_column: str = "listing_duration_years") -> ResolvedMethodSpec:
         paper = _simple_accounting_ratio_spec()
         paper.universe.filters.append(filter_spec)
         review = MethodReview(factor_id=paper.factor_id, capability_version="engine_capability.v1")
@@ -515,21 +525,30 @@ class TestUnsupportedUniverseFilter:
             factor_id=paper.factor_id,
             concept_mapping={
                 "at": SourceColumn(source="comp_funda", column="at"),
-                # A made-up Compustat-only column -- illustrates a filter
-                # resolved but NOT on the returns panel; doesn't depend on
-                # any real registered column.
-                filter_spec.concept_id: SourceColumn(source="comp_funda", column="listing_duration_years"),
+                filter_spec.concept_id: SourceColumn(source="comp_funda", column=filter_column),
             },
             returns_source="us_equity_crsp",
         )
         return ResolvedMethodSpec(paper=paper, review=review, resolution=resolution)
 
     def test_non_returns_panel_filter_is_unsupported_and_blocks_is_ready(self):
+        # "listing_duration_years" is NOT a real registered comp_funda
+        # physical column -- there's no way to load it, so it stays blocked.
         resolved = self._resolved_with_filter(
             FilterSpec(concept_id="compustat_listing_duration", op=FilterOp.GTE, value=2)
         )
         assert resolved.unsupported_universe_filters() == ["compustat_listing_duration"]
         assert not resolved.is_ready
+
+    def test_registered_non_native_filter_is_supported_via_join(self):
+        # "at" IS a real registered comp_funda physical column -- the
+        # generated script can join it onto the returns panel, so it's no
+        # longer "unsupported" even though it's not CRSP-native.
+        resolved = self._resolved_with_filter(
+            FilterSpec(concept_id="total_assets", op=FilterOp.GTE, value=0), filter_column="at"
+        )
+        assert resolved.unsupported_universe_filters() == []
+        assert resolved.is_ready
 
     def test_accepted_unapplied_filter_is_not_unsupported_and_does_not_block(self):
         resolved = self._resolved_with_filter(
@@ -556,6 +575,50 @@ class TestUnsupportedUniverseFilter:
         resolved = ResolvedMethodSpec(paper=paper, review=review, resolution=resolution)
         assert resolved.unsupported_universe_filters() == []
         assert resolved.is_ready
+
+
+class TestFilterDerivation:
+    """`FilterSpec.derivation` (docs/resolve-diagnostics-gaps.md problem 1/3):
+    optional, same shape as `SignalSpec.formula` -- `None` by default
+    (backward compatible with every existing MethodSpec), reviewable
+    independent of any physical column (`inputs` references concept_ids,
+    never a `SourceColumn`)."""
+
+    def test_defaults_to_none(self):
+        filt = FilterSpec(concept_id="listing_exchange", op=FilterOp.IN, value=["NYSE"])
+        assert filt.derivation is None
+
+    def test_round_trips_through_json(self):
+        filt = FilterSpec(
+            concept_id="listing_exchange",
+            op=FilterOp.IN,
+            value=["NYSE", "Amex", "NASDAQ"],
+            derivation=FormulaSpec(
+                paper_expression='"NYSE"/"Amex"/"NASDAQ" -> exchcd 1/2/3',
+                steps=[
+                    CalculationStep(
+                        step_id="map_label_to_code",
+                        description="Map paper's exchange label to CRSP numeric exchcd",
+                        expression='{"NYSE": 1, "Amex": 2, "NASDAQ": 3}',
+                    ),
+                ],
+                inputs=["listing_exchange"],
+            ),
+        )
+        reloaded = FilterSpec.model_validate_json(filt.model_dump_json())
+        assert reloaded.derivation is not None
+        assert reloaded.derivation.paper_expression == '"NYSE"/"Amex"/"NASDAQ" -> exchcd 1/2/3'
+        assert reloaded.derivation.steps[0].step_id == "map_label_to_code"
+
+    def test_old_filter_json_without_derivation_still_validates(self):
+        # Simulates a pre-existing persisted MethodSpec JSON (no "derivation"
+        # key at all) -- must still load, `derivation` defaulting to None.
+        old_json = (
+            '{"concept_id": "listing_exchange", "op": "in", "value": ["NYSE"], '
+            '"evidence": [], "accepted_unapplied": false, "unapplied_reason": ""}'
+        )
+        filt = FilterSpec.model_validate_json(old_json)
+        assert filt.derivation is None
 
 
 class TestResolutionEntryAppendOnly:

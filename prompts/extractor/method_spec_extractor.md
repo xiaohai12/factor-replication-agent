@@ -16,6 +16,13 @@ avoidable errors.
 
 ---
 
+# 0. Tool catalog
+
+<!-- TOOLS:CATALOG:START -->
+<!-- TOOLS:CATALOG:END -->
+
+---
+
 # 1. Extraction rules
 
 ## 1.1 Paper-first only
@@ -171,7 +178,7 @@ a physical data column, and that resolution is driven entirely by
 
 - Every `concept_id` you put in `universe.filters` must ALSO appear as a
   `data.fields[].concept_id` (with role `universe_filter`), with a real
-  `paper_name`/`paper_source_hint` -- not just a bare string with nothing to
+  `name_in_paper`/`paper_source_hint` -- not just a bare string with nothing to
   match against.
 - NEVER invent a lag-suffixed or step-derived pseudo-name (e.g.
   `total_assets_t_minus_1`, `total_assets_t_minus_2`) as a universe filter's
@@ -188,6 +195,49 @@ a physical data column, and that resolution is driven entirely by
   `data.fields` entry for the concept it depends on, rather than a made-up
   name -- the engine may not support the exact filter, but it should still
   be traceable to a real underlying data field.
+
+## 1.8c Genuinely-computed universe filters ALSO need `derivation`
+
+A `data.fields` entry (1.8b) only proves a filter's concept is traceable to
+a real underlying field -- it does NOT say HOW to compute the filter's value
+FROM that field. For a filter that is a raw column read as-is (e.g. "SIC
+code == 49"), leave `universe.filters[].derivation` unset (`null`). But for
+one that requires actual computation from an underlying field (e.g. "listed
+on CRSP for at least 2 years" computed from a first-observed date, or "at
+least N months since IPO"), fill `universe.filters[].derivation` with a
+`FormulaSpec` -- SAME shape as `signal.formula` (1.5): `paper_expression`
+(the paper's own wording), `inputs` (the underlying `data.fields[].concept_id`
+values it reads), and `steps` (ordered `CalculationStep`s, each with its own
+`description`/`expression`) describing the actual computation. Leave
+`derivation` unset rather than guessing at a computation the paper doesn't
+actually describe -- an unset `derivation` on a filter that turns out to need
+one is caught at Step2 review/resolve and can be filled in there; a WRONG
+guessed one is much harder to catch.
+
+## 1.8d Every `data.fields[]` entry needs `source_table`/`source_column`
+
+The `data_catalog` tool result (see § 0) lists every currently-registered
+data source and every physical column it owns, with a one-line WRDS
+definition for each column. For every `data.fields[]` entry:
+
+- Set `source_table.value` to the catalog source name (e.g. `"comp_funda"`)
+  whose column best matches this concept, per the paper's own wording
+  (`name_in_paper`/`paper_source_hint`) -- read the column's own definition
+  in the catalog listing, don't just pattern-match on the column name.
+- Set `source_column.value` to that source's exact physical column name
+  (e.g. `"at"`). It must be one of the columns the catalog listing shows
+  for that source -- inventing a column name that isn't listed will fail
+  validation.
+- If the paper clearly names a real dataset/measure but nothing in the
+  current catalog listing plausibly matches it (e.g. an OptionMetrics
+  implied-volatility surface, when no such source is registered), set
+  `source_table.value` to `"other"` and `source_table.unsupported_value` to
+  the paper's own description of that data source -- never force-fit it
+  onto an unrelated registered column just to avoid `"other"`.
+- If the paper is genuinely silent on which underlying data measure a
+  concept comes from, leave `source_table`/`source_column` unset (`status:
+  "unspecified"`) rather than guessing -- same "never guess" rule as
+  everywhere else in this prompt.
 
 ## 1.9 Sample periods are three independent things
 
@@ -211,11 +261,11 @@ paraphrase above if they ever disagree.
 
 # 3. What NOT to include
 
-- No physical table/column names (e.g. no `comp_funda.at`, no `permno`/`gvkey`
-  merge keys) -- `data.fields[].paper_source_hint` is a paper-stated dataset
-  label only (e.g. "Compustat annual industrial files"), never a physical
-  mapping. Physical mapping is a separate, later pipeline stage
-  (`ImplementationResolution`), not your job.
+- No `permno`/`gvkey` merge keys, no CCM link-table mechanics -- those are
+  runtime join details, not something the paper states or you should guess.
+  `data.fields[].source_table`/`source_column` (see § 1.8d) are the ONLY
+  physical-data facts you fill in, and only by picking from the `data_catalog`
+  tool's live listing -- never invent a source/column name that isn't in it.
 - No `returns_source`, no `cz_acronym`, no review status, no resolution log,
   no `codegen_ready` -- none of these exist on `MethodSpec`. They belong
   to later pipeline stages, not the paper-facts layer you're producing.

@@ -132,3 +132,23 @@ class TestSingleDimPathUnaffectedByMultiDimCode:
         engine.form_portfolios()
         assert "portfolio" in engine.portfolios.columns
         assert "portfolio_0" not in engine.portfolios.columns
+
+
+class TestWithinGroupModeFailsLoud:
+    """docs/resolve-diagnostics-gaps.md problem 2: `mode="within_group"` is
+    a real, unimplemented engine capability -- `registry.build_config`
+    passes it through as-is (never silently coercing to sequential), so the
+    engine itself must fail loud rather than silently running the wrong
+    (sequential) economics."""
+
+    def test_within_group_mode_raises(self):
+        engine = BacktestExecutor()
+        engine.config = _CONFIG
+        engine.apply_signal_holding_period(_panel(), _signal(), _CONFIG)
+        dims_with_within_group = [
+            {"column": "me", "quantiles": 2, "source": "nyse", "mode": "within_group", "independent": False, "role": "conditioning"},
+            {"column": "signal", "quantiles": 2, "source": "nyse", "mode": "independent", "independent": True, "role": "target"},
+        ]
+        with pytest.raises(ValueError, match="within_group"):
+            engine.assign_portfolios_multi(breakpoints=dims_with_within_group)
+

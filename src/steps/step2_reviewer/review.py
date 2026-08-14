@@ -69,11 +69,13 @@ ENGINE_MISSING_ACTION_MENU: frozenset[str] = frozenset({"drop"})
 ENGINE_BREAKPOINT_SOURCE_MENU: frozenset[str] = frozenset({"full_sample", "nyse"})
 
 
-def _evidence_status_finding(field_path: str, sourced_value: SourcedValue) -> Finding | None:
+def _evidence_status_finding(
+    field_path: str, sourced_value: SourcedValue, *, always: bool = False
+) -> Finding | None:
     disposition = DISPOSITION_MATRIX.get(
         (sourced_value.status, EMPIRICAL_IMPACT_HIGH), Disposition.NEEDS_HUMAN_CONFIRMATION
     )
-    if disposition == Disposition.AUTO_APPROVE:
+    if disposition == Disposition.AUTO_APPROVE and not always:
         return None
     return Finding(
         field_path=field_path,
@@ -86,7 +88,7 @@ def _evidence_status_finding(field_path: str, sourced_value: SourcedValue) -> Fi
     )
 
 
-def _high_impact_sourced_values(paper: MethodSpec) -> list[tuple[str, SourcedValue]]:
+def high_impact_sourced_values(paper: MethodSpec) -> list[tuple[str, SourcedValue]]:
     checks: list[tuple[str, SourcedValue]] = [
         ("signal.direction", paper.signal.direction),
         ("timing.formation_rule", paper.timing.formation_rule),
@@ -99,14 +101,155 @@ def _high_impact_sourced_values(paper: MethodSpec) -> list[tuple[str, SourcedVal
     ]
     for i, sort in enumerate(paper.portfolio.sorts):
         checks.append((f"portfolio.sorts[{i}].breakpoints.basis", sort.breakpoints.basis))
+        checks.append((f"portfolio.sorts[{i}].group_type", sort.group_type))
+        checks.append((f"portfolio.sorts[{i}].mode", sort.mode))
+    for i, policy in enumerate(paper.portfolio.missing_policies):
+        checks.append((f"portfolio.missing_policies[{i}].action", policy.action))
+    for i, f in enumerate(paper.data.fields):
+        checks.append((f"data.fields[{i}].source_table", f.source_table))
+        checks.append((f"data.fields[{i}].source_column", f.source_column))
     return checks
+
+
+#: field_paths whose classified value is checked against a fixed engine
+#: menu (docs/resolve-diagnostics-gaps.md problem 2) -- any of these ending
+#: up "other" gets an UNCONDITIONAL Finding (regardless of `EvidenceStatus`),
+#: since `DISPOSITION_MATRIX` alone would miss it whenever `status` is
+#: `clear`/`table_only` (the LLM being confident the paper said something
+#: off-menu is not the same as the field being auto-approved). `sort.mode`
+#: is included even though `within_group` (a DIFFERENT, non-"other" value)
+#: is also unsupported today -- that case is handled separately by
+#: `registry.build_config`'s pass-through + engine fail-loud, not here,
+#: since it's a known/named value, not a paper-vocabulary classification
+#: gap (see `SortMode`'s docstring).
+_ENGINE_MENU_FIELD_PATHS: frozenset[str] = frozenset({
+    "portfolio.weighting",
+    "portfolio.return_combination",
+    "portfolio.construction_type",
+})
+
+
+def _is_engine_menu_field(field_path: str) -> bool:
+    if field_path in _ENGINE_MENU_FIELD_PATHS:
+        return True
+    return field_path.endswith((".breakpoints.basis", ".group_type", ".mode", ".action", ".source_table"))
+
+
+def _unwrap_enum_value(value: Any) -> str:
+    """Same purpose as `registry.ev()` (unwrap an Enum member's `.value`,
+    or return a plain string as-is) -- duplicated here rather than imported
+    to avoid step2_reviewer depending on step3_codegen."""
+    if hasattr(value, "value"):
+        return value.value
+    return str(value) if value is not None else "unspecified"
+
+
+def _engine_menu_unsupported_finding(field_path: str, sourced_value: SourcedValue) -> Finding | None:
+    """Unconditional counterpart to `_evidence_status_finding` for engine-menu
+    fields: fires whenever `value == "other"`, independent of `status` (see
+    `_ENGINE_MENU_FIELD_PATHS` docstring). `paper_value` uses
+    `unsupported_value` (the paper's literal wording) when available --
+    plain `"other"` carries no information on its own.
+    """
+    if _unwrap_enum_value(sourced_value.value) != "other":
+        return None
+    unsupported_value = getattr(sourced_value, "unsupported_value", None)
+    return Finding(
+        field_path=field_path,
+        kind="unsupported",
+        reason=(
+            f"paper's stated method ({unsupported_value!r}) is not in the engine's "
+            "menu; the backtest will use a documented default unless corrected "
+            "(see resolved config's defaults_applied)."
+        ),
+        empirical_impact="high",
+        disposition=Disposition.NEEDS_HUMAN_CONFIRMATION,
+        paper_value=unsupported_value if unsupported_value is not None else "other",
+        evidence=sourced_value.evidence,
+    )
+
+
+def _rebalance_frequency_capability_finding(paper: MethodSpec) -> Finding | None:
+    """`timing.rebalance_frequency` is a `TimeUnit`, not a menu enum with
+    `OTHER` -- `DAY` is a specific, known, unimplemented value (see
+    docs/resolve-diagnostics-gaps.md problem 2), not free text. Checked here
+    (paper-only data, no `resolution.concept_mapping` needed) so a human
+    sees it at review time, same posture as the engine-menu check above."""
+    from src.infra.models.method_spec import TimeUnit
+
+    freq = paper.timing.rebalance_frequency
+    if freq.value != TimeUnit.DAY:
+        return None
+    return Finding(
+        field_path="timing.rebalance_frequency",
+        kind="unsupported",
+        reason=(
+            "paper specifies daily rebalancing, which the engine's "
+            "rebalance_frequency config (annual/quarterly/monthly) can't "
+            "represent -- will default to monthly unless corrected."
+        ),
+        empirical_impact="high",
+        disposition=Disposition.NEEDS_HUMAN_CONFIRMATION,
+        paper_value="day",
+        evidence=freq.evidence,
+    )
+
+
+def _lag_unit_capability_finding(paper: MethodSpec) -> Finding | None:
+    """Same posture as `_rebalance_frequency_capability_finding`, for
+    `timing.data_availability.lag_unit` -- `DAY` is specific and known, the
+    accounting_lag_months config field just can't represent it (month
+    granularity)."""
+    from src.infra.models.method_spec import TimeUnit
+
+    availability = paper.timing.data_availability
+    if availability.lag_value is None or availability.lag_unit != TimeUnit.DAY:
+        return None
+    return Finding(
+        field_path="timing.data_availability.lag_unit",
+        kind="unsupported",
+        reason=(
+            f"paper specifies a {availability.lag_value}-day accounting lag, which "
+            "this month-granularity config field can't represent -- will default "
+            "to 6 months unless corrected."
+        ),
+        empirical_impact="high",
+        disposition=Disposition.NEEDS_HUMAN_CONFIRMATION,
+        paper_value=f"{availability.lag_value} day(s)",
+        evidence=availability.evidence,
+    )
+
+
+def _sort_dimension_count_finding(paper: MethodSpec) -> Finding | None:
+    """`portfolio.sorts` count > `MAX_SUPPORTED_SORT_DIMENSIONS` -- structural,
+    not an enum, so there's no `unsupported_value` to report (the paper's
+    full sort list is already preserved as-is in `paper.portfolio.sorts`,
+    no information loss)."""
+    from src.infra.models.method_spec import MAX_SUPPORTED_SORT_DIMENSIONS
+
+    sorts = paper.portfolio.sorts
+    if len(sorts) <= MAX_SUPPORTED_SORT_DIMENSIONS:
+        return None
+    return Finding(
+        field_path="portfolio.sorts",
+        kind="unsupported",
+        reason=(
+            f"{len(sorts)} sort dimensions declared, but the engine supports at most "
+            f"{MAX_SUPPORTED_SORT_DIMENSIONS} -- the target dimension plus the "
+            "lowest-order control dimension(s) will be kept, the rest dropped, "
+            "unless corrected."
+        ),
+        empirical_impact="high",
+        disposition=Disposition.NEEDS_HUMAN_CONFIRMATION,
+        paper_value=len(sorts),
+    )
 
 
 def _missing_mapping_findings(paper: MethodSpec) -> list[Finding]:
     """A universe filter concept_id that isn't ALSO declared as a data.fields
     entry can never resolve to a physical column: build_implementation_
     resolution only runs the catalog matcher on filter concepts as a bare
-    `{"field": concept_id}` shim (no paper_name/source_hint to match
+    `{"field": concept_id}` shim (no name_in_paper/source_hint to match
     against), and a lag-suffixed pseudo-name the extractor invented for a
     formula step (e.g. "total_assets_t_minus_1") never matches any real
     catalog alias. Previously this passed review silently and only
@@ -127,7 +270,7 @@ def _missing_mapping_findings(paper: MethodSpec) -> list[Finding]:
                     reason=(
                         "universe filter concept is not declared in data.fields, so it can "
                         "never resolve to a physical column -- add a data.fields entry for "
-                        "it (with a real paper_name/paper_source_hint) or drop the filter"
+                        "it (with a real name_in_paper/paper_source_hint) or drop the filter"
                     ),
                     empirical_impact="high",
                     disposition=Disposition.NEEDS_HUMAN_CONFIRMATION,
@@ -149,7 +292,28 @@ def review_method_spec(
         factor_id=paper.factor_id,
         capability_version=capability_version,
         findings=_compute_findings(paper),
+        all_high_impact_fields=_all_high_impact_field_findings(paper),
     )
+
+
+def _all_high_impact_field_findings(paper: MethodSpec) -> list[Finding]:
+    """Same per-field disposition logic `_compute_findings` uses, but
+    ALWAYS emits one `Finding` per `high_impact_sourced_values` entry --
+    including `AUTO_APPROVE` ones `_compute_findings` skips -- so the review
+    UI can list every high-impact field's current value and gate its
+    dropdown/input on `disposition` instead of on whether it produced a
+    finding at all."""
+    entries: list[Finding] = []
+    for field_path, sourced_value in high_impact_sourced_values(paper):
+        if _is_engine_menu_field(field_path):
+            menu_finding = _engine_menu_unsupported_finding(field_path, sourced_value)
+            if menu_finding is not None:
+                entries.append(menu_finding)
+                continue
+        finding = _evidence_status_finding(field_path, sourced_value, always=True)
+        if finding is not None:
+            entries.append(finding)
+    return entries
 
 
 def _compute_findings(
@@ -162,23 +326,45 @@ def _compute_findings(
     """
     status_overrides = status_overrides or {}
     findings: list[Finding] = []
-    for field_path, sourced_value in _high_impact_sourced_values(paper):
+    for field_path, sourced_value in high_impact_sourced_values(paper):
         effective_status = status_overrides.get(field_path, sourced_value.status)
         effective_value = (
             sourced_value
             if field_path not in status_overrides
             else SourcedValue(value=sourced_value.value, evidence=sourced_value.evidence, status=effective_status)
         )
+        # Engine-menu fields classified "other" get the unconditional check
+        # below INSTEAD of the status-based D2 check -- otherwise a field
+        # that's both "other" and e.g. `status=inferred` would produce two
+        # separate Findings for the same field_path (docs/resolve-
+        # diagnostics-gaps.md problem 2, "实现前复查" section A).
+        if _is_engine_menu_field(field_path):
+            menu_finding = _engine_menu_unsupported_finding(field_path, effective_value)
+            if menu_finding is not None:
+                findings.append(menu_finding)
+                continue
         finding = _evidence_status_finding(field_path, effective_value)
         if finding is not None:
             findings.append(finding)
+
+    for capability_finding in (
+        _rebalance_frequency_capability_finding(paper),
+        _lag_unit_capability_finding(paper),
+        _sort_dimension_count_finding(paper),
+    ):
+        if capability_finding is not None:
+            findings.append(capability_finding)
 
     findings.extend(_missing_mapping_findings(paper))
     return findings
 
 
 def apply_value_patches(
-    paper: MethodSpec, patches: dict[str, Any], reason: str = "", source: str = "human"
+    paper: MethodSpec,
+    patches: dict[str, Any],
+    reason: str = "",
+    source: str = "human",
+    unsupported_values: dict[str, str] | None = None,
 ) -> MethodSpec:
     """Correct the extracted VALUE of one or more high-impact fields (e.g.
     the extractor wrote "quarterly" but the paper actually says "annual").
@@ -195,6 +381,14 @@ def apply_value_patches(
     traversal on arbitrary user input; it looks the path up in that fixed,
     known set instead (never reaches an attacker-chosen attribute).
 
+    `unsupported_values` (field_path -> the paper's literal wording) is only
+    honored when that same `field_path` is being patched TO the enum's
+    `other` member -- it fills `SourcedValue.unsupported_value`, whose own
+    model validator otherwise rejects a non-null `unsupported_value` on a
+    non-"other" value. Patching a field AWAY FROM "other" clears any stale
+    `unsupported_value` it was carrying, so a later re-review doesn't see a
+    contradictory combination.
+
     Returns a NEW `MethodSpec` (the original `paper` is untouched) with each
     patched field's `status` set to `EvidenceStatus.CLEAR` (patching a value
     is itself an affirmation of it, regardless of who did the patching) and
@@ -206,7 +400,8 @@ def apply_value_patches(
     staleness check").
     """
     patched = paper.model_copy(deep=True)
-    patchable = dict(_high_impact_sourced_values(patched))
+    patchable = dict(high_impact_sourced_values(patched))
+    unsupported_values = unsupported_values or {}
     for field_path, new_value in patches.items():
         if field_path not in patchable:
             raise ValueError(
@@ -215,6 +410,8 @@ def apply_value_patches(
             )
         sourced_value = patchable[field_path]
         sourced_value.value = _coerce_to_current_type(sourced_value.value, new_value, field_path)
+        is_other = str(getattr(sourced_value.value, "value", sourced_value.value)) == "other"
+        sourced_value.unsupported_value = unsupported_values.get(field_path) if is_other else None
         sourced_value.status = EvidenceStatus.CLEAR
         sourced_value.evidence.append(
             EvidenceCitation(interpretation=f"{source} correction: {reason}" if reason else f"{source} correction")
@@ -267,6 +464,6 @@ def _field_snapshot(paper: MethodSpec) -> dict[str, dict]:
             "status": sourced_value.status.value,
             "evidence": [c.model_dump(mode="json") for c in sourced_value.evidence],
         }
-        for field_path, sourced_value in _high_impact_sourced_values(paper)
+        for field_path, sourced_value in high_impact_sourced_values(paper)
     }
 

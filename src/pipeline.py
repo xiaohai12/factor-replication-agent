@@ -56,10 +56,17 @@ class Pipeline:
         evidence_path: str = "./runs/evidence",
         scripts_path: str = "./runs/backtest_scripts",
         run_diagnosis: bool = False,
+        check_faithfulness: bool = False,
     ):
         self.data_layer = DataLayer(data_path=data_path)
         self.meta_coder = MetaCoder(llm_client=llm_client)
-        self.sandbox = AdversarialSandbox()
+        # Faithfulness check (code-vs-approved-formula, see step4_validator's
+        # class docstring) is opt-in like Step 8: it costs an extra LLM call
+        # per validate attempt, so it only runs when both requested and an
+        # llm_client is actually available.
+        self.sandbox = AdversarialSandbox(
+            llm_client=llm_client if check_faithfulness and llm_client is not None else None
+        )
         self.registry = PluginRegistry()
         self.scripts_path = Path(scripts_path)
         self.runner = BacktestRunner(self.data_layer, self.scripts_path)
