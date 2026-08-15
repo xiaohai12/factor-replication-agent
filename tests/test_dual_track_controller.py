@@ -21,7 +21,7 @@ import pytest
 
 from src.infra.models.plugin import PluginRecord, ValidationReport
 from src.infra.models.run_record import RunMetrics, RunRecord
-from src.steps.step6_dual_track_controller import DualTrackController, ExperimentPlan
+from src.steps.step6_dual_track_controller import MultiTrackController, ExperimentPlan
 from tests._spec_test_helpers import minimal_resolved_spec, spec_factor_id
 
 
@@ -118,7 +118,7 @@ class FakeSandbox:
 class TestRunExperiment:
     def test_single_track_happy_path(self):
         runner = FakeRunner(fail_times=0)
-        controller = DualTrackController(runner=runner, meta_coder=FakeMetaCoder(), sandbox=FakeSandbox())
+        controller = MultiTrackController(runner=runner, meta_coder=FakeMetaCoder(), sandbox=FakeSandbox())
         plan = ExperimentPlan(factor_id="t", run_original=True, run_standardized=False)
 
         runs = controller.run_experiment(_plugin(), _spec(), plan, snapshot_id="snap1")
@@ -130,7 +130,7 @@ class TestRunExperiment:
 
     def test_multi_track_produces_one_run_per_track(self):
         runner = FakeRunner(fail_times=0)
-        controller = DualTrackController(runner=runner, meta_coder=FakeMetaCoder(), sandbox=FakeSandbox())
+        controller = MultiTrackController(runner=runner, meta_coder=FakeMetaCoder(), sandbox=FakeSandbox())
         plan = ExperimentPlan(
             factor_id="t", run_original=True, run_standardized=True, ablation_switches=["weighting"]
         )
@@ -163,7 +163,7 @@ class TestRepairLoop:
         runner = FakeRunner(fail_times=1)  # fails once, then succeeds
         meta_coder = FakeMetaCoder()
         sandbox = FakeSandbox(passes=True)
-        controller = DualTrackController(runner=runner, meta_coder=meta_coder, sandbox=sandbox)
+        controller = MultiTrackController(runner=runner, meta_coder=meta_coder, sandbox=sandbox)
         plan = ExperimentPlan(factor_id="t", run_original=True, run_standardized=False)
 
         runs = controller.run_experiment(_plugin(), _spec(), plan, snapshot_id="snap1")
@@ -176,7 +176,7 @@ class TestRepairLoop:
     def test_execute_failure_exhausts_repair_returns_failed_run_record(self):
         runner = FakeRunner(fail_times=999)  # always fails
         meta_coder = FakeMetaCoder()
-        controller = DualTrackController(runner=runner, meta_coder=meta_coder, sandbox=FakeSandbox())
+        controller = MultiTrackController(runner=runner, meta_coder=meta_coder, sandbox=FakeSandbox())
         plan = ExperimentPlan(factor_id="t", run_original=True, run_standardized=False)
 
         runs = controller.run_experiment(_plugin(), _spec(), plan, snapshot_id="snap1")

@@ -1,5 +1,5 @@
 """Tests for the ExperimentPlan/ExperimentMatrix merge (2026-08-04,
-docs/decision-log.md): `DualTrackController.run_experiment` is now a thin
+docs/decision-log.md): `MultiTrackController.run_experiment` is now a thin
 adapter over `run_from_matrix` via `_plan_to_matrix`, so both entry points
 share one execution implementation. Also covers `factorial_switches`
 (declared on `ExperimentPlan` since early on but never executed until this
@@ -10,7 +10,7 @@ from __future__ import annotations
 
 from src.infra.models.plugin import PluginRecord, ValidationReport
 from src.infra.models.run_record import RunMetrics, RunRecord
-from src.steps.step6_dual_track_controller import DualTrackController, ExperimentPlan
+from src.steps.step6_dual_track_controller import MultiTrackController, ExperimentPlan
 from src.steps.step3_codegen.registry import build_config
 from tests._spec_test_helpers import minimal_resolved_spec, spec_factor_id
 
@@ -78,7 +78,7 @@ class FakeSandbox:
 class TestRunExperimentDelegatesToRunFromMatrix:
     def test_default_plan_produces_original_and_standardized_tracks(self):
         runner = FakeRunner()
-        controller = DualTrackController(runner=runner, meta_coder=FakeMetaCoder(), sandbox=FakeSandbox())
+        controller = MultiTrackController(runner=runner, meta_coder=FakeMetaCoder(), sandbox=FakeSandbox())
         plan = ExperimentPlan(factor_id="t")
 
         runs = controller.run_experiment(_plugin(), _spec(), plan, snapshot_id="snap1")
@@ -89,7 +89,7 @@ class TestRunExperimentDelegatesToRunFromMatrix:
 
     def test_run_original_false_skips_the_baseline(self):
         runner = FakeRunner()
-        controller = DualTrackController(runner=runner, meta_coder=FakeMetaCoder(), sandbox=FakeSandbox())
+        controller = MultiTrackController(runner=runner, meta_coder=FakeMetaCoder(), sandbox=FakeSandbox())
         plan = ExperimentPlan(factor_id="t", run_original=False, run_standardized=True)
 
         runs = controller.run_experiment(_plugin(), _spec(), plan, snapshot_id="snap1")
@@ -100,7 +100,7 @@ class TestRunExperimentDelegatesToRunFromMatrix:
 
     def test_ablation_switches_produce_ablation_tracks_with_derived_tags(self):
         runner = FakeRunner()
-        controller = DualTrackController(runner=runner, meta_coder=FakeMetaCoder(), sandbox=FakeSandbox())
+        controller = MultiTrackController(runner=runner, meta_coder=FakeMetaCoder(), sandbox=FakeSandbox())
         plan = ExperimentPlan(
             factor_id="t", run_original=True, run_standardized=False,
             ablation_switches=["weighting"],
@@ -120,7 +120,7 @@ class TestRunExperimentDelegatesToRunFromMatrix:
 
     def test_experiment_spec_hash_recorded_for_plan_based_runs_too(self):
         runner = FakeRunner()
-        controller = DualTrackController(runner=runner, meta_coder=FakeMetaCoder(), sandbox=FakeSandbox())
+        controller = MultiTrackController(runner=runner, meta_coder=FakeMetaCoder(), sandbox=FakeSandbox())
         plan = ExperimentPlan(factor_id="t")
 
         controller.run_experiment(_plugin(), _spec(), plan, snapshot_id="snap1")
@@ -137,7 +137,7 @@ class TestRunExperimentDelegatesToRunFromMatrix:
 class TestFactorialSwitches:
     def test_single_switch_factorial_produces_one_non_baseline_combo(self):
         runner = FakeRunner()
-        controller = DualTrackController(runner=runner, meta_coder=FakeMetaCoder(), sandbox=FakeSandbox())
+        controller = MultiTrackController(runner=runner, meta_coder=FakeMetaCoder(), sandbox=FakeSandbox())
         plan = ExperimentPlan(
             factor_id="t", run_original=True, run_standardized=False,
             factorial_switches=["weighting"],
@@ -161,7 +161,7 @@ class TestFactorialSwitches:
         """2^2 = 4 combos, minus the all-baseline corner (redundant with
         original_method) = 3."""
         runner = FakeRunner()
-        controller = DualTrackController(runner=runner, meta_coder=FakeMetaCoder(), sandbox=FakeSandbox())
+        controller = MultiTrackController(runner=runner, meta_coder=FakeMetaCoder(), sandbox=FakeSandbox())
         plan = ExperimentPlan(
             factor_id="t", run_original=False, run_standardized=False,
             factorial_switches=["weighting", "breakpoint"],
@@ -174,7 +174,7 @@ class TestFactorialSwitches:
 
     def test_unknown_switch_name_produces_no_tracks(self):
         runner = FakeRunner()
-        controller = DualTrackController(runner=runner, meta_coder=FakeMetaCoder(), sandbox=FakeSandbox())
+        controller = MultiTrackController(runner=runner, meta_coder=FakeMetaCoder(), sandbox=FakeSandbox())
         plan = ExperimentPlan(
             factor_id="t", run_original=False, run_standardized=False,
             factorial_switches=["not_a_real_switch"],
@@ -184,7 +184,7 @@ class TestFactorialSwitches:
         assert runs == []
 
     def test_factorial_track_specs_directly(self):
-        controller = DualTrackController(runner=FakeRunner(), meta_coder=FakeMetaCoder(), sandbox=FakeSandbox())
+        controller = MultiTrackController(runner=FakeRunner(), meta_coder=FakeMetaCoder(), sandbox=FakeSandbox())
         baseline_config = build_config(_spec_ew(), None)
 
         specs = controller._factorial_track_specs(["weighting", "breakpoint"], baseline_config)
@@ -197,7 +197,7 @@ class TestFactorialSwitches:
         """When a switch's baseline value already equals HXZ's own value for
         that key, there is nothing to explore for that dimension -- this
         must produce zero tracks (not a duplicate-name collision)."""
-        controller = DualTrackController(runner=FakeRunner(), meta_coder=FakeMetaCoder(), sandbox=FakeSandbox())
+        controller = MultiTrackController(runner=FakeRunner(), meta_coder=FakeMetaCoder(), sandbox=FakeSandbox())
         baseline_config = build_config(_spec(), None)  # weighting_rule="vw" == HXZ's own "vw"
 
         specs = controller._factorial_track_specs(["weighting"], baseline_config)

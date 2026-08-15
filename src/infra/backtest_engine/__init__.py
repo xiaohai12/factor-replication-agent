@@ -172,7 +172,10 @@ class BacktestExecutor:
                              factor; see `load_liquidity_factors`). When
                              given, `alpha_capm`/`alpha_ff3`/`alpha_ff5`/
                              `alpha_liq` (+ betas) are added to the metrics
-                             dict, whichever columns are present.
+                             dict, whichever columns are present -- and, when
+                             `by_sample_period` is also present, the SAME
+                             regressions are re-run on each period's own
+                             segment and merged into that period's own dict.
 
         Returns:
             Dict with keys: metrics, return_series, config
@@ -228,6 +231,19 @@ class BacktestExecutor:
         if self.factors is not None:
             self.metrics.update(self.compute_factor_alphas())
             self.trace.append("compute_factor_alphas")
+
+            # Same CAPM/FF3/FF5/liq regressions, but per sample-period segment
+            # (in-sample/between/post-publication) -- lets a caller see
+            # whether an alpha survives out-of-sample, not just the
+            # mean/t-stat `compute_metrics` already breaks out by period.
+            by_period = self.metrics.get("by_sample_period")
+            if by_period:
+                for name, seg_df in self._sample_period_segments(self.long_short, self.config).items():
+                    if name in by_period:
+                        by_period[name].update(
+                            self.compute_factor_alphas(ls=seg_df, factors=self.factors, config=self.config)
+                        )
+                self.trace.append("compute_factor_alphas_by_sample_period")
 
         return {"metrics": self.metrics, "return_series": self.long_short, "config": self.config}
 
@@ -1433,6 +1449,39 @@ class BacktestExecutor:
             "n_months":            n,
             "sharpe_ratio":        float(sharpe),
         }
+
+    @staticmethod
+    def _sample_period_segments(ls: pd.DataFrame, config: dict) -> dict[str, pd.DataFrame]:
+        """Same year-boundary logic as `_sample_period_metrics`, but returns
+        each segment's full DataFrame (`yyyymm` + `ls_return`), not just the
+        return Series -- needed so `compute_factor_alphas` can merge each
+        segment against `factors` on `yyyymm` too. Deliberately a separate
+        function (not shared internals with `_sample_period_metrics`) so a
+        bug here can never change that function's existing
+        (golden-number-tested) mean/t-stat output.
+        """
+        start = config.get("sample_start_year")
+        end = config.get("sample_end_year")
+        pub = config.get("publication_year")
+        if start is None and end is None and pub is None:
+            return {}
+        if "ls_return" not in ls.columns:
+            return {}
+        df = ls.dropna(subset=["ls_return"]).copy()
+        if df.empty:
+            return {}
+        year = (df["yyyymm"] // 100).astype(int)
+
+        segments: dict[str, pd.DataFrame] = {}
+        if start is not None or end is not None:
+            lo = start if start is not None else -np.inf
+            hi = end if end is not None else np.inf
+            segments["insamp"] = df.loc[(year >= lo) & (year <= hi)]
+        if end is not None and pub is not None:
+            segments["between"] = df.loc[(year > end) & (year <= pub)]
+        if pub is not None:
+            segments["postpub"] = df.loc[year > pub]
+        return {name: seg for name, seg in segments.items() if not seg.empty}
 
     @staticmethod
     def _sample_period_metrics(ls: pd.DataFrame, config: dict) -> dict[str, Any] | None:

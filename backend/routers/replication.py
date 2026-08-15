@@ -2,7 +2,7 @@
 
 Deliberately does NOT rebuild `comparison.json`'s evidence bundle --
 `BacktestRunner.write_comparison_summary()` (called automatically at the end
-of `DualTrackController.run_experiment`/`run_from_matrix`) already calls
+of `MultiTrackController.run_experiment`/`run_from_matrix`) already calls
 `build_evidence_bundle()` once; this endpoint only VALIDATES that a
 requested `experiment_batch_id` (or `execution_id`s) resolves to a
 consistent, non-invalidated batch whose on-disk `comparison.json` still
@@ -34,6 +34,47 @@ def _get_or_404(session_id: str):
         return session_store.get(session_id)
     except SessionNotFoundError:
         raise HTTPException(status_code=404, detail=f"No session '{session_id}'")
+
+
+@router.get("/{session_id}/steps/6/track-configs")
+def get_step6_track_configs(session_id: str, experiment_batch_id: str) -> dict:
+    """Read-only preview of each track's RESOLVED config
+    (`registry.build_config()`'s output), for the step6 cross-track UI --
+    usable BEFORE step7 has ever been run for this session, unlike
+    `GET /steps/7/comparison` below (which requires a step7 attempt to
+    already exist on the session). `comparison.json` is written to disk as
+    a side effect of step6's own `run_from_matrix`/`_finalize_batch`
+    (see `write_comparison_summary` in
+    src/steps/step5_backtest_runner/__init__.py), so this data already
+    exists once step6 succeeds -- this endpoint only reads it. Never
+    records a step7 attempt or otherwise mutates session state (same
+    batch/factor_id resolution + consistency check as the POST endpoint
+    below, minus the session write).
+    """
+    _get_or_404(session_id)
+    records = [r for r in pipeline.run_registry.list_all() if r.experiment_batch_id == experiment_batch_id]
+    if not records:
+        raise HTTPException(status_code=404, detail=f"no runs found for experiment_batch_id '{experiment_batch_id}'")
+    factor_ids = {r.factor_id for r in records}
+    if len(factor_ids) != 1:
+        raise HTTPException(status_code=400, detail="batch spans more than one factor_id")
+    factor_id = factor_ids.pop()
+
+    comparison_path = pipeline.scripts_path / "results" / factor_id / "comparison.json"
+    if not comparison_path.is_file():
+        raise HTTPException(status_code=404, detail=f"no comparison.json for factor '{factor_id}'")
+    bundle = json.loads(comparison_path.read_text())
+    on_disk_batch_id = (bundle.get("batch") or {}).get("experiment_batch_id")
+    if on_disk_batch_id != experiment_batch_id:
+        raise HTTPException(
+            status_code=409,
+            detail=(
+                f"comparison.json on disk belongs to batch '{on_disk_batch_id}', not the "
+                f"requested '{experiment_batch_id}' -- re-run step6 to regenerate a matching one."
+            ),
+        )
+    tracks = bundle.get("tracks") or {}
+    return {track: (payload.get("config") or {}) for track, payload in tracks.items()}
 
 
 class ComparisonRequest(BaseModel):

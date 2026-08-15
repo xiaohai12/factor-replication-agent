@@ -34,14 +34,14 @@ Implemented and tested:
 	lifecycle.
 - `BacktestRunner.build_script(track_name=...)`: distinct tracks/configs for
 	the same factor no longer collide on the same on-disk script/output path.
-	`DualTrackController` now threads its `track_name` through, so
+	`MultiTrackController` now threads its `track_name` through, so
 	`original_method`/`standardized_hxz`/ablation tracks each persist to their
 	own `{factor_id}__{track_name}` files instead of silently overwriting each
 	other (only the in-memory `RunRecord` was previously reliable per track).
 - `HXZ_STANDARD_CONFIG["breakpoint_quantiles"]` fixed from an invalid
 	percentile list to the engine's actual group-count contract (`10`) --
 	`standardized_hxz` was previously unrunnable (`int([...])` raised).
-	Verified with a real `DualTrackController.run_experiment()` run
+	Verified with a real `MultiTrackController.run_experiment()` run
 	(original_method + standardized_hxz, same frozen plugin) against real
 	`data/local` WRDS data for AssetGrowth.
 

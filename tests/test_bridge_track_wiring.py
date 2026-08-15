@@ -1,4 +1,4 @@
-"""Tests for `DualTrackController._run_bridge_track`/`run_from_matrix`'s
+"""Tests for `MultiTrackController._run_bridge_track`/`run_from_matrix`'s
 `signal_input_ref: "cz_bridge"` handling (Phase C/D, docs/multi-config-
 evidence-plan.md): running a real C&Z bridge signal as an executable track,
 under the same resolved config as every other track.
@@ -8,7 +8,7 @@ from __future__ import annotations
 
 from src.infra.models.plugin import PluginRecord, ValidationReport
 from src.infra.models.run_record import RunMetrics, RunRecord
-from src.steps.step6_dual_track_controller import DualTrackController
+from src.steps.step6_dual_track_controller import MultiTrackController
 from src.steps.step6_dual_track_controller.experiment_spec import load_experiment_matrix
 from tests._spec_test_helpers import minimal_resolved_spec, spec_factor_id
 
@@ -99,7 +99,7 @@ class TestRunBridgeTrack:
 
         runner = FakeRunner()
         runner.scripts_path = tmp_path
-        controller = DualTrackController(runner=runner, meta_coder=FakeMetaCoder(), sandbox=FakeSandbox())
+        controller = MultiTrackController(runner=runner, meta_coder=FakeMetaCoder(), sandbox=FakeSandbox())
 
         record = controller._run_bridge_track(
             _plugin(), _spec(), "snap1", "bridge_cz_signal",
@@ -118,7 +118,7 @@ class TestRunBridgeTrack:
     def test_unregistered_factor_returns_none(self, tmp_path):
         runner = FakeRunner()
         runner.scripts_path = tmp_path
-        controller = DualTrackController(runner=runner, meta_coder=FakeMetaCoder(), sandbox=FakeSandbox())
+        controller = MultiTrackController(runner=runner, meta_coder=FakeMetaCoder(), sandbox=FakeSandbox())
 
         record = controller._run_bridge_track(
             _plugin(), _spec("no_such_factor"), "snap1", "bridge_cz_signal", "no_such_factor",
@@ -155,7 +155,7 @@ experiments:
 
         runner = FakeRunner()
         runner.scripts_path = tmp_path / "scripts"
-        controller = DualTrackController(runner=runner, meta_coder=FakeMetaCoder(), sandbox=FakeSandbox())
+        controller = MultiTrackController(runner=runner, meta_coder=FakeMetaCoder(), sandbox=FakeSandbox())
 
         runs = controller.run_from_matrix(_plugin(), _spec(), matrix, snapshot_id="snap1")
 
@@ -187,7 +187,7 @@ experiments:
         matrix = load_experiment_matrix(path, _spec())
         runner = FakeRunner()
         runner.scripts_path = tmp_path / "scripts"
-        controller = DualTrackController(runner=runner, meta_coder=FakeMetaCoder(), sandbox=FakeSandbox())
+        controller = MultiTrackController(runner=runner, meta_coder=FakeMetaCoder(), sandbox=FakeSandbox())
 
         runs = controller.run_from_matrix(_plugin(), _spec(), matrix, snapshot_id="snap1")
 
@@ -209,7 +209,7 @@ experiments:
         matrix = load_experiment_matrix(path, _spec())
         runner = FakeRunner()
         runner.scripts_path = tmp_path / "scripts"
-        controller = DualTrackController(runner=runner, meta_coder=FakeMetaCoder(), sandbox=FakeSandbox())
+        controller = MultiTrackController(runner=runner, meta_coder=FakeMetaCoder(), sandbox=FakeSandbox())
 
         runs = controller.run_from_matrix(_plugin(), _spec(), matrix, snapshot_id="snap1")
 

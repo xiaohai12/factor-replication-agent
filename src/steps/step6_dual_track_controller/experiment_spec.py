@@ -152,7 +152,7 @@ def build_experiment_spec(
     `load_experiment_matrix` uses per yaml entry (resolve config, diff
     against baseline, derive `family`/`identification_level`), exposed as a
     public building block so OTHER experiment sources besides a yaml file
-    (e.g. `DualTrackController`'s legacy `ExperimentPlan`) produce
+    (e.g. `MultiTrackController`'s legacy `ExperimentPlan`) produce
     `ExperimentSpec` objects with IDENTICAL classification instead of a
     second, divergent implementation.
 

@@ -42,7 +42,7 @@ A–E 及 §1.1 LLM 使用边界保持一致。
 | D2 | `run_id` 在 `make_run_record` 中、**执行之后**才生成，且不含 `config_hash`；而唯一路径必须在 `build_script` **之前**就确定。 | `src/steps/step5_backtest_runner/__init__.py` |
 | D3 | config override **不被菜单钳制**：`build_config` 直接 `config.update(overrides)`，任意未知 key / 非法值静默通过。 | `src/steps/step3_codegen/registry.py`（`if overrides: config.update(overrides)`） |
 | D4 | `lag` override 对信号是 **no-op**：生成脚本烘焙的是 `accounting_lag_months = spec.accounting_lag_months or 6`，而非 `CONFIG[...]`。 | `src/steps/step3_codegen/script_generator.py` |
-| D5 | "冻结同一信号"不成立：每个 track 跑**各自**的 repair loop，track-local `repair_plugin` 会改变 `code_hash`，污染 config 归因。 | `src/infra/repair.py`、`DualTrackController._run_track` |
+| D5 | "冻结同一信号"不成立：每个 track 跑**各自**的 repair loop，track-local `repair_plugin` 会改变 `code_hash`，污染 config 归因。 | `src/infra/repair.py`、`MultiTrackController._run_track` |
 | D6 | `EvidenceStore.save_run(run)` 只写 `metadata.json`；`return_series_path` / `signal_series_path` / `data_snapshot_hash` 从不填充；不拷贝 config/script/plugin/MethodSpec 内容。 | `src/infra/evidence/__init__.py`、`src/infra/models/run_record.py` |
 | D7 | `SnapshotMetadata.hash` 默认空字符串；没有定义 hash 规则；且 FF-factor 数据可能来自 snapshot 之外的共享 fallback。 | `src/infra/data_layer/__init__.py`、`build_script` 的 FF fallback |
 | D8 | 信号序列**根本没被输出**——脚本只写 LS 收益 CSV。 | `src/steps/step3_codegen/script_generator.py` |
@@ -374,7 +374,7 @@ config 差异归因到 `breakpoint_source`/`rebalance_frequency`/
 gap 分解"不可用"而非编造归因。单元测试见 `tests/test_replication_diagnosis.py`
 （33 项，全部使用 fake LLM client，测试套件本身不产生真实 LLM 调用）。
 
-默认关闭：`Pipeline(run_diagnosis=False)` / `DualTrackController(diagnoser=None)`
+默认关闭：`Pipeline(run_diagnosis=False)` / `MultiTrackController(diagnoser=None)`
 是默认值，避免测试与批量跑意外消耗 LLM；手动触发用
 `scripts/analyze_comparison.py --factor-id <id>`（`--dry-run` 只看确定性
 bundle，不调用 LLM）。

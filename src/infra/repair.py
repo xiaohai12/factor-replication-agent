@@ -5,7 +5,7 @@ This is the ONLY automatic feedback loop in the pipeline: a bounded
 MetaCoder to repair the code -> rebuild -> re-validate" cycle. It is used
 identically by:
   - `Pipeline.run_from_method_spec` (single-track path), and
-  - `DualTrackController._run_track` (per-track execute stage),
+  - `MultiTrackController._run_track` (per-track execute stage),
 so there is exactly one implementation instead of two near-duplicates.
 
 Scope discipline (see docs/decision-log.md): this loop only ever feeds back
@@ -62,7 +62,7 @@ class ExecuteOutcome:
 class RepairLoop:
     """Bounded technical repair loop shared across the pipeline.
 
-    Collaborators mirror what `DualTrackController` already takes, so it can be
+    Collaborators mirror what `MultiTrackController` already takes, so it can be
     constructed from the same objects:
       - `runner`     — BacktestRunner (build_script / execute)
       - `sandbox`    — AdversarialSandbox (validate)
@@ -96,7 +96,7 @@ class RepairLoop:
         sandbox's compute_signal execution smoke test.
 
         `track_name`, when supplied, is forwarded to `BacktestRunner.
-        build_script()` so multi-track callers (`DualTrackController`) never
+        build_script()` so multi-track callers (`MultiTrackController`) never
         collide on the same on-disk script/output filename.
 
         `log`, when given, receives a one-line progress message per attempt

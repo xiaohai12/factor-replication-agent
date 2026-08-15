@@ -121,7 +121,7 @@ HXZ_STANDARD_CONFIG = {
 }
 
 # Shared by `_get_ablation_override` (single-switch flip) and
-# `DualTrackController._factorial_track_specs` (multi-switch cartesian
+# `MultiTrackController._factorial_track_specs` (multi-switch cartesian
 # expansion) -- one mapping, not two, so a switch name always resolves to
 # the same config key in both places.
 _ABLATION_SWITCH_TO_CONFIG_KEY: dict[str, str] = {
@@ -145,7 +145,7 @@ class ExperimentPlan:
     factorial_switches: list[str] = field(default_factory=list)
 
 
-class DualTrackController:
+class MultiTrackController:
     """Controls multi-track experiments for implementation-gap analysis.
 
     Tracks:

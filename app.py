@@ -636,7 +636,7 @@ elif page == "Backtest & Experiments":
     with tab_tracks:
         st.subheader("Basic Multi-Track Status")
         st.info(
-            "`DualTrackController` can orchestrate original/standardized/OAT runs through "
+            "`MultiTrackController` can orchestrate original/standardized/OAT runs through "
             "the pipeline, but this dashboard does not yet expose the controller or persist "
             "a collision-safe multi-config evidence matrix."
         )

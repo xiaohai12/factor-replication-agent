@@ -11,6 +11,10 @@ import { StepStepper } from "@/components/StepStepper"
 import { JobLogPanel } from "@/components/JobLogPanel"
 import { ToolResultsPanel } from "@/components/ToolResultsPanel"
 import { StepOutputView } from "@/components/StepOutputView"
+import { Step3ComputeSignalCard } from "@/components/steps/Step3Output"
+import { Step4RepairCard } from "@/components/steps/Step4Output"
+import { Step5HeadlineCard } from "@/components/steps/Step5Output"
+import { Step6BatchSummaryCard } from "@/components/steps/Step6Output"
 import { MethodSpecBoard } from "@/components/MethodSpecBoard"
 import { JsonTree } from "@/components/JsonTree"
 import { CodeView } from "@/components/CodeView"
@@ -295,6 +299,16 @@ export function SessionDetailPage() {
     },
   })
 
+  // True from the moment Run/Re-run is clicked until a fresh result lands --
+  // gates the Result/Step-output panels below so they show a "running"
+  // placeholder instead of the PREVIOUS run's still-cached content. Without
+  // this, clicking re-run only clears `syncResult`/`jobId` (see
+  // `onMutate`), but `session-step`'s background refetch can momentarily
+  // re-populate `latestAttempt` with the OLD (still-current on the backend
+  // until the new run actually completes) attempt, so the stale output
+  // never visibly went away.
+  const isRerunning = runMutation.isPending || job.status === "pending" || job.status === "running"
+
   // Auto-advance to the next step once THIS step's own result looks like a
   // real success -- not just "the HTTP call didn't throw" (e.g. step4
   // validate can 200 with `passed: false`, step2 resolve can 200 with
@@ -399,7 +413,7 @@ export function SessionDetailPage() {
             </CardHeader>
             <CardContent className="flex flex-col gap-3">
               {step > 2 && def.isJob ? <JobLogPanel job={job} /> : null}
-              {latestAttempt?.diagnostics && "readiness" in latestAttempt.diagnostics && (
+              {!isRerunning && latestAttempt?.diagnostics && "readiness" in latestAttempt.diagnostics && (
                 <div className="flex flex-col gap-1 rounded-md border border-border p-2 text-xs">
                   <span>
                     readiness: <Badge variant="outline">{latestAttempt.diagnostics.readiness}</Badge>
@@ -488,6 +502,27 @@ export function SessionDetailPage() {
                       }}
                     />
                   )}
+                  {step === 6 &&
+                    (() => {
+                      let current: Record<string, unknown> = {}
+                      try {
+                        current = JSON.parse(requestText)
+                      } catch {
+                        // leave the template default in place; the picker just won't reflect it yet.
+                      }
+                      return (
+                        <Step6TrackPicker
+                          runOriginal={Boolean(current.run_original)}
+                          runStandardized={Boolean(current.run_standardized)}
+                          ablationSwitches={(current.ablation_switches as string[] | undefined) ?? []}
+                          factorialSwitches={(current.factorial_switches as string[] | undefined) ?? []}
+                          onChange={(patch) => {
+                            const parsed = JSON.parse(requestText)
+                            setRequestText(JSON.stringify({ ...parsed, ...patch }, null, 2))
+                          }}
+                        />
+                      )
+                    })()}
                   <Textarea
                     className="h-64 font-mono text-xs"
                     value={requestText}
@@ -510,7 +545,67 @@ export function SessionDetailPage() {
                 </CardContent>
               </Card>
 
-              {resultCard}
+              {step === 3 ? (
+                <Card>
+                  <CardHeader>
+                    <CardTitle>compute_signal code</CardTitle>
+                  </CardHeader>
+                  <CardContent>
+                    {isRerunning ? (
+                      <p className="text-xs text-muted-foreground">Running…</p>
+                    ) : (
+                      <Step3ComputeSignalCard sessionId={sessionId} attempt={latestAttempt} />
+                    )}
+                  </CardContent>
+                </Card>
+              ) : step === 4 ? (
+                <Card>
+                  <CardHeader>
+                    <CardTitle>Repair (before / after)</CardTitle>
+                  </CardHeader>
+                  <CardContent className="flex flex-col gap-3">
+                    {/* step4 is a job (repair loop + full validation-sample run
+                     * can take a while) -- keep the live log visible instead of
+                     * only showing the final diff once it completes. */}
+                    <JobLogPanel job={job} />
+                    {isRerunning ? (
+                      <p className="text-xs text-muted-foreground">Running…</p>
+                    ) : (
+                      <Step4RepairCard sessionId={sessionId} attempt={latestAttempt} manifest={sessionQuery.data} />
+                    )}
+                  </CardContent>
+                </Card>
+              ) : step === 5 ? (
+                <Card>
+                  <CardHeader>
+                    <CardTitle>Backtest run</CardTitle>
+                  </CardHeader>
+                  <CardContent className="flex flex-col gap-3">
+                    <JobLogPanel job={job} />
+                    {isRerunning ? (
+                      <p className="text-xs text-muted-foreground">Running…</p>
+                    ) : (
+                      <Step5HeadlineCard attempt={latestAttempt} />
+                    )}
+                  </CardContent>
+                </Card>
+              ) : step === 6 ? (
+                <Card>
+                  <CardHeader>
+                    <CardTitle>Experiment batch</CardTitle>
+                  </CardHeader>
+                  <CardContent className="flex flex-col gap-3">
+                    <JobLogPanel job={job} />
+                    {isRerunning ? (
+                      <p className="text-xs text-muted-foreground">Running…</p>
+                    ) : (
+                      <Step6BatchSummaryCard attempt={latestAttempt} />
+                    )}
+                  </CardContent>
+                </Card>
+              ) : (
+                resultCard
+              )}
             </div>
 
             {step > 2 && (
@@ -519,13 +614,17 @@ export function SessionDetailPage() {
                   <CardTitle>Step output</CardTitle>
                 </CardHeader>
                 <CardContent>
-                  <StepOutputView
-                    step={step}
-                    sessionId={sessionId}
-                    factorId={sessionQuery.data.factor_id}
-                    attempt={latestAttempt}
-                    syncResult={def.isJob ? job.result : syncResult}
-                  />
+                  {isRerunning ? (
+                    <p className="text-xs text-muted-foreground">Running… previous result cleared.</p>
+                  ) : (
+                    <StepOutputView
+                      step={step}
+                      sessionId={sessionId}
+                      attempt={latestAttempt}
+                      syncResult={def.isJob ? job.result : syncResult}
+                      manifest={sessionQuery.data}
+                    />
+                  )}
                 </CardContent>
               </Card>
             )}
@@ -1541,3 +1640,108 @@ function SnapshotPicker({ onSelect }: { onSelect: (snapshotId: string) => void }
     </Select>
   )
 }
+
+// Mirrors `_ABLATION_SWITCH_TO_CONFIG_KEY` in
+// src/steps/step6_dual_track_controller/__init__.py -- the only switch
+// names the backend actually understands for ablation_switches/
+// factorial_switches.
+const ABLATION_SWITCHES = [
+  { key: "breakpoint", label: "Breakpoint source", hint: "how stocks are split into groups" },
+  { key: "weighting", label: "Weighting rule", hint: "equal-weight vs. size-weight" },
+  { key: "lag", label: "Accounting lag", hint: "how many months old the data can be" },
+  { key: "missing", label: "Missing-value handling", hint: "what to do with gaps in the data" },
+  { key: "rebalance", label: "Rebalance frequency", hint: "how often portfolios are reformed" },
+  { key: "universe", label: "Universe", hint: "which stocks are eligible" },
+] as const
+
+function toggle(list: string[], key: string, checked: boolean): string[] {
+  return checked ? [...list, key] : list.filter((k) => k !== key)
+}
+
+/** Step6 request editor helper: picks which tracks to run without hand-
+ * editing the JSON -- `run_original`/`run_standardized` plus which
+ * ablation/factorial switches to flip. Kept to plain, jargon-light wording
+ * (2026-08-15): "compare against" instead of "ablation", "test together"
+ * instead of "factorial", the latter collapsed by default since it's the
+ * less commonly needed of the two. */
+function Step6TrackPicker({
+  runOriginal,
+  runStandardized,
+  ablationSwitches,
+  factorialSwitches,
+  onChange,
+}: {
+  runOriginal: boolean
+  runStandardized: boolean
+  ablationSwitches: string[]
+  factorialSwitches: string[]
+  onChange: (patch: Record<string, unknown>) => void
+}) {
+  return (
+    <div className="flex flex-col gap-3 rounded-md border border-border p-3 text-xs">
+      <div>
+        <p className="font-medium">Which versions to run</p>
+        <p className="text-muted-foreground">Always includes the paper's own setup.</p>
+        <label className="mt-1 flex items-center gap-1.5">
+          <input
+            type="checkbox"
+            checked={runOriginal}
+            onChange={(e) => onChange({ run_original: e.target.checked })}
+          />
+          Paper's original setup
+        </label>
+        <label className="flex items-center gap-1.5">
+          <input
+            type="checkbox"
+            checked={runStandardized}
+            onChange={(e) => onChange({ run_standardized: e.target.checked })}
+          />
+          A fully standardized setup (everything switched to the standard default at once)
+        </label>
+      </div>
+
+      <div>
+        <p className="font-medium">Test one change at a time</p>
+        <p className="text-muted-foreground">
+          For each one checked, adds a run that's identical to the paper's setup except for that ONE change --
+          isolates exactly what that change alone does to the result.
+        </p>
+        <div className="mt-1 flex flex-col gap-1">
+          {ABLATION_SWITCHES.map(({ key, label, hint }) => (
+            <label key={key} className="flex items-center gap-1.5">
+              <input
+                type="checkbox"
+                checked={ablationSwitches.includes(key)}
+                onChange={(e) => onChange({ ablation_switches: toggle(ablationSwitches, key, e.target.checked) })}
+              />
+              {label} <span className="text-muted-foreground">({hint})</span>
+            </label>
+          ))}
+        </div>
+      </div>
+
+      <details>
+        <summary className="cursor-pointer font-medium text-muted-foreground">
+          Advanced: test changes together (usually not needed)
+        </summary>
+        <p className="mt-1 text-muted-foreground">
+          Checking more than one here runs every combination of them together too, to see if changing them AT THE
+          SAME TIME matters beyond what each does on its own.
+        </p>
+        <div className="mt-1 flex flex-col gap-1">
+          {ABLATION_SWITCHES.map(({ key, label }) => (
+            <label key={key} className="flex items-center gap-1.5">
+              <input
+                type="checkbox"
+                checked={factorialSwitches.includes(key)}
+                onChange={(e) => onChange({ factorial_switches: toggle(factorialSwitches, key, e.target.checked) })}
+              />
+              {label}
+            </label>
+          ))}
+        </div>
+      </details>
+    </div>
+  )
+}
+

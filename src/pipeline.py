@@ -20,7 +20,7 @@ from pathlib import Path
 
 from src.infra.data_layer import DataLayer
 from src.steps.step5_backtest_runner import BacktestRunner
-from src.steps.step6_dual_track_controller import DualTrackController
+from src.steps.step6_dual_track_controller import MultiTrackController
 from src.steps.step7_replication_diff import ReplicationDiff
 from src.steps.step8_diagnosis import ReplicationDiagnoser
 from src.infra.evidence import EvidenceStore, RunRegistry
@@ -45,7 +45,7 @@ class Pipeline:
     BacktestRunner execute the script (5). A technical failure (syntax/
     schema/future-leak/execution crash) loops back to step 3 for a bounded
     Meta-Coder repair via the shared `RepairLoop` (src/infra/repair.py),
-    every entry point (`run_from_method_spec`, `DualTrackController.
+    every entry point (`run_from_method_spec`, `MultiTrackController.
     _run_track()`) uses the same one.
     """
 
@@ -78,7 +78,7 @@ class Pipeline:
             if run_diagnosis and llm_client is not None
             else None
         )
-        self.controller = DualTrackController(
+        self.controller = MultiTrackController(
             runner=self.runner,
             meta_coder=self.meta_coder,
             sandbox=self.sandbox,

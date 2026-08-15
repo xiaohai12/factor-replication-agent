@@ -1,4 +1,4 @@
-"""Tests for `DualTrackController.run_from_matrix` (Phase A2,
+"""Tests for `MultiTrackController.run_from_matrix` (Phase A2,
 docs/multi-config-evidence-plan.md): executing a loaded/validated
 `experiment_spec.ExperimentMatrix` as tracks, alongside the implicit
 `original_method` baseline. Reuses the FakeRunner/FakeMetaCoder/FakeSandbox
@@ -9,7 +9,7 @@ from __future__ import annotations
 
 from src.infra.models.plugin import PluginRecord, ValidationReport
 from src.infra.models.run_record import RunMetrics, RunRecord
-from src.steps.step6_dual_track_controller import DualTrackController
+from src.steps.step6_dual_track_controller import MultiTrackController
 from src.steps.step6_dual_track_controller.experiment_spec import load_experiment_matrix
 from tests._spec_test_helpers import minimal_resolved_spec, spec_factor_id
 
@@ -89,7 +89,7 @@ experiments:
         )
         matrix = load_experiment_matrix(path, _spec())
         runner = FakeRunner()
-        controller = DualTrackController(runner=runner, meta_coder=FakeMetaCoder(), sandbox=FakeSandbox())
+        controller = MultiTrackController(runner=runner, meta_coder=FakeMetaCoder(), sandbox=FakeSandbox())
 
         runs = controller.run_from_matrix(_plugin(), _spec(), matrix, snapshot_id="snap1")
 
@@ -111,7 +111,7 @@ experiments:
         )
         matrix = load_experiment_matrix(path, _spec())
         runner = FakeRunner()
-        controller = DualTrackController(runner=runner, meta_coder=FakeMetaCoder(), sandbox=FakeSandbox())
+        controller = MultiTrackController(runner=runner, meta_coder=FakeMetaCoder(), sandbox=FakeSandbox())
 
         controller.run_from_matrix(_plugin(), _spec(), matrix, snapshot_id="snap1")
 
@@ -130,7 +130,7 @@ experiments:
         )
         matrix = load_experiment_matrix(path, _spec())
         runner = FakeRunner()
-        controller = DualTrackController(runner=runner, meta_coder=FakeMetaCoder(), sandbox=FakeSandbox())
+        controller = MultiTrackController(runner=runner, meta_coder=FakeMetaCoder(), sandbox=FakeSandbox())
 
         runs = controller.run_from_matrix(_plugin(), _spec(), matrix, snapshot_id="snap1")
 
@@ -152,7 +152,7 @@ experiments:
         )
         matrix = load_experiment_matrix(path, _spec())
         runner = FakeRunner()
-        controller = DualTrackController(runner=runner, meta_coder=FakeMetaCoder(), sandbox=FakeSandbox())
+        controller = MultiTrackController(runner=runner, meta_coder=FakeMetaCoder(), sandbox=FakeSandbox())
 
         runs = controller.run_from_matrix(_plugin(), _spec(), matrix, snapshot_id="snap1")
 

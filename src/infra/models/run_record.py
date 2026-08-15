@@ -71,7 +71,7 @@ class RunRecord(BaseModel):
     runtime_provenance: dict = Field(default_factory=dict)
 
     # Matrix/batch identity (docs/multi-config-evidence-plan.md Phase 0.6):
-    # every RunRecord produced by one `DualTrackController.run_experiment()`
+    # every RunRecord produced by one `MultiTrackController.run_experiment()`
     # call shares one `experiment_batch_id`. The whole batch's premise --
     # "every track ran the SAME frozen plugin code, only config differs" --
     # is falsifiable: if any track's execution failure triggered a
@@ -90,7 +90,7 @@ class RunRecord(BaseModel):
     # came from an externally-supplied series, not this factor's own
     # `compute_signal()`, so its `code_hash` is intentionally NOT the agent
     # plugin's hash and must be excluded from the batch's "every track ran
-    # identical code" consistency check (`DualTrackController._finalize_batch`)
+    # identical code" consistency check (`MultiTrackController._finalize_batch`)
     # -- a bridge track's whole point is a DIFFERENT signal source under the
     # SAME config, which is a different comparison axis entirely from
     # config-only ablations.

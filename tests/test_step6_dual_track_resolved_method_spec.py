@@ -1,4 +1,4 @@
-"""Phase D test: `DualTrackController`'s `ResolvedMethodSpec` dispatch
+"""Phase D test: `MultiTrackController`'s `ResolvedMethodSpec` dispatch
 (`_spec_factor_id`, `_plan_to_matrix`, `_get_ablation_override`). Not yet
 used by `src.pipeline`/backend routers/`app.py` (see
 docs/methodspec-v2-plan.md section 9, Phase D). Exercises matrix-building
@@ -10,15 +10,15 @@ engine layer.
 from __future__ import annotations
 
 from src.steps.step6_dual_track_controller import (
-    DualTrackController,
+    MultiTrackController,
     ExperimentPlan,
     _spec_factor_id,
 )
 from tests.test_meta_coder_resolved_method_spec import _resolved_spec
 
 
-def _controller() -> DualTrackController:
-    return DualTrackController(runner=None, meta_coder=None, sandbox=None)
+def _controller() -> MultiTrackController:
+    return MultiTrackController(runner=None, meta_coder=None, sandbox=None)
 
 
 class TestSpecFactorIdDispatch:

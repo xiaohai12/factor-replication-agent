@@ -1,4 +1,4 @@
-"""Phase D: `DualTrackController._run_bridge_track` off the paper-first
+"""Phase D: `MultiTrackController._run_bridge_track` off the paper-first
 `ResolvedMethodSpec` schema, mirrors tests/test_bridge_track_e2e.py (which
 covers the v1 path) -- proves the C&Z bridge track executes via real
 subprocess for a ResolvedMethodSpec too.

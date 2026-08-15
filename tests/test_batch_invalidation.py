@@ -1,5 +1,5 @@
 """Tests for batch-level plugin freeze (Phase 0.6, full version, 2026-08-04:
-docs/multi-config-evidence-plan.md): `DualTrackController.run_experiment`'s
+docs/multi-config-evidence-plan.md): `MultiTrackController.run_experiment`'s
 premise is "every track in one batch ran the SAME frozen plugin code, only
 config differs." A per-track execution failure can trigger `RepairLoop`
 (src/infra/repair.py) to hand back a DIFFERENT plugin (new code_hash) for
@@ -17,7 +17,7 @@ from __future__ import annotations
 
 from src.infra.models.plugin import PluginRecord, ValidationReport
 from src.infra.models.run_record import RunMetrics, RunRecord
-from src.steps.step6_dual_track_controller import DualTrackController, ExperimentPlan
+from src.steps.step6_dual_track_controller import MultiTrackController, ExperimentPlan
 from tests._spec_test_helpers import minimal_resolved_spec, spec_factor_id
 
 
@@ -35,7 +35,7 @@ def _plugin() -> PluginRecord:
 class FakeRunnerWithCodeHash:
     """Like test_dual_track_controller.py's FakeRunner, but `make_run_record`
     actually propagates `plugin.code_hash` (the real `BacktestRunner` does
-    this too -- see `outcome.plugin` in `DualTrackController._run_track`).
+    this too -- see `outcome.plugin` in `MultiTrackController._run_track`).
     `execute()` fails exactly once for any track named in `fail_once_tracks`,
     then succeeds -- enough to trigger exactly one repair on that track only.
     """
@@ -108,7 +108,7 @@ class FakeSandbox:
 class TestBatchInvalidationOnTrackLocalRepair:
     def test_no_repair_batch_stays_valid(self):
         runner = FakeRunnerWithCodeHash(fail_once_tracks=frozenset())
-        controller = DualTrackController(runner=runner, meta_coder=FakeMetaCoder(), sandbox=FakeSandbox())
+        controller = MultiTrackController(runner=runner, meta_coder=FakeMetaCoder(), sandbox=FakeSandbox())
         plan = ExperimentPlan(factor_id="t", run_original=True, run_standardized=True)
 
         runs = controller.run_experiment(_plugin(), _spec(), plan, snapshot_id="snap1")
@@ -128,7 +128,7 @@ class TestBatchInvalidationOnTrackLocalRepair:
         end up sharing the SAME code, and the batch is no longer flagged
         invalidated just because it differs from the very first attempt."""
         runner = FakeRunnerWithCodeHash(fail_once_tracks=frozenset({"standardized_hxz"}))
-        controller = DualTrackController(runner=runner, meta_coder=FakeMetaCoder(), sandbox=FakeSandbox())
+        controller = MultiTrackController(runner=runner, meta_coder=FakeMetaCoder(), sandbox=FakeSandbox())
         plan = ExperimentPlan(factor_id="t", run_original=True, run_standardized=True)
 
         runs = controller.run_experiment(_plugin(), _spec(), plan, snapshot_id="snap1")
@@ -146,7 +146,7 @@ class TestBatchInvalidationOnTrackLocalRepair:
 
     def test_batch_info_embedded_in_comparison_summary(self):
         runner = FakeRunnerWithCodeHash(fail_once_tracks=frozenset({"standardized_hxz"}))
-        controller = DualTrackController(runner=runner, meta_coder=FakeMetaCoder(), sandbox=FakeSandbox())
+        controller = MultiTrackController(runner=runner, meta_coder=FakeMetaCoder(), sandbox=FakeSandbox())
         plan = ExperimentPlan(factor_id="t", run_original=True, run_standardized=True)
 
         controller.run_experiment(_plugin(), _spec(), plan, snapshot_id="snap1")
@@ -172,10 +172,10 @@ class TestZeroRefreezeAttemptsIsDetectionOnly:
     `run_experiment`/`run_from_matrix` always use the default of 1."""
 
     def test_max_refreeze_attempts_zero_leaves_batch_invalidated(self):
-        from src.steps.step6_dual_track_controller import DualTrackController
+        from src.steps.step6_dual_track_controller import MultiTrackController
 
         runner = FakeRunnerWithCodeHash(fail_once_tracks=frozenset({"standardized_hxz"}))
-        controller = DualTrackController(runner=runner, meta_coder=FakeMetaCoder(), sandbox=FakeSandbox())
+        controller = MultiTrackController(runner=runner, meta_coder=FakeMetaCoder(), sandbox=FakeSandbox())
         track_specs = [("original_method", {}), ("standardized_hxz", {})]
 
         runs, effective_plugin, refreeze_attempts = controller._run_tracks_with_freeze(

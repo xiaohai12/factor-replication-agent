@@ -1,32 +1,15 @@
-import { useQueries, useQuery } from "@tanstack/react-query"
+import { useQuery } from "@tanstack/react-query"
 import { Badge } from "@/components/ui/badge"
 import { JsonTree } from "@/components/JsonTree"
-import { CodeView } from "@/components/CodeView"
 import { DiffView } from "@/components/DiffView"
 import { GapWaterfallChart } from "@/components/GapWaterfallChart"
-import { MetricsTable } from "@/components/MetricsTable"
-import { MultiTrackChart, type TrackSeries } from "@/components/MultiTrackChart"
-import { ReturnChart, type ReturnRow } from "@/components/ReturnChart"
+import { Step3Output } from "@/components/steps/Step3Output"
+import { Step4Output } from "@/components/steps/Step4Output"
+import { Step5Output } from "@/components/steps/Step5Output"
+import { Step6Output } from "@/components/steps/Step6Output"
 import { api } from "@/lib/api"
-import { parseSimpleCsv } from "@/lib/csv"
 import { sessionApi } from "@/lib/sessionApi"
-import type { StepAttempt } from "@/lib/types"
-
-interface RunRecordLike {
-  run_id: string
-  track: string
-  factor_id: string
-  status: string
-  metrics?: Record<string, unknown>
-}
-
-async function fetchReturnSeries(factorId: string, runId: string): Promise<ReturnRow[]> {
-  const text = await api.getText(`/api/evidence/${factorId}/${runId}/download/return_series.csv`)
-  return parseSimpleCsv(text).map((row) => ({
-    yyyymm: Number(row.yyyymm),
-    ls_return: Number(row.ls_return ?? row.monthly_return ?? 0),
-  }))
-}
+import type { SessionManifest, StepAttempt } from "@/lib/types"
 
 /** Per-step specialized output visualization -- Phase E of the
  * session-centric UI redesign. Falls back to a plain `JsonTree` of
@@ -36,65 +19,17 @@ async function fetchReturnSeries(factorId: string, runId: string): Promise<Retur
 export function StepOutputView({
   step,
   sessionId,
-  factorId,
   attempt,
   syncResult,
+  manifest,
 }: {
   step: number
   sessionId: string
-  factorId: string
   attempt: StepAttempt | undefined
   syncResult: unknown
+  manifest: SessionManifest | undefined
 }) {
   const refs = attempt?.output_refs ?? {}
-
-  // --- step3: plugin code + assembled script ---
-  const step3Plugin = useQuery({
-    queryKey: ["step-artifact", sessionId, 3, refs.plugin_ref],
-    queryFn: () => sessionApi.getStepArtifact(sessionId, 3, refs.plugin_ref),
-    enabled: step === 3 && !!refs.plugin_ref,
-  })
-  const step3Script = useQuery({
-    queryKey: ["step-artifact", sessionId, 3, refs.script_ref],
-    queryFn: () => sessionApi.getStepArtifact(sessionId, 3, refs.script_ref),
-    enabled: step === 3 && !!refs.script_ref,
-  })
-  const step3Config = useQuery({
-    queryKey: ["step-artifact", sessionId, 3, refs.config_ref],
-    queryFn: () => sessionApi.getStepArtifact(sessionId, 3, refs.config_ref),
-    enabled: step === 3 && !!refs.config_ref,
-  })
-
-  // --- step4: validation report ---
-  const step4Report = useQuery({
-    queryKey: ["step-artifact", sessionId, 4, refs.validation_ref],
-    queryFn: () => sessionApi.getStepArtifact(sessionId, 4, refs.validation_ref),
-    enabled: step === 4 && !!refs.validation_ref,
-  })
-
-  // --- step5: return series for the single execution ---
-  const step5ExecutionIds: string[] = step === 5 && refs.execution_ids ? JSON.parse(refs.execution_ids) : []
-  const step5Series = useQuery({
-    queryKey: ["return-series", factorId, step5ExecutionIds[0]],
-    queryFn: () => fetchReturnSeries(factorId, step5ExecutionIds[0]),
-    enabled: step === 5 && step5ExecutionIds.length > 0,
-  })
-
-  // --- step6: multi-track overlay ---
-  const step6ExecutionIds: string[] = step === 6 && refs.execution_ids ? JSON.parse(refs.execution_ids) : []
-  const step6Runs = useQuery({
-    queryKey: ["runs", factorId],
-    queryFn: () => api.get<RunRecordLike[]>(`/api/runs/${factorId}`),
-    enabled: step === 6 && step6ExecutionIds.length > 0,
-  })
-  const relevantRuns = (step6Runs.data ?? []).filter((r) => step6ExecutionIds.includes(r.run_id))
-  const step6Series = useQueries({
-    queries: relevantRuns.map((run) => ({
-      queryKey: ["return-series", factorId, run.run_id],
-      queryFn: () => fetchReturnSeries(factorId, run.run_id),
-      enabled: step === 6,
-    })),
-  })
 
   // --- step7: comparison bundle (gap decomposition, config diff) ---
   const step7Bundle = useQuery({
@@ -110,90 +45,20 @@ export function StepOutputView({
     enabled: step === 8 && !!refs.diagnosis_ref,
   })
 
-  if (step === 3 && (step3Plugin.data || step3Script.data || step3Config.data)) {
-    return (
-      <div className="flex flex-col gap-3">
-        {step3Config.data && (
-          <div>
-            <p className="mb-1 text-xs font-medium">Resolved config</p>
-            <MetricsTable metrics={JSON.parse(step3Config.data.content)} />
-          </div>
-        )}
-        {step3Plugin.data && (
-          <div>
-            <p className="mb-1 text-xs font-medium">compute_signal plugin</p>
-            <CodeView code={JSON.parse(step3Plugin.data.content).code ?? ""} language="python" />
-          </div>
-        )}
-        {step3Script.data && (
-          <div>
-            <p className="mb-1 text-xs font-medium">Assembled backtest script</p>
-            <CodeView code={step3Script.data.content} language="python" />
-          </div>
-        )}
-      </div>
-    )
+  if (step === 3) {
+    return <Step3Output sessionId={sessionId} attempt={attempt} />
   }
 
-  if (step === 4 && step4Report.data) {
-    const report = JSON.parse(step4Report.data.content)
-    const checks: [string, boolean | string][] = [
-      ["syntax_ok", report.syntax_ok],
-      ["schema_ok", report.schema_ok],
-      ["no_future_leak", report.no_future_leak],
-      ["reproducible", report.reproducible],
-      ["executes_ok", report.executes_ok],
-    ]
-    return (
-      <div className="flex flex-col gap-2">
-        <div className="flex flex-wrap gap-1">
-          {checks.map(([label, value]) => (
-            <Badge key={label} variant={value ? "default" : "destructive"}>
-              {label}: {String(value)}
-            </Badge>
-          ))}
-        </div>
-        {(report.errors ?? []).map((e: string, i: number) => (
-          <p key={i} className="text-xs text-destructive">
-            {e}
-          </p>
-        ))}
-      </div>
-    )
+  if (step === 4) {
+    return <Step4Output sessionId={sessionId} attempt={attempt} syncResult={syncResult} />
   }
 
-  if (step === 5 && step5Series.data) {
-    const step5Metrics = (syncResult as { metrics?: Record<string, unknown> } | undefined)?.metrics
-    return (
-      <div className="flex flex-col gap-3">
-        <ReturnChart data={step5Series.data} />
-        {step5Metrics && (
-          <div>
-            <p className="mb-1 text-xs font-medium">Performance metrics</p>
-            <MetricsTable metrics={step5Metrics} />
-          </div>
-        )}
-      </div>
-    )
+  if (step === 5) {
+    return <Step5Output sessionId={sessionId} attempt={attempt} manifest={manifest} />
   }
 
-  if (step === 6 && relevantRuns.length > 0) {
-    const series: TrackSeries[] = relevantRuns
-      .map((run, i) => ({ track: run.track, rows: step6Series[i]?.data ?? [] }))
-      .filter((s) => s.rows.length > 0)
-    return (
-      <div className="flex flex-col gap-3">
-        <MultiTrackChart series={series} />
-        {relevantRuns.map((run) =>
-          run.metrics ? (
-            <div key={run.run_id}>
-              <p className="mb-1 text-xs font-medium">{run.track} performance metrics</p>
-              <MetricsTable metrics={run.metrics} />
-            </div>
-          ) : null,
-        )}
-      </div>
-    )
+  if (step === 6) {
+    return <Step6Output sessionId={sessionId} attempt={attempt} />
   }
 
   if (step === 7 && step7Bundle.data) {

@@ -1,0 +1,292 @@
+import { useQuery, useQueries } from "@tanstack/react-query"
+import { Badge } from "@/components/ui/badge"
+import { JsonTree } from "@/components/JsonTree"
+import { MultiTrackChart, type TrackSeries } from "@/components/MultiTrackChart"
+import { api } from "@/lib/api"
+import { fetchReturnSeries, fetchRuns, type RunRecord } from "@/lib/evidence"
+import { cn } from "@/lib/utils"
+import type { StepAttempt } from "@/lib/types"
+
+function executionIds(attempt: StepAttempt | undefined): string[] {
+  const raw = attempt?.output_refs.execution_ids
+  return raw ? (JSON.parse(raw) as string[]) : []
+}
+
+function useStep6Runs(attempt: StepAttempt | undefined) {
+  const ids = executionIds(attempt)
+  const runsQuery = useQuery({
+    queryKey: ["runs"],
+    queryFn: () => fetchRuns(),
+    enabled: ids.length > 0,
+  })
+  const runs = (runsQuery.data ?? []).filter((r) => ids.includes(r.run_id))
+  return { runs, isLoading: runsQuery.isLoading }
+}
+
+// original_method pinned first when present, matching step7's own default
+// baseline (`BASELINE_TRACK` in bundle.py) -- step6 has no baseline concept
+// of its own yet (that's only computed once step7 runs), so this is a
+// best-effort stand-in, not the same field.
+function orderWithBaseline(runs: RunRecord[]): RunRecord[] {
+  const baseline = runs.find((r) => r.track === "original_method")
+  if (!baseline) return runs
+  return [baseline, ...runs.filter((r) => r !== baseline)]
+}
+
+function shortHash(hash: string | undefined): string {
+  if (!hash) return "—"
+  return hash.length > 12 ? `${hash.slice(0, 12)}…` : hash
+}
+
+function formatMetric(value: unknown): string {
+  if (value === null || value === undefined) return "—"
+  if (typeof value === "number") return Number.isInteger(value) ? String(value) : value.toFixed(4)
+  return String(value)
+}
+
+function formatConfigValue(value: unknown): string {
+  if (value === null || value === undefined) return "—"
+  if (typeof value === "object") return JSON.stringify(value)
+  return String(value)
+}
+
+/** Each track's RESOLVED config (`registry.build_config()`'s output) --
+ * read from `comparison.json` via a step6-scoped preview endpoint, since
+ * that file is already written as a side effect of step6's own run (see
+ * `GET /steps/6/track-configs` in backend/routers/replication.py) and
+ * doesn't require step7 to have ever been triggered for this session. */
+function useTrackConfigs(sessionId: string, experimentBatchId: string | undefined) {
+  const query = useQuery({
+    queryKey: ["step6-track-configs", sessionId, experimentBatchId],
+    queryFn: () =>
+      api.get<Record<string, Record<string, unknown>>>(
+        `/api/sessions/${sessionId}/steps/6/track-configs?experiment_batch_id=${encodeURIComponent(experimentBatchId!)}`,
+      ),
+    enabled: !!experimentBatchId,
+  })
+  return { configs: query.data, isLoading: query.isLoading }
+}
+
+/** Renders in the request/result grid's "Result" slot for step6 -- live job
+ * log (step6 IS a job) plus a brief batch summary; the full cross-track
+ * table lives in `Step6Output` below. */
+export function Step6BatchSummaryCard({ attempt }: { attempt: StepAttempt | undefined }) {
+  const { runs, isLoading } = useStep6Runs(attempt)
+  if (isLoading) return <p className="text-xs text-muted-foreground">Loading…</p>
+  if (runs.length === 0) return <p className="text-xs text-muted-foreground">No output recorded yet for this step.</p>
+  const invalidated = runs.some((r) => r.batch_invalidated)
+  return (
+    <div className="flex flex-wrap items-center gap-2 text-xs">
+      <Badge variant="outline">{runs.length} tracks</Badge>
+      <Badge variant={invalidated ? "destructive" : "default"}>
+        batch: {invalidated ? "invalidated" : "consistent"}
+      </Badge>
+    </div>
+  )
+}
+
+/** Renders in the "Step output" card below the request/result grid --
+ * cross-track comparison table (baseline pinned first) + the overlay
+ * chart, entirely from PERSISTED `RunRecord`s (global `/api/runs`, same
+ * factor_id caveat as step5 -- see lib/evidence.ts). */
+export function Step6Output({ sessionId, attempt }: { sessionId: string; attempt: StepAttempt | undefined }) {
+  const { runs, isLoading } = useStep6Runs(attempt)
+  const ordered = orderWithBaseline(runs)
+  const { configs } = useTrackConfigs(sessionId, attempt?.output_refs.experiment_batch_id)
+  const seriesQueries = useQueries({
+    queries: ordered.map((run) => ({
+      queryKey: ["return-series", run.factor_id, run.run_id],
+      queryFn: () => fetchReturnSeries(run.factor_id, run.run_id),
+      enabled: true,
+    })),
+  })
+
+  if (isLoading) return <p className="text-xs text-muted-foreground">Loading…</p>
+  if (runs.length === 0) return <p className="text-xs text-muted-foreground">No output recorded yet for this step.</p>
+
+  const first = runs[0]
+  const invalidated = runs.some((r) => r.batch_invalidated)
+  const invalidationReason = runs.find((r) => r.batch_invalidated)?.batch_invalidation_reason
+
+  const series: TrackSeries[] = ordered
+    .map((run, i) => ({ track: run.track, rows: seriesQueries[i]?.data ?? [] }))
+    .filter((s) => s.rows.length > 0)
+
+  const baselineTrack = ordered[0]?.track
+  const baselineTStat = (ordered[0]?.metrics as Record<string, unknown> | undefined)?.t_stat as number | undefined
+
+  return (
+    <div className="flex flex-col gap-4">
+      <div className="flex flex-wrap items-center gap-2 text-xs">
+        <span className="font-mono text-muted-foreground">batch: {shortHash(first.experiment_batch_id)}</span>
+        <Badge variant="outline">{runs.length} tracks</Badge>
+        <Badge variant={invalidated ? "destructive" : "default"}>
+          {invalidated ? "batch invalidated" : "batch consistent"}
+        </Badge>
+      </div>
+      {invalidated && (
+        <p className="rounded-md border border-destructive/40 bg-destructive/5 p-2 text-xs text-destructive">
+          {invalidationReason || "A track-local repair changed the plugin code away from this batch's frozen hash."}
+        </p>
+      )}
+
+      <div>
+        <p className="mb-1 text-xs font-medium">Cross-track comparison</p>
+        <table className="w-full border-collapse text-xs">
+          <thead>
+            <tr className="border-b border-border text-muted-foreground">
+              <th className="py-1 pr-3 text-left font-medium">Track</th>
+              <th className="py-1 pr-3 text-left font-medium">Status</th>
+              <th className="py-1 pr-3 text-left font-medium">Mean return</th>
+              <th className="py-1 pr-3 text-left font-medium">t-stat</th>
+              <th className="py-1 pr-3 text-left font-medium">Sharpe</th>
+              <th className="py-1 pr-3 text-left font-medium">Alpha (FF3)</th>
+              <th className="py-1 pr-3 text-left font-medium">n_months</th>
+              <th className="py-1 text-left font-medium">Coverage</th>
+            </tr>
+          </thead>
+          <tbody>
+            {ordered.map((run) => {
+              const metrics = run.metrics ?? {}
+              const isBaseline = run.track === baselineTrack
+              const tStat = metrics.t_stat as number | undefined
+              const delta =
+                !isBaseline && typeof tStat === "number" && typeof baselineTStat === "number"
+                  ? tStat - baselineTStat
+                  : undefined
+              return (
+                <tr
+                  key={run.run_id}
+                  className={cn("border-b border-border/50 last:border-0", isBaseline && "bg-sky-50 dark:bg-sky-950/20")}
+                >
+                  <td className="py-1 pr-3">
+                    {run.track}
+                    {isBaseline && (
+                      <Badge variant="outline" className="ml-1">
+                        baseline
+                      </Badge>
+                    )}
+                    {run.is_bridge_track && (
+                      <Badge variant="secondary" className="ml-1">
+                        bridge
+                      </Badge>
+                    )}
+                  </td>
+                  <td className="py-1 pr-3">
+                    <Badge variant={run.status === "success" ? "default" : "destructive"}>{run.status}</Badge>
+                  </td>
+                  <td className="py-1 pr-3">{formatMetric(metrics.mean_return)}</td>
+                  <td className="py-1 pr-3">
+                    {formatMetric(tStat)}
+                    {delta !== undefined && (
+                      <span className="ml-1 text-muted-foreground">
+                        ({delta >= 0 ? "+" : ""}
+                        {delta.toFixed(2)})
+                      </span>
+                    )}
+                  </td>
+                  <td className="py-1 pr-3">{formatMetric(metrics.sharpe_ratio)}</td>
+                  <td className="py-1 pr-3">{formatMetric(metrics.alpha_ff3)}</td>
+                  <td className="py-1 pr-3">{formatMetric(metrics.n_months)}</td>
+                  <td className="py-1">{formatMetric(metrics.coverage)}</td>
+                </tr>
+              )
+            })}
+          </tbody>
+        </table>
+      </div>
+
+      {configs && (
+        <div>
+          <p className="mb-1 text-xs font-medium">Config per track</p>
+          <p className="mb-1 text-xs text-muted-foreground">
+            Every resolved config key, one column per track -- a cell that differs from the baseline (
+            {baselineTrack}) is highlighted.
+          </p>
+          <div className="max-h-96 overflow-auto">
+            <table className="w-full border-collapse text-xs">
+              <thead>
+                <tr className="border-b border-border text-muted-foreground">
+                  <th className="sticky left-0 bg-background py-1 pr-3 text-left font-medium">Config key</th>
+                  {ordered
+                    .filter((run) => configs[run.track])
+                    .map((run) => (
+                      <th key={run.track} className="py-1 pr-3 text-left font-medium">
+                        {run.track}
+                      </th>
+                    ))}
+                </tr>
+              </thead>
+              <tbody>
+                {Array.from(new Set(Object.values(configs).flatMap((c) => Object.keys(c))))
+                  .sort()
+                  .map((key) => {
+                    const baselineValue = baselineTrack ? configs[baselineTrack]?.[key] : undefined
+                    return (
+                      <tr key={key} className="border-b border-border/50 last:border-0">
+                        <td className="sticky left-0 bg-background py-1 pr-3 font-mono text-muted-foreground">
+                          {key}
+                        </td>
+                        {ordered
+                          .filter((run) => configs[run.track])
+                          .map((run) => {
+                            const value = configs[run.track]?.[key]
+                            const differs =
+                              run.track !== baselineTrack && JSON.stringify(value) !== JSON.stringify(baselineValue)
+                            return (
+                              <td
+                                key={run.track}
+                                className={cn("py-1 pr-3 font-mono", differs && "bg-amber-50 dark:bg-amber-950/20")}
+                              >
+                                {formatConfigValue(value)}
+                              </td>
+                            )
+                          })}
+                      </tr>
+                    )
+                  })}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+
+      <MultiTrackChart series={series} />
+
+      <details>
+        <summary className="cursor-pointer text-xs font-medium text-muted-foreground">Debug / provenance</summary>
+        <div className="mt-2 flex flex-col gap-3 text-xs">
+          <table className="w-full border-collapse">
+            <thead>
+              <tr className="border-b border-border text-muted-foreground">
+                <th className="py-1 pr-3 text-left font-medium">Track</th>
+                <th className="py-1 pr-3 text-left font-medium">code_hash</th>
+                <th className="py-1 pr-3 text-left font-medium">frozen_plugin_hash</th>
+                <th className="py-1 text-left font-medium">config_hash</th>
+              </tr>
+            </thead>
+            <tbody>
+              {ordered.map((run) => (
+                <tr key={run.run_id} className="border-b border-border/50 last:border-0">
+                  <td className="py-1 pr-3">{run.track}</td>
+                  <td className="py-1 pr-3 font-mono">{shortHash(run.code_hash)}</td>
+                  <td className="py-1 pr-3 font-mono">{shortHash(run.frozen_plugin_hash)}</td>
+                  <td className="py-1 font-mono">{shortHash(run.config_hash)}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+          {ordered
+            .filter((run) => (run.repair_history?.length ?? 0) > 0)
+            .map((run) => (
+              <div key={run.run_id}>
+                <p className="mb-1 font-medium">{run.track} repair trace</p>
+                <JsonTree name="repair_history" data={run.repair_history} />
+              </div>
+            ))}
+          <JsonTree name="runs" data={ordered} />
+        </div>
+      </details>
+    </div>
+  )
+}

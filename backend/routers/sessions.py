@@ -306,7 +306,7 @@ async def validate_step4_artifact(session_id: str, req: ValidateArtifactRequest)
     data). Two stages: (1) a cheap `Pipeline._build_validation_slice`-based
     smoke test of `compute_signal` alone, wired through the shared
     `RepairLoop` (a technical-only build->validate->repair->rebuild cycle,
-    same one `Pipeline.run_from_method_spec`/`DualTrackController` use) so a
+    same one `Pipeline.run_from_method_spec`/`MultiTrackController` use) so a
     repairable syntax/schema failure is fixed automatically instead of just
     reported; (2) a MANDATORY full run of the exact validated script via
     `BacktestRunner.execute()` -- the SAME call `execute_step5` makes, just
@@ -432,7 +432,7 @@ async def validate_step4_artifact(session_id: str, req: ValidateArtifactRequest)
                         f"Full-script run against the validation sample failed (exit {proc.returncode}): {tail}"
                     )
 
-        (step3_dir / f"{validated_sha256}.validation.json").write_text(
+        (step4_dir / f"{validated_sha256}.validation.json").write_text(
             json.dumps(to_jsonable(report), indent=2)
         )
         output_refs["validation_ref"] = f"{validated_sha256}.validation.json"

@@ -79,10 +79,16 @@ export const STEP_REGISTRY: StepDefinition[] = [
       expected_revision: 0,
       spec: {},
       plugin: {},
-      snapshot_id: "synthetic_demo_v1",
+      // Real WRDS data (backend/state.py's REAL_WRDS_SNAPSHOT_ID) -- same
+      // snapshot step5 always runs against, not the synthetic demo data.
+      snapshot_id: "real_wrds_local_v1",
       run_original: true,
-      run_standardized: false,
-      ablation_switches: [],
+      run_standardized: true,
+      // Default to 4 tracks (original_method, standardized_hxz, plus these
+      // two single-switch flips) so the cross-track comparison table isn't
+      // empty out of the box -- see _ABLATION_SWITCH_TO_CONFIG_KEY in
+      // src/steps/step6_dual_track_controller/__init__.py for the full menu.
+      ablation_switches: ["breakpoint", "weighting"],
       factorial_switches: [],
     },
   },

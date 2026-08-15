@@ -38,7 +38,7 @@ per-function docstrings below explain the resulting (deliberate, documented)
 shift-count adaptation (12 months -> 1 row) for each one.
 
 `compute_cz_bridge_signal(factor_id, data_dir)` is the one public entry
-point `DualTrackController`/analysis scripts should call.
+point `MultiTrackController`/analysis scripts should call.
 """
 
 from __future__ import annotations

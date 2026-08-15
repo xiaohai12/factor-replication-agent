@@ -1,6 +1,6 @@
 """Phase D test: `BacktestRunner.build_script`/`write_comparison_summary`/
 `make_run_record`/`make_failed_run_record`'s `ResolvedMethodSpec` dispatch.
-Not yet used by `src.pipeline`/`DualTrackController` (see
+Not yet used by `src.pipeline`/`MultiTrackController` (see
 docs/methodspec-v2-plan.md section 9, Phase D).
 """
 

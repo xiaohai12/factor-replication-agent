@@ -1,5 +1,5 @@
 """Step6 session endpoint: multi-track/OAT experiment orchestration
-(`DualTrackController.run_experiment`), tagged onto a session as a job
+(`MultiTrackController.run_experiment`), tagged onto a session as a job
 (subprocess-heavy, one execution per track).
 """
 

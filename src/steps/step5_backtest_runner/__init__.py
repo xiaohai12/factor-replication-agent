@@ -9,7 +9,7 @@ rather than in `step3_codegen/` only because it needs `DataLayer` snapshot
 path resolution, which step3_codegen doesn't have access to. Neither method
 has retry/repair logic of its own; that's orchestration owned by callers
 (`Pipeline.run_from_method_spec` for the single-track path,
-`DualTrackController` for multi-track), the same way `AdversarialSandbox.validate()`
+`MultiTrackController` for multi-track), the same way `AdversarialSandbox.validate()`
 doesn't retry itself either — repair loops live one level up, in the code that
 has access to `MetaCoder.repair_plugin()`.
 
@@ -358,7 +358,7 @@ class BacktestRunner:
         `tracks` is `{track_name: {"config": {...}, "metrics": {...}}}` --
         one entry per track already executed (e.g. `{"original_method":
         {"config": {...}, "metrics": {...}}, ...}`), built by the caller
-        (`DualTrackController.run_experiment`) from each track's resolved
+        (`MultiTrackController.run_experiment`) from each track's resolved
         `registry.build_config()` output and `RunRecord.metrics`.
 
         Schema v2 additionally embeds the DETERMINISTIC EVIDENCE BUNDLE
@@ -376,7 +376,7 @@ class BacktestRunner:
         per-track metrics.json is written by that track's own standalone
         script and is the authoritative source for that track's numbers.
 
-        `batch_info`, when supplied (see `DualTrackController.run_experiment`,
+        `batch_info`, when supplied (see `MultiTrackController.run_experiment`,
         docs/multi-config-evidence-plan.md Phase 0.6), is embedded verbatim
         under the `"batch"` key: `experiment_batch_id`, `frozen_plugin_hash`,
         and whether a track-local repair invalidated this batch's "every

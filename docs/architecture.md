@@ -123,7 +123,7 @@ flowchart TD
 
 | 触发条件 | 回路方向 | 上限 | 实现状态 |
 |---|---|---|---|
-| 技术性失败（syntax/schema/未来泄漏/执行崩溃） | Sandbox/执行 → Meta-Coder 重新生成代码 | `MAX_REPAIR_RETRIES = 3` | ✅ 已实现：统一在共享 `RepairLoop`，被 `run_from_method_spec` / `run_full_pipeline` / `DualTrackController._run_track` 共用；每次尝试记 `RepairAttempt` 审计 |
+| 技术性失败（syntax/schema/未来泄漏/执行崩溃） | Sandbox/执行 → Meta-Coder 重新生成代码 | `MAX_REPAIR_RETRIES = 3` | ✅ 已实现：统一在共享 `RepairLoop`，被 `run_from_method_spec` / `run_full_pipeline` / `MultiTrackController._run_track` 共用；每次尝试记 `RepairAttempt` 审计 |
 | LLM Reviewer 判定高影响字段被**误抽**（`remediation_mode == TARGETED_REEXTRACTION`，且该字段有论文原文引用） | Review Gate → Extractor 定向重抽 | `MAX_REEXTRACT = 2` | ✅ 已实现：带 reviewer 的论文原文引用重抽被标字段 → 重审；超预算/无可用引用/论文确实没写 → 转人工 |
 | Review 判 `FULL_REGENERATION` 或论文确实沉默（无原文引用） | → 人工 | — | ✅ 直接 `needs_manual`（不消耗重抽预算），不自动重来 |
 | 复现结果与参考（C&Z/论文）有差距 | ReplicationDiff 报告（终点，**不回流**） | — | ✅ 设计上不做自动经验回退，只报告 gap 供人解读 |
@@ -370,7 +370,7 @@ src/
                                   # script_generator.generate_backtest_script（组装独立回测脚本）
     step4_validator/               # Future-Leak Scan + 插件语法/schema/沙箱冒烟测试
     step5_backtest_runner/          # BacktestRunner.build_script() / .execute()（跑 step3 组装好的脚本）
-    step6_dual_track_controller/     # DualTrackController + ExperimentPlan + HXZ_STANDARD_CONFIG
+    step6_dual_track_controller/     # MultiTrackController + ExperimentPlan + HXZ_STANDARD_CONFIG
     step7_replication_diff/          # ReplicationDiff + ReplicationDiffResult
   infra/                        # 跨 step 共享基础设施（无 LLM hook 加载，纯标准化实现）
     pdf_mapper.py                 # PDF 文件名 ↔ factor_id 映射工具

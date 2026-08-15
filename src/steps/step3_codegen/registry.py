@@ -120,6 +120,27 @@ def stage_of(config_key: str) -> str:
     return CONFIG_KEY_STAGE.get(config_key, UNCLASSIFIED_STAGE)
 
 
+# Best-effort `Substitution.field_path` (a human-authored, free-text
+# MethodSpec path recorded when a reviewer approves a paper-vs-engine
+# substitution -- see `ImplementationResolution.approved_substitutions`)
+# -> the `build_config` output key it actually resolves. NOT exhaustive by
+# construction (field_path is a plain `str` on the model, not an enum, so a
+# reviewer can write anything) -- callers must treat an unmapped field_path
+# as "unknown", never silently drop it. Covers every field_path observed in
+# `tests/fixtures/method_specs/*.resolved.methodspec.json` plus the fixed
+# engine-menu paths `src/steps/step2_reviewer/review.py`'s
+# `_ENGINE_MENU_FIELD_PATHS` already names.
+SUBSTITUTION_FIELD_PATH_TO_CONFIG_KEY: dict[str, str] = {
+    "portfolio.weighting": "weighting_rule",
+    "portfolio.return_combination": "return_combination_type",
+    "portfolio.sort.breakpoint_basis": "breakpoint_source",
+    "signal.missing_policy.action": "missing_action",
+    "timing.rebalance_frequency": "rebalance_frequency",
+    "timing.data_availability.lag_unit": "accounting_lag_months",
+    "timing.formation_month": "formation_month",
+}
+
+
 # ---------------------------------------------------------------------------
 # Standard menu — the values for which the engine has a built-in
 # implementation. A ResolvedMethodSpec value outside its menu is clamped to
@@ -453,6 +474,7 @@ def _build_config_from_resolved(resolved: ResolvedMethodSpec, overrides: dict | 
                 "config_key": config_key,
                 "value": resolved_val,
                 "reason": "MethodSpec field unspecified or off-menu; engine default applied",
+                "paper_value": ev(val),
             })
         return resolved_val
 
@@ -462,6 +484,7 @@ def _build_config_from_resolved(resolved: ResolvedMethodSpec, overrides: dict | 
                 "config_key": config_key,
                 "value": default,
                 "reason": "MethodSpec field unspecified; engine default applied",
+                "paper_value": None,
             })
             return default
         return val
@@ -482,6 +505,7 @@ def _build_config_from_resolved(resolved: ResolvedMethodSpec, overrides: dict | 
                     "paper's sort-dimension relationship isn't classifiable as "
                     "independent/sequential/within_group; defaulted to independent"
                 ),
+                "paper_value": mode_str,
             })
             return "independent"
         return mode_str
@@ -497,6 +521,7 @@ def _build_config_from_resolved(resolved: ResolvedMethodSpec, overrides: dict | 
                 "config_key": config_key,
                 "value": "quantile",
                 "reason": f"engine only implements quantile grouping (paper used {group_type_str!r})",
+                "paper_value": group_type_str,
             })
 
     def _clamp_sort_dims(sorts: list) -> list:
@@ -522,6 +547,7 @@ def _build_config_from_resolved(resolved: ResolvedMethodSpec, overrides: dict | 
                 f"engine supports at most {MAX_SUPPORTED_SORT_DIMENSIONS} sort dimensions; "
                 f"dropped {dropped_ids} (kept target + lowest-order control dims)"
             ),
+            "paper_value": [s.sort_id for s in sorts],
         })
         return sorted(kept, key=lambda s: s.order)
 
@@ -540,6 +566,10 @@ def _build_config_from_resolved(resolved: ResolvedMethodSpec, overrides: dict | 
                 f"paper specified lag_unit={paper.timing.data_availability.lag_unit.value!r} "
                 f"(lag_value={paper.timing.data_availability.lag_value}), which this "
                 "month-granularity config field can't represent -- defaulted to 6 months"
+            ),
+            "paper_value": (
+                f"{paper.timing.data_availability.lag_value} "
+                f"{paper.timing.data_availability.lag_unit.value}"
             ),
         })
         lag_months = 6
@@ -644,6 +674,10 @@ def _build_config_from_resolved(resolved: ResolvedMethodSpec, overrides: dict | 
             "paper_value": sub.paper_value,
             "engine_value": sub.substituted_value,
             "reason": sub.reason,
+            # `None` when `field_path` isn't a known engine-menu path -- the
+            # UI must show this entry unmatched to any config row, not drop
+            # it (see `SUBSTITUTION_FIELD_PATH_TO_CONFIG_KEY`'s docstring).
+            "config_key": SUBSTITUTION_FIELD_PATH_TO_CONFIG_KEY.get(sub.field_path),
         }
         for sub in resolution.approved_substitutions
     ]

@@ -1,5 +1,5 @@
 """Unit tests for the shared RepairLoop (src/infra/repair.py) — the one
-technical self-debugging loop used by Pipeline and DualTrackController.
+technical self-debugging loop used by Pipeline and MultiTrackController.
 
 Focus: the audit trail (RepairAttempt history) and the success/failure
 outcome contract, exercised with minimal fakes (no subprocess, no LLM).

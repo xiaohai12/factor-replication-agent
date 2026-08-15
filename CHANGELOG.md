@@ -2,6 +2,341 @@
 
 ## [Unreleased]
 
+### Renamed `DualTrackController` to `MultiTrackController` (2026-08-15)
+
+The class runs an arbitrary N-track experiment matrix (original,
+standardized, ablations, factorials, sweeps, bridge tracks), not just two
+tracks -- "dual" no longer described what it does. Renamed via workspace
+rename-symbol (38 edits, 8 files: `src/steps/step6_dual_track_controller/`,
+`src/pipeline.py`, tests) plus manual doc/comment updates across `AGENTS.md`,
+`app.py`, `backend/routers/*.py`, `docs/architecture.md`,
+`docs/multi-config-evidence-plan.md`, `docs/roadmap.md`,
+`docs/tools-plus-llm-plan.md`. The module/directory name
+(`step6_dual_track_controller`) and `ExperimentPlan`'s "dual" framing are
+intentionally left as-is for now (larger blast radius via import paths) --
+see `plan.md` for the still-open discussion. `docs/decision-log.md` and
+earlier `CHANGELOG.md` entries keep the old name since they're historical
+records of what was true at the time.
+
+### Step6 gained a per-track resolved-config comparison table (new backend endpoint) (2026-08-15)
+
+User wanted step6's output to show each track's actual resolved config
+(breakpoint_source, weighting_rule, sample years, etc.) side by side
+instead of a raw MethodSpec JSON blob. That data (`registry.build_config()`'s
+output per track) turned out to already be written to disk as
+`comparison.json` -- a side effect of step6's own `run_from_matrix`/
+`_finalize_batch` (`write_comparison_summary`,
+src/steps/step5_backtest_runner/__init__.py) -- but the only existing read
+endpoint, `GET /steps/7/comparison`, requires a step7 attempt to already
+exist on the session, so it wasn't usable straight after step6.
+
+Added `GET /steps/6/track-configs?experiment_batch_id=...` in
+`backend/routers/replication.py`: same batch→factor_id→comparison.json
+resolution and staleness check as the step7 POST endpoint, but read-only
+(never registers a step7 attempt or otherwise touches session state) and
+returns just `{track: config}` instead of the full bundle.
+`tests/test_experiment_replication_diagnosis_api.py` (9) still passes.
+
+`Step6Output.tsx` renders this as a "Config per track" table: rows =
+every resolved config key (union across tracks), columns = tracks in the
+same baseline-first order as the metrics table, a cell highlighted (amber)
+whenever it differs from the baseline track's value for that key. The
+step6 request textarea (which still needs the raw `spec` JSON to submit a
+valid request) was left alone -- this only addresses where the config gets
+DISPLAYED, in the Step-output area. `npm run build` passes.
+
+### Simplified Step6TrackPicker's wording -- plain language, factorial section collapsed by default (2026-08-15)
+
+User found "ablation switches"/"factorial switches" too jargon-heavy.
+Reworded `Step6TrackPicker` (`SessionDetailPage.tsx`): "Which versions to
+run" (original_method/standardized_hxz), "Test one change at a time"
+(ablation, with a one-line hint per switch e.g. "Weighting rule
+(equal-weight vs. size-weight)"), and "Advanced: test changes together
+(usually not needed)" for factorial, now a collapsed `<details>` since it's
+the less commonly needed of the two. No behavior change, same
+`ablation_switches`/`factorial_switches` keys underneath. `npm run build`
+passes.
+
+### Step6's default snapshot_id changed from synthetic demo data to real WRDS data (2026-08-15)
+
+`lib/steps.ts`'s step6 `requestTemplate` defaulted `snapshot_id` to
+`"synthetic_demo_v1"` -- unless a user manually picked a different one from
+`SnapshotPicker`, step6's multi-track experiment silently ran on fake demo
+data while step5 always runs against `REAL_WRDS_SNAPSHOT_ID`
+(`backend/state.py`), making the two steps' numbers incomparable. Default
+is now `"real_wrds_local_v1"`, matching step5. Still overridable via the
+picker. `npm run build` passes.
+
+### Step6 request editor gained a track picker -- no more hand-editing the JSON to choose tracks (2026-08-15)
+
+Added `Step6TrackPicker` in `SessionDetailPage.tsx` (same slot pattern as
+step3's `MethodSpecPicker`/`SnapshotPicker`): checkboxes for
+`run_original`/`run_standardized`, plus one checkbox per ablation switch
+and one per factorial switch, mirroring `_ABLATION_SWITCH_TO_CONFIG_KEY`'s
+6-entry menu (`breakpoint`/`weighting`/`lag`/`missing`/`rebalance`/
+`universe` -- `src/steps/step6_dual_track_controller/__init__.py`, the
+only switch names the backend actually accepts). Reads/writes the same
+request-body JSON textarea the picker sits above, so it stays in sync with
+manual edits either direction. `npm run build` passes.
+
+### Step6's default request now runs 4 tracks instead of 1 (2026-08-15)
+
+`lib/steps.ts`'s step6 `requestTemplate` previously defaulted to
+`run_standardized: false` and empty `ablation_switches`/`factorial_switches`
+-- a fresh session's step6 only ever ran `original_method`, leaving the new
+cross-track comparison table with a single row. Defaults now: `run_original:
+true`, `run_standardized: true`, `ablation_switches: ["breakpoint",
+"weighting"]` (4 tracks total: `original_method`, `standardized_hxz`,
+`ablation_breakpoint`, `ablation_weighting`). Still just a starting point in
+the request textarea -- freely editable per run. `npm run build` passes.
+
+### Step6 UI: cross-track comparison table + batch status, replacing the per-track stacked tables (2026-08-15)
+
+New `Step6Output.tsx` (`Step6BatchSummaryCard` for the Result slot,
+`Step6Output` for the Step-output card), replacing the inline block in
+`StepOutputView.tsx` that stacked one `MetricsTable` per track:
+
+- **Batch status bar**: `experiment_batch_id`, track count, and a
+  `batch_invalidated` banner (+ reason) when true. Deliberately did NOT add
+  a separate "frozen_plugin_hash consistency" indicator -- confirmed in
+  `src/steps/step6_dual_track_controller/__init__.py` that
+  `batch_invalidated` already IS exactly that check's result (any
+  non-bridge track's `code_hash` diverging from `frozen_plugin_hash`), so a
+  second indicator would just duplicate it.
+- **Cross-track comparison table**: rows = tracks, `original_method` pinned
+  first as a best-effort baseline stand-in (step6 has no `baseline_track`
+  concept of its own -- that's only computed in step7's `bundle.py`),
+  bridge tracks get their own badge, t-stat shows a delta vs baseline.
+- **Overlay chart** (existing `MultiTrackChart`) moved below the table.
+- **Debug section**: per-track `code_hash`/`frozen_plugin_hash`/
+  `config_hash` table, plus `repair_history` (this one IS persisted on
+  `RunRecord`, unlike step4's job-transient one).
+
+Known accepted gap (discussed with user, not fixed): the auto-refreeze
+mechanism's `refreeze_attempts` count has NO API surface at all currently
+(not in the job result, not on `RunRecord`) -- a batch that self-repaired
+and reconverged looks identical to one that never needed repair. Left as a
+future backend change if ever wanted; `batch_invalidated` alone still
+correctly reports whether the batch's comparisons are trustworthy.
+
+Also extended `lib/evidence.ts`'s shared `RunRecord` type with
+`experiment_batch_id`/`frozen_plugin_hash`/`batch_invalidated`/
+`batch_invalidation_reason`/`repair_history` instead of ad-hoc casts.
+`npm run build` passes.
+
+### "Paper reported" row: shortened the label, routed the paper's alpha into the correct alpha column (2026-08-15)
+
+Two bugs in `Step5Output.tsx`'s breakdown table's paper row:
+- The label inlined the metric's full `label` (e.g. "Value-weighted
+  Fama-French three-factor monthly alpha, low minus high asset-growth
+  deciles, all firms"), making the row unreadably wide. Shortened to plain
+  "Paper reported", with the full description moved to a `title` tooltip.
+  instead of dropped.
+- The paper's `estimate` was always placed in the "Mean monthly return"
+  column, even when the metric's own `estimand` is `"alpha"` -- so a
+  paper-reported FF3 alpha never showed up in any of the three alpha
+  columns at all. Added `paperMetricColumn()`, which routes the estimate
+  to `alpha_capm`/`alpha_ff3`/`alpha_ff5` based on the metric's
+  `adjustment_model` (falls back to the mean column for a raw/other
+  estimand). `npm run build` passes.
+
+### Post-publication date range now uses the return series' actual last year, not "present" (2026-08-15)
+
+`periodRange()` in `Step5Output.tsx` hardcoded the post-publication segment
+as `{publication_year+1}–present`, assuming the data runs up to today --
+wrong whenever the underlying snapshot's data ends earlier than that. Now
+takes the ACTUAL last year from the fetched `return_series.csv` (already
+computed for the "All (full sample)" row's own date range) and uses that as
+the upper bound instead. `npm run build` passes.
+
+### `alpha_capm`/`alpha_ff3`/`alpha_ff5` now computed per sample-period segment too (2026-08-15)
+
+Previously full-sample-only (`BacktestExecutor.compute_factor_alphas()` ran
+once against the whole `long_short` series); `compute_metrics`'s
+`by_sample_period` (in-sample/between/post-publication) only ever broke out
+mean/t-stat/Sharpe, not the factor alphas. Added
+`_sample_period_segments()` -- the same year-boundary logic as
+`_sample_period_metrics`, but returning each segment's full DataFrame
+(`yyyymm`+`ls_return`, needed to merge against `factors`) instead of just
+the return Series -- kept as its own function so a bug there can never
+touch the existing, golden-number-tested `_sample_period_metrics` output.
+`run_with_config` now re-runs `compute_factor_alphas` once per segment and
+merges the result into that segment's own `by_sample_period` entry.
+`tests/test_sample_period_metrics.py`/`test_factor_alphas.py` (19) and the
+broader backtest-engine/eligibility suite (21 passed, 1 pre-existing skip)
+still pass. `Step5Output.tsx`'s breakdown table gained three columns
+(Alpha CAPM/FF3/FF5) so every row -- not just "All (full sample)" -- shows
+its own alpha; the redundant full-sample-only caption line only keeps
+`coverage`/`microcap_share` now. `npm run build` passes.
+
+### Step5 UI: removed duplication, switched ReturnChart to a real numeric time axis, unified date granularity (2026-08-15)
+
+Three fixes to `Step5Output.tsx`/`ReturnChart.tsx`:
+- **Deduped**: the Result-slot `Step5HeadlineCard` and the Step-output
+  breakdown table both showed a per-period mean/t/sharpe table; collapsed
+  `Step5HeadlineCard` back to a single compact full-sample glance (3
+  numbers), with the per-period detail living ONLY in the Step-output
+  table below. Also removed the separate generic "Performance metrics"
+  `MetricsTable`, which duplicated the breakdown table's mean/t/sharpe/
+  n_months a second time -- the handful of full-sample-only extras
+  (alpha_capm/ff3/ff5, coverage, microcap_share) are now one small caption
+  line instead of a whole second table.
+- **`ReturnChart` X axis**: was a string `category` axis (`dataKey="period"`,
+  `interval="preserveStartEnd"`) -- confirmed via disk (`runs/evidence/**`,
+  all 883-row files, unchanged) that this was never a data-truncation bug,
+  but a category axis with hundreds of points only differs visually by how
+  many tick LABELS recharts fits (~24 here), which reads as truncated data
+  even though every point is plotted. Switched to a real numeric axis
+  (`type="number"`, `dataKey` = decimal year, `domain={['dataMin',
+  'dataMax']}`) so ticks are placed evenly across the true date range
+  regardless of point count.
+- **Unified date granularity**: the "All (engine, full sample)" row showed
+  a year+month range (e.g. `195207–202512`) while every other row
+  (in-sample/between/post-pub, sourced from `sample_start_year`/
+  `sample_end_year`/`publication_year`, which have no month granularity)
+  showed year-only. "All" now also shows year-only.
+
+`npm run build` passes.
+
+### Step5's period breakdown now shows date ranges and the paper's own reported result (2026-08-15)
+
+Two changes to `Step5Output.tsx`:
+- `Step5HeadlineCard` (the Result-slot card) no longer shows one
+  undifferentiated full-sample number; it's now a per-period table (All /
+  in-sample / between / post-publication), since a single averaged figure
+  can hide whether the effect held up post-publication.
+- The "Sample-period breakdown" table (Step output card) gained a "Date
+  range" column, computed from `sample_start_year`/`sample_end_year`/
+  `publication_year` -- these live only on step3's persisted `config_ref`
+  artifact, not on the step5 `RunRecord`, so `Step5Output` now takes a
+  `manifest` prop and walks it the same way `Step4RepairCard` already does
+  for step3's plugin code (extracted the shared lookup into
+  `lib/manifestArtifacts.ts`'s `latestSuccessRef`, deduped from
+  `Step4Output.tsx`). Also added a "Paper reported" row sourced from step3's
+  persisted `spec_ref` (`spec.paper.reported_results`'s primary metric),
+  so the paper's own estimate/t-stat sits directly next to the engine's
+  full-sample and per-period numbers for comparison. `npm run build` passes.
+
+### `ReturnChart` now states its own month count/date range (2026-08-15)
+
+User reported step5 showing "882 months" in metrics but the chart looking
+like only ~24 months. Verified directly against disk (`runs/evidence/**/return_series.csv`,
+`runs/backtest_scripts/results/**/*.csv`): every persisted series is a full,
+gapless 882-row run (1952-07 through 2025-12) -- not a data-truncation bug.
+The real cause: `XAxis interval="preserveStartEnd"` on a category axis only
+THINS the visible tick LABELS to whatever fits the chart's width (recharts
+auto-computed ~24 here); every row is still plotted on the line, just very
+densely. Added an explicit "`N` months (`first`–`last`)" caption above the
+chart in `ReturnChart.tsx` so the true row count is never left to be
+inferred from tick density. `npm run build` passes.
+
+### Fixed: Run/Re-run didn't visibly clear a step's stale result (2026-08-14)
+
+`runMutation`'s `onMutate` already reset `jobId`/`syncResult` and removed the
+cached `session-step` query, but that query's own background refetch could
+immediately re-populate `latestAttempt` with the OLD (still-current on the
+backend until the new run actually finishes) attempt, so the Result/Step
+output panels never visibly went blank -- looked like clicking re-run did
+nothing. Added `isRerunning` (`runMutation.isPending || job.status in
+{pending, running}`) in `SessionDetailPage.tsx` and gated every
+step's Result-slot card (`Step3ComputeSignalCard`/`Step4RepairCard`/
+`Step5HeadlineCard`/the generic diagnostics block) and the "Step output"
+card behind it, showing a plain "Running…" placeholder instead of
+whatever's cached until the new result actually lands. `JobLogPanel` stays
+visible throughout (that's the one thing that SHOULD show live progress).
+Steps 1/2 use their own separate `MethodSpecWorkflowPanel` state, not
+`runMutation` -- out of scope here. `npm run build` passes.
+
+### Fixed: step5/6's frontend looked runs up by the session's factor_id, which can silently differ from the run's own factor_id (2026-08-14)
+
+Found while debugging "ran step5 but nothing shows" during the step5 UI
+build. A session's `factor_id` is a freeform string typed when the run is
+created (`RunsPage`); a `RunRecord.factor_id` is `spec.paper.factor_id`
+(`_spec_factor_id` in `src/steps/step5_backtest_runner/__init__.py`) --
+nothing enforces the two match. `GET /api/runs/{factor_id}` filters strictly
+by that path param, so `Step5Output`/`Step5HeadlineCard`/step6's block
+querying `/api/runs/{session.factor_id}` silently returned an empty list
+whenever the two strings didn't match byte-for-byte, even though the run
+existed and was fully persisted. Fixed by having `lib/evidence.ts`'s
+`fetchRuns()` hit the GLOBAL, unscoped `GET /api/runs` and having every
+caller find its run by `run_id` (always known from `execution_ids`) instead
+of by factor_id -- and, critically, using the FOUND run's own `factor_id`
+for every subsequent evidence/download call, never the session's. Removed
+the now-fully-unused `factorId` prop from `StepOutputView`/`Step5Output`/
+`Step5HeadlineCard` as part of this. `npm run build` passes.
+
+### Fixed: step4's `validation.json` artifact was written to step3's directory, making it 404 for the frontend (2026-08-14)
+
+Found while building the new step4 "Step output" panel (`Step4Output.tsx`,
+`docs/step-output-display-plan.md`): `/steps/4/validate` in
+`backend/routers/sessions.py` wrote `{sha}.validation.json` into `step3_dir`,
+but recorded it as step4's own `validation_ref` output_ref. The generic
+artifact endpoint (`GET /steps/{step}/artifact/{filename}`) always resolves
+`filename` against THAT step's own directory, so fetching step4's
+`validation_ref` from `step4_dir` always 404'd -- the report existed on disk,
+just one directory over. Changed the write target to `step4_dir` (already in
+scope in that closure). Pre-existing bug, not introduced by this session;
+apparently never caught because nothing previously read `validation_ref`
+back through the artifact endpoint. `tests/test_session_api.py` (16 tests,
+needs `source .venv/bin/activate` -- system `python3` lacks `fastapi`) passes
+unchanged after the fix.
+
+### `build_config`'s `substitutions` entries now record which config key they resolve (2026-08-14)
+
+Second half of wiring step3's planned "one full config table, every row
+annotated with its source" UI (`docs/step-output-display-plan.md`):
+`substitutions`' `field` is a human-authored, free-text MethodSpec path
+(`Substitution.field_path`, a plain `str`, not an enum -- confirmed by
+reading the model and the only real construction site, a test fixture; there
+is no reviewer-approval endpoint wired yet) and does not match `build_config`'s
+own output keys (e.g. `"portfolio.weighting"` vs. `weighting_rule`), so the
+frontend cannot merge a substitution into its config row by string equality.
+Added `SUBSTITUTION_FIELD_PATH_TO_CONFIG_KEY` next to `CONFIG_KEY_STAGE` in
+`src/steps/step3_codegen/registry.py`, covering every `field_path` seen in
+`tests/fixtures/method_specs/*.resolved.methodspec.json` plus
+`step2_reviewer/review.py`'s fixed engine-menu paths, and each substitution
+entry now carries a `config_key` (`None` when unmapped -- the UI must show an
+unmapped entry on its own, never drop it, since this map is best-effort by
+construction). Also fixed an editing slip that briefly deleted `stage_of`'s
+body while making this change; `tests/test_registry_resolved_method_spec.py`
+(23), `tests/test_method_spec_contract.py` (38), and
+`tests/test_replication_diagnosis.py` (71) all still pass.
+
+### `build_config`'s `defaults_applied` entries now record the paper's raw pre-clamp value (2026-08-14)
+
+Prep for the step3 UI redesign (see `docs/step-output-display-plan.md`): the
+plan calls for one full config table where every row is annotated as
+paper-specified / substitution / engine-default, with the paper's original
+value shown for all three. `substitutions` already carried `paper_value`,
+but `defaults_applied` only recorded the resolved default and a generic
+reason string, discarding whatever the paper actually said (or that it said
+nothing). Re-deriving that value in the frontend from `spec.json` would mean
+reimplementing each config key's own extraction rule (different for nearly
+every key) in JS — instead, `_track_clamp`/`_track_or`/`_track_sort_mode`/
+`_track_group_type`/the sort-dims trim/the lag-unit-unsupported branch in
+`src/steps/step3_codegen/registry.py` now capture the raw value they already
+have at hand as a new `paper_value` field on each `defaults_applied` entry
+(`ev(val)`, `"unspecified"` string when genuinely absent). Purely additive to
+the dict shape; `tests/test_registry_resolved_method_spec.py` (23 tests)
+still passes unchanged.
+
+### Plan: rework the step 3-8 output displays in the run-detail UI (2026-08-14)
+
+Added `docs/step-output-display-plan.md` after auditing what each step's
+backend artifacts actually contain versus what `StepOutputView.tsx` renders.
+The audit found several sections written by the backend but never shown:
+step3's `defaults_applied`/`substitutions` menu-clamping audit, step4's
+`technical_metrics`/`warnings` and its silent plugin repair, step5's
+`by_sample_period`/`runtime_provenance`, step6's `batch_invalidated` and
+frozen-hash consistency, and five whole evidence-bundle sections in step7
+(`spec_quality`, `menu_deviations`, `bridge_comparison`, `publication_decay`,
+`robustness_summary`) plus the `derived.tracks.*.vs_paper` paper-comparison
+table. Step8 was the worst case: it renders only `claim.text`, which is
+digit-free by construction, so the deterministic figures `render.py`
+reinserts never reach the screen — the plan replaces that with the rendered
+`diagnosis.md`, which needs one new backend endpoint to serve its content.
+No code changed yet.
+
 ### Step4 gained an opt-in LLM "faithfulness" check: does compute_signal match the approved formula? (2026-08-14)
 
 Discussed with the user a proposal to run a sample + have an LLM judge

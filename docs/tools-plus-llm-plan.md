@@ -370,7 +370,7 @@ permno 数量这类数字结构化地提取出来**。
 
 **关键判断（类比 step2）**：`AdversarialSandbox.validate()` 物理上住在
 [step4_validator/](../src/steps/step4_validator/) —— 这是一个独立、被
-`Pipeline` 和 `DualTrackController` 共用的 step（见 [AGENTS.md](../AGENTS.md)
+`Pipeline` 和 `MultiTrackController` 共用的 step（见 [AGENTS.md](../AGENTS.md)
 模块表），不是 step3 私有代码。但这不妨碍把它**注册成 step3 工具列表里的一个
 `Tool`**——跟 step2 把物理上住在 `review.py` 的 `review_method_spec` 包成
 `Tool` 是同一个模式：`Tool` 只是"把一次调用包上说明书"，不代表要把底层函数
