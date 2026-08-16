@@ -33,14 +33,29 @@ class ExperimentRequest(BaseModel):
     run_standardized: bool = True
     ablation_switches: list[str] = []
     factorial_switches: list[str] = []
+    # Human-reviewed `C_cz` override from the step6 UI's C&Z-config preview
+    # (docs/step6.md gap #1) -- adds a `cz_actual_config` track when set.
+    cz_config_override: dict | None = None
 
 
 @router.post("/{session_id}/steps/6/experiment")
 async def run_step6_experiment(session_id: str, req: ExperimentRequest) -> dict:
     try:
-        session_store.get(session_id)
+        manifest = session_store.get(session_id)
     except SessionNotFoundError:
         raise HTTPException(status_code=404, detail=f"No session '{session_id}'")
+
+    # Reuse step5's own `original_method` execution for ① instead of
+    # re-running it -- assumed still valid for this exact plugin/spec/
+    # snapshot, no re-verification here.
+    reuse_original_run = None
+    if req.run_original:
+        step5_attempt = manifest.steps.get(5)
+        latest5 = step5_attempt.latest if step5_attempt else None
+        if latest5 and latest5.status == StepStatus.SUCCESS:
+            execution_ids = json.loads(latest5.output_refs.get("execution_ids", "[]"))
+            if execution_ids:
+                reuse_original_run = pipeline.run_registry.get_by_id(execution_ids[0])
 
     def run(log):
         spec = parse_spec(req.spec)
@@ -51,10 +66,13 @@ async def run_step6_experiment(session_id: str, req: ExperimentRequest) -> dict:
             run_standardized=req.run_standardized,
             ablation_switches=req.ablation_switches,
             factorial_switches=req.factorial_switches,
+            cz_config_override=req.cz_config_override,
         )
         log(f"Running experiment batch for '{spec_factor_id(spec)}' ({req.snapshot_id})...")
         try:
-            runs = pipeline.controller.run_experiment(plugin, spec, plan, req.snapshot_id)
+            runs = pipeline.controller.run_experiment(
+                plugin, spec, plan, req.snapshot_id, reuse_original_run=reuse_original_run,
+            )
         except Exception as exc:
             complete_attempt_with_retry(session_id, step=6, status=StepStatus.FAILED, error=str(exc))
             append_event(session_id, step=6, stage="experiment", event="failed", detail=str(exc), level="error")

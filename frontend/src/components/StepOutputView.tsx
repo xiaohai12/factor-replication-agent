@@ -22,12 +22,16 @@ export function StepOutputView({
   attempt,
   syncResult,
   manifest,
+  paperReported,
+  czReported,
 }: {
   step: number
   sessionId: string
   attempt: StepAttempt | undefined
   syncResult: unknown
   manifest: SessionManifest | undefined
+  paperReported?: { mean_return?: number; t_stat?: number } | null
+  czReported?: { mean_return: number | null; t_stat: number | null } | null
 }) {
   const refs = attempt?.output_refs ?? {}
 
@@ -58,7 +62,9 @@ export function StepOutputView({
   }
 
   if (step === 6) {
-    return <Step6Output sessionId={sessionId} attempt={attempt} />
+    return (
+      <Step6Output sessionId={sessionId} attempt={attempt} paperReported={paperReported} czReported={czReported} />
+    )
   }
 
   if (step === 7 && step7Bundle.data) {

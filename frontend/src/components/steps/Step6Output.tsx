@@ -89,7 +89,17 @@ export function Step6BatchSummaryCard({ attempt }: { attempt: StepAttempt | unde
  * cross-track comparison table (baseline pinned first) + the overlay
  * chart, entirely from PERSISTED `RunRecord`s (global `/api/runs`, same
  * factor_id caveat as step5 -- see lib/evidence.ts). */
-export function Step6Output({ sessionId, attempt }: { sessionId: string; attempt: StepAttempt | undefined }) {
+export function Step6Output({
+  sessionId,
+  attempt,
+  paperReported,
+  czReported,
+}: {
+  sessionId: string
+  attempt: StepAttempt | undefined
+  paperReported?: { mean_return?: number; t_stat?: number } | null
+  czReported?: { mean_return: number | null; t_stat: number | null } | null
+}) {
   const { runs, isLoading } = useStep6Runs(attempt)
   const ordered = orderWithBaseline(runs)
   const { configs } = useTrackConfigs(sessionId, attempt?.output_refs.experiment_batch_id)
@@ -113,7 +123,31 @@ export function Step6Output({ sessionId, attempt }: { sessionId: string; attempt
     .filter((s) => s.rows.length > 0)
 
   const baselineTrack = ordered[0]?.track
-  const baselineTStat = (ordered[0]?.metrics as Record<string, unknown> | undefined)?.t_stat as number | undefined
+  // Compare against the paper's/C&Z's OWN reported numbers on the SAME
+  // basis they were reported on -- the paper's original sample window
+  // ("in-sample"), not this engine's full extended history (which runs
+  // well past publication and is not what any reported number covers).
+  // `metrics.by_sample_period` only exists when the run's config carried
+  // sample_start_year/sample_end_year/publication_year; falls back to the
+  // full-period numbers when it's absent rather than showing nothing.
+  const inSamplePeriod = (run: RunRecord) =>
+    (run.metrics as Record<string, unknown> | undefined)?.by_sample_period as
+      | Record<string, Record<string, unknown>>
+      | undefined
+  const displayMetrics = (run: RunRecord) => {
+    const metrics = (run.metrics ?? {}) as Record<string, unknown>
+    const insamp = inSamplePeriod(run)?.insamp
+    return {
+      meanReturn: (insamp?.mean_monthly_return ?? metrics.mean_return) as number | undefined,
+      tStat: (insamp?.t_stat ?? metrics.t_stat) as number | undefined,
+      sharpe: (insamp?.sharpe_ratio ?? metrics.sharpe_ratio) as number | undefined,
+      alphaFf3: (insamp?.alpha_ff3 ?? metrics.alpha_ff3) as number | undefined,
+      nMonths: (insamp?.n_months ?? metrics.n_months) as number | undefined,
+      coverage: metrics.coverage as number | undefined,
+      isInSample: insamp !== undefined,
+    }
+  }
+  const baselineTStat = ordered[0] ? displayMetrics(ordered[0]).tStat : undefined
 
   return (
     <div className="flex flex-col gap-4">
@@ -132,6 +166,10 @@ export function Step6Output({ sessionId, attempt }: { sessionId: string; attempt
 
       <div>
         <p className="mb-1 text-xs font-medium">Cross-track comparison</p>
+        <p className="mb-1 text-xs text-muted-foreground">
+          Mean return/t-stat/Sharpe/Alpha use the paper's OWN sample window (in-sample) when the run's config
+          carries one -- the same basis "Reported (reference)" is on -- not this engine's full extended history.
+        </p>
         <table className="w-full border-collapse text-xs">
           <thead>
             <tr className="border-b border-border text-muted-foreground">
@@ -142,18 +180,23 @@ export function Step6Output({ sessionId, attempt }: { sessionId: string; attempt
               <th className="py-1 pr-3 text-left font-medium">Sharpe</th>
               <th className="py-1 pr-3 text-left font-medium">Alpha (FF3)</th>
               <th className="py-1 pr-3 text-left font-medium">n_months</th>
-              <th className="py-1 text-left font-medium">Coverage</th>
+              <th className="py-1 pr-3 text-left font-medium">Coverage</th>
+              <th className="py-1 text-left font-medium">Reported (reference)</th>
             </tr>
           </thead>
           <tbody>
             {ordered.map((run) => {
-              const metrics = run.metrics ?? {}
               const isBaseline = run.track === baselineTrack
-              const tStat = metrics.t_stat as number | undefined
+              const isCzTrack = run.track === "cz_actual_config"
+              const { meanReturn, tStat, sharpe, alphaFf3, nMonths, coverage, isInSample } = displayMetrics(run)
               const delta =
                 !isBaseline && typeof tStat === "number" && typeof baselineTStat === "number"
                   ? tStat - baselineTStat
                   : undefined
+              // Paper's own headline number next to ①, C&Z's own reported
+              // number (from the step6 UI's live query, reference only --
+              // never re-run) next to ② -- neither is an executed track.
+              const reported = isBaseline ? paperReported : isCzTrack ? czReported : undefined
               return (
                 <tr
                   key={run.run_id}
@@ -175,7 +218,10 @@ export function Step6Output({ sessionId, attempt }: { sessionId: string; attempt
                   <td className="py-1 pr-3">
                     <Badge variant={run.status === "success" ? "default" : "destructive"}>{run.status}</Badge>
                   </td>
-                  <td className="py-1 pr-3">{formatMetric(metrics.mean_return)}</td>
+                  <td className="py-1 pr-3">
+                    {formatMetric(meanReturn)}
+                    {isInSample && <span className="ml-1 text-muted-foreground">(in-sample)</span>}
+                  </td>
                   <td className="py-1 pr-3">
                     {formatMetric(tStat)}
                     {delta !== undefined && (
@@ -185,10 +231,15 @@ export function Step6Output({ sessionId, attempt }: { sessionId: string; attempt
                       </span>
                     )}
                   </td>
-                  <td className="py-1 pr-3">{formatMetric(metrics.sharpe_ratio)}</td>
-                  <td className="py-1 pr-3">{formatMetric(metrics.alpha_ff3)}</td>
-                  <td className="py-1 pr-3">{formatMetric(metrics.n_months)}</td>
-                  <td className="py-1">{formatMetric(metrics.coverage)}</td>
+                  <td className="py-1 pr-3">{formatMetric(sharpe)}</td>
+                  <td className="py-1 pr-3">{formatMetric(alphaFf3)}</td>
+                  <td className="py-1 pr-3">{formatMetric(nMonths)}</td>
+                  <td className="py-1 pr-3">{formatMetric(coverage)}</td>
+                  <td className="py-1 text-muted-foreground">
+                    {reported
+                      ? `${isBaseline ? "paper" : "C&Z"}: ${formatMetric(reported.mean_return)} / t=${formatMetric(reported.t_stat)}`
+                      : "—"}
+                  </td>
                 </tr>
               )
             })}

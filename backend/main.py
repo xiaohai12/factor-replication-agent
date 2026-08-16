@@ -24,6 +24,7 @@ from backend.routers import (
     jobs,
     methodspecs,
     papers,
+    reference,
     replication,
     sessions,
 )
@@ -82,6 +83,7 @@ app.include_router(sessions.router)
 app.include_router(experiments.router)
 app.include_router(replication.router)
 app.include_router(diagnosis.router)
+app.include_router(reference.router)
 
 
 @app.get("/api/health")

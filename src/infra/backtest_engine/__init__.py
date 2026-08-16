@@ -551,6 +551,11 @@ class BacktestExecutor:
 
         signal = self._resample_annual_signal_asof(signal, df, config)
         self._validate_annual_formation_month(signal, config)
+        # Applied AFTER the above so paper-fidelity validation still checks
+        # the MethodSpec's TRUE stated formation month; the lag then shifts
+        # the calendar C&Z's own portfolio-formation logic actually runs on
+        # (docs/step6.md gap #2) -- default 0, no-op for any existing config.
+        signal = self._apply_formation_lag(signal, config)
 
         hp = int(config.get("holding_period_months", 12))
         step = self._rebalance_step_months(config)
@@ -643,6 +648,24 @@ class BacktestExecutor:
     def _yyyymm_to_month_index(values: pd.Series) -> pd.Series:
         values = values.astype(int)
         return (values // 100) * 12 + (values % 100) - 1
+
+    @staticmethod
+    def _apply_formation_lag(signal: pd.DataFrame, config: dict) -> pd.DataFrame:
+        """Shift `signal["yyyymm"]` forward by `config["formation_lag_months"]`
+        months (default 0 -- a no-op, unchanged behavior for every existing
+        config). Models C&Z's global, undocumented 1-month portfolio-
+        formation lag (`signal[, yyyymm := yyyymm + 1]`, docs/step6.md gap
+        #2): they overwrite the signal's own timestamp before their
+        portfolio-formation logic runs, so it stacks with (doesn't replace)
+        this engine's own next-month holding convention. Only ever non-zero
+        when the config was built from `C_cz` (`cz_profile_to_config_override`)."""
+        lag = int(config.get("formation_lag_months", 0) or 0)
+        if lag == 0 or signal is None or signal.empty:
+            return signal
+        signal = signal.copy()
+        shifted = BacktestExecutor._yyyymm_to_month_index(signal["yyyymm"]) + lag
+        signal["yyyymm"] = (shifted // 12) * 100 + (shifted % 12) + 1
+        return signal
 
     @staticmethod
     def _resample_annual_signal_asof(signal: pd.DataFrame, df: pd.DataFrame, config: dict) -> pd.DataFrame:

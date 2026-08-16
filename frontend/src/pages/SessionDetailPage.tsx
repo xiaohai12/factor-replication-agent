@@ -14,15 +14,15 @@ import { StepOutputView } from "@/components/StepOutputView"
 import { Step3ComputeSignalCard } from "@/components/steps/Step3Output"
 import { Step4RepairCard } from "@/components/steps/Step4Output"
 import { Step5HeadlineCard } from "@/components/steps/Step5Output"
-import { Step6BatchSummaryCard } from "@/components/steps/Step6Output"
 import { MethodSpecBoard } from "@/components/MethodSpecBoard"
 import { JsonTree } from "@/components/JsonTree"
 import { CodeView } from "@/components/CodeView"
 import { sessionApi } from "@/lib/sessionApi"
 import { stepDefinition } from "@/lib/steps"
 import { useJobStream } from "@/lib/useJobStream"
-import { ApiError } from "@/lib/api"
+import { ApiError, api } from "@/lib/api"
 import { PROVIDER_MODELS, useLlm } from "@/lib/llmContext"
+import { cn } from "@/lib/utils"
 import {
   getMethodSpecWorkflowState,
   setMethodSpecWorkflowState,
@@ -30,6 +30,28 @@ import {
   type ReviewRound,
 } from "@/lib/methodSpecStore"
 import type { SessionManifest, ToolResult } from "@/lib/types"
+
+/** Step6's Cross-track comparison table wants the paper's OWN reported
+ * headline number next to ①'s (and, separately, C&Z's reported number next
+ * to ②'s) -- pulls it straight out of the request's `spec` JSON
+ * (`MethodSpec.paper.reported_results`'s primary metric), no extra API
+ * call needed. Returns null on any missing/malformed shape rather than
+ * guessing. */
+function extractPaperReported(
+  spec: Record<string, unknown> | undefined,
+): { mean_return?: number; t_stat?: number } | null {
+  const paper = spec?.paper as Record<string, unknown> | undefined
+  const reported = paper?.reported_results as Record<string, unknown> | undefined
+  const metrics = reported?.metrics as Record<string, unknown>[] | undefined
+  if (!reported || !metrics) return null
+  const primary = metrics.find((m) => m.metric_id === reported.primary_metric_id)
+  if (!primary) return null
+  const statistic = primary.statistic as { kind?: string; value?: number } | undefined
+  return {
+    mean_return: typeof primary.estimate === "number" ? primary.estimate : undefined,
+    t_stat: statistic?.kind === "t_stat" ? statistic.value : undefined,
+  }
+}
 
 /** Auto-fills a step's request body from whatever this SAME session has
  * already recorded upstream, so the user never has to hand-copy a spec/
@@ -170,6 +192,23 @@ export function SessionDetailPage() {
   const [jobId, setJobId] = useState<string | null>(null)
   const [syncResult, setSyncResult] = useState<unknown>(null)
   const { provider: llmProvider, model: llmModel } = useLlm()
+  // Step6's ② toggle -- default checked, but only gates whether the C&Z
+  // config section below is usable; ② itself only actually runs once a
+  // config has ALSO been queried and confirmed there (see
+  // Step6CzConfigPreview). Unchecking always clears any confirmed override.
+  const [step6CzEnabled, setStep6CzEnabled] = useState(true)
+  // Lifted out of Step6CzConfigPreview so the ①②③ config diff AND the raw
+  // C&Z query output can be shown ONLY in the Result panel (not duplicated
+  // under "Run against C&Z's actual configuration") -- every value here is
+  // already known client-side, no need to wait for the batch to actually
+  // finish executing.
+  const [step6ConfigDiff, setStep6ConfigDiff] = useState<{
+    original: Record<string, unknown>
+    cz: Record<string, unknown>
+    std: Record<string, unknown>
+    raw: Record<string, unknown>
+    czReported: { mean_return: number | null; t_stat: number | null }
+  } | null>(null)
 
   // Steps 1/2's own progress (`MethodSpecWorkflowPanel`) lives in
   // sessionStorage, not the session manifest's step attempts -- lifted up
@@ -396,9 +435,9 @@ export function SessionDetailPage() {
             </CardHeader>
             <CardContent>
               <div className="max-h-48 overflow-auto font-mono text-xs">
-                {(eventsQuery.data ?? []).map((e) => (
+                {[...(eventsQuery.data ?? [])].reverse().map((e) => (
                   <div key={e.seq} className={e.level === "error" ? "text-destructive" : undefined}>
-                    [{e.step ?? "-"}] {e.stage}.{e.event} {e.detail}
+                    [{new Date(e.at).toLocaleString()}] [{e.step ?? "-"}] {e.stage}.{e.event} {e.detail}
                   </div>
                 ))}
               </div>
@@ -412,6 +451,32 @@ export function SessionDetailPage() {
               <CardTitle>Result</CardTitle>
             </CardHeader>
             <CardContent className="flex flex-col gap-3">
+              {step === 6 && step6ConfigDiff && (
+                <div className="flex flex-col gap-2 rounded-md border border-border p-2 text-xs">
+                  <Step6ConfigDiffTable
+                    original={step6ConfigDiff.original}
+                    cz={step6ConfigDiff.cz}
+                    std={step6ConfigDiff.std}
+                  />
+                  <div>
+                    <p className="font-medium">SignalDoc raw fields (② query)</p>
+                    <div className="font-mono text-muted-foreground">
+                      {Object.entries(step6ConfigDiff.raw).map(([k, v]) => (
+                        <div key={k}>
+                          {k}: {formatCzValue(v)}
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                  <div>
+                    <p className="font-medium">C&amp;Z's own reported performance (reference only, not re-run here)</p>
+                    <p className="text-muted-foreground">
+                      mean return: {formatCzValue(step6ConfigDiff.czReported.mean_return)}, t-stat:{" "}
+                      {formatCzValue(step6ConfigDiff.czReported.t_stat)}
+                    </p>
+                  </div>
+                </div>
+              )}
               {step > 2 && def.isJob ? <JobLogPanel job={job} /> : null}
               {!isRerunning && latestAttempt?.diagnostics && "readiness" in latestAttempt.diagnostics && (
                 <div className="flex flex-col gap-1 rounded-md border border-border p-2 text-xs">
@@ -511,36 +576,91 @@ export function SessionDetailPage() {
                         // leave the template default in place; the picker just won't reflect it yet.
                       }
                       return (
-                        <Step6TrackPicker
-                          runOriginal={Boolean(current.run_original)}
-                          runStandardized={Boolean(current.run_standardized)}
-                          ablationSwitches={(current.ablation_switches as string[] | undefined) ?? []}
-                          factorialSwitches={(current.factorial_switches as string[] | undefined) ?? []}
-                          onChange={(patch) => {
-                            const parsed = JSON.parse(requestText)
-                            setRequestText(JSON.stringify({ ...parsed, ...patch }, null, 2))
-                          }}
-                        />
+                        <>
+                          <Step6VersionsPicker
+                            runOriginal={Boolean(current.run_original)}
+                            runStandardized={Boolean(current.run_standardized)}
+                            czEnabled={step6CzEnabled}
+                            onChange={(patch) => {
+                              const parsed = JSON.parse(requestText)
+                              setRequestText(JSON.stringify({ ...parsed, ...patch }, null, 2))
+                            }}
+                            onToggleCz={(enabled) => {
+                              setStep6CzEnabled(enabled)
+                              if (!enabled) {
+                                const parsed = JSON.parse(requestText)
+                                delete parsed.cz_config_override
+                                setRequestText(JSON.stringify(parsed, null, 2))
+                              }
+                            }}
+                          />
+                          <div className={step6CzEnabled ? undefined : "pointer-events-none opacity-40"}>
+                            <Step6CzConfigPreview
+                              sessionId={sessionId}
+                              sessionFactorId={sessionQuery.data?.factor_id}
+                              spec={current.spec as Record<string, unknown> | undefined}
+                              confirmedOverride={current.cz_config_override as Record<string, unknown> | undefined}
+                              onConfirm={(override) => {
+                                const parsed = JSON.parse(requestText)
+                                if (override === undefined) {
+                                  delete parsed.cz_config_override
+                                } else {
+                                  parsed.cz_config_override = override
+                                }
+                                setRequestText(JSON.stringify(parsed, null, 2))
+                              }}
+                              onDataChange={setStep6ConfigDiff}
+                            />
+                          </div>
+                        </>
                       )
                     })()}
-                  <Textarea
-                    className="h-64 font-mono text-xs"
-                    value={requestText}
-                    onChange={(e) => setRequestText(e.target.value)}
-                  />
-                  <div className="flex gap-2">
-                    <Button onClick={() => runMutation.mutate(undefined)} disabled={runMutation.isPending}>
-                      Run {def.label}
-                    </Button>
-                    <Button
-                      variant="outline"
-                      onClick={() => runMutation.mutate({ fromUpstream: true })}
-                      disabled={runMutation.isPending}
-                      title="Re-fetch the upstream step's latest output and re-run this step with it, discarding whatever's in the request box above."
-                    >
-                      Re-run from upstream output
-                    </Button>
-                  </div>
+                  {step !== 6 && (
+                    <Textarea
+                      className="h-64 font-mono text-xs"
+                      value={requestText}
+                      onChange={(e) => setRequestText(e.target.value)}
+                    />
+                  )}
+                  {(() => {
+                    // ② enabled but not yet queried+confirmed -> block running
+                    // the batch until it is, so a track_specs-less ② silently
+                    // never runs is impossible to overlook.
+                    let step6Blocked = false
+                    if (step === 6 && step6CzEnabled) {
+                      try {
+                        step6Blocked = JSON.parse(requestText).cz_config_override === undefined
+                      } catch {
+                        // leave step6Blocked false; a malformed request body is caught elsewhere
+                      }
+                    }
+                    return (
+                      <>
+                        {step6Blocked && (
+                          <p className="text-xs text-amber-600">
+                            ② is checked above -- query C&amp;Z's config and confirm it below before running, or
+                            uncheck ② to run without it.
+                          </p>
+                        )}
+                        <div className="flex gap-2">
+                          <Button
+                            onClick={() => runMutation.mutate(undefined)}
+                            disabled={runMutation.isPending || step6Blocked}
+                          >
+                            Run {def.label}
+                          </Button>
+                          <Button
+                            variant="outline"
+                            onClick={() => runMutation.mutate({ fromUpstream: true })}
+                            disabled={runMutation.isPending || step6Blocked}
+                            title="Re-fetch the upstream step's latest output and re-run this step with it, discarding whatever's in the request box above."
+                          >
+                            Re-run from upstream output
+                          </Button>
+                        </div>
+                      </>
+                    )
+                  })()}
                   {requestError && <p className="text-xs text-destructive">{requestError}</p>}
                 </CardContent>
               </Card>
@@ -589,20 +709,6 @@ export function SessionDetailPage() {
                     )}
                   </CardContent>
                 </Card>
-              ) : step === 6 ? (
-                <Card>
-                  <CardHeader>
-                    <CardTitle>Experiment batch</CardTitle>
-                  </CardHeader>
-                  <CardContent className="flex flex-col gap-3">
-                    <JobLogPanel job={job} />
-                    {isRerunning ? (
-                      <p className="text-xs text-muted-foreground">Running…</p>
-                    ) : (
-                      <Step6BatchSummaryCard attempt={latestAttempt} />
-                    )}
-                  </CardContent>
-                </Card>
               ) : (
                 resultCard
               )}
@@ -623,6 +729,14 @@ export function SessionDetailPage() {
                       attempt={latestAttempt}
                       syncResult={def.isJob ? job.result : syncResult}
                       manifest={sessionQuery.data}
+                      paperReported={(() => {
+                        try {
+                          return extractPaperReported(JSON.parse(requestText).spec)
+                        } catch {
+                          return null
+                        }
+                      })()}
+                      czReported={step6ConfigDiff?.czReported ?? null}
                     />
                   )}
                 </CardContent>
@@ -1641,106 +1755,291 @@ function SnapshotPicker({ onSelect }: { onSelect: (snapshotId: string) => void }
   )
 }
 
-// Mirrors `_ABLATION_SWITCH_TO_CONFIG_KEY` in
-// src/steps/step6_dual_track_controller/__init__.py -- the only switch
-// names the backend actually understands for ablation_switches/
-// factorial_switches.
-const ABLATION_SWITCHES = [
-  { key: "breakpoint", label: "Breakpoint source", hint: "how stocks are split into groups" },
-  { key: "weighting", label: "Weighting rule", hint: "equal-weight vs. size-weight" },
-  { key: "lag", label: "Accounting lag", hint: "how many months old the data can be" },
-  { key: "missing", label: "Missing-value handling", hint: "what to do with gaps in the data" },
-  { key: "rebalance", label: "Rebalance frequency", hint: "how often portfolios are reformed" },
-  { key: "universe", label: "Universe", hint: "which stocks are eligible" },
-] as const
-
-function toggle(list: string[], key: string, checked: boolean): string[] {
-  return checked ? [...list, key] : list.filter((k) => k !== key)
+interface CzConfigPreview {
+  acronym: string
+  raw: Record<string, unknown>
+  config_override: Record<string, unknown>
+  cz_reported: { mean_return: number | null; t_stat: number | null; sign: number | null }
 }
 
-/** Step6 request editor helper: picks which tracks to run without hand-
- * editing the JSON -- `run_original`/`run_standardized` plus which
- * ablation/factorial switches to flip. Kept to plain, jargon-light wording
- * (2026-08-15): "compare against" instead of "ablation", "test together"
- * instead of "factorial", the latter collapsed by default since it's the
- * less commonly needed of the two. */
-function Step6TrackPicker({
+interface ResolvedConfigsPreview {
+  original_method: Record<string, unknown>
+  standardized_hxz: Record<string, unknown>
+}
+
+function formatCzValue(value: unknown): string {
+  if (value === null || value === undefined) return "—"
+  if (typeof value === "object") return JSON.stringify(value)
+  return String(value)
+}
+
+/** The ①②③ resolved-config comparison itself, extracted so it can be
+ * rendered in BOTH the request card (right after querying ②, unchanged)
+ * AND the Result panel -- the latter shows it the INSTANT "Run" is
+ * clicked, since every value here is already known client-side and
+ * doesn't need the batch to actually finish executing. */
+function Step6ConfigDiffTable({
+  original,
+  cz,
+  std,
+}: {
+  original: Record<string, unknown> | undefined
+  cz: Record<string, unknown> | undefined
+  std: Record<string, unknown> | undefined
+}) {
+  const configKeys = Array.from(
+    new Set([...Object.keys(original ?? {}), ...Object.keys(cz ?? {}), ...Object.keys(std ?? {})]),
+  ).sort()
+  if (configKeys.length === 0) return null
+  return (
+    <div>
+      <p className="font-medium">①②③ resolved config, side by side (before running anything)</p>
+      <div className="max-h-72 overflow-auto">
+        <table className="w-full border-collapse">
+          <thead>
+            <tr className="border-b border-border text-muted-foreground">
+              <th className="py-1 pr-3 text-left font-medium">Config key</th>
+              <th className="py-1 pr-3 text-left font-medium">① Paper's setup</th>
+              <th className="py-1 pr-3 text-left font-medium">② C&amp;Z's config</th>
+              <th className="py-1 text-left font-medium">③ Standardized</th>
+            </tr>
+          </thead>
+          <tbody>
+            {configKeys.map((key) => {
+              const originalValue = original?.[key]
+              const czValue = cz?.[key]
+              const stdValue = std?.[key]
+              return (
+                <tr key={key} className="border-b border-border/50 last:border-0">
+                  <td className="py-1 pr-3 font-mono text-muted-foreground">{key}</td>
+                  <td className="py-1 pr-3 font-mono">{formatCzValue(originalValue)}</td>
+                  <td
+                    className={cn(
+                      "py-1 pr-3 font-mono",
+                      cz &&
+                        key in cz &&
+                        formatCzValue(czValue) !== formatCzValue(originalValue) &&
+                        "bg-amber-50 dark:bg-amber-950/20",
+                    )}
+                  >
+                    {cz && key in cz ? formatCzValue(czValue) : "—"}
+                  </td>
+                  <td
+                    className={cn(
+                      "py-1 font-mono",
+                      formatCzValue(stdValue) !== formatCzValue(originalValue) && "bg-amber-50 dark:bg-amber-950/20",
+                    )}
+                  >
+                    {formatCzValue(stdValue)}
+                  </td>
+                </tr>
+              )
+            })}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  )
+}
+
+/** Step6 request editor helper (docs/step6.md gap #1): look up C&Z's own
+ * reported implementation choices for a factor (`GET /steps/6/cz-config`,
+ * a live `openassetpricing` call -- never triggers a backtest) and preview
+ * the resulting config for human review BEFORE it's confirmed as the
+ * `cz_config_override` field on the step6 request, which becomes its own
+ * "cz_actual_config" track (\u2461) alongside \u2460/\u2462. The dropdown lists every
+ * factor in the manifest regardless of which paper this session is
+ * replicating -- deliberately not auto-restricted, but mismatches are
+ * flagged since running an unrelated factor's C&Z config against this
+ * session's plugin isn't meaningful.
+ *
+ * Once \u2461 is queried, ALSO fetches \u2460/\u2462's resolved config straight from
+ * `spec` (`POST /steps/6/resolved-configs`, no run needed) so all three
+ * configs are visible side by side before anything is actually run --
+ * a resolved-configs fetch failure (e.g. `spec` not filled in yet) only
+ * drops that one table, it never blocks showing \u2461's own preview above. */
+function Step6CzConfigPreview({
+  sessionId,
+  sessionFactorId,
+  spec,
+  confirmedOverride,
+  onConfirm,
+  onDataChange,
+}: {
+  sessionId: string
+  sessionFactorId: string | undefined
+  spec: Record<string, unknown> | undefined
+  confirmedOverride: Record<string, unknown> | undefined
+  onConfirm: (override: Record<string, unknown> | undefined) => void
+  onDataChange: (
+    data: {
+      original: Record<string, unknown>
+      cz: Record<string, unknown>
+      std: Record<string, unknown>
+      raw: Record<string, unknown>
+      czReported: { mean_return: number | null; t_stat: number | null }
+    } | null,
+  ) => void
+}) {
+  const factorsQuery = useQuery({
+    queryKey: ["cz-factors"],
+    queryFn: () => api.get<{ factors: { factor_id: string; acronym: string }[] }>("/api/reference/cz-factors"),
+  })
+  const [selected, setSelected] = useState("")
+  const [preview, setPreview] = useState<CzConfigPreview | null>(null)
+  const [error, setError] = useState<string | null>(null)
+  const [loading, setLoading] = useState(false)
+
+  const factors = factorsQuery.data?.factors ?? []
+  const selectedFactor = factors.find((f) => f.acronym === selected)
+  const mismatch = selectedFactor !== undefined && selectedFactor.factor_id !== sessionFactorId
+
+  async function handleQuery() {
+    setLoading(true)
+    setError(null)
+    setPreview(null)
+    onDataChange(null)
+    try {
+      const result = await api.get<CzConfigPreview>(
+        `/api/sessions/${sessionId}/steps/6/cz-config?acronym=${encodeURIComponent(selected)}`,
+      )
+      setPreview(result)
+      let resolved: ResolvedConfigsPreview | null = null
+      if (spec && Object.keys(spec).length > 0) {
+        try {
+          resolved = await api.post<ResolvedConfigsPreview>(
+            `/api/sessions/${sessionId}/steps/6/resolved-configs`,
+            { spec },
+          )
+        } catch {
+          // \u2461's own preview above still shows -- the \u2460\u2461\u2462 side-by-side table
+          // just won't, e.g. if `spec` isn't filled in on this request yet.
+        }
+      }
+      if (resolved) {
+        onDataChange({
+          original: resolved.original_method,
+          cz: result.config_override,
+          std: resolved.standardized_hxz,
+          raw: result.raw,
+          czReported: result.cz_reported,
+        })
+      }
+    } catch (e) {
+      setError(e instanceof ApiError ? e.message : String(e))
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  return (
+    <div className="flex flex-col gap-2 rounded-md border border-border p-3 text-xs">
+      <div>
+        <p className="font-medium">Run against C&amp;Z's actual configuration</p>
+        <p className="text-muted-foreground">
+          Looks up C&amp;Z's own reported implementation choices for a factor and previews the resulting config --
+          confirm below to add it as its own run, alongside the paper's setup and the standardized setup.
+        </p>
+      </div>
+      <div className="flex items-center gap-2">
+        <Select
+          value={selected}
+          onValueChange={(v) => {
+            setSelected(v)
+            setPreview(null)
+            setError(null)
+            onDataChange(null)
+          }}
+        >
+          <SelectTrigger className="w-64">
+            <SelectValue placeholder="Choose a factor" />
+          </SelectTrigger>
+          <SelectContent>
+            {factors.map((f) => (
+              <SelectItem key={f.acronym} value={f.acronym}>
+                {f.factor_id} ({f.acronym})
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+        <Button type="button" variant="outline" size="sm" disabled={!selected || loading} onClick={handleQuery}>
+          {loading ? "Querying…" : "Query C&Z config"}
+        </Button>
+      </div>
+      {mismatch && (
+        <p className="text-amber-600">
+          Note: "{selectedFactor?.factor_id}" is not the factor this session is replicating ("{sessionFactorId}") --
+          running its C&amp;Z config against this session's plugin won't be a meaningful comparison.
+        </p>
+      )}
+      {error && <p className="text-destructive">Query failed: {error}</p>}
+      {preview && (
+        <div className="flex flex-col gap-2 rounded border border-border p-2">
+          <p className="text-muted-foreground">
+            Queried "{preview.acronym}" -- see the config diff and C&amp;Z's reported performance in the Result
+            panel.
+          </p>
+          <label className="flex items-center gap-1.5">
+            <input
+              type="checkbox"
+              checked={confirmedOverride !== undefined}
+              onChange={(e) => onConfirm(e.target.checked ? preview.config_override : undefined)}
+            />
+            Confirmed -- include this as its own run when I run the experiment
+          </label>
+        </div>
+      )}
+    </div>
+  )
+}
+
+/** Step6 request editor helper: picks which of the three ①②③ setups to run,
+ * each labeled with where its config actually comes from. ② has no
+ * `run_*` field of its own -- checking it only enables the C&Z config
+ * section below (`Step6CzConfigPreview`); ② only actually runs once a
+ * config has ALSO been queried and confirmed there. Per-field ablation/
+ * factorial switches were removed from this UI (2026-08-16) -- this
+ * three-track comparison is now the whole "which versions to run" model. */
+function Step6VersionsPicker({
   runOriginal,
   runStandardized,
-  ablationSwitches,
-  factorialSwitches,
+  czEnabled,
   onChange,
+  onToggleCz,
 }: {
   runOriginal: boolean
   runStandardized: boolean
-  ablationSwitches: string[]
-  factorialSwitches: string[]
+  czEnabled: boolean
   onChange: (patch: Record<string, unknown>) => void
+  onToggleCz: (enabled: boolean) => void
 }) {
   return (
-    <div className="flex flex-col gap-3 rounded-md border border-border p-3 text-xs">
-      <div>
-        <p className="font-medium">Which versions to run</p>
-        <p className="text-muted-foreground">Always includes the paper's own setup.</p>
-        <label className="mt-1 flex items-center gap-1.5">
-          <input
-            type="checkbox"
-            checked={runOriginal}
-            onChange={(e) => onChange({ run_original: e.target.checked })}
-          />
-          Paper's original setup
-        </label>
-        <label className="flex items-center gap-1.5">
-          <input
-            type="checkbox"
-            checked={runStandardized}
-            onChange={(e) => onChange({ run_standardized: e.target.checked })}
-          />
-          A fully standardized setup (everything switched to the standard default at once)
-        </label>
-      </div>
-
-      <div>
-        <p className="font-medium">Test one change at a time</p>
-        <p className="text-muted-foreground">
-          For each one checked, adds a run that's identical to the paper's setup except for that ONE change --
-          isolates exactly what that change alone does to the result.
-        </p>
-        <div className="mt-1 flex flex-col gap-1">
-          {ABLATION_SWITCHES.map(({ key, label, hint }) => (
-            <label key={key} className="flex items-center gap-1.5">
-              <input
-                type="checkbox"
-                checked={ablationSwitches.includes(key)}
-                onChange={(e) => onChange({ ablation_switches: toggle(ablationSwitches, key, e.target.checked) })}
-              />
-              {label} <span className="text-muted-foreground">({hint})</span>
-            </label>
-          ))}
-        </div>
-      </div>
-
-      <details>
-        <summary className="cursor-pointer font-medium text-muted-foreground">
-          Advanced: test changes together (usually not needed)
-        </summary>
-        <p className="mt-1 text-muted-foreground">
-          Checking more than one here runs every combination of them together too, to see if changing them AT THE
-          SAME TIME matters beyond what each does on its own.
-        </p>
-        <div className="mt-1 flex flex-col gap-1">
-          {ABLATION_SWITCHES.map(({ key, label }) => (
-            <label key={key} className="flex items-center gap-1.5">
-              <input
-                type="checkbox"
-                checked={factorialSwitches.includes(key)}
-                onChange={(e) => onChange({ factorial_switches: toggle(factorialSwitches, key, e.target.checked) })}
-              />
-              {label}
-            </label>
-          ))}
-        </div>
-      </details>
+    <div className="flex flex-col gap-1 rounded-md border border-border p-3 text-xs">
+      <p className="font-medium">Which versions to run</p>
+      <label className="mt-1 flex items-center gap-1.5">
+        <input type="checkbox" checked={runOriginal} onChange={(e) => onChange({ run_original: e.target.checked })} />
+        ① Paper's original setup{" "}
+        <span className="text-muted-foreground">(agent-extracted from the paper)</span>
+      </label>
+      <label className="flex items-center gap-1.5">
+        <input type="checkbox" checked={czEnabled} onChange={(e) => onToggleCz(e.target.checked)} />
+        ② C&amp;Z's actual configuration{" "}
+        <span className="text-muted-foreground">
+          (pulled from the openassetpricing library -- query &amp; confirm below)
+        </span>
+      </label>
+      <label className="flex items-center gap-1.5">
+        <input
+          type="checkbox"
+          checked={runStandardized}
+          onChange={(e) => onChange({ run_standardized: e.target.checked })}
+        />
+        ③ A fully standardized setup{" "}
+        <span className="text-muted-foreground">
+          (Hou, Xue &amp; Zhang (2020, RFS) "Replicating Anomalies" standard rules, same for every paper -- not
+          from the paper)
+        </span>
+      </label>
     </div>
   )
 }

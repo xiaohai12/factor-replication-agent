@@ -56,7 +56,7 @@ class ConfigOverrideError(ValueError):
 KNOWN_CONFIG_KEYS: frozenset[str] = frozenset({
     "breakpoint_source", "breakpoint_quantiles", "weighting_rule",
     "rebalance_frequency", "holding_period_months", "accounting_lag_months",
-    "signal_max_staleness_months", "missing_action", "universe",
+    "formation_lag_months", "signal_max_staleness_months", "missing_action", "universe",
     "formation_month", "formation_month_explicit", "long_leg", "short_leg",
     "sample_start_year", "sample_end_year", "publication_year",
     "universe_filters", "apply_delisting_returns", "return_combination_type",
@@ -80,6 +80,11 @@ _OVERRIDE_MENU: dict[str, set[str]] = {}  # populated after STANDARD is defined
 CONFIG_KEY_STAGE: dict[str, str] = {
     # signal_input — how the raw signal panel is built/aligned
     "accounting_lag_months": "signal_input",
+    # C&Z's global, undocumented 1-month portfolio-formation lag
+    # (`signal[, yyyymm := yyyymm + 1]`, docs/step6.md gap #2). Defaults to 0
+    # (no-op, no behavior change for any existing config) -- only set to a
+    # non-zero value by `C_cz`-derived overrides (`cz_profile_to_config_override`).
+    "formation_lag_months": "signal_input",
     "signal_max_staleness_months": "signal_input",
     "missing_action": "signal_input",
     # portfolio — sorting, weighting, rebalancing, leg definition
@@ -594,6 +599,9 @@ def _build_config_from_resolved(resolved: ResolvedMethodSpec, overrides: dict | 
             "holding_period_months", paper.timing.holding_period.value, 12
         ),
         "accounting_lag_months": lag_months,
+        # Fixed at 0 (no-op) unless overridden -- see CONFIG_KEY_STAGE's
+        # "formation_lag_months" comment.
+        "formation_lag_months": 0,
         "signal_max_staleness_months": 11,
         "missing_action": _track_clamp(
             "missing_action",

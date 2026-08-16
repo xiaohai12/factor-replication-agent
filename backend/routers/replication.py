@@ -21,10 +21,14 @@ from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
 from backend.sessions import append_event, session_store
+from backend.spec_parsing import parse_spec
 from backend.state import pipeline
 from src.evaluation import diagnostics as step_diagnostics
 from src.infra.models.session import ConcurrentModificationError, StepStatus
+from src.infra.reference import cz_profile_to_config_override, fetch_cz_reference_profile_live
 from src.infra.session_store import SessionNotFoundError
+from src.steps.step3_codegen.registry import build_config
+from src.steps.step6_dual_track_controller import HXZ_STANDARD_CONFIG
 
 router = APIRouter(prefix="/api/sessions", tags=["replication"])
 
@@ -75,6 +79,98 @@ def get_step6_track_configs(session_id: str, experiment_batch_id: str) -> dict:
         )
     tracks = bundle.get("tracks") or {}
     return {track: (payload.get("config") or {}) for track, payload in tracks.items()}
+
+
+_MAX_CZ_CONFIG_FETCH_ATTEMPTS = 3
+
+
+class ResolvedConfigsRequest(BaseModel):
+    spec: dict
+
+
+@router.post("/{session_id}/steps/6/resolved-configs")
+def get_step6_resolved_configs(session_id: str, req: ResolvedConfigsRequest) -> dict:
+    """Preview ①'s and ③'s RESOLVED config straight from `spec`
+    (`registry.build_config`) -- no plugin/snapshot/run needed. Lets the
+    step6 UI show all three (①②③) configs side by side as soon as ② has been
+    queried, before anything is actually run.
+    """
+    _get_or_404(session_id)
+    spec = parse_spec(req.spec)
+    return {
+        "original_method": build_config(spec, None),
+        "standardized_hxz": build_config(spec, HXZ_STANDARD_CONFIG),
+    }
+
+
+@router.get("/{session_id}/steps/6/cz-config")
+def get_step6_cz_config(session_id: str, acronym: str) -> dict:
+    """Preview-only (never triggers a backtest): fetch C&Z's reported
+    config/performance for `acronym` (docs/step6.md gap #1's `C_cz`) via a
+    LIVE `openassetpricing` call pinned to
+    `reference.DEFAULT_OPENAP_RELEASE_YEAR`, for human review in the step6
+    UI BEFORE submitting it as `cz_config_override` on the experiment
+    request. Retries up to `_MAX_CZ_CONFIG_FETCH_ATTEMPTS` times on a
+    transient fetch failure, logging every attempt (and the final outcome)
+    to the session event log.
+    """
+    _get_or_404(session_id)
+
+    last_error: Exception | None = None
+    profile = None
+    for attempt in range(1, _MAX_CZ_CONFIG_FETCH_ATTEMPTS + 1):
+        try:
+            profile = fetch_cz_reference_profile_live(acronym)
+            last_error = None
+            break
+        except Exception as exc:  # network/library errors -- retry, never crash the request
+            last_error = exc
+            append_event(
+                session_id, step=6, stage="cz_config_preview", event="fetch_failed",
+                detail=f"attempt {attempt}/{_MAX_CZ_CONFIG_FETCH_ATTEMPTS} for acronym={acronym!r}: {exc}",
+                level="warning",
+            )
+
+    if last_error is not None:
+        append_event(
+            session_id, step=6, stage="cz_config_preview", event="fetch_exhausted",
+            detail=f"gave up on acronym={acronym!r} after {_MAX_CZ_CONFIG_FETCH_ATTEMPTS} attempts: {last_error}",
+            level="error",
+        )
+        raise HTTPException(
+            status_code=502, detail=f"Could not fetch C&Z reference data for '{acronym}': {last_error}"
+        )
+
+    if profile is None:
+        append_event(
+            session_id, step=6, stage="cz_config_preview", event="acronym_not_found",
+            detail=f"acronym={acronym!r} not found in C&Z SignalDoc", level="warning",
+        )
+        raise HTTPException(status_code=404, detail=f"Acronym '{acronym}' not found in C&Z SignalDoc")
+
+    config_override = cz_profile_to_config_override(profile)
+    append_event(
+        session_id, step=6, stage="cz_config_preview", event="fetch_succeeded",
+        detail=f"acronym={acronym!r}", level="info",
+    )
+    return {
+        "acronym": acronym,
+        "raw": {
+            "stock_weight": profile.stock_weight,
+            "ls_quantile": profile.ls_quantile,
+            "quantile_filter": profile.quantile_filter,
+            "portfolio_period": profile.portfolio_period,
+            "start_month": profile.start_month,
+            "sample_start_year": profile.sample_start_year,
+            "sample_end_year": profile.sample_end_year,
+        },
+        "config_override": config_override,
+        "cz_reported": {
+            "mean_return": profile.mean_return,
+            "t_stat": profile.t_stat,
+            "sign": profile.sign,
+        },
+    }
 
 
 class ComparisonRequest(BaseModel):

@@ -2,6 +2,322 @@
 
 ## [Unreleased]
 
+### Fix: C&Z's `Return` is "% Monthly", not a decimal fraction -- was off by 100x (2026-08-16)
+
+`data/CZ code/SignalDoc-Browser.html` labels the column `Return (% Monthly)`
+-- a raw value of `1.73` means 1.73% monthly, not the decimal fraction
+(0.0173) this engine's own `RunMetrics.mean_return` uses everywhere else.
+`_profile_from_row` (`src/infra/reference/__init__.py`, shared by both the
+local-CSV and live `openassetpricing` paths) now divides by 100, so
+`CZReferenceProfile.mean_return` -- and therefore the step6 UI's
+"Reported (reference)" column -- is on the SAME scale as our own computed
+metrics instead of silently 100x too large. Updated
+`tests/test_cz_reference_profile.py`'s expected values accordingly. Full
+suite: 656 passed, 18 skipped.
+
+### step6 UI: move C&Z query's config diff / raw fields / reported performance out of the request card, into the Result panel only (2026-08-16)
+
+`Step6CzConfigPreview` (the "Run against C&Z's actual configuration"
+section) no longer renders the ①②③ config diff table, SignalDoc raw
+fields, or C&Z's reported performance itself -- those already show (via the
+earlier `onDataChange` lift) in the Result panel, so showing them twice was
+redundant. The request card now only shows the query controls, a
+mismatch/error message, and the confirm checkbox; `onDataChange`'s payload
+gained a `raw` field so the Result panel can render the SignalDoc raw
+fields too. Frontend type-check + `npm run build` both clean.
+
+### step6 UI: Cross-track comparison uses in-sample metrics, not the full extended period (2026-08-16)
+
+Prompted by manually investigating a session where ①/② looked wildly
+different: the comparison was mixing the engine's full extended sample
+(hundreds of months past publication) against the paper's/C&Z's reported
+numbers, which only ever cover the paper's OWN original sample window --
+not an apples-to-apples comparison. `Step6Output`'s "Mean return"/"t-stat"/
+"Sharpe"/"Alpha (FF3)" columns now read `metrics.by_sample_period.insamp`
+(same in-sample window "Reported (reference)" is already on) when a run's
+config carried sample_start_year/sample_end_year/publication_year, falling
+back to the full-period numbers otherwise (never blank). An "(in-sample)"
+tag marks cells using the narrower window. `n_months` follows the same
+in-sample/full-period rule so it stays consistent with the return/t-stat
+shown next to it. Frontend type-check + `npm run build` both clean.
+
+### step6 UI: event log timestamps + newest-first, drop "Experiment batch" card, Cross-track comparison shows paper's/C&Z's reported performance (2026-08-16)
+
+- Events card: each line now shows `[timestamp] [step] stage.event detail`
+  (was missing the timestamp entirely) and renders NEWEST first (was
+  oldest-first, so the newest entry required scrolling).
+- Removed the step6-specific "Experiment batch" result card
+  (`Step6BatchSummaryCard`, now unused/deleted from imports) -- step 6 now
+  falls through to the generic `resultCard`, which already carries the
+  ①②③ config-diff table (added earlier today) and the job log; no
+  information was lost, the batch-consistency badge is still visible in
+  `Step6Output`'s own header.
+- `Step6Output`'s "Cross-track comparison" table gained a "Reported
+  (reference)" column: shows the paper's own reported headline number next
+  to ① (`extractPaperReported()`, pulled straight from the request's `spec`
+  JSON -- `MethodSpec.paper.reported_results`'s primary metric, no extra API
+  call) and C&Z's own reported number next to ② (`cz_reported` from the
+  step6 UI's live C&Z-config query). ③ intentionally has no reference
+  number here (HXZ's standardized protocol was never meant to match a
+  reported result). Plumbed `paperReported`/`czReported` as new optional
+  props through `StepOutputView` into `Step6Output`.
+
+Frontend type-check + `npm run build` both clean for this entry.
+
+### step6 UI: ①②③ config diff also shows in the Result panel immediately, not after the run finishes (2026-08-16)
+
+Extracted the ①②③ resolved-config comparison table into its own
+`Step6ConfigDiffTable` component and lifted its data (`resolvedConfigs`/
+`preview.config_override`) out of `Step6CzConfigPreview` into
+`SessionDetailPage` via a new `onDataChange` callback. It's now ALSO
+rendered at the top of the "Result" panel (`resultCard`) for step 6,
+unconditionally -- not gated on the job finishing. Since every value in
+that table is already known client-side the moment ② is queried (no
+backtest execution needed to know a config), the Result panel now shows it
+the instant it's available, rather than only after `useTrackConfigs` picks
+up `comparison.json` once the whole batch of real backtests completes.
+The request-card copy (shown right under the query button) is unchanged.
+Frontend type-check + `npm run build` both clean.
+
+### step6 UI: block "Run" until ②'s config is queried + confirmed (2026-08-16)
+
+When ② is checked (`step6CzEnabled`) but `cz_config_override` hasn't been
+confirmed yet, both "Run" buttons ("Run 6. Multi-track experiment" and
+"Re-run from upstream output") are now disabled with an inline hint
+("query C&Z's config and confirm it below before running, or uncheck ②").
+Previously it was possible to click Run with ② checked but never queried,
+silently submitting a batch without ②'s track and no indication why. The
+①②③ resolved-config diff table (`Step6CzConfigPreview`, added earlier
+today) already stays visible after Run is clicked -- it lives in the
+request card, which the run mutation doesn't unmount -- so no separate
+change was needed for that. Frontend type-check + `npm run build` both
+clean (also fixed a missing `cn` import surfaced by this edit).
+
+### step6: reuse step5's ① run unconditionally, no hash validation (2026-08-16)
+
+`MultiTrackController.run_experiment`/`run_from_matrix` gained a
+`reuse_original_run`/`reused_baseline_run` param: when given an
+already-persisted `original_method` `RunRecord`, it's deep-copied under a
+NEW `run_id` (so it never overwrites the original run's own evidence-store
+artifact) and included directly in the batch instead of re-executing ①.
+`backend/routers/experiments.py`'s `/steps/6/experiment` resolves this from
+the session's own latest successful step5 attempt (`run_original=True`
+only). Per explicit instruction, this is UNCONDITIONAL reuse -- an earlier
+version of this change added exact code/spec/config/snapshot-hash matching
+before allowing reuse (see the now-superseded 2026-08-16 decision-log entry
+"C_cz preview: live openassetpricing call..." era discussion); that
+validation was removed along with its supporting `_reusable_baseline_error`
+method and the now-unused `src.infra.hashing.snapshot_manifest_hash` import.
+Tests simplified to match (`tests/test_baseline_run_reuse.py`,
+`tests/test_backend_experiment_baseline_reuse_api.py`). Full suite: 656
+passed, 18 skipped.
+
+### step6 UI: cite HXZ paper in ③'s explanation (2026-08-16)
+
+③'s subtext now names the source: "Hou, Xue & Zhang (2020, RFS) 'Replicating
+Anomalies' standard rules, same for every paper -- not from the paper"
+(matches the citation already used in docs/cz-reference.md), instead of the
+unattributed "fixed standard rules". Frontend type-check clean.
+
+### step6 UI: explain each ①②③ setup's source, add an ② enable/disable toggle (2026-08-16)
+
+`Step6VersionsPicker` now has three checkboxes, all checked by default,
+each labeled with where its config actually comes from: ① "agent-extracted
+from the paper", ② "pulled from the openassetpricing library -- query &
+confirm below", ③ "fixed standard rules, same for every paper -- not from
+the paper". ② has no `run_*` request field of its own -- its checkbox only
+enables/disables the `Step6CzConfigPreview` section below (visually greyed
+out + non-interactive when unchecked); unchecking it also clears any
+already-confirmed `cz_config_override`, so ② never silently runs from a
+stale prior confirmation while its checkbox is off. Frontend type-check +
+`npm run build` both clean.
+
+### step6 UI: simplify "which versions to run" to plain ①②③, drop ablation/factorial switches + raw JSON view (2026-08-16)
+
+Replaced `Step6TrackPicker` (run_original/run_standardized checkboxes plus a
+6-switch "test one change at a time" + collapsible "test changes together"
+factorial section) with a plain `Step6VersionsPicker`: just the ① paper's
+setup / ③ standardized setup checkboxes, labeled with the ①②③ numbering used
+everywhere else in this UI now that `Step6CzConfigPreview` (② ) exists.
+Per-field ablation/factorial switches have no UI control anymore -- the
+three-track ①②③ comparison is the whole model this page exposes; the
+backend fields (`ablation_switches`/`factorial_switches`) and the yaml
+matrix path are untouched for anyone who still wants finer-grained control.
+`lib/steps.ts`'s step6 request template default changed from
+`ablation_switches: ["breakpoint", "weighting"]` to `[]`, since there's no
+longer a visible control explaining why those two would silently run.
+
+Also hid the raw request-body JSON textarea for step 6 specifically (still
+shown for every other step) -- `spec`/`plugin`/`snapshot_id` are already
+set via `MethodSpecPicker`/`SnapshotPicker`, and `run_original`/
+`run_standardized`/`cz_config_override` via the two pickers above; nothing
+on step6's request body needs hand-editing anymore.
+
+Frontend type-check + `npm run build` both clean; no backend changes in
+this entry.
+
+### step6 UI: C_cz preview + confirm flow, `cz_actual_config` track (2026-08-16)
+
+New human-in-the-loop path to actually run track ② (`C_agent` signal + C&Z's
+real config) from the session UI, per docs/step6.md gap #1:
+
+- `src/infra/reference/__init__.py`: added `fetch_cz_reference_profile_live()`,
+  a live equivalent of `load_cz_reference_profile()` via the
+  `openassetpricing` package (`OpenAP(release_year=...).dl_signal_doc()`)
+  instead of a local `SignalDoc.csv` copy -- no local file path to keep in
+  sync. Pinned to a new `DEFAULT_OPENAP_RELEASE_YEAR = 202510` constant
+  (never `None`/"latest") so two reviews of the same factor can't silently
+  see different C&Z data. Refactored the CSV-row and live-DataFrame-row
+  parsing into one shared `_profile_from_row()` (was two independent
+  mappings, now one, with NaN-safe numeric/string coercion for the live
+  DataFrame path's `NaN`-instead-of-empty-string convention).
+- `src/infra/reference/manifest.py`: new hand-verified
+  `CZ_FACTOR_ACRONYM_MANIFEST` (`factor_id -> C&Z acronym`), seeded with
+  `AssetGrowth` only; add one confirmed entry at a time.
+- `backend/routers/reference.py` (new): `GET /api/reference/cz-factors`
+  lists the manifest.
+- `backend/routers/replication.py`: `GET /api/sessions/{id}/steps/6/cz-config`
+  -- preview-only (never runs a backtest), retries the live fetch up to 3
+  times on failure, logs every attempt + the final outcome to the session
+  event log, returns SignalDoc raw fields + the derived config override +
+  C&Z's own reported return/t-stat (reference only).
+- `ExperimentPlan`/`ExperimentRequest` (`step6_dual_track_controller`,
+  `backend/routers/experiments.py`): new `cz_config_override` field: when
+  set (only after human confirmation in the UI), `_plan_to_matrix` adds a
+  `cz_actual_config` track alongside `original_method`/`standardized_hxz` in
+  the same batch.
+- Frontend: new `Step6CzConfigPreview` card (`SessionDetailPage.tsx`) --
+  dropdown (not auto-matched to the session's own factor; flags a mismatch
+  but doesn't block it) + manual "Query C&Z config" button + review panel
+  (raw fields/derived config/C&Z's reported numbers) + a confirm checkbox
+  that sets `cz_config_override` on the step6 request.
+
+New tests: `tests/test_cz_reference_profile.py` (live-fetch, NaN handling),
+`tests/test_cz_factor_manifest.py`, `tests/test_backend_cz_config_api.py`
+(mocked network, retry/give-up/eventual-success paths),
+`tests/test_experiment_plan_matrix_merge.py` (`cz_actual_config` track
+wiring). Full suite: 650 passed, 18 skipped, no regressions. Frontend
+type-check clean.
+
+### Fix bridge-track identification_by_track bug (docs/step6.md §23.3) (2026-08-16)
+
+`_derive_identification_level` (`experiment_spec.py`) now counts "axes
+moved" (differing config keys + the signal-source axis
+(`signal_input_ref`) + the data-vintage axis (`snapshot_ref`)), not just
+the resolved-config-key diff count -- a bridge track that also changes a
+config key now correctly resolves to `unidentified` (2 axes moved), and a
+pure signal-only bridge now correctly resolves to `controlled` (1 axis
+moved) instead of always `unidentified` regardless of the signal swap.
+
+Separately, `MultiTrackController.run_from_matrix` (`step6_dual_track_
+controller/__init__.py`) previously never added a bridge track's name to
+`identification_by_track`, so bridge runs got NO `family`/
+`identification_level` log line at all, regardless of what the (now-fixed)
+derivation above produced -- a track that changed both the signal and
+config axis was silently never flagged `unidentified`. Fixed by recording
+`identification_by_track[exp.name]` on the bridge-track success path too.
+
+New tests: `tests/test_experiment_matrix.py` (axis-counting derivation),
+`tests/test_bridge_track_wiring.py` (labeling now reaches the `RunRecord`
+logs for both the pure-bridge and bridge-plus-config-override cases). Full
+suite: 639 passed, 18 skipped, no regressions.
+
+### Phase 1 gap #1 + gap #2: `C_cz` runnable config + `formation_lag_months` engine key (2026-08-16)
+
+Added `cz_profile_to_config_override()` (`src/infra/reference/__init__.py`)
+converting a `CZReferenceProfile` (SignalDoc-parsed C&Z metadata) into a
+`registry.build_config(..., overrides=...)`-compatible dict -- `C_cz` is now
+a runnable config (docs/step6.md gap #1). Falls back to C&Z's OWN house
+defaults (EW / 5 groups / full-sample, `01_PortfolioFunction.R:83-93`) when
+SignalDoc is blank, not the engine's different defaults; unexpected
+`stock_weight`/`quantile_filter` values raise rather than silently guess.
+
+Added `formation_lag_months` as a new `registry`/`BacktestExecutor` config
+key modeling C&Z's global, undocumented 1-month portfolio-formation lag
+(`signal[, yyyymm := yyyymm + 1]`, gap #2). Defaults to `0` (no-op --
+verified byte-identical on the full test suite, 636 passed); applied in
+`BacktestExecutor._apply_formation_lag` AFTER `_validate_annual_formation_month`
+so paper-fidelity validation still checks the MethodSpec's true stated
+formation month, with the lag then shifting the calendar the hold-window
+expansion and `self.formation` cross-section actually run on. Only ever
+non-zero via `cz_profile_to_config_override` (`formation_lag_months=1`),
+per the user's requirement that default behavior stays unchanged and only
+the C&Z track is affected. New tests: `tests/test_formation_lag_months.py`,
+extended `tests/test_cz_reference_profile.py`.
+
+### step6.md: attribution methodology fix + 4 design decisions resolved (2026-08-16)
+
+Replaced the additive-on-t-value attribution example (§4a) and the
+"factorial = optional Phase 3" framing (§4c) after review found t-value
+decomposition mathematically invalid (t is a ratio, not additive). New
+approach: attribution is done on mean monthly return μ (which is
+approximately additive), via full factorial + averaged main/interaction
+effects when the differing-field count is ≤5 (exact, zero residual);
+OAT is demoted to a fallback for >5 fields. t-value changes are now
+explained separately via the exact log identity
+`log t = log μ − log σ + ½ log N` (three channels sum exactly, no
+residual). Added a mandatory paired significance test (differenced return
+series over the overlapping-months intersection) before any field can be
+called "important". Proposed new `ReplicationDiffResult` fields
+`paired_test` and `t_channel_decomposition` (not yet implemented in code).
+
+Also moved gap #2 (engine missing C&Z's 1-month portfolio-formation lag,
+`yyyymm + 1`) from "Phase 2 external-dependency" to "Phase 1 blocker" --
+it has no external dependency and is part of `C_cz`'s own definition, so
+track ② depends on it. Recommended fix: a new `formation_lag_months`
+registry menu key (default 0) rather than a hardcoded switch.
+
+Resolved 4 outstanding design decisions (recorded in new §25): (A) Q3
+("standardization sensitivity") stays demoted to calibration/background,
+not a contribution -- C&Z already published VW-decile variants
+(`30_PredictorAltPorts.R`). (B) `cz_bridge` pivots from re-implementing
+C&Z's formula to extracting C&Z's implicit config facts (lag, missing
+policy, etc.), with a new requirement that the signal-adapter layer (sign
+convention, 1-month lag alignment) gets unit tests, since both are
+silent-failure risks. (C) `HXZ_STANDARD_CONFIG`'s lag fidelity gap is not
+fixed; renamed `C_hxz` -> `C_std` throughout Part I/II and reframed as
+"HXZ-style" (three knobs only, not the full HXZ protocol) rather than
+faithfully reproducing HXZ. (D) Full step6 restructure per §23 (comparisons
+as first-class, grid-coordinate tracks) is deferred until Phase 1 produces
+real numbers; the one exception pulled forward now is fixing the bridge-
+track `identification_by_track` bug (§23.3, a bridge track that changes
+both the signal and config axis is never flagged `unidentified` -- a real
+bug, not a design question).
+
+Recorded a deferred prerequisite in `docs/todo.md`: Q1 currently treats
+`C_agent` as a single draw from a stochastic LLM extraction process with no
+measured run-to-run (within-agent) dispersion, so the measured
+agent-vs-C&Z disagreement cannot yet be separated from LLM sampling noise;
+Q1 results must carry this as an explicit upper-bound limitation until
+that dispersion is measured.
+
+### step6.md: 把实验网格拆成 Phase 1/2/3，加入 OAT/factorial 说明与举例 (2026-08-16)
+
+`step6.md` §4 重写为 Phase 1（①②③ + 两组 OAT，只用 agent 信号，核心，
+零外部依赖）/ Phase 2（④⑤⑥，引入 C&Z 信号，含 4 条信号适配层风险清单：
+符号约定、重复滞后、1 个月组合滞后错位、样本对齐）/ Phase 3（factorial，
+默认跳过，仅 residual 偏大或验证 weighting×breakpoint 交互预测时补跑）。
+每个 phase 附"能得出的结论 / 不能得出的结论"边界说明，Phase 1 附一个虚构
+数值例子演示 OAT 归因的具体计算方式，并补充 t 值应拆成均值/标准误两部分
+解读的提醒（避免把"因子真的变弱"和"估计噪声变大"混为一谈）。Part V 下一步
+按 phase 重新排序。
+
+### step6.md: 合并 plan.md + step6 研究设计，并补入 C&Z 源码调研结论 (2026-08-16)
+
+`plan.md`（step6 实现现状描述）已合并进 `step6.md` 并删除，避免两份规划文档
+分叉。新 `step6.md` 分四部分：研究设计（权威）/ 已查证的事实基础 / 当前实现
+快照（标注为可能因重构而过时）/ 现状与设计的差距。
+
+新增的调研结论（全部来自 `data/CZ code/` 源码，非推测）：C&Z 有一套与 step2
+同构的默认值层（`01_PortfolioFunction.R:83-93`，EW / 六月 / 月度 / 五分组 /
+全样本断点）；年度 Compustat 固定 6 个月会计滞后、季度用 `max(datadate+3, rdq)`；
+所有因子无差别施加 1 个月组合构建滞后（`yyyymm + 1`，未文档化，是校准的主要
+风险点）；`Portfolio Period` = 再平衡间隔而非持有期，无重叠组合。212 个
+predictor 中 `Quantile Filter` 99% 落默认（全样本断点）——即 HXZ/C&Z 之争最
+核心的断点差异在 C&Z 侧是沉默默认值而非论文主张。另确认 C&Z 已发布 VW-decile
+等标准化变体（`30_PredictorAltPorts.R`），因此"标准化敏感度"不能作为本项目
+贡献，只能作校准与背景。
+
 ### Renamed `DualTrackController` to `MultiTrackController` (2026-08-15)
 
 The class runs an arbitrary N-track experiment matrix (original,

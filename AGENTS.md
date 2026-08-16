@@ -29,9 +29,6 @@ and controlled pipeline components.
 ## Required Workflow
 
 - Update `CHANGELOG.md` for every code or repo-instruction change.
-- Record challenging or major decisions (methodology, empirical trade-offs,
-  deviations from the C&Z/original reference, architectural constraints) in
-  `docs/decision-log.md`, capturing the rationale for later paper write-up.
 - Prefer targeted reads: use `rg`, `rg --files`, and narrow `sed` windows.
 - Cap large command outputs. Summarize important lines instead of dumping logs.
 - Do not read large PDFs, converted paper text, or many MethodSpec JSONs

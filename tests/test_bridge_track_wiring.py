@@ -166,9 +166,50 @@ experiments:
         # A bridge track's own code_hash never matches the frozen plugin --
         # it must NOT invalidate the batch.
         assert all(r.batch_invalidated is False for r in runs)
+        # docs/step6.md \u00a723.3: a bridge track must get the same
+        # family/identification_level labeling as any other track -- it used
+        # to be silently skipped entirely.
+        assert any("family='reference_bridge'" in log for log in tracks["bridge_cz_signal"].logs)
+        assert any(
+            "identification_level='controlled'" in log for log in tracks["bridge_cz_signal"].logs
+        )
 
         batch_info = runner.comparison_calls[0]["batch_info"]
         assert batch_info["skipped_experiments"] == []
+
+    def test_cz_bridge_experiment_with_config_override_is_unidentified(self, tmp_path, monkeypatch):
+        # docs/step6.md \u00a723.3: a bridge track that ALSO changes a config
+        # key has moved 2 axes (signal source + config) and must be flagged
+        # unidentified, not silently left unlabeled.
+        import pandas as pd
+
+        monkeypatch.setattr(
+            "src.infra.reference.cz_bridge.compute_cz_bridge_signal",
+            lambda factor_id, data_dir: pd.DataFrame(
+                {"permno": [1], "yyyymm": [200001], "signal": [0.05]}
+            ),
+        )
+
+        path = self._write_matrix(
+            tmp_path,
+            """
+factor_id: cooper_gulen_schill_2008_asset_growth
+experiments:
+  - name: bridge_cz_signal
+    signal_input_ref: cz_bridge
+    config_overrides: {weighting_rule: ew}
+""",
+        )
+        matrix = load_experiment_matrix(path, _spec())
+
+        runner = FakeRunner()
+        runner.scripts_path = tmp_path / "scripts"
+        controller = MultiTrackController(runner=runner, meta_coder=FakeMetaCoder(), sandbox=FakeSandbox())
+
+        runs = controller.run_from_matrix(_plugin(), _spec(), matrix, snapshot_id="snap1")
+
+        bridge_run = next(r for r in runs if r.track == "bridge_cz_signal")
+        assert any("identification_level='unidentified'" in log for log in bridge_run.logs)
 
     def test_unregistered_cz_bridge_factor_is_skipped_not_run(self, tmp_path, monkeypatch):
         monkeypatch.setattr(

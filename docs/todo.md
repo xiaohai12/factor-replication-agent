@@ -73,3 +73,26 @@ wholesale on every `/review`/`/resolve` call) to set
 `universe.filters[i].accepted_unapplied = true` +
 `unapplied_reason = <text>`. Not yet implemented.~~
 
+## Within-agent config dispersion (step6 Q1 validity prerequisite)
+
+**Deferred by decision (2026-08-16), recorded so it isn't silently lost.**
+
+`docs/step6.md` Q1 treats the agent as "a second independent implementer"
+and reads `C_agent != C_cz` as evidence of *paper underdetermination*. But
+`C_agent` is currently a SINGLE draw from a stochastic process (temperature,
+prompt, model version). Without knowing the agent's own run-to-run
+dispersion, the measured agent-vs-C&Z disagreement cannot be separated from
+plain LLM noise.
+
+What to run when picked up: for each candidate factor, run step1+step2
+K >= 5 times (same model / different seeds, plus at least one second model
+family), and report the within-agent config dispersion (per-field
+disagreement rate over the `registry.build_config` menu keys). Q1 only holds
+if `within-agent dispersion << agent-vs-C&Z dispersion`. Cheap -- extraction
+is the cheapest pipeline step and no backtest is needed, only the field-level
+config diff.
+
+Until this exists, `docs/step6.md` Q1 results must carry an explicit
+limitation: the reported disagreement is an UPPER bound on paper
+underdetermination, since it also contains agent sampling noise.
+

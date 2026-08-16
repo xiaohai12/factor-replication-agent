@@ -133,6 +133,34 @@ class TestRunExperimentDelegatesToRunFromMatrix:
         matrix = controller._plan_to_matrix(plan, _spec())
         assert matrix.experiment_spec_hash == batch_info["experiment_spec_hash"]
 
+    def test_cz_config_override_produces_a_cz_actual_config_track(self):
+        # docs/step6.md gap #1: a human-reviewed C_cz override becomes its
+        # own track, alongside ①/③, in the SAME batch.
+        runner = FakeRunner()
+        controller = MultiTrackController(runner=runner, meta_coder=FakeMetaCoder(), sandbox=FakeSandbox())
+        plan = ExperimentPlan(
+            factor_id="t", run_standardized=False,
+            cz_config_override={"weighting_rule": "ew"},
+        )
+
+        runs = controller.run_experiment(_plugin(), _spec(), plan, snapshot_id="snap1")
+
+        tracks = {r.track for r in runs}
+        assert "cz_actual_config" in tracks
+        cz_run = next(r for r in runs if r.track == "cz_actual_config")
+        assert runner.build_calls[
+            next(i for i, c in enumerate(runner.build_calls) if c["track_name"] == "cz_actual_config")
+        ]["config_overrides"] == {"weighting_rule": "ew"}
+
+    def test_no_cz_config_override_means_no_cz_actual_config_track(self):
+        runner = FakeRunner()
+        controller = MultiTrackController(runner=runner, meta_coder=FakeMetaCoder(), sandbox=FakeSandbox())
+        plan = ExperimentPlan(factor_id="t", run_standardized=False)
+
+        runs = controller.run_experiment(_plugin(), _spec(), plan, snapshot_id="snap1")
+
+        assert "cz_actual_config" not in {r.track for r in runs}
+
 
 class TestFactorialSwitches:
     def test_single_switch_factorial_produces_one_non_baseline_combo(self):

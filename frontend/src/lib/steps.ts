@@ -84,11 +84,11 @@ export const STEP_REGISTRY: StepDefinition[] = [
       snapshot_id: "real_wrds_local_v1",
       run_original: true,
       run_standardized: true,
-      // Default to 4 tracks (original_method, standardized_hxz, plus these
-      // two single-switch flips) so the cross-track comparison table isn't
-      // empty out of the box -- see _ABLATION_SWITCH_TO_CONFIG_KEY in
-      // src/steps/step6_dual_track_controller/__init__.py for the full menu.
-      ablation_switches: ["breakpoint", "weighting"],
+      // Per-field ablation/factorial switches have no UI control (2026-08-16,
+      // the ①②③ picker is the whole "which versions to run" model) -- default
+      // to none so nothing runs that isn't visibly chosen on screen. Still
+      // settable via the raw request body for other (e.g. yaml matrix) callers.
+      ablation_switches: [],
       factorial_switches: [],
     },
   },

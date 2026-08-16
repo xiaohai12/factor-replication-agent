@@ -31,6 +31,7 @@ remain future work.
 
 from __future__ import annotations
 
+import hashlib
 import itertools
 import json
 import uuid
@@ -143,6 +144,11 @@ class ExperimentPlan:
     run_standardized: bool = True
     ablation_switches: list[str] = field(default_factory=list)
     factorial_switches: list[str] = field(default_factory=list)
+    # `C_cz` as a runnable config override (docs/step6.md gap #1,
+    # `src.infra.reference.cz_profile_to_config_override`) -- a human-
+    # reviewed dict from the step6 UI's C&Z-config preview, not derived
+    # here; None means no `cz_actual_config` track is added.
+    cz_config_override: dict[str, Any] | None = None
 
 
 class MultiTrackController:
@@ -192,6 +198,7 @@ class MultiTrackController:
         spec: ResolvedMethodSpec,
         plan: ExperimentPlan,
         snapshot_id: str,
+        reuse_original_run: RunRecord | None = None,
     ) -> list[RunRecord]:
         """Run all planned tracks for a factor.
 
@@ -207,6 +214,12 @@ class MultiTrackController:
         with the SAME `family`/`identification_level` derivation the yaml
         path uses.
 
+        `reuse_original_run`: an already-persisted `original_method` run
+        (e.g. step5's own execution) to reuse for \u2460 instead of re-running
+        it -- no matching/validation against this call's plugin/spec/
+        snapshot, the caller is trusted to only pass a genuinely equivalent
+        run.
+
         `plugin` is assumed already validated (Step4, done once before this
         is called — every track shares the same signal formula, only
         `config_overrides` differs per track, so re-running the compute_signal
@@ -215,7 +228,8 @@ class MultiTrackController:
         """
         matrix = self._plan_to_matrix(plan, spec)
         return self.run_from_matrix(
-            plugin, spec, matrix, snapshot_id, run_baseline=plan.run_original
+            plugin, spec, matrix, snapshot_id, run_baseline=plan.run_original,
+            reused_baseline_run=reuse_original_run,
         )
 
     def _plan_to_matrix(self, plan: ExperimentPlan, spec: ResolvedMethodSpec) -> "ExperimentMatrix":
@@ -228,9 +242,6 @@ class MultiTrackController:
         gated by its own `run_baseline` param); this only builds the
         `standardized_hxz`, `ablation_*`, and `factorial_*` entries.
         """
-        import hashlib
-        import json
-
         from src.steps.step6_dual_track_controller.experiment_spec import (
             ExperimentMatrix,
             build_experiment_spec,
@@ -242,6 +253,11 @@ class MultiTrackController:
         if plan.run_standardized:
             specs.append(
                 build_experiment_spec("standardized_hxz", spec, baseline_config, HXZ_STANDARD_CONFIG)
+            )
+
+        if plan.cz_config_override:
+            specs.append(
+                build_experiment_spec("cz_actual_config", spec, baseline_config, plan.cz_config_override)
             )
 
         for switch in plan.ablation_switches:
@@ -264,6 +280,7 @@ class MultiTrackController:
                 "run_standardized": plan.run_standardized,
                 "ablation_switches": sorted(plan.ablation_switches),
                 "factorial_switches": sorted(plan.factorial_switches),
+                "cz_config_override": plan.cz_config_override or {},
             },
             sort_keys=True,
         )
@@ -333,6 +350,7 @@ class MultiTrackController:
         matrix: "ExperimentMatrix",
         snapshot_id: str,
         run_baseline: bool = True,
+        reused_baseline_run: RunRecord | None = None,
     ) -> list[RunRecord]:
         """Run every experiment in a loaded, validated
         `experiment_spec.ExperimentMatrix` (Phase A2,
@@ -341,6 +359,13 @@ class MultiTrackController:
         `run_baseline` is True (the default -- set False by
         `run_experiment` when the caller's `ExperimentPlan.run_original` is
         False).
+
+        `reused_baseline_run`: reuse this ALREADY-persisted `original_method`
+        run for ① instead of re-executing it (e.g. step5's own execution).
+        Deep-copied with a NEW `run_id` before being included in `runs` --
+        it must never share persistence identity with the run it was copied
+        from (that run's own evidence-store artifact must not be
+        overwritten by this batch's bookkeeping).
 
         Each `RunRecord`'s `logs` gets one line recording that experiment's
         derived `family`/`identification_level` (computed by
@@ -365,9 +390,13 @@ class MultiTrackController:
         batch_id = uuid.uuid4().hex[:12]
         track_overrides: dict[str, dict[str, Any]] = {}
         track_specs: list[tuple[str, dict[str, Any]]] = []
+        reused_runs: list[RunRecord] = []
         if run_baseline:
             track_overrides["original_method"] = {}
-            track_specs.append(("original_method", {}))
+            if reused_baseline_run is None:
+                track_specs.append(("original_method", {}))
+            else:
+                reused_runs.append(self._copy_reused_baseline_run(reused_baseline_run))
         identification_by_track: dict[str, tuple[str, str]] = {}
         skipped: list[str] = []
         bridge_runs: list[RunRecord] = []
@@ -388,6 +417,13 @@ class MultiTrackController:
                         continue
                     track_overrides[exp.name] = exp.config_overrides
                     bridge_runs.append(bridge_run)
+                    # A bridge track moves the signal axis (and possibly a
+                    # config axis too, via exp.config_overrides) -- it must
+                    # get the same family/identification_level labeling as
+                    # any other track (docs/step6.md \u00a723.3: previously
+                    # skipped entirely, so a bridge track that ALSO changed
+                    # a config key was silently never flagged `unidentified`).
+                    identification_by_track[exp.name] = (exp.family, exp.identification_level)
                 else:
                     skipped.append(exp.name)
                 continue
@@ -402,6 +438,7 @@ class MultiTrackController:
             plugin, spec, snapshot_id, track_specs
         )
         runs.extend(bridge_runs)
+        runs.extend(reused_runs)
         for run in runs:
             if run.track in identification_by_track:
                 family, identification_level = identification_by_track[run.track]
@@ -580,6 +617,18 @@ class MultiTrackController:
             record.code_hash = f"cz_bridge:{cz_signal_factor_id}"
         record.is_bridge_track = True
         return record
+
+    def _copy_reused_baseline_run(self, run: RunRecord) -> RunRecord:
+        """Deep-copies a reused baseline `RunRecord` under a NEW `run_id` --
+        it must never share persistence identity with the run it was copied
+        from (`backend`'s `evidence_store.save_run`/`run_registry.register`
+        key off `run_id`; reusing the original id would silently overwrite
+        that run's own evidence-store artifact with THIS batch's
+        bookkeeping fields)."""
+        reused = run.model_copy(deep=True)
+        reused.run_id = f"{run.run_id}__reused_{uuid.uuid4().hex[:8]}"
+        reused.logs = list(reused.logs) + [f"reused run {run.run_id!r} for track 'original_method'"]
+        return reused
 
     def _run_track(
         self,

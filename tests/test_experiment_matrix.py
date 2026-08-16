@@ -211,6 +211,38 @@ experiments:
         exp = load_experiment_matrix(path, _spec()).experiments[0]
         assert exp.family == "reference_bridge"
 
+    def test_signal_input_ref_alone_is_controlled_one_axis_moved(self, tmp_path):
+        # docs/step6.md \u00a723.3: identification_level counts axes moved
+        # (signal source + config keys), not just config keys -- a pure
+        # signal-swap with no config override moves exactly 1 axis.
+        path = _write(
+            tmp_path,
+            """
+factor_id: t
+experiments:
+  - name: bridge
+    signal_input_ref: "cz:AssetGrowth"
+""",
+        )
+        exp = load_experiment_matrix(path, _spec()).experiments[0]
+        assert exp.identification_level == "controlled"
+
+    def test_signal_input_ref_plus_config_override_is_unidentified(self, tmp_path):
+        # 2 axes moved (signal source + 1 config key) -> unidentified, even
+        # though only 1 *config* key differs.
+        path = _write(
+            tmp_path,
+            """
+factor_id: t
+experiments:
+  - name: bridge
+    signal_input_ref: "cz:AssetGrowth"
+    config_overrides: {weighting_rule: ew}
+""",
+        )
+        exp = load_experiment_matrix(path, _spec(weighting="vw")).experiments[0]
+        assert exp.identification_level == "unidentified"
+
     def test_snapshot_ref_forces_data_vintage_family(self, tmp_path):
         path = _write(
             tmp_path,

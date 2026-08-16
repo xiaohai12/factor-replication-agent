@@ -132,12 +132,21 @@ def _derive_family(diff: dict, signal_input_ref: str | None, snapshot_ref: str |
     return "portfolio_ablation"
 
 
-def _derive_identification_level(diff: dict) -> str:
-    # Exactly one differing resolved-config key -> controlled, regardless of
-    # whether it's a pre-signal or post-signal key (see Decision 2). Zero or
-    # more than one -> unidentified. A zero-diff experiment is rejected
-    # entirely before this is even called (see load_experiment_matrix).
-    return "controlled" if len(diff) == 1 else "unidentified"
+def _derive_identification_level(
+    diff: dict, signal_input_ref: str | None = None, snapshot_ref: str | None = None
+) -> str:
+    # "Axes moved" = differing resolved-config keys PLUS the signal-source
+    # axis (`signal_input_ref`, e.g. a C&Z bridge track) and the data-vintage
+    # axis (`snapshot_ref`), not just a config-key count -- a bridge track
+    # that also changes a config key has moved 2 axes and must be
+    # `unidentified`, even though it's only 1 *config* key different
+    # (docs/step6.md §23.3: a bridge track that changes both axes used to
+    # never get an identification_level assigned at all). Exactly 1 axis
+    # moved -> controlled. 0 or >1 -> unidentified. A zero-diff, no-ref
+    # experiment is rejected entirely before this is even called (see
+    # load_experiment_matrix).
+    axes_moved = len(diff) + (1 if signal_input_ref else 0) + (1 if snapshot_ref else 0)
+    return "controlled" if axes_moved == 1 else "unidentified"
 
 
 def build_experiment_spec(
@@ -176,7 +185,7 @@ def build_experiment_spec(
         resolved_config=resolved_config,
         resolved_diff=diff,
         family=_derive_family(diff, signal_input_ref, snapshot_ref),
-        identification_level=_derive_identification_level(diff),
+        identification_level=_derive_identification_level(diff, signal_input_ref, snapshot_ref),
     )
 
 
