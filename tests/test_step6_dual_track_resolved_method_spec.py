@@ -10,6 +10,7 @@ engine layer.
 from __future__ import annotations
 
 from src.steps.step6_dual_track_controller import (
+    HXZ_STANDARD_CONFIG,
     MultiTrackController,
     ExperimentPlan,
     _spec_factor_id,
@@ -43,6 +44,5 @@ class TestPlanToMatrix:
 
     def test_ablation_override_unaffected_by_spec_type(self):
         controller = _controller()
-        resolved = _resolved_spec()
-        override = controller._get_ablation_override("weighting", resolved)
+        override = controller._get_ablation_override("weighting", HXZ_STANDARD_CONFIG)
         assert override == {"weighting_rule": "vw"}

@@ -793,6 +793,58 @@ def assemble_signal_master_table_from_sources(
     return master.sort_values(["permno", "time_avail_m"]).reset_index(drop=True)
 
 
+def asof_align_to_monthly(
+    monthly_keys: pd.DataFrame,
+    annual_df: pd.DataFrame,
+    max_staleness_months: int = 11,
+) -> pd.DataFrame:
+    """Point-in-time forward-fill a low-frequency [permno, time_avail_m, *cols]
+    frame (one row per fiscal period -- see `_load_generic_signal_frame`,
+    `assemble_signal_master_table_from_sources`'s own output) onto EVERY
+    month in `monthly_keys` ([permno, yyyymm]).
+
+    Without this, joining `assemble_signal_master_table_from_sources`'s
+    output onto a monthly panel via a plain exact-month merge only matches
+    the ONE month each fiscal period happens to land on -- ~1 of every 12
+    months for annual data -- leaving the other ~11 silently NaN even though
+    that firm's value is legitimately still available (just not re-stated
+    every month). This was a real bug found 2026-08-16 in
+    `join_universe_filter_sources` (a universe filter referencing an
+    annual-cadence Compustat column, e.g. `ceq > 0`, silently excluded ~92%
+    of otherwise-eligible firm-months). Each (permno, yyyymm) gets that
+    firm's most recently AVAILABLE value as of that month (`merge_asof`,
+    `direction="backward"`), capped by `max_staleness_months` (same
+    convention/default as `BacktestExecutor.signal_max_staleness_months`) so
+    a value doesn't get carried forward indefinitely past a stale/missing
+    fiscal period.
+
+    Returns `[permno, yyyymm, *cols]`, one row per `monthly_keys` row
+    (deduplicated), unchanged (no extra columns) if `annual_df` is empty.
+    """
+    targets = monthly_keys[["permno", "yyyymm"]].drop_duplicates().copy()
+    if annual_df.empty:
+        return targets
+    targets["permno"] = targets["permno"].astype(int)
+    targets["_target_m"] = (targets["yyyymm"].astype(int) // 100) * 12 + (targets["yyyymm"].astype(int) % 100) - 1
+
+    source = annual_df.rename(columns={"time_avail_m": "_source_yyyymm"}).copy()
+    source["permno"] = source["permno"].astype(int)
+    source["_source_m"] = (
+        (source["_source_yyyymm"].astype(int) // 100) * 12 + (source["_source_yyyymm"].astype(int) % 100) - 1
+    )
+
+    aligned = pd.merge_asof(
+        targets.sort_values(["_target_m", "permno"]),
+        source.drop(columns=["_source_yyyymm"]).sort_values(["_source_m", "permno"]),
+        by="permno",
+        left_on="_target_m",
+        right_on="_source_m",
+        direction="backward",
+        tolerance=max_staleness_months,
+    )
+    return aligned.drop(columns=["_target_m", "_source_m"])
+
+
 def assemble_signal_master_table(spec: Any, data_dir: str | Path) -> pd.DataFrame:
     """Assemble the signal-formula input table keyed [permno, time_avail_m]
     from however many sources the spec's fields span.

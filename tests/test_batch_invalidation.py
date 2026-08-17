@@ -109,7 +109,7 @@ class TestBatchInvalidationOnTrackLocalRepair:
     def test_no_repair_batch_stays_valid(self):
         runner = FakeRunnerWithCodeHash(fail_once_tracks=frozenset())
         controller = MultiTrackController(runner=runner, meta_coder=FakeMetaCoder(), sandbox=FakeSandbox())
-        plan = ExperimentPlan(factor_id="t", run_original=True, run_standardized=True)
+        plan = ExperimentPlan(factor_id="t", run_original=True, run_standardized=True, auto_attribution=False)
 
         runs = controller.run_experiment(_plugin(), _spec(), plan, snapshot_id="snap1")
 

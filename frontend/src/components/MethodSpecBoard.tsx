@@ -113,9 +113,23 @@ function Field({
   )
 }
 
-function Section({ title, children }: { title: string; children: React.ReactNode }) {
+function Section({
+  title,
+  highlighted,
+  children,
+}: {
+  title: string
+  highlighted?: boolean
+  children: React.ReactNode
+}) {
   return (
-    <div className="flex flex-col gap-1 rounded-lg border border-border p-3">
+    <div
+      className={
+        highlighted
+          ? "flex flex-col gap-1 rounded-lg border-2 border-amber-400 bg-amber-50 p-3 dark:border-amber-600 dark:bg-amber-950/20"
+          : "flex flex-col gap-1 rounded-lg border border-border p-3"
+      }
+    >
       <h4 className="text-sm font-semibold">{title}</h4>
       <div className="flex flex-col">{children}</div>
     </div>
@@ -133,7 +147,16 @@ function period(p: Record<string, any> | undefined): string {
  * is optional) since a MethodSpec fresh out of extraction may be missing
  * whole sections; falls back to just omitting a Field/Section when its data
  * isn't present rather than crashing. */
-export function MethodSpecBoard({ spec }: { spec: Record<string, any> }) {
+export function MethodSpecBoard({
+  spec,
+  highlightConfigAndResults,
+}: {
+  spec: Record<string, any>
+  /** Highlights the "Portfolio" (config) and "Reported results" (result)
+   * sections -- used right after a resolve, when those are the two
+   * sections most worth double-checking before moving on to codegen. */
+  highlightConfigAndResults?: boolean
+}) {
   const paper = spec.paper ?? {}
   const signal = spec.signal ?? {}
   const data = spec.data ?? {}
@@ -244,7 +267,7 @@ export function MethodSpecBoard({ spec }: { spec: Record<string, any> }) {
         )}
       </Section>
 
-      <Section title="Portfolio">
+      <Section title="Portfolio" highlighted={highlightConfigAndResults}>
         <Field label="Construction type" value={portfolio.construction_type} />
         <Field label="Weighting" value={portfolio.weighting} />
         <Field label="Return combination" value={portfolio.return_combination} />
@@ -372,7 +395,7 @@ export function MethodSpecBoard({ spec }: { spec: Record<string, any> }) {
       )}
 
       {metrics.length > 0 && (
-        <Section title="Reported results">
+        <Section title="Reported results" highlighted={highlightConfigAndResults}>
           <p className="text-xs text-muted-foreground">
             primary metric: <span className="font-mono">{fmt(reported.primary_metric_id)}</span>
           </p>

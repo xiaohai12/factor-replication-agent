@@ -33,8 +33,12 @@ and controlled pipeline components.
 - Cap large command outputs. Summarize important lines instead of dumping logs.
 - Do not read large PDFs, converted paper text, or many MethodSpec JSONs
   unless the task directly depends on them.
-- Use the narrowest relevant tests first. Run full tests only for shared schema/model behavior
-  or broad cross-module changes.
+- Use the narrowest relevant tests first (target the specific test file(s)
+  covering the changed module). Do NOT run the full `pytest tests/` suite by
+  default -- it is slow and usually unnecessary. Only run the full suite when
+  explicitly asked, or the change touches shared schema/model behavior
+  (`src/infra/models/`, `registry.build_config`) or otherwise crosses many
+  modules in a way targeted tests can't cover.
 - Never use `git add .` or `git add -A`; data and evidence directories may be large.
 - `pytest tests/` never writes to the real `runs/` directory. `tests/conftest.py`
   redirects `backend.state.RUNS_DIR` to the gitignored `.runs_scratch/` dir

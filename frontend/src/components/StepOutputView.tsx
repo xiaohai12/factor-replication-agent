@@ -1,12 +1,11 @@
 import { useQuery } from "@tanstack/react-query"
 import { Badge } from "@/components/ui/badge"
 import { JsonTree } from "@/components/JsonTree"
-import { DiffView } from "@/components/DiffView"
-import { GapWaterfallChart } from "@/components/GapWaterfallChart"
 import { Step3Output } from "@/components/steps/Step3Output"
 import { Step4Output } from "@/components/steps/Step4Output"
 import { Step5Output } from "@/components/steps/Step5Output"
 import { Step6Output } from "@/components/steps/Step6Output"
+import { Step7Output } from "@/components/steps/Step7Output"
 import { api } from "@/lib/api"
 import { sessionApi } from "@/lib/sessionApi"
 import type { SessionManifest, StepAttempt } from "@/lib/types"
@@ -24,6 +23,7 @@ export function StepOutputView({
   manifest,
   paperReported,
   czReported,
+  hxzReported,
 }: {
   step: number
   sessionId: string
@@ -32,6 +32,10 @@ export function StepOutputView({
   manifest: SessionManifest | undefined
   paperReported?: { mean_return?: number; t_stat?: number } | null
   czReported?: { mean_return: number | null; t_stat: number | null } | null
+  hxzReported?: {
+    originalInsample: { mean_return: number | null; t_stat: number | null } | null
+    hxzPaperSample: { mean_return: number | null; t_stat: number | null } | null
+  } | null
 }) {
   const refs = attempt?.output_refs ?? {}
 
@@ -63,39 +67,18 @@ export function StepOutputView({
 
   if (step === 6) {
     return (
-      <Step6Output sessionId={sessionId} attempt={attempt} paperReported={paperReported} czReported={czReported} />
+      <Step6Output
+        sessionId={sessionId}
+        attempt={attempt}
+        paperReported={paperReported}
+        czReported={czReported}
+        hxzReported={hxzReported}
+      />
     )
   }
 
   if (step === 7 && step7Bundle.data) {
-    const bundle = step7Bundle.data
-    const derived = (bundle.derived as Record<string, unknown>) ?? {}
-    const gap = (bundle.gap_decomposition as Record<string, unknown>) ?? {}
-    const configDiff = (bundle.config_diff as { baseline_track?: string; pairs?: Record<string, unknown> }) ?? {}
-    const tracks = (bundle.tracks as Record<string, { config?: Record<string, unknown> }>) ?? {}
-    const baselineTrack = configDiff.baseline_track
-    const baselineConfig = (baselineTrack && tracks[baselineTrack]?.config) || {}
-    const pairTrackNames = Object.keys(configDiff.pairs ?? {})
-    return (
-      <div className="flex flex-col gap-3">
-        <Badge variant="outline">overall_tag: {String(derived.overall_tag ?? "inconclusive")}</Badge>
-        <GapWaterfallChart gapDecomposition={gap} />
-        {baselineTrack &&
-          pairTrackNames.map((track) => (
-            <div key={track}>
-              <p className="mb-1 text-xs font-medium">
-                {track} vs {baselineTrack} config
-              </p>
-              <DiffView
-                left={baselineConfig}
-                right={tracks[track]?.config ?? {}}
-                leftLabel={baselineTrack}
-                rightLabel={track}
-              />
-            </div>
-          ))}
-      </div>
-    )
+    return <Step7Output bundle={step7Bundle.data} />
   }
 
   if (step === 8 && step8Diagnosis.data) {

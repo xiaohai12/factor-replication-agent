@@ -26,6 +26,7 @@ from backend.state import pipeline
 from src.evaluation import diagnostics as step_diagnostics
 from src.infra.models.session import ConcurrentModificationError, StepStatus
 from src.infra.reference import cz_profile_to_config_override, fetch_cz_reference_profile_live
+from src.infra.reference.hxz_bridge import compute_hxz_reported_both_windows
 from src.infra.session_store import SessionNotFoundError
 from src.steps.step3_codegen.registry import build_config
 from src.steps.step6_dual_track_controller import HXZ_STANDARD_CONFIG
@@ -171,6 +172,27 @@ def get_step6_cz_config(session_id: str, acronym: str) -> dict:
             "sign": profile.sign,
         },
     }
+
+
+@router.get("/{session_id}/steps/6/hxz-config")
+def get_step6_hxz_config(
+    session_id: str, acronym: str, sample_start_year: Optional[int] = None, sample_end_year: Optional[int] = None
+) -> dict:
+    """Preview-only: HXZ's own reported long-short mean return/t-stat for
+    `acronym` (docs/step6.md's `N_hxz` gap), recomputed from a downloaded
+    HXZ testing-portfolio CSV (`src.infra.reference.hxz_bridge`). Returns
+    BOTH windows so the UI can show them side by side: `original_insample`
+    (restricted to `[sample_start_year, sample_end_year]` -- the REPLICATED
+    factor's own paper window, the same basis ①'s reference number is on)
+    and `hxz_paper_sample` (always HXZ's own 1967-2016 paper window,
+    regardless of what was passed in). Returns 404 if `acronym` has no HXZ
+    reference file wired up yet.
+    """
+    _get_or_404(session_id)
+    result = compute_hxz_reported_both_windows(acronym, sample_start_year, sample_end_year)
+    if result is None:
+        raise HTTPException(status_code=404, detail=f"No HXZ reference data wired up for acronym '{acronym}'")
+    return {"acronym": acronym, **result}
 
 
 class ComparisonRequest(BaseModel):

@@ -365,17 +365,24 @@ def join_universe_filter_sources(msf: pd.DataFrame) -> pd.DataFrame:
     see `registry._universe_filter_join_sources`) onto the returns panel
     BEFORE the engine runs -- so `filter_universe`/`apply_universe_filters`
     see these columns as ordinary panel columns, exactly like `exchcd`/
-    `shrcd`, and BacktestExecutor itself needs zero changes. Reuses the SAME
-    point-in-time assembler `build_signal_input` already uses for
-    compute_signal's own input. No-op (returns `msf` unchanged) when no
-    universe filter needs a non-native column."""
+    `shrcd`, and BacktestExecutor itself needs zero changes. No-op (returns
+    `msf` unchanged) when no universe filter needs a non-native column.
+
+    Uses `asof_align_to_monthly` (NOT a plain exact-month merge) -- a
+    Compustat-sourced column here is annual-cadence (one row per fiscal
+    period), so an exact (permno, yyyymm) merge would only match ~1 of every
+    12 months, leaving the rest NaN and silently excluded by a `gt`/`nonzero`
+    -style filter even though the firm's value is legitimately still
+    available (fixed 2026-08-16 -- see that function's docstring)."""
     join_sources = CONFIG.get("universe_filter_join_sources") or {{}}
     if not join_sources:
         return msf
-    from src.infra.data_layer import assemble_signal_master_table_from_sources
+    from src.infra.data_layer import assemble_signal_master_table_from_sources, asof_align_to_monthly
     extra = assemble_signal_master_table_from_sources(SIGNAL_DATA_DIR, join_sources, ACCOUNTING_LAG_MONTHS)
-    extra = extra.rename(columns={{"time_avail_m": "yyyymm"}})
-    return msf.merge(extra, on=["permno", "yyyymm"], how="left")
+    aligned = asof_align_to_monthly(
+        msf[["permno", "yyyymm"]], extra, CONFIG.get("signal_max_staleness_months", 11)
+    )
+    return msf.merge(aligned, on=["permno", "yyyymm"], how="left")
 
 
 

@@ -398,7 +398,9 @@ class BacktestRunner:
             "tracks": tracks,
             "batch": batch_info or {},
         }
-        payload.update(build_evidence_bundle(paper_reported, tracks, diff_result, spec=spec))
+        payload.update(
+            build_evidence_bundle(paper_reported, tracks, diff_result, spec=spec, results_dir=results_dir)
+        )
         path = results_dir / "comparison.json"
         path.write_text(json.dumps(payload, indent=2, default=str))
         return path

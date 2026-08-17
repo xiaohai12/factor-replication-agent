@@ -470,7 +470,7 @@ matrix 会改为批次启动前冻结 plugin，违反时使整个批次失效。
 
 `original_method` 应该遵守原文的回测周期：formation month、rebalance frequency、holding period、return horizon、skip month、accounting lag、overlapping portfolios 等。这些由 MethodSpec 提取、经 Review Gate 审查后，由回测骨架执行。
 
-`standardized_hxz` 当前使用代码中固定的标准化规则（lag=6m、NYSE 断点、VW、monthly rebalance、holding period=1m 等），配置见 `src/steps/step6_dual_track_controller/__init__.py` 中的 `HXZ_STANDARD_CONFIG`。这些设置是否应继续称为 “HXZ-style” 是下一轮双轨设计需要明确的研究口径，而不是已被外部基准验证的事实。
+`standardized_hxz` 当前使用固定的标准化规则（lag=6m、NYSE 断点、VW、annual rebalance、holding period=12m、`exchcd`/`siccd` universe 过滤等，2026-08-16 逐字段核对论文后修正），单一权威来源见 `data/reference/hxz_standard_config.yaml`（经 `src/infra/reference` 加载，`HXZ_STANDARD_CONFIG` 只在 `src/steps/step6_dual_track_controller/__init__.py` 里 re-export）。
 
 **多配置对比的完整设计（尚未实现）：** 研究需要的是把
 同一个冻结信号跑在多套受控 config 下、把结果和确切 config 一起唯一持久化、再做

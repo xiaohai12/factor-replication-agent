@@ -2,6 +2,599 @@
 
 ## [Unreleased]
 
+### `derived.tracks[*].vs_paper` now compares the paper's own in-sample window, not our full extended history (2026-08-17)
+
+Found while building step7 usage examples: `build_track_vs_paper` (and thus
+`derived.overall_tag`) was comparing the paper's reported number against
+`RunMetrics`' TOP-LEVEL metrics, which cover this engine's full extended
+history (often decades past the paper's publication year -- 882 vs 432
+months in the real AssetGrowth reference run), instead of
+`RunMetrics.by_sample_period.insamp` (the paper's own sample window --
+already used correctly by `build_publication_decay` and by the frontend's
+`Step6Output.tsx`). A paper's headline number was never computed over that
+extra post-publication history, so this was an apples-to-oranges
+comparison. Real-world impact on the AssetGrowth reference run:
+`abs_spread_ratio` 1.41 -> 2.11, `overall_tag` "close_replication" ->
+"sign_agrees_magnitude_differs" -- a materially different headline
+verdict, not just a cosmetic number change.
+
+New `_in_sample_metrics(metrics)` merges `by_sample_period.insamp` over the
+top-level metrics key-by-key (not all-or-nothing, since `insamp` doesn't
+carry every top-level key, e.g. `coverage`), renaming its
+`mean_monthly_return` to `mean_return` to match `_resolve_track_spread`'s
+expected key; falls back to the unchanged top-level metrics when no
+in-sample window was configured (i.e. no behavior change for a run without
+`sample_start_year`/`sample_end_year`). `build_evidence_bundle` now feeds
+this into both `build_track_vs_paper` and `derived.tracks[*].n_months`.
+
+
+### Auto-attribution no longer generates the all-switches-flipped corner as a duplicate track (2026-08-17)
+
+Fixes a second, more general instance of the previous entry's "ambiguous
+switch" bug: `_auto_attribution_specs`'s full-factorial expansion always
+included a combo where EVERY differing switch takes the target value --
+but that corner is, for any `n`, identical to the endpoint track built
+separately by `_plan_to_matrix` (`cz_actual_config`/`standardized_hxz`),
+which flips the same switches to the same values by definition. Both
+tracks then reported the same `switches_flipped` key set, and
+`attribution.py` correctly refused to pick one (real production example:
+`n=1`, only "universe" differs -- `cz_actual_config` and the auto-generated
+`cz_factorial_universe` were the exact same config; `n=3` -- `standardized_hxz`
+and the auto-generated `factorial_breakpoint_weighting_universe` were the
+exact same config). The earlier fix only special-cased `n == 1`; this
+generalizes it.
+
+`_factorial_track_specs` gained an `exclude_combos: set[frozenset[str]] |
+None` parameter (a manual `factorial_switches` caller, with no separate
+endpoint track to collide with, must leave it `None`); `_auto_attribution_specs`
+now always passes `exclude_combos={frozenset(switches)}` to drop that one
+corner, regardless of `n`. `compute_shapley_effects` is unaffected: it
+already reads the full corner off of `tracks` generically (by whichever
+track happens to report that full `switches_flipped` set), not from this
+generation list, so the endpoint track alone still satisfies the 2^n grid.
+
+Updated `tests/test_experiment_plan_matrix_merge.py`'s
+`test_default_plan_auto_generates_factorial_tracks_for_the_real_diff` (7 ->
+6 `factorial_*` tracks) and `test_cz_config_override_auto_generates_cz_factorial_tracks`
+(3 -> 2 `cz_factorial_*` tracks) to reflect the corrected, non-redundant
+counts.
+
+### Attribution (Shapley/paired-test/joint-test) now runs per comparison line, not per batch (2026-08-17)
+
+Fixes the root cause behind the previous entry's "ambiguous switch"
+detection, rather than just detecting and excluding it: a batch that ran
+both ①→② (`cz_factorial_*`/`cz_ablation_*`, target `cz_config_override`)
+and ①→③ (`factorial_*`/`ablation_*`, target `HXZ_STANDARD_CONFIG`) had all
+of its tracks pooled into ONE shared calculation, so two different tracks
+touching only "universe" (one per line) could collide. New
+`attribution.split_tracks_by_comparison_line(tracks, baseline_track)`
+splits a batch's tracks into up to two independent groups (`to_cz`/
+`to_hxz`, using the existing, already load-bearing `cz_`-prefix naming
+split -- not a fragile parse of switch names) BEFORE
+`compute_shapley_effects`/`paired_switch_significance`/
+`joint_switch_wald_test` ever run, so the two lines' tracks are never in
+the same calculation and the collision cannot occur at all (rather than
+being caught and one switch dropped).
+
+`bundle.build_shapley_and_significance` now nests its three outputs one
+level by comparison line: `{"shapley_attribution": {"to_hxz": {...},
+"to_cz": {...}}, "paired_tests": {...same...}, "joint_test": {...same...}}`
+-- a batch with only one line present (the common case) has only that one
+key; a batch with none has the flat `{"available": false, ...}` shape
+directly (unchanged for that case). Considered and explicitly rejected a
+third "②→③" (C&Z config vs HXZ config directly) comparison line -- it
+would need an entirely new baseline (② itself) and a freshly-run
+factorial grid, isn't part of the project's declared core contribution
+(Q1, docs/step6.md §25 decision A), and can be approximated well enough
+by reading the existing ①→②/①→③ results side by side.
+
+`frontend/src/components/steps/Step7Output.tsx` renders each line as its
+own bordered section (labeled "① → ② (C&Z actual config)"/"① → ③ (HXZ
+standardized config)") via a new `linesOf()` normalizer in the same file
+that handles both the nested and the flat-when-empty shapes.
+`AttributionPanel.tsx`'s three components are unchanged -- they always
+take a single line's result, now called once per line instead of once
+per batch.
+
+New tests: `TestSplitTracksByComparisonLine` (`test_attribution.py`),
+`test_two_comparison_lines_no_longer_collide_on_the_same_switch_name`
+(`test_replication_diagnosis.py`); updated the one existing test that
+asserted the old flat shape. Full suite: 684 passed, 18 skipped, zero
+regressions. `tsc -b`/`oxlint` clean on the frontend changes.
+
+### Fix: `paired_switch_significance`/`joint_switch_wald_test` silently picked one of two ambiguous single-switch tracks (2026-08-17)
+
+Found on a real run: a batch with BOTH `factorial_universe` (target
+`HXZ_STANDARD_CONFIG`) and `cz_factorial_universe` (target
+`cz_config_override`) produces two DIFFERENT tracks whose
+`switches_flipped` both touch only `"universe"` (same config key, two
+different target values). `compute_shapley_effects` already refused this
+case ("ambiguous, refusing to pick one"), but
+`paired_switch_significance`/`joint_switch_wald_test` built their
+switch->track mapping as a plain dict keyed by switch name --
+`single_switch_tracks[switch] = name` -- so the second track silently
+overwrote the first with no warning, and the joint test's `universe`
+contrast was whichever track happened to be iterated last, not a
+documented or deterministic choice.
+
+New shared `_single_switch_track_map(tracks, baseline_track)` returns
+`(resolved, ambiguous)`: switches with exactly one candidate track vs.
+switches with more than one, used by both functions now. Ambiguous
+switches are reported, not resolved: `paired_switch_significance` gives
+that switch's `per_switch` entry `{"available": False, "reason":
+"multiple tracks map to switch ... -- ambiguous, refusing to pick one"}`;
+`joint_switch_wald_test` drops the switch from the test entirely and lists
+it in a new `ambiguous_switches_excluded` key (present on both the
+available and unavailable return paths). New tests:
+`test_two_tracks_mapping_to_the_same_switch_is_reported_not_silently_picked`,
+`test_ambiguous_switch_is_excluded_not_silently_picked`. Full suite: 680
+passed, 18 skipped, zero regressions.
+
+### `MeasuresExplainer` card gains paper citations, purpose, and worked examples per measure (2026-08-17)
+
+Extended each of the four `MEASURES` entries (`AttributionPanel.tsx`) with
+a `paper` (Shapley 1953; Newey & West 1987, Econometrica; Wald 1943's
+general test + Ledoit & Wolf 2008's HAC-covariance application; Harvey,
+Liu & Zhu 2016 RFS + Hou, Xue & Zhang 2020 RFS for the tier thresholds), a
+`purpose` line (what the measure is actually used FOR in this pipeline,
+not just what it computes), and an `example` pulled from the real
+AssetGrowth batch (Shapley's 96%/31%/−27% split, the weighting switch's
+t=2.74 paired test, the 3-switch joint Wald=21.62/p≈0.00008, and the
+tier-3-vs-tier-1 contrast between original_method and standardized_hxz).
+`tsc -b`/`oxlint` clean.
+
+### step7 output: `MeasuresExplainer` card with formulas for Shapley/paired-test/joint-test/HXZ tiers (2026-08-17)
+
+New `MeasuresExplainer` in `AttributionPanel.tsx` -- a collapsed-by-default
+`<details>` card (visually distinct via a primary-tinted border/background
+so it stands out from the data tables, not blended in) listing the
+formula + one-line explanation for each of the four measures step7 now
+computes: Shapley's weighted-marginal-contribution formula (plus its
+efficiency property), the paired Newey-West t-stat, the joint Wald
+statistic (spelling out why the covariance needs cross terms), and the
+HXZ tiered-significance rule. Plain monospace/Unicode notation, not
+LaTeX/KaTeX (no math-rendering library in this frontend yet, and adding
+one for a handful of static formulas would be disproportionate). Rendered
+near the top of `Step7Output.tsx`, ahead of the data panels. `tsc -b`/
+`oxlint` clean.
+
+### step7 output: extracted to its own component, config diff gets a track-selection checklist (2026-08-17)
+
+Extracted the `step === 7` branch out of `StepOutputView.tsx` into a new
+`frontend/src/components/steps/Step7Output.tsx` (mirrors `Step6Output.tsx`'s
+own file split). Added a "Compare against `<baseline>`" checkbox row
+(mirrors `Step6Output`'s existing track-selection checklist) so a batch
+with 10+ `factorial_*`/`ablation_*` tracks doesn't dump every track's
+config diff on screen by default, plus an "Only show tracks with config
+differences" toggle (defaults on) that hides tracks whose
+`config_diff.pairs[track].changed_keys` is empty. `tsc -b`/`oxlint` clean.
+
+Note: an existing session's `comparison.json` predating the Shapley/
+paired/joint work above won't show anything in those three panels or the
+gap-decomposition chart -- `switches_flipped` is only set at
+`run_from_matrix` EXECUTION time, so a stale `comparison.json` has neither
+that field nor the new evidence keys. Step 6 (the experiment batch) needs
+to be re-run for a session to see the new panels; the underlying
+mean_return/t_stat numbers should come out identical (same plugin, config,
+data), only the new evidence blocks are added.
+
+### step7 request panel: replace raw JSON textarea with a "What this step computes" description (2026-08-17)
+
+Step7's request body is just `{expected_revision, experiment_batch_id}` --
+an opaque hash with no user-editable content, but it was still shown as a
+raw JSON textarea (the only steps with a custom summary instead were
+3/4/5 via `RequestFieldsSummary`). Added a step7-specific description
+block to `SessionDetailPage.tsx`, modeled on step4's existing "What this
+step checks" list: seven `{name, desc}` rows (track vs paper, config
+diff, gap decomposition/OAT, Shapley attribution, paired significance
+test, joint Wald test, bridge/decay/robustness) explaining what
+`build_evidence_bundle` actually computes, replacing the raw textarea
+(excluded step 7 from the same condition that already hides it for
+3/4/5/6). `tsc -b`/`oxlint` both clean.
+
+### step7 UI: Shapley table, paired-test rows, joint-test banner (docs/step7-8.md Part V) (2026-08-17)
+
+New `frontend/src/components/AttributionPanel.tsx` (`JointTestBanner`,
+`ShapleyAttributionTable`, `PairedTestsTable`), wired into
+`StepOutputView.tsx`'s `step === 7` branch alongside the existing
+`GapWaterfallChart`/`DiffView`. All three read the new `shapley_attribution`/
+`paired_tests`/`joint_test` keys directly and render each block's own
+`available`/`reason` rather than a generic empty state.
+
+`GapWaterfallChart`'s old "No gap decomposition available" empty state (a
+false negative on every full-factorial batch, since `gap_decomposition` is
+OAT-only and mutually exclusive with `shapley_attribution` per batch) is
+now only shown when `shapley_attribution` ALSO has nothing -- a normal
+full-factorial batch shows the Shapley table instead, not an "attribution
+failed" message.
+
+`ShapleyAttributionTable` dims itself (opacity + a "lacks joint support"
+badge) when `joint_test` is available but not significant (p >= 0.05) --
+the visual form of the gate described in docs/step7-8.md Part V: don't let
+a single switch's Shapley number read as important without the joint test
+backing it, ahead of any step8 claim-contract change. `frontend/src/lib/
+evidence.ts`'s `RunRecord` interface gains `switches_flipped` (mirrors the
+new backend field). `tsc -b` and `oxlint` both clean on the changed files.
+
+### step7: Shapley-value attribution, paired Newey-West test, joint Wald test (docs/step7-8.md Part V) (2026-08-17)
+
+Implements the three methods identified in a literature review (Menkveld
+et al. 2024 "Nonstandard Errors", Soebhag et al. 2024, Ledoit-Wolf 2008)
+as directly usable, low-risk upgrades over the existing OAT-only
+`gap_decomposition`, which never fires for the now-default full-factorial
+batches (only recognizes `ablation_*` track names).
+
+New `src/steps/step7_replication_diff/attribution.py`:
+- `compute_shapley_effects`: order-independent decomposition of the
+  `mean_return` gap across a full-factorial batch's switches (requires all
+  2^n corners present; reports exactly which subsets are missing
+  otherwise). `identification_level="controlled"` -- the level
+  `src/infra/models/diagnosis.py`'s `IdentificationLevel` docstring already
+  reserved for exactly this design, previously unreachable.
+- `paired_switch_significance`: per single-switch track, a paired
+  Newey-West test (differenced monthly return series over the months both
+  tracks report in-sample) of whether that switch's effect is
+  distinguishable from zero.
+- `joint_switch_wald_test`: one joint Wald test across ALL single-switch
+  contrasts at once (HAC covariance matrix including cross-covariances,
+  since the contrasts share the same baseline and heavily-overlapping
+  months and are NOT independent) -- the gate against picking whichever
+  single switch looks biggest without checking they're collectively
+  significant (the ANOVA-omnibus-before-post-hoc pattern).
+
+All three verified against a real AssetGrowth batch
+(`runs/backtest_scripts/results/099f6e1136bd316c/`): Shapley attributes
+96% of the total gap to `weighting` (matches the §8 pre-registered
+weighting×breakpoint prediction); paired test on `weighting` gives t=2.74
+(432 overlapping in-sample months); joint Wald stat 21.62 (df=3,
+p≈0.00008) across all three switches.
+
+Prerequisite plumbing (docs/step7-8.md Part V, Q2): new
+`RunRecord.switches_flipped: dict | None` field, populated by
+`run_from_matrix` from `ExperimentSpec.resolved_diff` (already computed
+for `identification_level`, previously discarded) via a new
+`_CONFIG_KEY_TO_SWITCH` reverse map + `_switches_flipped_from_diff` helper
+in `step6_dual_track_controller`. Deliberately NOT parsed from the track
+name (considered and rejected: unreliable, breaks on any future naming
+convention change) -- works for tracks produced by ANY path (factorial,
+ablation, sweep, yaml), not just the auto-attribution ones. Threaded into
+`tracks_summary`/`comparison.json` alongside the existing `config`/
+`metrics`/`is_bridge_track` keys.
+
+`MAX_FACTORIAL_SWITCHES` lowered 5->4 (2^4=16 max runs instead of 32);
+kept as the informal ceiling for Shapley's own "is the grid complete"
+check via an independent, more generous safety constant
+(`_MAX_SWITCHES_FOR_SHAPLEY = 6`) rather than importing the step6 constant
+(would create a step6<->step7 circular import).
+
+`bundle.py`'s `build_evidence_bundle` gains a `results_dir: Path | None`
+parameter (already computed by `write_comparison_summary`, now threaded
+through) producing three new top-level keys: `shapley_attribution` (only
+needs `mean_return`, computed regardless of `results_dir`),
+`paired_tests`/`joint_test` (need the on-disk `<track>.csv` monthly
+series, report `available=False` without `results_dir` rather than
+raising).
+
+Also added HXZ's own three-tier significance hurdles (docs/step7-8.md Q7;
+verified against `docs/Hou 等 - 2020 - Replicating Anomalies.pdf`:
+"thresholds of 1.96, 2.78, and 3.39") as new `paper_significance_tier`/
+`track_significance_tier` fields on `build_track_vs_paper`'s output, via a
+new independent `SIGNIFICANCE_T_THRESHOLDS` constant -- the existing
+`SIGNIFICANCE_T_THRESHOLD`/`paper_significant`/`track_significant`/
+`significance_agrees` fields are left untouched (a test imports and
+asserts equality against the old constant directly; renaming it would
+have broken that test for no benefit).
+
+New tests: `tests/test_attribution.py` (Shapley/paired/joint, including a
+skip-if-absent check against the real AssetGrowth run directory),
+`TestSwitchesFlipped` in `tests/test_experiment_plan_matrix_merge.py`,
+`TestShapleyAndSignificanceWiring` + tier assertions in
+`tests/test_replication_diagnosis.py`. Full suite: 678 passed, 18 skipped,
+zero regressions.
+
+### "Config per track" table gets a track-selection checklist (defaults to all, baseline pinned), now also filters the chart (2026-08-17)
+
+With auto-attribution's `factorial_*`/`ablation_*`/`cz_factorial_*`/
+`cz_ablation_*` tracks, a batch can easily reach 10+ tracks, making the
+"Config per track" table (`Step6Output.tsx`) and the return chart very
+crowded by default. Added ONE shared checkbox row (defaults to every track
+checked, matching the prior always-show-everything behavior) plus
+"All"/"None" buttons, controlling BOTH the config table's columns and which
+tracks `MultiTrackChart` plots -- the baseline track's checkbox is disabled
+(always selected), since both sections use it as the pinned reference/delta
+basis; "None" clears everything except the baseline instead of leaving
+nothing to compare against.
+
+### Step6 ②/③ preview queries (C&Z config, HXZ reported return) now survive a page reload (2026-08-17)
+
+`GET /steps/6/cz-config` and `GET /steps/6/hxz-config` are intentionally
+stateless on the backend (preview-only, never mutate the session), so their
+results only ever lived in the step6 request card's own React `useState` --
+any page reload (routinely following a dev-server backend restart, since
+this repo's uvicorn has no `--reload` hot reload by default) silently reset
+them to "never queried", forcing a re-query (a live `openassetpricing` call
+for ②, a CSV re-download for ③) just to see the same numbers again. Added
+`frontend/src/lib/step6PreviewStore.ts` (same `localStorage`-per-session
+pattern as `methodSpecStore.ts`) and wired `step6ConfigDiff`/
+`step6HxzReported` plus each preview component's own selected-acronym/result
+state to read from and write to it.
+
+### Auto-attribution `universe` switch failed at runtime: `universe_filters` override missing its `universe_filter_join_sources` companion (2026-08-17)
+
+Every auto-attribution factorial/ablation track that flips the `universe`
+switch toward `HXZ_STANDARD_CONFIG` (whose `universe_filters` includes a
+`ceq > 0` filter on a Compustat-only column) failed at execution with
+`ValueError: Universe filter references field 'ceq', which the loaded
+returns panel does not have` -- `_get_ablation_override`/
+`_factorial_track_specs` only carried over the `universe_filters` key
+itself, never the paired `universe_filter_join_sources` key that tells the
+generated script's `join_universe_filter_sources()` how to attach `ceq` to
+the returns panel in the first place. Added a `_CONFIG_KEY_COMPANIONS`
+map (`universe_filters -> universe_filter_join_sources`) consulted by both
+functions whenever a switch's value is actually overridden to the target's
+value, so the override is self-consistent. Verified directly against
+`_factorial_track_specs` output: all universe-inclusive combos now carry
+`universe_filter_join_sources: {'comp_funda': ['ceq']}`.
+
+### Auto-attribution factorial track names shortened to switch names, not raw config values (2026-08-17)
+
+`_factorial_track_specs` previously named each track after every
+overridden config key AND its raw value (`f"{k}={v}"`), which for a
+list-valued switch like `universe_filters` embedded a full Python repr of
+a list of dicts into the track name -- unreadable, and unsafe as a
+filename/path component since these names are also used as on-disk
+script/output directory names. Track names are now just the switch NAMES
+that took the target config's value in that combo, joined with `_`
+(e.g. `factorial_breakpoint_weighting_universe` instead of
+`factorial_breakpoint_source=nyse_weighting_rule=vw_universe_filters=[...]`).
+Also replaced the old silent-drop-on-name-collision dedup (which could
+lose a track from `comparison.json` with no error) with a running
+`_1`/`_2`/... suffix appended to every combo sharing a base name.
+
+### `ExperimentPlan` auto-attribution: `docs/step6.md` §4a's <=5→factorial / >5→OAT policy is now the default, not just documented (2026-08-16)
+
+Previously `ablation_switches`/`factorial_switches` were only ever populated
+by an explicit caller -- since the 2026-08-16 step6 UI simplification
+removed their manual pickers, every real session's ①→③/①→② comparison ran
+with ZERO field-level attribution tracks by default (only the headline
+①②③ numbers), even though §4a already prescribes exact full-factorial
+attribution whenever <=5 config fields actually differ.
+
+New `ExperimentPlan.auto_attribution: bool = True`: when both switch lists
+are left empty, `_plan_to_matrix` now derives the REAL differing fields
+(`_diff_switches`, against the known 6-switch vocabulary in
+`_ABLATION_SWITCH_TO_CONFIG_KEY`) for ①→③ (vs `HXZ_STANDARD_CONFIG`) and,
+when set, ①→② (vs `cz_config_override`) independently, and auto-generates
+either a full-factorial expansion (`factorial_*`/`cz_factorial_*`, <=5
+fields, exact, residual always 0) or a one-at-a-time fallback
+(`ablation_*`/`cz_ablation_*`, >5 fields). Never fires when the caller
+already gave explicit switches (no silent doubling-up).
+
+Generalized `_get_ablation_override`/`_factorial_track_specs` (previously
+hardcoded to `HXZ_STANDARD_CONFIG` as the only possible "target") to accept
+any target config dict, so the same expansion logic now serves both the
+①→③ and ①→② comparisons instead of needing a second implementation.
+`backend/routers/experiments.py`'s `ExperimentRequest` gained a matching
+`auto_attribution: bool = True` passthrough field (no UI control yet).
+
+Updated tests calling the old 2-arg `_get_ablation_override`/
+`_factorial_track_specs` signatures, and 3 pre-existing track-count
+assertions that now legitimately get extra auto-attribution tracks
+(`auto_attribution=False` added where the test's own intent was unrelated
+to attribution). New `tests/test_experiment_plan_matrix_merge.py::
+TestAutoAttribution` (5 tests): factorial auto-generation for ①→③, explicit
+switches suppress auto-attribution, `auto_attribution=False` disables it
+entirely, ①→② gets its own independently-named `cz_factorial_*` tracks,
+and a hand-built 6-switch diff falls back to OAT. Full suite: 661 passed,
+18 skipped, zero regressions.
+
+### Correction: `HXZ_STANDARD_CONFIG`'s `siccd not_between (6000,6999)` citation was conflating two different paragraphs (2026-08-16)
+
+Caught by the user. The earlier entry below ("We exclude financial firms",
+"the paper's general sample criterion") was written as if the paper's general
+sample paragraph gave the number `6000-6999` directly -- it doesn't. That
+paragraph (Section 2) only says "We exclude financial firms and firms with
+negative book equity", no SIC number. The `6000-6999` range is cited from a
+DIFFERENT, factor-specific paragraph elsewhere in the same paper (the
+industry-concentration variable's own construction details), not restated in
+the general-sample paragraph. It's the standard Fama-French-style SIC range
+for "financial firms" used throughout this literature, so almost certainly
+what the general exclusion means in practice -- but this is an inference, not
+a verbatim number from the general-sample sentence. Corrected the comment in
+`data/reference/hxz_standard_config.yaml` and `docs/cz-reference.md` §7 to
+say so explicitly; no value changed (still `[6000, 6999]`).
+
+### `cz_profile_to_config_override`: add C&Z's own universe filter, never previously set (2026-08-16)
+
+Prompted by re-checking whether C&Z applies any universe restriction at all
+(they do). Read `data/CZ code/Signals/pyCode/SignalMasterTable.py` -- the
+shared "backbone" table EVERY C&Z predictor is built from -- and found:
+`df[(df['shrcd'].isin([10, 11, 12])) & (df['exchcd'].isin([1, 2, 3]))]`, with
+C&Z's own dev comment noting it's deliberately not recorded in SignalDoc
+("TBC: remove and use this filter as default in SignalDoc.csv"). This is why
+`CZReferenceProfile`/SignalDoc parsing never surfaced any universe info --
+expected, not a missed field on our extraction side.
+
+`cz_profile_to_config_override()` never set `universe_filters` at all, so the
+`cz_actual_config` track silently inherited whatever `universe_filters` the
+paper's own MethodSpec happened to carry (often none) instead of C&Z's actual
+universe. Added `universe_filters: [{shrcd in [10,11,12]}, {exchcd in
+[1,2,3]}]`, unconditional for every C&Z factor (matches how
+`accounting_lag_months`/`missing_action`/`formation_lag_months` are already
+set unconditionally in this same function). Updated
+`tests/test_cz_reference_profile.py`'s exact-dict assertion; `docs/step6.md`
+§9 (new "Universe" subsection) and §10's field-mapping table. 34 targeted
+tests green.
+
+Also checked (prompted by the user questioning the "risk" framing below) and
+found NOT a gap after all, correcting an earlier over-cautious note in this
+same entry: `01_PortfolioFunction.R:88-89` defaults `longportname='max'`/
+`shortportname='min'` (long = highest signal decile, short = lowest) --
+constant across every C&Z factor because `Sign` is multiplied onto the raw
+signal BEFORE bucketing (`signal$signal = signal$signal*Sign`, line 54), not
+by choosing which bucket is "long" afterward. Initially flagged this as too
+risky to mirror via a `long_leg`/`short_leg` override without first verifying
+our own `sign` handling matched. Re-checked `registry._build_config_from_
+resolved` (lines 656-661): `config["long_leg"]`/`config["short_leg"]` are
+purely descriptive strings DERIVED FROM `long_portfolios`/`short_portfolios`
+(the actual bucket-number lists driving execution), which themselves come
+from `_resolve_legs(paper, ...)` reading `paper.portfolio.legs` directly --
+the SAME `paper` object for every track of a given factor, untouched by any
+config override. There is no per-track leg-override mechanism in this engine
+at all, so C&Z's "flip Sign then take fixed max/min" and this repo's "extract
+the paper's own stated legs" necessarily converge on the same long/short
+bucket assignment for a given factor -- nothing to add to
+`cz_profile_to_config_override`.
+
+### Fix: `registry.build_config` used `sample.formation` instead of `sample.reported_returns` for the engine's `sample_start_year`/`sample_end_year` (2026-08-16)
+
+Found while comparing AssetGrowth's `openassetpricing`-reported `sample_end_year`
+(2003) against this repo's own extraction (2002) and initially assuming it was
+a discrepancy to investigate on the C&Z side -- it wasn't; it exposed a real
+wiring bug in `_build_config_from_resolved`.
+
+`MethodSpec.sample` has three distinct windows (`data_coverage`/`formation`/
+`reported_returns`) precisely because a paper's portfolio-formation window and
+its headline-number return window can differ -- for any annual-rebalance,
+hold-a-full-year strategy (the norm for accounting factors), the last
+formation date is up to a year earlier than the last month the resulting
+holding period actually produces a return for (Cooper/Gulen/Schill 2008:
+formation "1968 to 2002" per Table II vs. reported returns "July 1968 to June
+2003" per Section II.A). `registry.py` read `paper.sample.formation` for the
+engine's `sample_start_year`/`sample_end_year` config keys -- but those two
+keys feed ONLY `BacktestExecutor._sample_period_metrics`'s `insamp` segment,
+whose entire purpose (per `schema_reference.py`'s own field description:
+"the date range the paper's headline reported numbers actually cover") is
+comparing our computed number against the paper's own reported one. Reading
+`formation` instead of `reported_returns` made `insamp` silently exclude
+months the paper's own headline number includes, for any factor where these
+two windows differ -- not specific to AssetGrowth, a general-purpose bug
+affecting every ①-track in-sample comparison in the step6 UI.
+
+Fixed: `sample_start_year`/`sample_end_year` now read `paper.sample.
+reported_returns` instead of `paper.sample.formation`. Verified with a
+synthetic spec where the two windows differ (`build_config` now correctly
+returns `sample_end_year=2003`, not `2002`). No test asserted the old
+`.formation`-sourced values (the generic test fixtures set `data_coverage`/
+`formation`/`reported_returns` to the SAME `Period`, so this was invisible to
+them) -- full suite: 656 passed, 18 skipped, zero regressions.
+
+### `HXZ_STANDARD_CONFIG`: implement negative-book-equity exclusion, drop dead `missing_action` key (2026-08-16)
+
+Third follow-up in the same-day HXZ config re-verification thread. Two more
+findings from re-reading the paper and the engine code together:
+
+- `missing_action: drop` was pure decoration: `BacktestExecutor.
+  apply_missing_policy` unconditionally drops rows with a missing return
+  and never reads the config value at all (no other implementation
+  exists). Removed the key entirely rather than keep an inert override.
+- The paper's general sample criterion ("We exclude financial firms and
+  firms with negative book equity") had its `siccd` half implemented but
+  not its book-equity half, previously recorded as a gap needing new
+  engine plumbing. That plumbing already exists and runs today --
+  `script_generator.py`'s `join_universe_filter_sources()` reads
+  `config["universe_filter_join_sources"]` and point-in-time joins any
+  non-CRSP-native column onto the returns panel before `filter_universe`
+  runs, the same mechanism `compute_signal`'s own input already uses.
+  Added `universe_filters: [{field: ceq, op: gt, value: 0}]` +
+  `universe_filter_join_sources: {comp_funda: [ceq]}` -- `ceq` (Compustat
+  Annual's "Common/Ordinary Equity - Total") is a single raw column, not
+  the paper's full book-equity waterfall used elsewhere for other factors
+  (prefer SEQ, else CEQ+PSTK, else AT-LT) -- a reasonable proxy, not a
+  byte-exact match; documented as such. Verified end-to-end with
+  `registry.build_config(asset_growth_resolved_spec(), HXZ_STANDARD_CONFIG)`
+  producing the expected `universe_filters`/`universe_filter_join_sources`
+  with no engine changes required. Updated `docs/step6.md` (gap #5,
+  Decision C) and `docs/cz-reference.md` §7 to match. 73 targeted tests
+  green (added `test_registry_resolved_method_spec.py`/
+  `test_script_generator_resolved_method_spec.py` to the run to cover the
+  join-sources path specifically).
+
+### `HXZ_STANDARD_CONFIG` moved to a single YAML source + fidelity fix, reversing Decision C (2026-08-16)
+
+Consolidated the `standardized_hxz` track's config into
+`data/reference/hxz_standard_config.yaml` -- the single canonical source,
+loaded via new `src.infra.reference.load_hxz_standard_config()`/
+`HXZ_STANDARD_CONFIG`. `src.steps.step6_dual_track_controller.
+HXZ_STANDARD_CONFIG` is now a re-export (`from src.infra.reference import
+HXZ_STANDARD_CONFIG as HXZ_STANDARD_CONFIG`), so existing imports elsewhere
+(`backend/routers/replication.py`, etc.) keep working unchanged.
+
+While moving it, actually read this repo's own copy of the HXZ paper
+(`docs/Hou 等 - 2020 - Replicating Anomalies.pdf`, previously never
+converted/read despite being cited) to verify the provenance claims. Found
+2 were wrong -- fixed, reversing the same-day-earlier Decision C
+(docs/step6.md §25) that deliberately left this fidelity gap unfixed:
+
+- `rebalance_frequency`: was `monthly`, cited as "the HXZ q-factor
+  protocol" -- but the paper actually uses ANNUAL June-to-June sorting for
+  annually-measured accounting variables (form deciles end of June, hold
+  July(t)->June(t+1)), which is what most factors in this repo are. Fixed
+  to `annual`.
+- `accounting_lag_months`: was `6`, correctly flagged in the old comment as
+  "Fama-French's convention, not HXZ's" but the FF value was kept anyway.
+  The paper's own value for non-earnings quarterly data is a 4-month lag
+  (earnings use actual report dates). Fixed to `4`.
+
+`breakpoint_source`/`breakpoint_quantiles`/`weighting_rule` were already
+correct (NYSE breakpoints + VW + deciles, confirmed in the paper). Updated
+`docs/step6.md` (§4 `C_std` row, gap #5, Decision C), `docs/cz-reference.md`
+§7, `docs/architecture.md` to match. No test asserted the old
+`rebalance_frequency`/`accounting_lag_months` values for this specific
+track, so no test changes were needed; full suite green.
+
+Follow-up same day: caught (by the user) that `holding_period_months`
+stayed at its old value of `1`, which was only correct paired with the old
+`rebalance_frequency: monthly` -- `apply_signal_holding_period` expands
+each formation row for `min(holding_period_months, rebalance_step)` months,
+and `rebalance_step` for `annual` is 12, so `holding_period_months: 1`
+would have held the June-formed cohort for only 1 of the 12 months a real
+annual strategy needs (July only, with August-June having no portfolio at
+all). Fixed to `12`, matching `original_method`'s own default
+(`registry.py`'s `holding_period_months` default is already `12`).
+
+Second follow-up same day, per user request to re-verify field-by-field
+against the paper and delete the accumulated verbose comment history:
+re-read the paper text again and found the FIRST fix above had actually
+introduced a NEW error -- `accounting_lag_months` was changed to `4`, but
+that literal "4-month lag" quote is for a DIFFERENT regime (monthly-
+resorted quarterly non-earnings data, `rebalance_frequency: monthly`), not
+the `annual` regime this config actually uses. The paper never states an
+explicit lag number for annually-measured variables -- "end of June"
+formation from "fiscal year ending in calendar year t-1" data only implies
+the same ~6-month lag as Fama-French. Reverted to `6` (now correctly
+equal to `original_method`'s own `SENSIBLE_DEFAULTS`, not a divergence).
+
+Also found `universe: "NYSE + AMEX + NASDAQ, exchcd in (1,2,3), shrcd in
+(10,11)"` (a plain string) was NEVER read by the engine at all --
+`BacktestExecutor.filter_universe()` only reads the structured
+`config["universe_filters"]` (field/op/value list); the `universe` string
+key is accepted by `registry.build_config`'s override validation (so it
+never errored) but has zero actual filtering effect. The `shrcd in
+(10,11)` claim was also unverifiable against this paper -- never
+mentioned. Replaced with real `universe_filters`: `exchcd in (1,2,3)`
+("NYSE, Amex, and NASDAQ stocks", stated directly) and `siccd not_between
+(6000, 6999)` ("We exclude financial firms", the paper's general sample
+criterion). Left OUT the same sentence's "negative book equity" exclusion
+-- book equity isn't a native returns-panel column, so applying it needs a
+resolved Compustat concept mapping this config layer doesn't have; recorded
+as a known gap rather than faked. Correctly did NOT add a price screen --
+the paper explicitly states it imposes none ("microcaps are included").
+`_ABLATION_SWITCH_TO_CONFIG_KEY["universe"]` (`step6_dual_track_controller/
+__init__.py`) updated to point at `universe_filters` instead of the dead
+`universe` key.
+
+Rewrote `data/reference/hxz_standard_config.yaml`'s comments from scratch
+(deleted the old verbose "Decision C reversed" narrative) as short,
+per-field paraphrased citations. Updated `docs/step6.md` (§4 `C_std` row,
+gap #5, Decision C) and `docs/cz-reference.md` §7 to match the corrected
+values and citations. Full targeted-test suite green (44 tests across
+`test_dual_track_controller.py`/`test_batch_invalidation.py`/
+`test_experiment_plan_matrix_merge.py`/
+`test_step6_dual_track_resolved_method_spec.py`/
+`test_backend_cz_config_api.py`/`test_calendar_rebalance.py`/
+`test_formation_universe_eligibility.py`).
+
 ### Fix: C&Z's `Return` is "% Monthly", not a decimal fraction -- was off by 100x (2026-08-16)
 
 `data/CZ code/SignalDoc-Browser.html` labels the column `Return (% Monthly)`

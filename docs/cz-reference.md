@@ -272,35 +272,44 @@ artifact 或执行 C&Z code 后增加中间输出。
 
 ## 7. 标准化 track 配置的出处（`HXZ_STANDARD_CONFIG`）
 
-`standardized_hxz` track（[src/steps/step6_dual_track_controller/__init__.py](../src/steps/step6_dual_track_controller/__init__.py)
-的 `HXZ_STANDARD_CONFIG`）把**每个因子强制统一到一套 house standard**，好让
-跨因子结果可比、original-vs-standardized 的 gap 可归因到一组已知开关。这组值
-**不是从任何数据集自动推导的**，而是手工约定；下表给出逐字段出处，使这个
-"standard" 在论文里可被引用、可辩护。
+`standardized_hxz` track（单一权威来源 `data/reference/hxz_standard_config.yaml`，
+经 [src/infra/reference/__init__.py](../src/infra/reference/__init__.py) 的
+`load_hxz_standard_config`/`HXZ_STANDARD_CONFIG` 加载，
+[src/steps/step6_dual_track_controller/__init__.py](../src/steps/step6_dual_track_controller/__init__.py)
+下的 `HXZ_STANDARD_CONFIG` 只是 re-export，不再是定义处）把**每个因子强制
+统一到一套 house standard**，好让跨因子结果可比、original-vs-standardized 的
+gap 可归因到一组已知开关。这组值**不是从任何数据集自动推导的**，而是手工
+约定；下表给出逐字段出处，使这个"standard"在论文里可被引用、可辩护。
 
 | 字段 | 值 | 出处 |
 |---|---|---|
 | `breakpoint_source` | `nyse` | Hou, Xue & Zhang (2020, RFS) "Replicating Anomalies" —— NYSE breakpoints |
 | `breakpoint_quantiles` | deciles | 同上，decile 排序 |
 | `weighting_rule` | `vw` | 同上，value-weighted（NYSE bp + VW 是其抑制 microcap 影响的核心协议） |
-| `rebalance_frequency` | `monthly` | HXZ q-factor 协议（月度 VW 调仓） |
-| `holding_period_months` | 1 | 月度调仓的标准 1 个月持有 |
-| `universe` (exchcd 1/2/3, shrcd 10/11) | 普通股 | Fama-French / HXZ 共用的 CRSP ordinary-common-stock 惯例 |
-| `accounting_lag_months` | 6 | **Fama-French (1992) 的 6 个月会计滞后，非 HXZ**（HXZ 用最新季度盈利月度匹配）。此处作为保守的 FF-style 默认保留，因此 "HXZ" 标签对该字段仅为近似。 |
-| `missing_action` | `drop` | 丢弃信号输入缺失的 firm-month |
+| `rebalance_frequency` | `annual` | 论文对年度测量的会计变量用 6 月底分组、7 月至次年 6 月持有的年度调仓，而非月度重分组 |
+| `holding_period_months` | 12 | 年度调仓需要持有整年（引擎按 `min(holding_period_months, rebalance_step)` 展开，`rebalance_step` 对 `annual` 是 12） |
+| `accounting_lag_months` | 6 | **不是论文的字面数字**——论文对此场景（年度会计变量）从未给出具体月数，只说"6 月底分组、用上一日历年财年数据"，隐含与 Fama-French 相同的 ~6 个月滞后（12 月财年末 -> 6 月分组），因此恰好等于 `original_method` 自己的 `SENSIBLE_DEFAULTS`。论文里确实写了"我们对财年季末到后续收益之间施加 4 个月滞后"，但那是另一种场景（按季重分组的非盈利季度数据,对应 `rebalance_frequency: monthly`,不是这里的 `annual`）——把 4 用在这里是引错了段落 |
+| `universe_filters` | `exchcd in (1,2,3)` + `siccd not_between (6000,6999)` + `ceq gt 0` | 论文明确写"NYSE, Amex, and NASDAQ stocks" + "We exclude financial firms" + "firms with negative book equity"（同一句一般样本准则）。**`6000-6999` 这个具体数字不是这句话给的**——通用样本准则那段只说"排除金融业"没给 SIC 数字；`6000-6999` 引自论文别处一段完全不同的段落（industry concentration 因子自己的构造细节），是本文献里"金融业"最标准的 SIC 定义，几乎可以肯定就是通用政策想要的数字，但严格说是推断，不是原句逐字给出。`ceq`（Compustat Annual 的普通股权益）不是 CRSP 原生列，经 `universe_filter_join_sources: {comp_funda: [ceq]}` 由生成脚本的 `join_universe_filter_sources()` point-in-time join 上去——复用 `compute_signal` 输入本就用的同一套 Compustat 拼接机制，未改动引擎。`ceq` 是单一原始列，不是论文别处用的完整 book equity 瀑布公式（优先 SEQ，否则 CEQ+PSTK，否则 AT-LT），是合理近似而非逐字复现；`ceq` 缺失的公司也会被这条过滤掉（视同无法验证）。论文明确**不**加价格筛选（"microcaps are included"），这里也确实没加 |
+
+`missing_action` 字段 2026-08-16 已从此文件删除：`BacktestExecutor.
+apply_missing_policy` 无条件丢弃缺失收益的行，从不读这个 config 值（没有
+其他实现分支），写它纯属摆设，删掉比留着更诚实。
+
 
 **与 reviewer `SENSIBLE_DEFAULTS` 的区别（两个不同概念，勿合并）：**
 
 - `SENSIBLE_DEFAULTS`（[src/steps/step2_reviewer/__init__.py](../src/steps/step2_reviewer/__init__.py)）
   在论文**未写**某字段时，用该字段的**惯例默认值**补空，目的是让
-  `original_method` 尽量贴近论文；key 是 dotted MethodSpec 路径。
+  `original_method` 尽量贴近论文；key 是 dotted MethodSpec 路径，
+  `accounting_lag_months` 默认走 Fama-French (1992) 的 6 个月惯例。
 - `HXZ_STANDARD_CONFIG` 则**故意覆盖**论文方法，把所有因子压到一套统一标准；
   key 是 engine-config 名。
 
-两者在"字段级默认值 ≠ 标准化协议"处合理地不一致 —— 最典型的是 rebalance：
-reviewer 默认 `annual`（未指定会计类因子 rebalance 的通常默认，FF/C&Z 惯例），
-标准化 track 用 `monthly`（HXZ 协议）。这不是 drift，是两个问题各自的正确答案。
+`accounting_lag_months` 这个字段这里恰好和 `SENSIBLE_DEFAULTS` 同值（6 个月）
+不是巧合合并，而是两条独立推导路径碰到同一个数：HXZ 论文对年度会计变量的
+处理本身就隐含 FF 式的 ~6 个月滞后（见上表脚注）。`rebalance_frequency`
+仍然合理地不一致：`SENSIBLE_DEFAULTS` 默认 `annual`（未指定会计类因子的
+通常默认）本身也和 `HXZ_STANDARD_CONFIG` 的 `annual` 现在一致——这不是
+drift，是两条推导路径对同一个字段给出了相同答案的正常情况，不代表这两个
+概念可以合并。
 
-> 待办：`accounting_lag_months=6` 的 FF 出处使 "HXZ_STANDARD" 命名对该字段名不
-> 副实；若后续要严格对齐 HXZ，应改为最新季度盈利月度匹配，或把该 track 更名为
-> 中性的 `standardized`。见 [replication-diagnosis-design.md](replication-diagnosis-design.md)。

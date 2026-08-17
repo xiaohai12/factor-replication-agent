@@ -96,6 +96,17 @@ class RunRecord(BaseModel):
     # config-only ablations.
     is_bridge_track: bool = Field(default=False)
 
+    # Which of the known attribution switches (docs/step7-8.md Part V, Q2)
+    # this track flipped away from the `original_method` baseline, and what
+    # value each took -- e.g. `{"weighting": "vw", "breakpoint": "nyse"}`.
+    # Derived from `ExperimentSpec.resolved_diff` (already computed for
+    # `identification_level`, previously discarded) by `run_from_matrix`,
+    # NOT parsed from the track name -- name parsing was considered and
+    # rejected as unreliable (breaks every time the naming convention
+    # changes). Empty/None for the baseline itself, bridge tracks, and any
+    # track whose config_overrides don't touch a known switch's config key.
+    switches_flipped: Optional[dict] = None
+
     # Results
     metrics: Optional[RunMetrics] = None
     return_series_path: Optional[str] = None

@@ -90,6 +90,11 @@ export const STEP_REGISTRY: StepDefinition[] = [
       // settable via the raw request body for other (e.g. yaml matrix) callers.
       ablation_switches: [],
       factorial_switches: [],
+      // docs/step6.md §4a default: when both switch lists above are empty,
+      // auto-derive factorial (<=5 differing fields, exact) or OAT (>5)
+      // attribution tracks from the real config diff -- see the "Auto
+      // attribution" checkbox in the versions picker below.
+      auto_attribution: true,
     },
   },
   {

@@ -35,6 +35,7 @@ import hashlib
 import itertools
 import json
 import uuid
+from collections import Counter
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
@@ -47,6 +48,7 @@ from src.steps.step7_replication_diff import safe_diff_ablation
 from src.infra.models.method_spec import ResolvedMethodSpec
 from src.infra.models.plugin import PluginRecord
 from src.infra.models.run_record import RunRecord
+from src.infra.reference import HXZ_STANDARD_CONFIG as HXZ_STANDARD_CONFIG
 from src.infra.repair import RepairLoop
 
 if TYPE_CHECKING:
@@ -75,51 +77,20 @@ class _NoRepairMetaCoder:
         raise RuntimeError("repair_plugin() must never be called with llm_client=None")
 
 
-# Standardized-track config: force EVERY factor onto one uniform "house
-# standard" so cross-factor results are comparable and any original-vs-standard
-# gap is attributable to a known set of switches. This is NOT auto-derived from
-# any dataset — it is a hand-curated convention. Provenance per field (cited so
-# the "standard" is defensible in the paper — see docs/cz-reference.md §7):
-#
-#   breakpoint_source="nyse"      Hou, Xue & Zhang (2020, RFS) "Replicating
-#   breakpoint_quantiles=deciles   Anomalies" — NYSE breakpoints + value weights
-#   weighting_rule="vw"            + decile sorts are their core protocol for
-#                                  damping microcap influence.
-#   rebalance_frequency="monthly"  HXZ q-factor protocol (monthly VW rebalance).
-#   holding_period_months=1        1-month holding (standard monthly-rebalanced).
-#   universe (exchcd 1/2/3,        Common CRSP ordinary-common-stock universe
-#     shrcd 10/11)                 (Fama-French / HXZ shared convention).
-#   accounting_lag_months=6        Fama-French (1992) 6-month accounting lag,
-#                                  NOT HXZ (HXZ match most-recent quarterly
-#                                  earnings monthly). Kept here as the
-#                                  conservative FF-style default; the "HXZ"
-#                                  label is therefore approximate for THIS field.
-#   missing_action="drop"          Drop firm-months with a missing signal input.
+# Standardized-track config ("C_std" / `standardized_hxz` track). Single
+# canonical source is `data/reference/hxz_standard_config.yaml` (see that
+# file's header for full field-by-field provenance against the HXZ paper,
+# and docs/cz-reference.md §7) -- loaded here via
+# `src.infra.reference.HXZ_STANDARD_CONFIG`, re-exported under this name so
+# existing `from src.steps.step6_dual_track_controller import
+# HXZ_STANDARD_CONFIG` imports keep working unchanged.
 #
 # Distinct from step2's SENSIBLE_DEFAULTS (a DIFFERENT concept): that fills a
 # paper-SILENT field with its field-level convention to keep `original_method`
 # faithful to the paper; this deliberately OVERRIDES the paper onto one house
 # standard. They legitimately differ — e.g. rebalance is "annual" there (the
 # usual default for an unspecified accounting-factor rebalance) vs "monthly"
-# here (the HXZ standardized protocol). Do not merge them.
-HXZ_STANDARD_CONFIG = {
-    "breakpoint_source": "nyse",
-    # Decile sort: the engine's `breakpoint_quantiles` is the GROUP COUNT
-    # (see `BacktestExecutor.compute_breakpoints`, `int(config.get(
-    # "breakpoint_quantiles", 10))`), not a list of percentile cutpoints.
-    # This was previously the literal percentile list [10, 20, ..., 90] (9
-    # decile cutpoints), which `int(...)` on a list raises TypeError on --
-    # the standardized_hxz track has never actually been runnable. See
-    # docs/decision-log.md 2026-08-02 entry and docs/roadmap.md Immediate
-    # Correctness Work #1.
-    "breakpoint_quantiles": 10,
-    "weighting_rule": "vw",
-    "rebalance_frequency": "monthly",
-    "holding_period_months": 1,
-    "accounting_lag_months": 6,
-    "missing_action": "drop",
-    "universe": "NYSE + AMEX + NASDAQ, exchcd in (1,2,3), shrcd in (10,11)",
-}
+# here. Do not merge them.
 
 # Shared by `_get_ablation_override` (single-switch flip) and
 # `MultiTrackController._factorial_track_specs` (multi-switch cartesian
@@ -131,8 +102,67 @@ _ABLATION_SWITCH_TO_CONFIG_KEY: dict[str, str] = {
     "lag": "accounting_lag_months",
     "missing": "missing_action",
     "rebalance": "rebalance_frequency",
-    "universe": "universe",
+    # config key renamed from "universe" (a display-only string, never read
+    # by the engine) to "universe_filters" (the real, enforced key) 2026-08-16.
+    "universe": "universe_filters",
 }
+
+# A switch's config key sometimes needs a second, non-switch config key
+# carried along whenever it's overridden to `target_config`'s value --
+# e.g. `universe_filters` referencing a Compustat column (like HXZ's `ceq`
+# filter) is meaningless without `universe_filter_join_sources` telling the
+# generated script's `join_universe_filter_sources()` how to attach that
+# column to the returns panel; overriding one without the other produces a
+# runtime `ValueError` ("Universe filter references field 'ceq', which the
+# loaded returns panel does not have"), not a config mismatch.
+_CONFIG_KEY_COMPANIONS: dict[str, tuple[str, ...]] = {
+    "universe_filters": ("universe_filter_join_sources",),
+}
+
+# Inverse of `_ABLATION_SWITCH_TO_CONFIG_KEY`, used by `run_from_matrix` to
+# derive `RunRecord.switches_flipped` from `ExperimentSpec.resolved_diff`
+# (docs/step7-8.md Part V, Q2) -- injective by construction (every switch
+# maps to its own distinct config key), so this reverses cleanly.
+_CONFIG_KEY_TO_SWITCH: dict[str, str] = {v: k for k, v in _ABLATION_SWITCH_TO_CONFIG_KEY.items()}
+
+
+def _switches_flipped_from_diff(resolved_diff: dict[str, dict[str, Any]]) -> dict[str, Any]:
+    """Which of the known attribution switches `resolved_diff` (an
+    `ExperimentSpec`'s config-key-level diff against baseline) touched, and
+    what value each took -- e.g. `{"weighting": "vw"}`. Keys in `resolved_diff`
+    that aren't one of the known switches (e.g. a companion key like
+    `universe_filter_join_sources`, or an arbitrary yaml-authored override)
+    are silently ignored here, not an error: this is a best-effort label for
+    attribution, not a completeness check on the diff itself."""
+    return {
+        _CONFIG_KEY_TO_SWITCH[key]: details["track_value"]
+        for key, details in resolved_diff.items()
+        if key in _CONFIG_KEY_TO_SWITCH
+    }
+
+# docs/step6.md §4a's decision (2026-08-16, threshold lowered 5->4 on
+# 2026-08-17 after adding Shapley-value attribution -- see docs/step7-8.md
+# Part V): <=4 differing fields -> full factorial (exact, residual always
+# 0, cheap at this size: 2^4=16 runs); >4 -> OAT fallback (linear cost,
+# assumes no interaction between fields). Used by `_plan_to_matrix`'s
+# auto-attribution default -- see that method. Also the ceiling for
+# `attribution.compute_shapley_effects`'s "is the factorial grid complete"
+# check, since Shapley needs the exact same 2^n grid.
+MAX_FACTORIAL_SWITCHES = 4
+
+
+def _diff_switches(baseline_config: dict[str, Any], target_config: dict[str, Any]) -> list[str]:
+    """Which of the known `_ABLATION_SWITCH_TO_CONFIG_KEY` switches actually
+    differ between `baseline_config` and `target_config` -- the input to
+    auto-selecting factorial vs OAT (see `MAX_FACTORIAL_SWITCHES`). A switch
+    whose config key isn't present in `target_config` at all (e.g. a
+    `cz_config_override` that never touches `accounting_lag_months`) is
+    never counted as differing."""
+    return [
+        switch
+        for switch, key in _ABLATION_SWITCH_TO_CONFIG_KEY.items()
+        if key in target_config and baseline_config.get(key) != target_config.get(key)
+    ]
 
 
 @dataclass
@@ -149,6 +179,15 @@ class ExperimentPlan:
     # reviewed dict from the step6 UI's C&Z-config preview, not derived
     # here; None means no `cz_actual_config` track is added.
     cz_config_override: dict[str, Any] | None = None
+    # When True (the default) AND `ablation_switches`/`factorial_switches`
+    # are both left empty -- the step6 UI's own default since the 2026-08-16
+    # simplification removed the manual switch pickers -- `_plan_to_matrix`
+    # auto-derives field-level attribution tracks for BOTH ①→③ and (when
+    # `cz_config_override` is set) ①→②, per docs/step6.md §4a: <=5 differing
+    # fields -> factorial (exact), >5 -> OAT fallback. Set False to get the
+    # old behavior (no attribution tracks unless explicitly requested via
+    # `ablation_switches`/`factorial_switches`).
+    auto_attribution: bool = True
 
 
 class MultiTrackController:
@@ -261,13 +300,36 @@ class MultiTrackController:
             )
 
         for switch in plan.ablation_switches:
-            override = self._get_ablation_override(switch, spec)
+            override = self._get_ablation_override(switch, HXZ_STANDARD_CONFIG)
             specs.append(
                 build_experiment_spec(f"ablation_{switch}", spec, baseline_config, override)
             )
 
-        for name, overrides in self._factorial_track_specs(plan.factorial_switches, baseline_config):
+        for name, overrides in self._factorial_track_specs(plan.factorial_switches, baseline_config, HXZ_STANDARD_CONFIG):
             specs.append(build_experiment_spec(name, spec, baseline_config, overrides))
+
+        # Auto-attribution (docs/step6.md §4a): only when the caller left
+        # BOTH manual switch lists empty (never overrides an explicit
+        # request) -- <=5 differing fields gets an exact factorial
+        # expansion, >5 falls back to one-at-a-time. Runs once for ①→③
+        # (only if `run_standardized`) and once for ①→② (only if
+        # `cz_config_override` is set) -- the two comparisons can have
+        # different field counts and therefore different modes.
+        if plan.auto_attribution and not plan.ablation_switches and not plan.factorial_switches:
+            if plan.run_standardized:
+                specs.extend(
+                    self._auto_attribution_specs(
+                        spec, baseline_config, HXZ_STANDARD_CONFIG,
+                        factorial_prefix="factorial", ablation_prefix="ablation",
+                    )
+                )
+            if plan.cz_config_override:
+                specs.extend(
+                    self._auto_attribution_specs(
+                        spec, baseline_config, plan.cz_config_override,
+                        factorial_prefix="cz_factorial", ablation_prefix="cz_ablation",
+                    )
+                )
 
         # The plan's own declared shape is itself part of a run's
         # reproducible identity, matching the yaml matrix's
@@ -294,54 +356,140 @@ class MultiTrackController:
         )
 
     def _factorial_track_specs(
-        self, switches: list[str], baseline_config: dict[str, Any]
+        self,
+        switches: list[str],
+        baseline_config: dict[str, Any],
+        target_config: dict[str, Any],
+        name_prefix: str = "factorial",
+        exclude_combos: "set[frozenset[str]] | None" = None,
     ) -> list[tuple[str, dict[str, Any]]]:
-        """Full-factorial expansion of `ExperimentPlan.factorial_switches`
-        (docs/multi-config-evidence-plan.md's previously-declared-but-never-
-        executed field -- see docs/decision-log.md for this implementation):
-        the cartesian product of {baseline value, HXZ-standardized value}
-        for EACH given switch simultaneously (2^n combinations), excluding
-        the all-baseline corner (redundant with `original_method` itself).
+        """Full-factorial expansion of a set of switches: the cartesian
+        product of {baseline value, `target_config`'s value} for EACH given
+        switch simultaneously (2^n combinations), excluding the
+        all-baseline corner (redundant with `original_method` itself).
+        `target_config` is `HXZ_STANDARD_CONFIG` for `ExperimentPlan.
+        factorial_switches`/the ①→③ auto-attribution path, or a
+        `cz_config_override` for the ①→② auto-attribution path -- this
+        function itself is target-agnostic (docs/decision-log.md 2026-08-16:
+        generalized from an HXZ-only implementation so the same expansion
+        logic serves both comparisons instead of a second copy).
 
         A single-switch factorial (`len(switches) == 1`) is intentionally
         NOT the same as `ablation_switches`' single-switch flip: this
-        function always names its output `factorial_*` regardless of switch
-        count, so a factorial declaration's tracks are never confused with
-        an ablation declaration's, even if a caller only lists one switch.
+        function always names its output `{name_prefix}_*` regardless of
+        switch count, so a factorial declaration's tracks are never confused
+        with an ablation declaration's, even if a caller only lists one switch.
+
+        Track names are built from the switch NAMES that took `target_config`'s
+        value in that combo (e.g. `factorial_breakpoint_weighting`), not from
+        the raw config values -- a value like `universe_filters` is a list of
+        dicts and embedding its repr in a name/file path is unreadable and
+        unsafe. If two combos happen to produce the same flipped-switch name
+        (e.g. a switch's baseline value already equals its target value, so
+        "took the target value" is a no-op for that switch), a running
+        `_1`/`_2`/... suffix is appended to every combo sharing that name
+        instead of silently dropping the duplicate.
+
+        `exclude_combos` skips specific switch subsets entirely (by the set
+        of switch NAMES that combo flips) -- used by `_auto_attribution_specs`
+        to drop the all-switches-flipped corner, which is always identical
+        to the endpoint track it builds separately (`cz_actual_config`/
+        `standardized_hxz`) regardless of how many switches there are, not
+        just the `len(switches) == 1` case (docs/step7-8.md Part V, real
+        production bug: `attribution.py` correctly refuses two tracks that
+        map to the same switch subset rather than silently picking one, so
+        the redundant corner must never be generated in the first place).
+        A caller building a MANUAL `factorial_switches` list (no separate
+        endpoint track involved) must leave this `None`.
         """
         if not switches:
             return []
 
-        keys = [k for s in switches if (k := _ABLATION_SWITCH_TO_CONFIG_KEY.get(s)) is not None]
-        if not keys:
+        pairs = [(s, k) for s in switches if (k := _ABLATION_SWITCH_TO_CONFIG_KEY.get(s)) is not None]
+        pairs = [(s, k) for s, k in pairs if k in target_config]
+        if not pairs:
             return []
+        switch_names = [s for s, _ in pairs]
+        keys = [k for _, k in pairs]
 
-        value_options = [(baseline_config[k], HXZ_STANDARD_CONFIG[k]) for k in keys]
+        value_options = [(baseline_config[k], target_config[k]) for k in keys]
         baseline_combo = tuple(baseline_config[k] for k in keys)
 
-        # De-duplicated by NAME (not just position in the cartesian product):
-        # when a switch's baseline value happens to coincide with its own
-        # HXZ-standardized value (e.g. the paper's own weighting is already
-        # "vw", HXZ's default too), `itertools.product` yields the SAME
-        # resulting override dict from more than one input position --
-        # without dedup this would produce two `RunRecord`s with an
-        # IDENTICAL track name, silently colliding on the same on-disk
-        # script/output path (the second overwrites the first) and losing
-        # one entry from `comparison.json`'s `tracks` dict (a plain
-        # `{name: ...}` mapping) with no error.
-        results: list[tuple[str, dict[str, Any]]] = []
-        seen_names: set[str] = set()
+        combos: list[tuple[str, dict[str, Any]]] = []
         for combo in itertools.product(*value_options):
             if combo == baseline_combo:
                 continue
-            overrides = dict(zip(keys, combo))
-            suffix = "_".join(f"{k}={v}" for k, v in overrides.items())
-            name = f"factorial_{suffix}"
-            if name in seen_names:
+            flipped = [switch_names[i] for i, v in enumerate(combo) if v != baseline_combo[i]]
+            if exclude_combos and frozenset(flipped) in exclude_combos:
                 continue
-            seen_names.add(name)
+            overrides = dict(zip(keys, combo))
+            for i, k in enumerate(keys):
+                if combo[i] == baseline_combo[i]:
+                    continue
+                for companion in _CONFIG_KEY_COMPANIONS.get(k, ()):
+                    if companion in target_config:
+                        overrides[companion] = target_config[companion]
+            base_name = "_".join([name_prefix, *flipped])
+            combos.append((base_name, overrides))
+
+        name_counts = Counter(base_name for base_name, _ in combos)
+        running_index: dict[str, int] = {}
+        results: list[tuple[str, dict[str, Any]]] = []
+        for base_name, overrides in combos:
+            if name_counts[base_name] > 1:
+                running_index[base_name] = running_index.get(base_name, 0) + 1
+                name = f"{base_name}_{running_index[base_name]}"
+            else:
+                name = base_name
             results.append((name, overrides))
         return results
+
+    def _auto_attribution_specs(
+        self,
+        spec: ResolvedMethodSpec,
+        baseline_config: dict[str, Any],
+        target_config: dict[str, Any],
+        factorial_prefix: str,
+        ablation_prefix: str,
+    ) -> list["ExperimentSpec"]:
+        """docs/step6.md §4a's default attribution policy, applied to ONE
+        baseline-vs-target comparison: find which known switches actually
+        differ (`_diff_switches`), then <=`MAX_FACTORIAL_SWITCHES` gets an
+        exact full-factorial expansion (residual always 0), otherwise falls
+        back to one-at-a-time (each switch flipped alone, assumes no
+        interaction). Returns an empty list when nothing differs (e.g. a
+        `cz_config_override` that happens to match the baseline on every
+        known switch). The full-factorial expansion always excludes the
+        all-switches-flipped corner (`exclude_combos={frozenset(switches)}`):
+        that corner is, for ANY n (not just n==1), identical to the endpoint
+        track built separately by `_plan_to_matrix`/the declarative yaml path
+        (`cz_actual_config`/`standardized_hxz`) -- both would otherwise report
+        the exact same `switches_flipped`, which `attribution.py`'s
+        `_single_switch_track_map`/`compute_shapley_effects` correctly refuse
+        as an ambiguous duplicate subset rather than silently picking one
+        (docs/step7-8.md Part V, real production bug). The endpoint track
+        alone already covers that corner; `compute_shapley_effects` reads it
+        from `tracks` regardless of its track name, not from this list."""
+        from src.steps.step6_dual_track_controller.experiment_spec import build_experiment_spec
+
+        switches = _diff_switches(baseline_config, target_config)
+        if not switches:
+            return []
+        if len(switches) <= MAX_FACTORIAL_SWITCHES:
+            return [
+                build_experiment_spec(name, spec, baseline_config, overrides)
+                for name, overrides in self._factorial_track_specs(
+                    switches, baseline_config, target_config, name_prefix=factorial_prefix,
+                    exclude_combos={frozenset(switches)},
+                )
+            ]
+        return [
+            build_experiment_spec(
+                f"{ablation_prefix}_{switch}", spec, baseline_config,
+                self._get_ablation_override(switch, target_config),
+            )
+            for switch in switches
+        ]
 
     def run_from_matrix(
         self,
@@ -398,6 +546,7 @@ class MultiTrackController:
             else:
                 reused_runs.append(self._copy_reused_baseline_run(reused_baseline_run))
         identification_by_track: dict[str, tuple[str, str]] = {}
+        switches_by_track: dict[str, dict[str, Any]] = {}
         skipped: list[str] = []
         bridge_runs: list[RunRecord] = []
 
@@ -433,6 +582,7 @@ class MultiTrackController:
             track_overrides[exp.name] = exp.config_overrides
             track_specs.append((exp.name, exp.config_overrides))
             identification_by_track[exp.name] = (exp.family, exp.identification_level)
+            switches_by_track[exp.name] = _switches_flipped_from_diff(exp.resolved_diff)
 
         runs, effective_plugin, refreeze_attempts = self._run_tracks_with_freeze(
             plugin, spec, snapshot_id, track_specs
@@ -446,6 +596,8 @@ class MultiTrackController:
                     f"experiment_matrix: family={family!r} "
                     f"identification_level={identification_level!r}"
                 ]
+            if switches_by_track.get(run.track):
+                run.switches_flipped = switches_by_track[run.track]
 
         batch_info = {
             "experiment_spec_hash": matrix.experiment_spec_hash,
@@ -507,6 +659,7 @@ class MultiTrackController:
                 "config": build_config(spec, track_overrides.get(r.track)),
                 "metrics": r.metrics.model_dump(),
                 "is_bridge_track": r.is_bridge_track,
+                "switches_flipped": r.switches_flipped,
             }
             for r in runs
             if r.status == "success"
@@ -748,8 +901,18 @@ class MultiTrackController:
             attempt += 1
             current_plugin = divergent[0][1]
 
-    def _get_ablation_override(self, switch: str, spec: ResolvedMethodSpec) -> dict[str, Any]:
-        """Get config override for a single ablation switch."""
-        # Flip one setting from original to standardized (or vice versa)
+    def _get_ablation_override(self, switch: str, target_config: dict[str, Any]) -> dict[str, Any]:
+        """Get a single-switch config override: flip just this one setting
+        from the baseline to `target_config`'s value (`HXZ_STANDARD_CONFIG`
+        for the ①→③ path, a `cz_config_override` for the ①→② path --
+        generalized 2026-08-16, was HXZ-only). Also carries along any
+        `_CONFIG_KEY_COMPANIONS` for that key (e.g. `universe_filters` ->
+        `universe_filter_join_sources`) so the override is self-consistent."""
         key = _ABLATION_SWITCH_TO_CONFIG_KEY.get(switch)
-        return {key: HXZ_STANDARD_CONFIG[key]} if key else {}
+        if not key or key not in target_config:
+            return {}
+        override = {key: target_config[key]}
+        for companion in _CONFIG_KEY_COMPANIONS.get(key, ()):
+            if companion in target_config:
+                override[companion] = target_config[companion]
+        return override

@@ -372,6 +372,7 @@ from src.infra.data_layer.sources import (  # noqa: E402  (re-export after catal
     link_to_permno as link_to_permno,
     assemble_signal_master_table as assemble_signal_master_table,
     assemble_signal_master_table_from_sources as assemble_signal_master_table_from_sources,
+    asof_align_to_monthly as asof_align_to_monthly,
     _load_link_tables as _load_link_tables,
     _load_source_frame as _load_source_frame,
 )

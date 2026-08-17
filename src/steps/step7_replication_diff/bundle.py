@@ -26,14 +26,47 @@ from src.steps.step3_codegen.registry import (
     stage_of,
 )
 from src.steps.step7_replication_diff import ReplicationDiffResult
+from src.steps.step7_replication_diff.attribution import (
+    compute_shapley_effects,
+    joint_switch_wald_test,
+    paired_switch_significance,
+    split_tracks_by_comparison_line,
+)
 
 if TYPE_CHECKING:
+    from pathlib import Path
     from src.infra.models.method_spec import ResolvedMethodSpec
 
 
 # |t| at which a spread is called statistically distinguishable from zero.
-# Deliberately a module constant rather than a prompt instruction.
+# Deliberately a module constant rather than a prompt instruction. Kept as a
+# standalone scalar (not folded into SIGNIFICANCE_T_THRESHOLDS below) since
+# tests import and compare against it directly -- do not rename or retype.
 SIGNIFICANCE_T_THRESHOLD = 1.96
+
+# HXZ's own three-tier hurdle (docs/step7-8.md Q7; verified against
+# `docs/Hou 等 - 2020 - Replicating Anomalies.pdf`: "a, b, and c indicate
+# absolute t-values exceeding the thresholds of 1.96, 2.78, and 3.39,
+# respectively") -- the Harvey-Liu-Zhu (2016) multiple-testing-adjusted
+# significance tiers used throughout the anomaly-replication literature.
+# Independent of `SIGNIFICANCE_T_THRESHOLD` above (a separate, coarser
+# binary cut some existing fields/tests rely on) -- populates the new
+# `paper_significance_tier`/`track_significance_tier` fields only, not a
+# replacement for the boolean `*_significant` fields.
+SIGNIFICANCE_T_THRESHOLDS = (1.96, 2.78, 3.39)
+
+
+def _significance_tier(t: float | None) -> int | None:
+    """0 = not significant even at the loosest tier, 1/2/3 = cleared that
+    many of `SIGNIFICANCE_T_THRESHOLDS` in order. `None` in, `None` out --
+    distinguishing "tier 0" (measured, not significant) from "unknown"."""
+    if t is None:
+        return None
+    tier = 0
+    for threshold in SIGNIFICANCE_T_THRESHOLDS:
+        if abs(t) >= threshold:
+            tier += 1
+    return tier
 
 # Ratio band (|ours| / |paper's|) inside which a same-signed spread counts as
 # a "close" replication rather than merely sign-agreeing.
@@ -116,6 +149,27 @@ def _resolve_track_spread(
     return "mean_return", _as_float(metrics.get("mean_return"))
 
 
+def _in_sample_metrics(metrics: dict[str, Any]) -> dict[str, Any]:
+    """Prefer `by_sample_period.insamp` (the paper's OWN sample window, when
+    the run's config carried `sample_start_year`/`sample_end_year`) over the
+    top-level metrics, which cover this engine's full extended history --
+    often decades past the paper's publication year (e.g. 882 vs 432
+    months in a real AssetGrowth run). A paper's headline number was never
+    computed over that extra post-publication history, so comparing our
+    full-history number against it is apples-to-oranges. Merges key by key
+    (not all-or-nothing) since `insamp` doesn't carry every top-level key
+    (e.g. `coverage`) and renames its `mean_monthly_return` to `mean_return`
+    to match `_resolve_track_spread`'s expected key. Returns `metrics`
+    unchanged when no in-sample window was configured."""
+    insamp = (metrics.get("by_sample_period") or {}).get("insamp") or {}
+    if not insamp:
+        return metrics
+    merged = {**metrics, **insamp}
+    if "mean_monthly_return" in insamp:
+        merged["mean_return"] = insamp["mean_monthly_return"]
+    return merged
+
+
 def build_track_vs_paper(
     paper_reported: dict[str, Any], metrics: dict[str, Any]
 ) -> dict[str, Any]:
@@ -177,6 +231,9 @@ def build_track_vs_paper(
         "paper_significant": paper_significant,
         "track_significant": track_significant,
         "significance_agrees": significance_agrees,
+        "significance_thresholds_tiered": SIGNIFICANCE_T_THRESHOLDS,
+        "paper_significance_tier": _significance_tier(paper_t),
+        "track_significance_tier": _significance_tier(track_t),
     }
 
 
@@ -476,30 +533,92 @@ def build_robustness_summary(tracks: dict[str, dict]) -> dict[str, Any]:
     }
 
 
+def build_shapley_and_significance(
+    tracks: dict[str, dict], results_dir: "Path | None", baseline: str | None
+) -> dict[str, Any]:
+    """Wraps `attribution.compute_shapley_effects`/`paired_switch_significance`/
+    `joint_switch_wald_test` for `build_evidence_bundle`, run ONCE PER
+    comparison line (`attribution.split_tracks_by_comparison_line`) rather
+    than once for the whole batch.
+
+    Why per-line: a batch that ran BOTH ①→② (`cz_factorial_*`) and ①→③
+    (`factorial_*`) auto-attribution can have two DIFFERENT tracks that
+    both touch only e.g. "universe" (flipped to two different target
+    values) -- found in production, see docs/step7-8.md Part V. Splitting
+    by line means the two never enter the same calculation, so the
+    ambiguity this used to trigger (`switches_flipped` key collision)
+    cannot occur at all, rather than being detected and one switch
+    excluded.
+
+    Output shape: `{"shapley_attribution": {"to_hxz": {...}, "to_cz":
+    {...}}, "paired_tests": {...same...}, "joint_test": {...same...}}` --
+    a batch with only one line present (the common case: most sessions
+    never set `cz_config_override`) only has that one key nested inside
+    each of the three. `results_dir` is optional (unlike the other
+    builders here, these three need the on-disk `<track>.csv` monthly
+    return series, not just `tracks`' own config/metrics dicts) -- when
+    it's `None`, `paired_tests`/`joint_test` report `available=False` with
+    that reason per line; `shapley_attribution` doesn't need `results_dir`
+    at all (it only reads `mean_return`, already in `tracks`).
+    """
+    baseline_track = baseline or "original_method"
+    lines = split_tracks_by_comparison_line(tracks, baseline_track=baseline_track)
+    if not lines:
+        unavailable = {"available": False, "reason": "no factorial/ablation switches_flipped tracks found"}
+        return {"shapley_attribution": unavailable, "paired_tests": unavailable, "joint_test": unavailable}
+
+    shapley_attribution: dict[str, Any] = {}
+    paired_tests: dict[str, Any] = {}
+    joint_test: dict[str, Any] = {}
+    no_results_dir = {"available": False, "reason": "no results_dir supplied"}
+    for line, line_tracks in lines.items():
+        shapley_attribution[line] = compute_shapley_effects(line_tracks, baseline_track=baseline_track)
+        if results_dir is None:
+            paired_tests[line] = no_results_dir
+            joint_test[line] = no_results_dir
+        else:
+            paired_tests[line] = paired_switch_significance(results_dir, line_tracks, baseline_track=baseline_track)
+            joint_test[line] = joint_switch_wald_test(results_dir, line_tracks, baseline_track=baseline_track)
+    return {
+        "shapley_attribution": shapley_attribution,
+        "paired_tests": paired_tests,
+        "joint_test": joint_test,
+    }
+
+
 def build_evidence_bundle(
     paper_reported: dict[str, Any],
     tracks: dict[str, dict],
     diff_result: ReplicationDiffResult | None = None,
     spec: "ResolvedMethodSpec | None" = None,
+    results_dir: "Path | None" = None,
 ) -> dict[str, Any]:
     """Assemble the full deterministic evidence bundle.
 
     Returns the `derived` / `config_diff` / `gap_decomposition` sections plus
     the newer `spec_quality` / `menu_deviations` / `bridge_comparison` /
-    `publication_decay` / `robustness_summary` sections, plus
-    `evidence_keys`, the flat whitelist of every citable scalar.
+    `publication_decay` / `robustness_summary` / `shapley_attribution` /
+    `paired_tests` / `joint_test` sections, plus `evidence_keys`, the flat
+    whitelist of every citable scalar.
 
     `spec`, when supplied, is the `ResolvedMethodSpec` this comparison was
     built from -- required for `spec_quality`/`menu_deviations` (both read
     `spec.paper`); omitted, both sections report `available=False` rather
     than raising.
+
+    `results_dir`, when supplied, is the on-disk directory holding each
+    track's own `<track>.csv` monthly return series (see
+    `write_comparison_summary`, which already computes this path) --
+    required for `paired_tests`/`joint_test` (docs/step7-8.md Part V);
+    omitted, both report `available=False` rather than raising.
     """
     derived: dict[str, Any] = {"tracks": {}}
     for name, payload in tracks.items():
         metrics = payload.get("metrics") or {}
+        vs_paper_metrics = _in_sample_metrics(metrics)
         derived["tracks"][name] = {
-            "vs_paper": build_track_vs_paper(paper_reported, metrics),
-            "n_months": metrics.get("n_months"),
+            "vs_paper": build_track_vs_paper(paper_reported, vs_paper_metrics),
+            "n_months": vs_paper_metrics.get("n_months"),
         }
 
     baseline = BASELINE_TRACK if BASELINE_TRACK in tracks else (
@@ -517,6 +636,7 @@ def build_evidence_bundle(
     bridge_comparison = build_bridge_comparison(tracks, paper_reported)
     publication_decay = build_publication_decay(tracks)
     robustness_summary = build_robustness_summary(tracks)
+    shapley_and_significance = build_shapley_and_significance(tracks, results_dir, baseline)
 
     citable = {
         "paper_reported": paper_reported,
@@ -529,6 +649,7 @@ def build_evidence_bundle(
         "bridge_comparison": bridge_comparison,
         "publication_decay": publication_decay,
         "robustness_summary": robustness_summary,
+        **shapley_and_significance,
     }
     return {
         "derived": derived,
@@ -539,5 +660,6 @@ def build_evidence_bundle(
         "bridge_comparison": bridge_comparison,
         "publication_decay": publication_decay,
         "robustness_summary": robustness_summary,
+        **shapley_and_significance,
         "evidence_keys": flatten(citable),
     }

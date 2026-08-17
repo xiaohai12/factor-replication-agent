@@ -33,6 +33,12 @@ class ExperimentRequest(BaseModel):
     run_standardized: bool = True
     ablation_switches: list[str] = []
     factorial_switches: list[str] = []
+    # docs/step6.md §4a default (2026-08-16): when ablation_switches/
+    # factorial_switches are both left empty, auto-derive attribution
+    # tracks from the actual config diff (factorial when <=5 fields differ,
+    # OAT otherwise). No UI control yet -- exposed here so a caller can
+    # still opt out via the raw request body.
+    auto_attribution: bool = True
     # Human-reviewed `C_cz` override from the step6 UI's C&Z-config preview
     # (docs/step6.md gap #1) -- adds a `cz_actual_config` track when set.
     cz_config_override: dict | None = None
@@ -66,6 +72,7 @@ async def run_step6_experiment(session_id: str, req: ExperimentRequest) -> dict:
             run_standardized=req.run_standardized,
             ablation_switches=req.ablation_switches,
             factorial_switches=req.factorial_switches,
+            auto_attribution=req.auto_attribution,
             cz_config_override=req.cz_config_override,
         )
         log(f"Running experiment batch for '{spec_factor_id(spec)}' ({req.snapshot_id})...")

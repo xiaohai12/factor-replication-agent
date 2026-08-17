@@ -89,6 +89,10 @@ class TestCzProfileToConfigOverride:
             "accounting_lag_months": 6,
             "missing_action": "drop",
             "formation_lag_months": 1,
+            "universe_filters": [
+                {"field": "shrcd", "op": "in", "value": [10, 11, 12]},
+                {"field": "exchcd", "op": "in", "value": [1, 2, 3]},
+            ],
             "holding_period_months": 12,
             "rebalance_frequency": "annual",
             "formation_month": 6,

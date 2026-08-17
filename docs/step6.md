@@ -40,7 +40,7 @@
 |---|---|---|
 | `C_agent` | agent 从论文提取、resolve 出的 config | agent 的 MethodSpec |
 | `C_cz` | C&Z 团队对同一篇论文实际做出的配置选择 | SignalDoc 列 + 代码里的隐含默认值（§9）|
-| `C_std` | **HXZ-style** 标准化配置（VW、十分组，见下方拍板 2026-08-16：非完整 HXZ 协议，仅翻转 weighting/breakpoint_source/n_groups 三个旋钮，`accounting_lag_months` 固定不变）| 手工策展的 `HXZ_STANDARD_CONFIG`（代码标识符暂不改） |
+| `C_std` | **HXZ 标准化配置**（VW、NYSE 断点、十分组、年度调仓、universe 改为真正生效的 `exchcd`/`siccd` 过滤，均逐字段对照论文核实，见下方 2026-08-16 更新）| `data/reference/hxz_standard_config.yaml`（单一权威来源，经 `HXZ_STANDARD_CONFIG` 加载） |
 
 ### 网格 = 行 × 列
 
@@ -417,6 +417,45 @@ rebmonths = (startmonth + seq(0,12)*portperiod) %% 12
 
 `01_PortfolioFunction.R:30` `filter(!is.na(signal))` → 等价于 `missing_action="drop"`
 
+### Universe（2026-08-16 补上，之前完全遗漏）
+
+`Signals/pyCode/SignalMasterTable.py`——**每个 predictor 都基于这张共享底座表构建**，
+不是某个因子单独的脚本：
+
+```python
+# keep if (shrcd == 10 | shrcd == 11 | shrcd == 12) & (exchcd == 1 | exchcd == 2 | exchcd == 3)
+df = df[(df['shrcd'].isin([10, 11, 12])) & (df['exchcd'].isin([1, 2, 3]))].copy()
+```
+
+同一文件里 C&Z 自己留的开发者注释：`# TBC: remove and use this filter as default
+in SignalDoc.csv`——说明这条筛选**从未被记录进 SignalDoc**，`CZReferenceProfile`
+从 SignalDoc 解析不到任何 universe 信息完全是预期之中，不是我们漏读。之前
+`cz_profile_to_config_override()` 完全没有设置 `universe_filters`，②
+(`cz_actual_config`) 轨道此前实际继承的是论文自己 MethodSpec 的 universe_filters
+(可能为空)，不是 C&Z 真正用的 universe——2026-08-16 已修，加了
+`{shrcd: in [10,11,12]}` + `{exchcd: in [1,2,3]}`。这一层没有排除金融行业、没有
+排除负 book equity、没有价格筛选——那些是各个 predictor 自己脚本里可能加的
+`filterstr`（见下），不是这张共享底座表的全局规则。
+
+### 长短腿分配（查证后确认：不是缺口，`long_leg`/`short_leg` 没有 per-track override 这个机制）
+
+`01_PortfolioFunction.R:88-89`：`if (is.na(longportname[1])) {longportname = 'max'}`
+/ `if (is.na(shortportname[1])) {shortportname = 'min'}`——**long 恒等于最高信号
+分位组，short 恒等于最低分位组**，跟具体因子的 `Sign` 无关，因为 `Sign` 是在排序
+**之前**直接乘到原始信号上的（`signal$signal = signal$signal*Sign`，第 54 行）：
+先把信号按 Sign 翻转，再统一按"最高/最低"分桶，所以桶位分配本身是全局常量。
+
+之前判断这里"暂不实现，怕做错"——**推翻，判断错了机制**。查了
+`registry._build_config_from_resolved`（第 656-661 行）：`config["long_leg"]`/
+`config["short_leg"]` 只是从 `long_portfolios`/`short_portfolios`（真正驱动组合
+构建的数字桶列表）反推出来的展示字符串，不是驱动执行的输入；真正的多空分配来自
+`_resolve_legs(paper, ...)` 直接读 `paper.portfolio.legs`（论文自己描述的哪个
+分位是多/空），而 `paper` 对同一因子的每条 track 都是**同一个 MethodSpec**，
+不受任何 config override 影响——这个引擎根本没有"按 track 覆盖多空腿"这个能力，
+所以 C&Z 的"Sign 翻转 + 固定 max/min"和我们的"直接提取论文原文定义"两条路径，
+对同一个因子必然收敛到同一个多空分配，不存在需要在 `cz_profile_to_config_override`
+里补一个 `long_leg`/`short_leg` override 的问题。
+
 ## 9b. 引擎能力约束 与 C&Z 的兼容因子筛选（2026-08-16）
 
 我们的 `BacktestExecutor` 有两条硬约束，决定了 212 个 C&Z predictor 里哪些
@@ -485,7 +524,8 @@ HXZ∩C&Z 交集里另选一个 `continuous` 因子替换。
 | `breakpoint_quantiles` | `LS Quantile` (0.1→10组, 0.2→5组) | ✅ 干净 |
 | `breakpoint_source` | `Quantile Filter` (NYSE/空=全样本) | ✅（但 99% 是默认） |
 | `rebalance_frequency` | `Portfolio Period` | ✅ 干净 |
-| `universe` | `Filter`（自由文本 R 表达式） | ⚠️ 需解析，覆盖低 |
+| `universe` | `Filter`（自由文本 R 表达式，per-predictor 额外筛选） | ⚠️ 需解析，覆盖低，**未实现**（每个 predictor 自己的 `filterstr` 写法不统一，没有做通用解析；跟 §9 长短腿分配那条不同——这条是真实遗留缺口） |
+| `universe_filters`（全局 shrcd/exchcd） | ❌ SignalDoc 无 → **从代码读**（`shrcd∈{10,11,12}`, `exchcd∈{1,2,3}`, `Signals/pyCode/SignalMasterTable.py`）| ✅ 间接，2026-08-16 已实现 |
 | 样本期 | `SampleStartYear/EndYear` | ✅ 100% 覆盖 |
 | formation 月 | `Start Month` | ✅ |
 | `accounting_lag_months` | ❌ SignalDoc 无 → **从代码读**（=6） | ✅ 间接 |
@@ -677,7 +717,7 @@ HXZ∩C&Z 交集里另选一个 `continuous` 因子替换。
 | 2 | **引擎未施加 C&Z 的 1 个月组合滞后**（`signal[, yyyymm := yyyymm + 1]`，§9）——2026-08-16 改判：这不是外部依赖项，是 `C_cz` 的定义组成部分，轨道 ② 依赖它，应做成 registry 菜单键 `formation_lag_months`（默认 0）而非硬编码开关 | 不加则轨道 ② 是虚构配置，且校准必然对不上（系统性偏差，对动量类因子尤甚） | **最高，Phase 1 前置**（原文误列为 Phase 2，已改） |
 | 3 | **`N_cz` 未下载** | 校准 | 高 |
 | 4 | **`cz_bridge` 是我们的转写而非 C&Z 数值** | Q2 被污染；且只有 3 个因子 | 高（Q2 才需要） |
-| 5 | **`HXZ_STANDARD_CONFIG` 保真度**：`accounting_lag_months=6` 是 FF 风格，**且恰好等于 C&Z 的惯例** → 滞后通道被静默固定，Q3 分解会系统性漏报该通道 | Q3 归因的完整性 | 中 |
+| 5 | ~~`HXZ_STANDARD_CONFIG` 保真度~~ **已核实 2026-08-16**：`rebalance_frequency=annual` 是论文真实值；`accounting_lag_months=6` 逐字段核实后确认論文对年度会计变量本就隐含 ~6 个月滞后（与 FF 惯例同值,并非偷懒未改），lag 通道因此仍不会在①→③分解里出现差异——这不是遗留缺陷，是论文本身对这个场景的真实处理；universe 从纯装饰性字符串改为真正生效的 `exchcd`/`siccd`/`ceq`（经 Compustat join）过滤，这里才是新增的真实差异通道 | ~~Q3 归因的完整性~~ 已按论文实际内容重新评估 | ~~中~~ |
 | 6 | **人工标注命名与 C&Z acronym 不一致**（纯命名问题，已确认因子都存在） | Q1 步骤 2 的三方比对 | 中 |
 | 7 | **`interaction_effects` 从未被填充** | 事前预测里的交互效应估计 | 中 |
 | 8 | **`data/paper_text_cache/` 只转了 2 篇** | agent 提取 | 低（跑脚本即可） |
@@ -777,15 +817,30 @@ C&Z 的 `30_PredictorAltPorts.R` 已发布 VW-十分组等标准化变体的收�
 方向）和 1 个月滞后对齐属于**静默出错**类型，必须写单测锁死，否则只是
 把风险从"我们的转写"搬到了"我们的适配"。
 
-**C. `HXZ_STANDARD_CONFIG` 的 lag 缺陷 —— 降级表述为"HXZ-style"，不做
-忠实修正，全文已改名 `C_hxz` → `C_std`。**
-`accounting_lag_months=6` 恰好等于 C&Z 惯例（§9），导致 lag 通道在
-①→③ 分解里永远不出现差异；且真实 HXZ 协议的会计对齐是浮动的，还有
-我们没实现的微盘股处理——这个 config 本来就只是三个旋钮级的标准化，不是
-完整 HXZ 协议。忠实复现的投入产出比很差（决定 A 已把 Q3 降级为非贡献，
-不值得为它精修）。副作用是正面的：C&Z 自己的 AltPorts 本来就是旋钮级
-标准化变体而非完整 HXZ 协议，改名 `C_std` 后 ⑥ vs AltPorts 的校准反而
-更名副其实。
+**C. `HXZ_STANDARD_CONFIG` 的 lag 缺陷 —— 原判定"降级表述、不做忠实修正"
+已推翻,同一天晚些时候改为真正核实每个字段。**
+最初判定：`accounting_lag_months=6` 恰好等于 C&Z 惯例（§9），导致 lag 通道
+在①→③分解里永远不出现差异；投入产出比差，決定只降级表述为"HXZ-style"、
+全文改名 `C_hxz` → `C_std`，不追求忠实复现。**推翻原因**：实际读取本仓库
+自带的论文 PDF（`docs/Hou 等 - 2020 - Replicating Anomalies.pdf`）逐字段核实
+后确认：论文明确写了年度会计变量用 6 月分组、7 月至次年 6 月持有
+（`rebalance_frequency="annual"`, `holding_period_months=12`）——这条是真的
+遗留问题，已修。但 `accounting_lag_months` 核实后**维持 6 不变**：论文对
+"非盈利季度数据"确实写了"4 个月滞后"，但那一段说的是按季重分组的场景
+（`rebalance_frequency="monthly"`），不是这里用的 `annual`——论文对年度会计
+变量本身从未给出显式滞后月数，只隐含了 12 月财年末到 6 月分组之间与 FF 相同
+的 ~6 个月滞后，所以这里恰好和 `original_method` 自己的 `SENSIBLE_DEFAULTS`
+同值，lag 通道并不会因此在①→③分解里产生差异（不是缺陷，是论文本身如此）。
+真正新增的差异通道是 `universe`：论文明确写"NYSE, Amex, and NASDAQ stocks"
++ "We exclude financial firms" + "firms with negative book equity"（同一句
+一般样本准则），已在 `data/reference/hxz_standard_config.yaml` 落地为真正
+生效的 `universe_filters`（`exchcd`/`siccd`/`ceq`）；此前的
+`universe: "<描述字符串>"` 从未被引擎读取过，是纯装饰性文字。`ceq`
+（Compustat 普通股权益，不是论文别处用的完整 book equity 瀑布公式）经
+`universe_filter_join_sources` 由生成脚本 point-in-time join 上去，复用
+`compute_signal` 输入本就用的同一套 Compustat 拼接机制，未改动引擎。
+`C_std` 改名保留（`C_hxz` 这个记号不再使用）。`missing_action` 字段同时
+删除：引擎无条件丢弃缺失收益行，从不读这个 config 值，写它纯属摆设。
 
 **D. step6 是否按 §23 整体重构 —— 方向接受，但现在不做；唯一例外是
 bridge 轨道 identification 漏洞，现在就修。**

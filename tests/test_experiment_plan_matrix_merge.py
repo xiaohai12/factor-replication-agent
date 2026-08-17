@@ -10,7 +10,7 @@ from __future__ import annotations
 
 from src.infra.models.plugin import PluginRecord, ValidationReport
 from src.infra.models.run_record import RunMetrics, RunRecord
-from src.steps.step6_dual_track_controller import MultiTrackController, ExperimentPlan
+from src.steps.step6_dual_track_controller import MultiTrackController, ExperimentPlan, HXZ_STANDARD_CONFIG
 from src.steps.step3_codegen.registry import build_config
 from tests._spec_test_helpers import minimal_resolved_spec, spec_factor_id
 
@@ -79,7 +79,10 @@ class TestRunExperimentDelegatesToRunFromMatrix:
     def test_default_plan_produces_original_and_standardized_tracks(self):
         runner = FakeRunner()
         controller = MultiTrackController(runner=runner, meta_coder=FakeMetaCoder(), sandbox=FakeSandbox())
-        plan = ExperimentPlan(factor_id="t")
+        # auto_attribution=False: this test means to exercise the plain
+        # run_original/run_standardized toggles, not the 2026-08-16
+        # auto-attribution default (covered separately below).
+        plan = ExperimentPlan(factor_id="t", auto_attribution=False)
 
         runs = controller.run_experiment(_plugin(), _spec(), plan, snapshot_id="snap1")
 
@@ -90,7 +93,9 @@ class TestRunExperimentDelegatesToRunFromMatrix:
     def test_run_original_false_skips_the_baseline(self):
         runner = FakeRunner()
         controller = MultiTrackController(runner=runner, meta_coder=FakeMetaCoder(), sandbox=FakeSandbox())
-        plan = ExperimentPlan(factor_id="t", run_original=False, run_standardized=True)
+        plan = ExperimentPlan(
+            factor_id="t", run_original=False, run_standardized=True, auto_attribution=False
+        )
 
         runs = controller.run_experiment(_plugin(), _spec(), plan, snapshot_id="snap1")
 
@@ -183,7 +188,7 @@ class TestFactorialSwitches:
         assert "original_method" in tracks
         factorial_tracks = [t for t in tracks if t.startswith("factorial_")]
         assert len(factorial_tracks) == 1
-        assert "weighting_rule=vw" in factorial_tracks[0]
+        assert factorial_tracks[0] == "factorial_weighting"
 
     def test_two_switch_factorial_produces_three_non_baseline_combos(self):
         """2^2 = 4 combos, minus the all-baseline corner (redundant with
@@ -215,7 +220,7 @@ class TestFactorialSwitches:
         controller = MultiTrackController(runner=FakeRunner(), meta_coder=FakeMetaCoder(), sandbox=FakeSandbox())
         baseline_config = build_config(_spec_ew(), None)
 
-        specs = controller._factorial_track_specs(["weighting", "breakpoint"], baseline_config)
+        specs = controller._factorial_track_specs(["weighting", "breakpoint"], baseline_config, HXZ_STANDARD_CONFIG)
 
         assert len(specs) == 3  # 2^2 - 1 (all-baseline excluded)
         names = {name for name, _ in specs}
@@ -228,6 +233,176 @@ class TestFactorialSwitches:
         controller = MultiTrackController(runner=FakeRunner(), meta_coder=FakeMetaCoder(), sandbox=FakeSandbox())
         baseline_config = build_config(_spec(), None)  # weighting_rule="vw" == HXZ's own "vw"
 
-        specs = controller._factorial_track_specs(["weighting"], baseline_config)
+        specs = controller._factorial_track_specs(["weighting"], baseline_config, HXZ_STANDARD_CONFIG)
 
         assert specs == []
+
+
+class TestSwitchesFlipped:
+    """docs/step7-8.md Part V, Q2: `RunRecord.switches_flipped` is derived
+    from `ExperimentSpec.resolved_diff` (never parsed from the track name),
+    so attribution.py can identify which switches a factorial/ablation track
+    varied without depending on any naming convention."""
+
+    def test_factorial_tracks_get_switches_flipped_from_resolved_diff(self):
+        runner = FakeRunner()
+        controller = MultiTrackController(runner=runner, meta_coder=FakeMetaCoder(), sandbox=FakeSandbox())
+        plan = ExperimentPlan(
+            factor_id="t", run_original=True, run_standardized=False,
+            factorial_switches=["weighting", "breakpoint"],
+        )
+
+        runs = controller.run_experiment(_plugin(), _spec_ew(), plan, snapshot_id="snap1")
+
+        by_track = {r.track: r for r in runs}
+        assert by_track["original_method"].switches_flipped is None or by_track["original_method"].switches_flipped == {}
+        assert by_track["factorial_weighting"].switches_flipped == {"weighting": "vw"}
+        assert by_track["factorial_breakpoint"].switches_flipped == {"breakpoint": "nyse"}
+        assert by_track["factorial_weighting_breakpoint"].switches_flipped == {
+            "breakpoint": "nyse", "weighting": "vw",
+        }
+
+    def test_tracks_summary_carries_switches_flipped(self):
+        runner = FakeRunner()
+        controller = MultiTrackController(runner=runner, meta_coder=FakeMetaCoder(), sandbox=FakeSandbox())
+        plan = ExperimentPlan(
+            factor_id="t", run_original=True, run_standardized=False,
+            factorial_switches=["weighting"],
+        )
+
+        controller.run_experiment(_plugin(), _spec_ew(), plan, snapshot_id="snap1")
+
+        tracks = runner.comparison_calls[-1]["tracks"]
+        assert tracks["factorial_weighting"]["switches_flipped"] == {"weighting": "vw"}
+        assert not tracks["original_method"]["switches_flipped"]
+
+
+class TestAutoAttribution:
+    """docs/step6.md §4a's default (2026-08-16): when the caller leaves
+    BOTH `ablation_switches`/`factorial_switches` empty (the step6 UI's own
+    default since its 2026-08-16 simplification removed the manual switch
+    pickers), auto-derive attribution tracks from the ACTUAL config diff --
+    factorial when <=5 fields differ, one-at-a-time otherwise."""
+
+    def test_default_plan_auto_generates_factorial_tracks_for_the_real_diff(self):
+        """`_spec_ew()` differs from HXZ_STANDARD_CONFIG on 3 known switches
+        (weighting, breakpoint, universe -- `minimal_resolved_spec`'s
+        default `universe_filters=[]` vs HXZ's real exchcd/siccd/ceq
+        filters) -- well under the factorial cutoff, so ①→③ should get a
+        2^3-1=7-way factorial expansion automatically, with no
+        ablation_switches/factorial_switches set by the caller."""
+        runner = FakeRunner()
+        controller = MultiTrackController(runner=runner, meta_coder=FakeMetaCoder(), sandbox=FakeSandbox())
+        plan = ExperimentPlan(factor_id="t", run_original=False)
+
+        runs = controller.run_experiment(_plugin(), _spec_ew(), plan, snapshot_id="snap1")
+
+        tracks = {r.track for r in runs}
+        assert "standardized_hxz" in tracks
+        factorial_tracks = [t for t in tracks if t.startswith("factorial_")]
+        # 2^3-1=7 non-baseline corners, minus the all-3-flipped corner
+        # (identical to `standardized_hxz` itself -- see
+        # test_cz_config_override_auto_generates_cz_factorial_tracks).
+        assert len(factorial_tracks) == 6
+        assert not any(
+            all(s in t for s in ("weighting", "breakpoint", "universe")) for t in factorial_tracks
+        )
+        assert not any(t.startswith("ablation_") for t in tracks)
+
+    def test_explicit_switches_disable_auto_attribution(self):
+        """An explicit (even single-item) `ablation_switches`/
+        `factorial_switches` list means the caller is taking manual control
+        -- auto-attribution must not ALSO run and silently add extra tracks
+        alongside the caller's explicit request."""
+        runner = FakeRunner()
+        controller = MultiTrackController(runner=runner, meta_coder=FakeMetaCoder(), sandbox=FakeSandbox())
+        plan = ExperimentPlan(
+            factor_id="t", run_original=False, run_standardized=False,
+            ablation_switches=["weighting"],
+        )
+
+        runs = controller.run_experiment(_plugin(), _spec_ew(), plan, snapshot_id="snap1")
+
+        tracks = {r.track for r in runs}
+        assert tracks == {"ablation_weighting"}
+
+    def test_auto_attribution_false_disables_it_entirely(self):
+        runner = FakeRunner()
+        controller = MultiTrackController(runner=runner, meta_coder=FakeMetaCoder(), sandbox=FakeSandbox())
+        plan = ExperimentPlan(factor_id="t", run_original=False, auto_attribution=False)
+
+        runs = controller.run_experiment(_plugin(), _spec_ew(), plan, snapshot_id="snap1")
+
+        tracks = {r.track for r in runs}
+        assert tracks == {"standardized_hxz"}
+
+    def test_cz_config_override_auto_generates_cz_factorial_tracks(self):
+        """The ①→② comparison gets its OWN auto-attribution, independent of
+        ①→③'s -- distinct `cz_factorial_*` naming so the two never collide
+        even when they happen to flip the same switch. The all-switches-
+        flipped corner is excluded (2^2-1-1=2 tracks, not 3): it would
+        duplicate `cz_actual_config` itself, which already flips both
+        switches simultaneously (docs/step7-8.md Part V, real production
+        bug -- same redundancy as the single-switch case, generalized)."""
+        runner = FakeRunner()
+        controller = MultiTrackController(runner=runner, meta_coder=FakeMetaCoder(), sandbox=FakeSandbox())
+        plan = ExperimentPlan(
+            factor_id="t", run_original=False, run_standardized=False,
+            cz_config_override={"weighting_rule": "vw", "breakpoint_source": "nyse"},
+        )
+
+        runs = controller.run_experiment(_plugin(), _spec_ew(), plan, snapshot_id="snap1")
+
+        tracks = {r.track for r in runs}
+        assert "cz_actual_config" in tracks
+        cz_factorial_tracks = [t for t in tracks if t.startswith("cz_factorial_")]
+        assert len(cz_factorial_tracks) == 2
+        assert not any(
+            all(s in t for s in ("weighting", "breakpoint")) for t in cz_factorial_tracks
+        )
+        assert not any(t.startswith("factorial_") and not t.startswith("cz_factorial_") for t in tracks)
+
+    def test_single_switch_diff_skips_redundant_auto_attribution_track(self):
+        """When only ONE known switch differs, the endpoint track itself
+        (`cz_actual_config`) already IS that switch's flip -- no
+        `cz_factorial_<switch>` should be generated alongside it, since it
+        would duplicate the exact same config under a second name and
+        `attribution.py` would then have to refuse it as an ambiguous
+        duplicate (docs/step7-8.md Part V, real production bug)."""
+        runner = FakeRunner()
+        controller = MultiTrackController(runner=runner, meta_coder=FakeMetaCoder(), sandbox=FakeSandbox())
+        plan = ExperimentPlan(
+            factor_id="t", run_original=False, run_standardized=False,
+            cz_config_override={"weighting_rule": "vw"},
+        )
+
+        runs = controller.run_experiment(_plugin(), _spec_ew(), plan, snapshot_id="snap1")
+
+        tracks = {r.track for r in runs}
+        assert tracks == {"cz_actual_config"}
+
+    def test_auto_attribution_falls_back_to_oat_above_four_switches(self):
+        """More than MAX_FACTORIAL_SWITCHES (4) differing fields must fall
+        back to one-at-a-time (ablation_*) instead of a full 2^n factorial --
+        exercised directly against `_auto_attribution_specs` with a
+        hand-built target differing on all 6 known switches, since a real
+        spec/HXZ diff practically never reaches 6."""
+        controller = MultiTrackController(runner=FakeRunner(), meta_coder=FakeMetaCoder(), sandbox=FakeSandbox())
+        baseline_config = build_config(_spec_ew(), None)
+        target_config = dict(baseline_config)
+        target_config.update({
+            "breakpoint_source": "nyse",
+            "weighting_rule": "vw",
+            "accounting_lag_months": (baseline_config["accounting_lag_months"] or 0) + 1,
+            "missing_action": "unspecified",
+            "rebalance_frequency": "quarterly",
+            "universe_filters": [{"field": "exchcd", "op": "in", "value": [1]}],
+        })
+
+        specs = controller._auto_attribution_specs(
+            _spec_ew(), baseline_config, target_config,
+            factorial_prefix="factorial", ablation_prefix="ablation",
+        )
+
+        assert len(specs) == 6
+        assert all(s.name.startswith("ablation_") for s in specs)

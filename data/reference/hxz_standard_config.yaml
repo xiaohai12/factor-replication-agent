@@ -1,0 +1,95 @@
+# Standardized-track config ("C_std" / `standardized_hxz` track). Single
+# canonical source loaded by `src.infra.reference.load_hxz_standard_config`
+# (re-exported as `HXZ_STANDARD_CONFIG` from
+# `src.steps.step6_dual_track_controller`). Hand-curated, not auto-derived.
+#
+# Re-verified 2026-08-16 field-by-field against this repo's own copy of the
+# paper (`docs/Hou 等 - 2020 - Replicating Anomalies.pdf`). Citations below
+# are paraphrased quotes from that PDF, not just the code's own claims.
+
+breakpoint_source: nyse
+# "we emphasize sorts with NYSE breakpoints" (microcaps otherwise dominate
+# extreme deciles under all-exchange breakpoints).
+breakpoint_quantiles: 10
+# "For portfolio sorts (into deciles)..." -- the engine's `breakpoint_quantiles`
+# is the GROUP COUNT (`BacktestExecutor.compute_breakpoints`), not cutpoints.
+weighting_rule: vw
+# "NYSE breakpoints and value-weighted returns (NYSE-VW)" -- the paper's
+# emphasized core combination, paired with breakpoint_source above.
+
+rebalance_frequency: annual
+holding_period_months: 12
+# "we split stocks at the end of June of each year t into deciles on a
+# variable measured at the fiscal year ending in calendar year t-1 and
+# calculate decile returns from July of year t to June of t+1" -- the
+# paper's own treatment for annually-measured accounting variables, which is
+# what most factors in this repo are. (The paper ALSO monthly re-sorts
+# variables whose underlying data updates monthly/quarterly -- out of scope
+# for this single static pair of values.) `BacktestExecutor.
+# apply_signal_holding_period` expands each formation row for
+# `min(holding_period_months, rebalance_step)` months, and `rebalance_step`
+# for "annual" is 12 -- holding_period_months must stay >= 12 here or the
+# June cohort would only cover 1 of the 12 held months.
+
+accounting_lag_months: 6
+# NOT a literal HXZ number for this annual case -- the paper never states
+# one here. "end of June" formation from "fiscal year ending in calendar
+# year t-1" data implies the same ~6-month lag as Fama-French (Dec fiscal
+# year-end -> June formation), which is why this equals `original_method`'s
+# own SENSIBLE_DEFAULTS value (docs/cz-reference.md §7) instead of diverging
+# from it. The paper DOES give an explicit "4-month lag between the fiscal
+# quarter end and subsequent returns", but that's for a DIFFERENT regime:
+# monthly-resorted quarterly non-earnings data (paired with
+# `rebalance_frequency: monthly`, not `annual`) -- using 4 here would be
+# citing the wrong paragraph for this pairing.
+
+# `missing_action` deliberately NOT set here -- `BacktestExecutor.
+# apply_missing_policy` always drops rows with a missing return
+# unconditionally; the config value is never read (no other implementation
+# exists), so setting it would be pure decoration with zero effect.
+
+# Engine-level FilterOp DSL entries (`BacktestExecutor.apply_universe_filters`
+# -- field/op/value against already-resolved physical columns), NOT
+# MethodSpec's own FilterSpec shape (concept_id, resolved upstream).
+universe_filters:
+  - field: exchcd
+    op: in
+    value: [1, 2, 3]
+    # "NYSE, Amex, and NASDAQ stocks" -- stated directly in the paper.
+  - field: siccd
+    op: not_between
+    value: [6000, 6999]
+    # "We exclude financial firms" IS the paper's general sample criterion
+    # (Section 2). The 6000-6999 NUMBER is NOT restated in that same
+    # sentence/paragraph -- it's cited from a DIFFERENT, factor-specific
+    # paragraph elsewhere in the paper (the industry-concentration
+    # variable's own construction details). It is the standard Fama-French-
+    # style SIC range for "financial firms" used throughout this literature,
+    # so almost certainly what the general exclusion means -- but this is an
+    # inference, not a verbatim number from the general-sample paragraph.
+  - field: ceq
+    op: gt
+    value: 0
+    # "and firms with negative book equity" (same general sample-criterion
+    # sentence as siccd above). `ceq` (Compustat Annual "Common/Ordinary
+    # Equity - Total") is a single raw column, not the paper's own book-
+    # equity waterfall used elsewhere for OTHER factors (prefer SEQ, else
+    # CEQ+PSTK, else AT-LT with a preferred-stock choice) -- a reasonable
+    # proxy, not a byte-exact match. A firm with missing `ceq` is also
+    # excluded by this filter (same as negative), since eligibility can't be
+    # verified either way.
+
+# The `ceq` field above isn't CRSP-native -- joined onto the returns panel
+# point-in-time by the generated script's `join_universe_filter_sources()`
+# (`script_generator.py`), the SAME Compustat-join mechanism `compute_signal`'s
+# own input already uses (`assemble_signal_master_table_from_sources`), so no
+# engine changes were needed for this.
+universe_filter_join_sources:
+  comp_funda: [ceq]
+
+# Correctly absent, not a gap: the paper explicitly does NOT impose a price
+# screen ("We do not impose such a screen. In particular, microcaps are
+# included in our sample.") -- no $1/$5 price filter belongs here.
+
+
+

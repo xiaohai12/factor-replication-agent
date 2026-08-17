@@ -18,6 +18,11 @@ the retired v1 extraction-eval helpers module) -- this module's
 `CZReferenceProfile` is a DIFFERENT normalized shape for a different purpose
 (replication-gap comparison, not MethodSpec field-by-field accuracy
 scoring), but reads the identical rows.
+
+Also hosts `load_hxz_standard_config`/`HXZ_STANDARD_CONFIG`: the
+`standardized_hxz` track's config, loaded from
+`data/reference/hxz_standard_config.yaml` (single canonical source; see that
+file's header for field-by-field provenance against the HXZ paper).
 """
 
 from __future__ import annotations
@@ -27,7 +32,12 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+import yaml
+
 _SIGNALDOC_PATH = Path(__file__).resolve().parents[3] / "data" / "osap" / "SignalDoc.csv"
+_HXZ_STANDARD_CONFIG_PATH = (
+    Path(__file__).resolve().parents[3] / "data" / "reference" / "hxz_standard_config.yaml"
+)
 
 
 def load_signaldoc(signaldoc_path: Path | None = None) -> dict[str, dict]:
@@ -39,6 +49,20 @@ def load_signaldoc(signaldoc_path: Path | None = None) -> dict[str, dict]:
         for row in reader:
             rows[row["Acronym"]] = row
     return rows
+
+
+def load_hxz_standard_config(path: Path | None = None) -> dict[str, Any]:
+    """Load the `standardized_hxz` track's config from
+    `data/reference/hxz_standard_config.yaml` -- the single canonical source
+    (see that file's own header comment for full field-by-field provenance).
+    Re-exported as `HXZ_STANDARD_CONFIG` below and from
+    `src.steps.step6_dual_track_controller`.
+    """
+    with open(path or _HXZ_STANDARD_CONFIG_PATH, encoding="utf-8") as f:
+        return yaml.safe_load(f)
+
+
+HXZ_STANDARD_CONFIG: dict[str, Any] = load_hxz_standard_config()
 
 
 @dataclass
@@ -219,6 +243,11 @@ def cz_profile_to_config_override(profile: CZReferenceProfile) -> dict[str, Any]
     portfolio-formation lag (`signal[, yyyymm := yyyymm + 1]`, docs/step6.md
     gap #2, now implemented in `BacktestExecutor._apply_formation_lag`),
     applied to every C&Z factor unconditionally, never read from SignalDoc.
+
+    Also sets `universe_filters` unconditionally to C&Z's own base universe
+    (`shrcd` in {10, 11, 12}, `exchcd` in {1, 2, 3}) -- `Signals/pyCode/
+    SignalMasterTable.py`, the shared table every predictor is built from,
+    not SignalDoc (which doesn't record it at all).
     """
     weighting = profile.stock_weight or "ew"  # C&Z default: sweight NA -> EW
     if weighting not in ("ew", "vw"):
@@ -240,7 +269,22 @@ def cz_profile_to_config_override(profile: CZReferenceProfile) -> dict[str, Any]
         "breakpoint_source": "nyse" if quantile_filter == "nyse" else "full_sample",
         # Always the same for every C&Z factor, never in SignalDoc (\u00a79):
         "accounting_lag_months": 6,
-        "missing_action": "drop",        "formation_lag_months": 1,    }
+        "missing_action": "drop",
+        "formation_lag_months": 1,
+        # `Signals/pyCode/SignalMasterTable.py`'s shared "backbone" table
+        # EVERY predictor is built from -- "keep if (shrcd == 10 | shrcd ==
+        # 11 | shrcd == 12) & (exchcd == 1 | exchcd == 2 | exchcd == 3)".
+        # Never in SignalDoc either (that file has its own dev comment: "TBC:
+        # remove and use this filter as default in SignalDoc.csv") -- was
+        # entirely missing from this override until 2026-08-16, silently
+        # letting `cz_actual_config` inherit whatever universe_filters (or
+        # none) the paper's own MethodSpec happened to carry instead of
+        # C&Z's actual universe.
+        "universe_filters": [
+            {"field": "shrcd", "op": "in", "value": [10, 11, 12]},
+            {"field": "exchcd", "op": "in", "value": [1, 2, 3]},
+        ],
+    }
     if profile.portfolio_period is not None:
         override["holding_period_months"] = profile.portfolio_period
         rebalance = _PORTFOLIO_PERIOD_TO_REBALANCE_FREQUENCY.get(profile.portfolio_period)

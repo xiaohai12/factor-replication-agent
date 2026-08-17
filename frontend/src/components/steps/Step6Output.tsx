@@ -1,5 +1,7 @@
+import { useEffect, useState } from "react"
 import { useQuery, useQueries } from "@tanstack/react-query"
 import { Badge } from "@/components/ui/badge"
+import { Button } from "@/components/ui/button"
 import { JsonTree } from "@/components/JsonTree"
 import { MultiTrackChart, type TrackSeries } from "@/components/MultiTrackChart"
 import { api } from "@/lib/api"
@@ -50,6 +52,24 @@ function formatConfigValue(value: unknown): string {
   return String(value)
 }
 
+// Metadata keys rendered separately elsewhere (or not at all here), never as
+// an ordinary config-per-track row -- mirrors Step3Output.tsx's own NON_ROW_KEYS.
+const NON_ROW_KEYS = new Set(["substitutions", "defaults_applied", "unapplied_universe_filters"])
+
+interface DefaultApplied {
+  config_key: string
+  reason: string
+}
+
+/** `config_key`s this track's `defaults_applied` list marks as engine-filled
+ * (the paper didn't specify a value, so a convention default was used) --
+ * everything else in the table is what the paper/reviewed spec actually
+ * resolved to. */
+function defaultedKeys(config: Record<string, unknown> | undefined): Map<string, string> {
+  const entries = (config?.defaults_applied as DefaultApplied[] | undefined) ?? []
+  return new Map(entries.map((d) => [d.config_key, d.reason]))
+}
+
 /** Each track's RESOLVED config (`registry.build_config()`'s output) --
  * read from `comparison.json` via a step6-scoped preview endpoint, since
  * that file is already written as a side effect of step6's own run (see
@@ -94,15 +114,54 @@ export function Step6Output({
   attempt,
   paperReported,
   czReported,
+  hxzReported,
 }: {
   sessionId: string
   attempt: StepAttempt | undefined
   paperReported?: { mean_return?: number; t_stat?: number } | null
   czReported?: { mean_return: number | null; t_stat: number | null } | null
+  hxzReported?: {
+    originalInsample: { mean_return: number | null; t_stat: number | null } | null
+    hxzPaperSample: { mean_return: number | null; t_stat: number | null } | null
+  } | null
 }) {
   const { runs, isLoading } = useStep6Runs(attempt)
   const ordered = orderWithBaseline(runs)
+  const baselineTrack = ordered[0]?.track
   const { configs } = useTrackConfigs(sessionId, attempt?.output_refs.experiment_batch_id)
+  // Which tracks to show -- shared between "Config per track" and the chart
+  // below, since a batch with auto-attribution's factorial_*/ablation_*
+  // tracks can easily reach 10+ tracks and the user may only want a
+  // handful side by side/plotted at once. Defaults to every track (matches
+  // the prior always-show-everything behavior); the baseline is always
+  // force-included (its checkbox is disabled) since both sections use it
+  // as the pinned reference/delta basis. `null` means "not yet
+  // initialized"; new tracks appearing after a re-run default to selected
+  // too. Keyed off the track-name list (a stable string), not `ordered`
+  // itself (a new array every render), to avoid re-running on every render.
+  const orderedTrackNames = ordered.map((r) => r.track).join(",")
+  const [selectedTracks, setSelectedTracks] = useState<Set<string> | null>(null)
+  useEffect(() => {
+    const known = orderedTrackNames ? orderedTrackNames.split(",") : []
+    setSelectedTracks((prev) => {
+      const next = new Set(prev ?? known)
+      for (const track of known) {
+        if (!(prev?.has(track) ?? false)) next.add(track)
+      }
+      if (baselineTrack) next.add(baselineTrack)
+      return next
+    })
+  }, [orderedTrackNames, baselineTrack])
+  const isTrackSelected = (track: string) => track === baselineTrack || (selectedTracks?.has(track) ?? true)
+  const toggleTrack = (track: string) => {
+    if (track === baselineTrack) return // baseline can't be unchecked
+    setSelectedTracks((prev) => {
+      const next = new Set(prev ?? ordered.map((r) => r.track))
+      if (next.has(track)) next.delete(track)
+      else next.add(track)
+      return next
+    })
+  }
   const seriesQueries = useQueries({
     queries: ordered.map((run) => ({
       queryKey: ["return-series", run.factor_id, run.run_id],
@@ -119,10 +178,18 @@ export function Step6Output({
   const invalidationReason = runs.find((r) => r.batch_invalidated)?.batch_invalidation_reason
 
   const series: TrackSeries[] = ordered
-    .map((run, i) => ({ track: run.track, rows: seriesQueries[i]?.data ?? [] }))
-    .filter((s) => s.rows.length > 0)
+    .map((run, i) => {
+      const config = configs?.[run.track]
+      return {
+        track: run.track,
+        rows: seriesQueries[i]?.data ?? [],
+        sampleStartYear: config?.sample_start_year as number | undefined,
+        sampleEndYear: config?.sample_end_year as number | undefined,
+        publicationYear: config?.publication_year as number | undefined,
+      }
+    })
+    .filter((s) => s.rows.length > 0 && isTrackSelected(s.track))
 
-  const baselineTrack = ordered[0]?.track
   // Compare against the paper's/C&Z's OWN reported numbers on the SAME
   // basis they were reported on -- the paper's original sample window
   // ("in-sample"), not this engine's full extended history (which runs
@@ -188,6 +255,7 @@ export function Step6Output({
             {ordered.map((run) => {
               const isBaseline = run.track === baselineTrack
               const isCzTrack = run.track === "cz_actual_config"
+              const isHxzTrack = run.track === "standardized_hxz"
               const { meanReturn, tStat, sharpe, alphaFf3, nMonths, coverage, isInSample } = displayMetrics(run)
               const delta =
                 !isBaseline && typeof tStat === "number" && typeof baselineTStat === "number"
@@ -195,8 +263,10 @@ export function Step6Output({
                   : undefined
               // Paper's own headline number next to ①, C&Z's own reported
               // number (from the step6 UI's live query, reference only --
-              // never re-run) next to ② -- neither is an executed track.
-              const reported = isBaseline ? paperReported : isCzTrack ? czReported : undefined
+              // never re-run) next to ②, HXZ's own reported number (from a
+              // downloaded testing-portfolio CSV, also reference only) next
+              // to ③.
+              const reported = isBaseline ? paperReported : isCzTrack ? czReported : isHxzTrack ? hxzReported?.originalInsample : undefined
               return (
                 <tr
                   key={run.run_id}
@@ -237,7 +307,7 @@ export function Step6Output({
                   <td className="py-1 pr-3">{formatMetric(coverage)}</td>
                   <td className="py-1 text-muted-foreground">
                     {reported
-                      ? `${isBaseline ? "paper" : "C&Z"}: ${formatMetric(reported.mean_return)} / t=${formatMetric(reported.t_stat)}`
+                      ? `${isBaseline ? "paper" : isCzTrack ? "C&Z" : "HXZ"}: ${formatMetric(reported.mean_return)} / t=${formatMetric(reported.t_stat)}`
                       : "—"}
                   </td>
                 </tr>
@@ -247,58 +317,116 @@ export function Step6Output({
         </table>
       </div>
 
+      <div className="flex flex-wrap items-center gap-x-3 gap-y-1 rounded-md border border-border p-2 text-xs">
+        <span className="text-muted-foreground">
+          Compare (applies to "Config per track" below and the chart; baseline is always included):
+        </span>
+        {ordered.map((run) => (
+          <label
+            key={run.track}
+            className={cn("flex items-center gap-1", run.track === baselineTrack && "opacity-70")}
+          >
+            <input
+              type="checkbox"
+              checked={isTrackSelected(run.track)}
+              disabled={run.track === baselineTrack}
+              onChange={() => toggleTrack(run.track)}
+            />
+            <span className="font-mono">{run.track}</span>
+          </label>
+        ))}
+        <Button
+          type="button"
+          variant="ghost"
+          size="sm"
+          className="h-5 px-1.5 text-xs"
+          onClick={() => setSelectedTracks(new Set(ordered.map((r) => r.track)))}
+        >
+          All
+        </Button>
+        <Button
+          type="button"
+          variant="ghost"
+          size="sm"
+          className="h-5 px-1.5 text-xs"
+          onClick={() => setSelectedTracks(new Set(baselineTrack ? [baselineTrack] : []))}
+        >
+          None
+        </Button>
+      </div>
+
       {configs && (
         <div>
           <p className="mb-1 text-xs font-medium">Config per track</p>
           <p className="mb-1 text-xs text-muted-foreground">
             Every resolved config key, one column per track -- a cell that differs from the baseline (
-            {baselineTrack}) is highlighted.
+            {baselineTrack}) is highlighted amber. A{" "}
+            <span className="rounded bg-sky-50 px-1 font-mono text-sky-900 dark:bg-sky-950/20 dark:text-sky-300">
+              sky
+            </span>{" "}
+            value means the paper didn't specify this field and the pipeline filled in a convention default (hover
+            for why); an unmarked value is what the paper/reviewed spec actually resolved to.
           </p>
-          <div className="max-h-96 overflow-auto">
-            <table className="w-full border-collapse text-xs">
-              <thead>
-                <tr className="border-b border-border text-muted-foreground">
-                  <th className="sticky left-0 bg-background py-1 pr-3 text-left font-medium">Config key</th>
-                  {ordered
-                    .filter((run) => configs[run.track])
-                    .map((run) => (
-                      <th key={run.track} className="py-1 pr-3 text-left font-medium">
-                        {run.track}
-                      </th>
-                    ))}
-                </tr>
-              </thead>
-              <tbody>
-                {Array.from(new Set(Object.values(configs).flatMap((c) => Object.keys(c))))
-                  .sort()
-                  .map((key) => {
-                    const baselineValue = baselineTrack ? configs[baselineTrack]?.[key] : undefined
-                    return (
-                      <tr key={key} className="border-b border-border/50 last:border-0">
-                        <td className="sticky left-0 bg-background py-1 pr-3 font-mono text-muted-foreground">
-                          {key}
-                        </td>
-                        {ordered
-                          .filter((run) => configs[run.track])
-                          .map((run) => {
-                            const value = configs[run.track]?.[key]
-                            const differs =
-                              run.track !== baselineTrack && JSON.stringify(value) !== JSON.stringify(baselineValue)
-                            return (
-                              <td
-                                key={run.track}
-                                className={cn("py-1 pr-3 font-mono", differs && "bg-amber-50 dark:bg-amber-950/20")}
-                              >
-                                {formatConfigValue(value)}
-                              </td>
-                            )
-                          })}
+          {(() => {
+            const visibleConfigTracks = ordered.filter((run) => configs[run.track] && isTrackSelected(run.track))
+            return (
+              <>
+                <div className="max-h-96 overflow-auto">
+                  <table className="w-full border-collapse text-xs">
+                    <thead>
+                      <tr className="border-b border-border text-muted-foreground">
+                        <th className="sticky left-0 bg-background py-1 pr-3 text-left font-medium">Config key</th>
+                        {visibleConfigTracks.map((run) => (
+                          <th key={run.track} className="py-1 pr-3 text-left font-medium">
+                            {run.track}
+                          </th>
+                        ))}
                       </tr>
-                    )
-                  })}
-              </tbody>
-            </table>
-          </div>
+                    </thead>
+                    <tbody>
+                      {Array.from(new Set(Object.values(configs).flatMap((c) => Object.keys(c))))
+                        .filter((key) => !NON_ROW_KEYS.has(key))
+                        .sort()
+                        .map((key) => {
+                          const baselineValue = baselineTrack ? configs[baselineTrack]?.[key] : undefined
+                          return (
+                            <tr key={key} className="border-b border-border/50 last:border-0">
+                              <td className="sticky left-0 bg-background py-1 pr-3 font-mono text-muted-foreground">
+                                {key}
+                              </td>
+                              {visibleConfigTracks.map((run) => {
+                                const value = configs[run.track]?.[key]
+                                const differs =
+                                  run.track !== baselineTrack && JSON.stringify(value) !== JSON.stringify(baselineValue)
+                                const defaultReason = defaultedKeys(configs[run.track]).get(key)
+                                return (
+                                  <td
+                                    key={run.track}
+                                    title={defaultReason}
+                                    className={cn(
+                                      "py-1 pr-3 font-mono",
+                                      // Amber (differs from baseline) takes priority over sky
+                                      // (engine-filled default) when a cell is both, so the
+                                      // more actionable signal ("this track's value diverges")
+                                      // always wins visually.
+                                      differs
+                                        ? "bg-amber-50 dark:bg-amber-950/20"
+                                        : defaultReason && "bg-sky-50 text-sky-900 dark:bg-sky-950/20 dark:text-sky-300",
+                                    )}
+                                  >
+                                    {formatConfigValue(value)}
+                                  </td>
+                                )
+                              })}
+                            </tr>
+                          )
+                        })}
+                    </tbody>
+                  </table>
+                </div>
+              </>
+            )
+          })()}
         </div>
       )}
 

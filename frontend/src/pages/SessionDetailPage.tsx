@@ -12,7 +12,7 @@ import { JobLogPanel } from "@/components/JobLogPanel"
 import { ToolResultsPanel } from "@/components/ToolResultsPanel"
 import { StepOutputView } from "@/components/StepOutputView"
 import { Step3ComputeSignalCard } from "@/components/steps/Step3Output"
-import { Step4RepairCard } from "@/components/steps/Step4Output"
+import { Step4Output, Step4RepairCard } from "@/components/steps/Step4Output"
 import { Step5HeadlineCard } from "@/components/steps/Step5Output"
 import { MethodSpecBoard } from "@/components/MethodSpecBoard"
 import { JsonTree } from "@/components/JsonTree"
@@ -29,6 +29,7 @@ import {
   type MethodSpecWorkflowState,
   type ReviewRound,
 } from "@/lib/methodSpecStore"
+import { getStep6PreviewState, setStep6PreviewState } from "@/lib/step6PreviewStore"
 import type { SessionManifest, ToolResult } from "@/lib/types"
 
 /** Step6's Cross-track comparison table wants the paper's OWN reported
@@ -52,6 +53,27 @@ function extractPaperReported(
     t_stat: statistic?.kind === "t_stat" ? statistic.value : undefined,
   }
 }
+
+/** The replicated (target) paper's OWN sample window
+ * (`MethodSpec.sample.reported_returns.start_year/end_year`) -- the SAME
+ * window `extractPaperReported`'s number is scoped to, and what an HXZ
+ * reference number needs restricting to for an apples-to-apples
+ * comparison (HXZ's own 1967-2016 paper window would be a DIFFERENT,
+ * wrong basis here). `spec.paper` here is the resolved MethodSpec itself
+ * (same nesting `extractPaperReported` reads `.reported_results` from),
+ * NOT `PaperRef` -- `sample` is a sibling field on it, not under `paper`
+ * again. */
+function extractPaperSampleWindow(
+  spec: Record<string, unknown> | undefined,
+): { startYear: number; endYear: number } | null {
+  const methodSpec = spec?.paper as Record<string, unknown> | undefined
+  const sample = methodSpec?.sample as Record<string, unknown> | undefined
+  const reportedReturns = sample?.reported_returns as Record<string, unknown> | undefined
+  const startYear = reportedReturns?.start_year
+  const endYear = reportedReturns?.end_year
+  return typeof startYear === "number" && typeof endYear === "number" ? { startYear, endYear } : null
+}
+
 
 /** Auto-fills a step's request body from whatever this SAME session has
  * already recorded upstream, so the user never has to hand-copy a spec/
@@ -144,21 +166,6 @@ async function buildAutoFilledRequest(
   return body
 }
 
-/** Whether a step's own result body signals a real failure (as opposed to
- * "the HTTP call didn't throw") -- e.g. step4 validate can 200 with
- * `passed: false`, step2 resolve can 200 with `is_ready: false`. Drives
- * auto-advance: a clean result with none of these fields set false counts
- * as success. */
-function isFailureResult(result: unknown): boolean {
-  if (!result || typeof result !== "object") return false
-  const r = result as Record<string, unknown>
-  if ("passed" in r) return r.passed === false
-  if ("is_ready" in r) return r.is_ready === false
-  if ("success" in r) return r.success === false
-  if (typeof r.status === "string") return r.status === "failed" || r.status === "blocked"
-  return false
-}
-
 /** Session-scoped step detail page: stepper + a generic request/response
  * JSON panel for whichever step is selected (Phase 4's D1-D4 scope --
  * per-step deep visualization panels are explicit future work, see
@@ -201,14 +208,51 @@ export function SessionDetailPage() {
   // C&Z query output can be shown ONLY in the Result panel (not duplicated
   // under "Run against C&Z's actual configuration") -- every value here is
   // already known client-side, no need to wait for the batch to actually
-  // finish executing.
-  const [step6ConfigDiff, setStep6ConfigDiff] = useState<{
+  // finish executing. Initialized from `step6PreviewStore` (localStorage)
+  // and re-persisted on every change so a page reload doesn't force a
+  // re-query of a live network call just to see the same numbers again.
+  const [step6ConfigDiff, setStep6ConfigDiffState] = useState<{
     original: Record<string, unknown>
     cz: Record<string, unknown>
     std: Record<string, unknown>
     raw: Record<string, unknown>
     czReported: { mean_return: number | null; t_stat: number | null }
-  } | null>(null)
+  } | null>(() => getStep6PreviewState(sessionId).configDiff ?? null)
+  const setStep6ConfigDiff = (data: typeof step6ConfigDiff) => {
+    setStep6ConfigDiffState(data)
+    setStep6PreviewState(sessionId, { configDiff: data ?? undefined })
+  }
+  // HXZ's own reported number for the standardized_hxz track's "Reported
+  // (reference)" column (docs/step6.md's N_hxz gap) -- separate from
+  // step6ConfigDiff since it has no config-diff of its own, just a
+  // mean_return/t_stat pulled from a downloaded HXZ testing-portfolio CSV.
+  // Carries BOTH windows: the replicated factor's own paper sample
+  // (`originalInsample`) and HXZ's own "Replicating Anomalies" paper
+  // sample (`hxzPaperSample`, always 1967-2016) -- two different, both
+  // useful, reference points. Also persisted, same reasoning as above.
+  const [step6HxzReported, setStep6HxzReportedState] = useState<{
+    originalInsample: HxzReportedPreview | null
+    hxzPaperSample: HxzReportedPreview | null
+  } | null>(() => {
+    const cached = getStep6PreviewState(sessionId).hxzPreview
+    if (!cached) return null
+    return {
+      originalInsample: cached.originalInsample as HxzReportedPreview | null,
+      hxzPaperSample: cached.hxzPaperSample as HxzReportedPreview | null,
+    }
+  })
+  const setStep6HxzReported = (data: typeof step6HxzReported) => {
+    setStep6HxzReportedState(data)
+    setStep6PreviewState(sessionId, {
+      hxzPreview: data
+        ? {
+            acronym: getStep6PreviewState(sessionId).hxzSelected ?? "",
+            originalInsample: data.originalInsample as Record<string, unknown> | null,
+            hxzPaperSample: data.hxzPaperSample as Record<string, unknown> | null,
+          }
+        : undefined,
+    })
+  }
 
   // Steps 1/2's own progress (`MethodSpecWorkflowPanel`) lives in
   // sessionStorage, not the session manifest's step attempts -- lifted up
@@ -330,7 +374,6 @@ export function SessionDetailPage() {
         queryClient.invalidateQueries({ queryKey: ["session", sessionId] })
         queryClient.invalidateQueries({ queryKey: ["session-step", sessionId, step] })
         queryClient.invalidateQueries({ queryKey: ["session-events", sessionId] })
-        advanceIfSuccessful(response)
       }
     },
     onError: (err) => {
@@ -348,22 +391,11 @@ export function SessionDetailPage() {
   // never visibly went away.
   const isRerunning = runMutation.isPending || job.status === "pending" || job.status === "running"
 
-  // Auto-advance to the next step once THIS step's own result looks like a
-  // real success -- not just "the HTTP call didn't throw" (e.g. step4
-  // validate can 200 with `passed: false`, step2 resolve can 200 with
-  // `is_ready: false`). Anything with an explicit failure-shaped field wins;
-  // otherwise a clean response/completed job counts as success.
-  const advanceIfSuccessful = (result: unknown) => {
-    if (step >= 8 || isFailureResult(result)) return
-    navigate(`/runs/${sessionId}/step/${step + 1}`)
-  }
-
   useEffect(() => {
     if (job.status === "completed" || job.status === "failed") {
       queryClient.invalidateQueries({ queryKey: ["session", sessionId] })
       queryClient.invalidateQueries({ queryKey: ["session-step", sessionId, step] })
       queryClient.invalidateQueries({ queryKey: ["session-events", sessionId] })
-      if (job.status === "completed") advanceIfSuccessful(job.result)
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [job.status])
@@ -467,6 +499,12 @@ export function SessionDetailPage() {
                         </div>
                       ))}
                     </div>
+                    <p className="mt-1 text-muted-foreground">
+                      Not in SignalDoc, applied unconditionally to every C&amp;Z factor from{" "}
+                      <code className="font-mono">Signals/pyCode/SignalMasterTable.py</code> instead (already
+                      folded into ②'s <code className="font-mono">universe_filters</code> above): shrcd in{" "}
+                      {"{10, 11, 12}"}, exchcd in {"{1, 2, 3}"}.
+                    </p>
                   </div>
                   <div>
                     <p className="font-medium">C&amp;Z's own reported performance (reference only, not re-run here)</p>
@@ -477,7 +515,44 @@ export function SessionDetailPage() {
                   </div>
                 </div>
               )}
-              {step > 2 && def.isJob ? <JobLogPanel job={job} /> : null}
+              {step === 6 && step6HxzReported && (
+                <div className="flex flex-col gap-1 rounded-md border border-border p-2 text-xs">
+                  {step6HxzReported.originalInsample && (
+                    <div>
+                      <p className="font-medium">
+                        {step6HxzReported.originalInsample.label} (reference only, not re-run here) -- original
+                        in-sample
+                      </p>
+                      <p className="text-muted-foreground">
+                        mean return: {formatCzValue(step6HxzReported.originalInsample.mean_return)}, t-stat:{" "}
+                        {formatCzValue(step6HxzReported.originalInsample.t_stat)}, start year:{" "}
+                        {formatCzValue(step6HxzReported.originalInsample.start_year)}, end year:{" "}
+                        {formatCzValue(step6HxzReported.originalInsample.end_year)}, n_months:{" "}
+                        {formatCzValue(step6HxzReported.originalInsample.n_months)}
+                      </p>
+                    </div>
+                  )}
+                  {step6HxzReported.hxzPaperSample && (
+                    <div>
+                      <p className="font-medium">
+                        {step6HxzReported.hxzPaperSample.label} (reference only, not re-run here) -- HXZ's own
+                        paper sample
+                      </p>
+                      <p className="text-muted-foreground">
+                        mean return: {formatCzValue(step6HxzReported.hxzPaperSample.mean_return)}, t-stat:{" "}
+                        {formatCzValue(step6HxzReported.hxzPaperSample.t_stat)}, start year:{" "}
+                        {formatCzValue(step6HxzReported.hxzPaperSample.start_year)}, end year:{" "}
+                        {formatCzValue(step6HxzReported.hxzPaperSample.end_year)}, n_months:{" "}
+                        {formatCzValue(step6HxzReported.hxzPaperSample.n_months)}
+                      </p>
+                    </div>
+                  )}
+                </div>
+              )}
+              {/* step4 gets its own dedicated JobLogPanel inside the "Repair
+               * (before / after)" card below -- skip the generic one here so
+               * the log doesn't render twice on the page. */}
+              {step > 2 && step !== 4 && def.isJob ? <JobLogPanel job={job} /> : null}
               {!isRerunning && latestAttempt?.diagnostics && "readiness" in latestAttempt.diagnostics && (
                 <div className="flex flex-col gap-1 rounded-md border border-border p-2 text-xs">
                   <span>
@@ -545,6 +620,39 @@ export function SessionDetailPage() {
                       step provides them.
                     </p>
                   )}
+                  {step === 4 && (
+                    <div className="flex flex-col gap-2 rounded-md border border-border p-2 text-xs">
+                      <p className="font-medium">What this step checks</p>
+                      {[
+                        { name: "Syntax", desc: "the generated compute_signal code parses as valid Python." },
+                        {
+                          name: "Schema",
+                          desc: "the code actually defines a compute_signal function (not renamed/missing).",
+                        },
+                        {
+                          name: "Future-leak scan",
+                          desc: "the code text is checked for forbidden patterns that could look ahead at data not yet available at formation time.",
+                        },
+                        {
+                          name: "Reproducibility",
+                          desc: "placeholder check, not yet implemented -- always passes today.",
+                        },
+                        {
+                          name: "Execution smoke test",
+                          desc: "the exact backtest script Step 5 will run is imported and its compute_signal is called on a small real-data slice, just to confirm it runs without raising an exception -- it does not check the output values themselves.",
+                        },
+                        {
+                          name: "Faithfulness",
+                          desc: "only when an LLM provider is selected -- an LLM re-reads the paper's approved formula and the code side by side and flags whether the code implements that SAME formula; it never judges whether the formula itself is the right empirical choice.",
+                        },
+                      ].map(({ name, desc }) => (
+                        <div key={name} className="flex gap-2">
+                          <span className="w-32 shrink-0 font-medium text-muted-foreground">{name}</span>
+                          <span className="text-muted-foreground">{desc}</span>
+                        </div>
+                      ))}
+                    </div>
+                  )}
                   {"llm_provider" in def.requestTemplate && (
                     <p className="text-xs text-muted-foreground">
                       Uses the LLM Provider / Model picked in the sidebar (bottom-left) -- change it there, not
@@ -581,6 +689,7 @@ export function SessionDetailPage() {
                             runOriginal={Boolean(current.run_original)}
                             runStandardized={Boolean(current.run_standardized)}
                             czEnabled={step6CzEnabled}
+                            autoAttribution={current.auto_attribution !== false}
                             onChange={(patch) => {
                               const parsed = JSON.parse(requestText)
                               setRequestText(JSON.stringify({ ...parsed, ...patch }, null, 2))
@@ -611,11 +720,58 @@ export function SessionDetailPage() {
                               }}
                               onDataChange={setStep6ConfigDiff}
                             />
+                            <Step6HxzConfigPreview
+                              sessionId={sessionId}
+                              sessionFactorId={sessionQuery.data?.factor_id}
+                              sampleWindow={extractPaperSampleWindow(current.spec as Record<string, unknown> | undefined)}
+                              onDataChange={setStep6HxzReported}
+                            />
                           </div>
                         </>
                       )
                     })()}
-                  {step !== 6 && (
+                  {step === 7 && (
+                    <div className="flex flex-col gap-2 rounded-md border border-border p-2 text-xs">
+                      <p className="font-medium">What this step computes</p>
+                      {[
+                        {
+                          name: "Track vs paper",
+                          desc: "each track's sign/magnitude/significance compared against the paper's own reported headline number, including the HXZ three-tier significance hurdle (1.96/2.78/3.39).",
+                        },
+                        {
+                          name: "Config diff",
+                          desc: "every track's resolved config diffed against the baseline (original_method), grouped by pipeline stage (signal input / portfolio construction / universe / \u2026).",
+                        },
+                        {
+                          name: "Gap decomposition (OAT)",
+                          desc: "one-at-a-time per-switch contributions -- only produced when the batch fell back to ablation_* tracks (more than 4 differing fields), not for a full-factorial batch.",
+                        },
+                        {
+                          name: "Shapley attribution",
+                          desc: "order-independent decomposition of the mean-return gap across a full-factorial batch's switches; requires every 2^n corner of the factorial cube to be present.",
+                        },
+                        {
+                          name: "Paired significance test",
+                          desc: "per single-switch track, a paired Newey-West test of that switch's effect against the baseline, using monthly returns restricted to the paper's in-sample window.",
+                        },
+                        {
+                          name: "Joint Wald test",
+                          desc: "one test across ALL single-switch contrasts at once, accounting for their correlation -- guards against reading a single switch's number as important without the switches collectively clearing significance.",
+                        },
+                        {
+                          name: "Bridge / decay / robustness",
+                          desc: "if a C&Z signal bridge track exists, whether it independently reproduces the paper's sign; plus publication-decay and cross-sample-period robustness summaries.",
+                        },
+                      ].map(({ name, desc }) => (
+                        <div key={name} className="flex gap-2">
+                          <span className="w-40 shrink-0 font-medium text-muted-foreground">{name}</span>
+                          <span className="text-muted-foreground">{desc}</span>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                  {(step === 3 || step === 4 || step === 5) && <RequestFieldsSummary requestText={requestText} />}
+                  {step !== 6 && step !== 3 && step !== 4 && step !== 5 && step !== 7 && (
                     <Textarea
                       className="h-64 font-mono text-xs"
                       value={requestText}
@@ -662,6 +818,13 @@ export function SessionDetailPage() {
                     )
                   })()}
                   {requestError && <p className="text-xs text-destructive">{requestError}</p>}
+                  {step === 4 && !isRerunning && (
+                    <Step4Output
+                      sessionId={sessionId}
+                      attempt={latestAttempt}
+                      syncResult={def.isJob ? job.result : syncResult}
+                    />
+                  )}
                 </CardContent>
               </Card>
 
@@ -737,6 +900,7 @@ export function SessionDetailPage() {
                         }
                       })()}
                       czReported={step6ConfigDiff?.czReported ?? null}
+                      hxzReported={step6HxzReported}
                     />
                   )}
                 </CardContent>
@@ -758,11 +922,10 @@ export function SessionDetailPage() {
  * spec resolves, step3's `spec` field auto-fills from that same store (see
  * `buildAutoFilledRequest`'s "spec" fallback above).
  *
- * Auto-advances like every other step: extract success jumps 1 -> 2, and a
- * ready resolve jumps straight to step 3 -- `onStateChange` also mirrors
- * every state change up to `SessionDetailPage` so the stepper's step-1/2
- * badges recolor immediately, the same way steps 3-8 do from their own
- * session-recorded attempt status. */
+ * No longer auto-advances (2026-08-16): a human clicks the stepper to move
+ * on -- `onStateChange` still mirrors every state change up to
+ * `SessionDetailPage` so the stepper's step-1/2 badges recolor immediately,
+ * the same way steps 3-8 do from their own session-recorded attempt status. */
 
 /** Renders a mechanical field-level diff (`spec_build._diff_json`'s output
  * shape) as a table with the changed value highlighted red -- the
@@ -926,7 +1089,6 @@ function MethodSpecWorkflowPanel({
         })
         setError(null)
         patch({ extractJobId: undefined })
-        if (step === 1) navigate(`/runs/${sessionId}/step/2`)
         if (state.documentId && state.targetName && paperText) {
           reviewLoopMutation.mutate({ rawSpec, documentId: state.documentId, targetName: state.targetName, paperText })
         }
@@ -1116,7 +1278,6 @@ function MethodSpecWorkflowPanel({
       queryClient.invalidateQueries({ queryKey: ["session-events", sessionId] })
       if (resolved) {
         patch({ resolved })
-        navigate(`/runs/${sessionId}/step/3`)
       } else if (!is_ready) {
         setError("Resolved spec is not codegen-ready yet -- see the blocking fields below.")
       }
@@ -1654,7 +1815,11 @@ function MethodSpecWorkflowPanel({
           )}
           {state.resolved && (
             <>
-              <JsonTree name="resolved" data={state.resolved} />
+              <p className="text-xs font-medium">
+                Resolved MethodSpec — check the highlighted Portfolio (config) and Reported results sections
+                before moving on.
+              </p>
+              <MethodSpecBoard spec={state.resolved} highlightConfigAndResults />
               <Button size="sm" onClick={() => navigate(`/runs/${sessionId}/step/3`)}>
                 Use this spec — go to Step 3
               </Button>
@@ -1664,6 +1829,43 @@ function MethodSpecWorkflowPanel({
       )}
 
       {error && <p className="text-xs text-destructive">{error}</p>}
+    </div>
+  )
+}
+
+/** Steps 3/4/5's request bodies are just refs/hashes into upstream
+ * artifacts (a resolved spec + generated plugin, or a script hash) --
+ * showing that as a raw JSON textarea always led to the whole MethodSpec
+ * getting dumped on screen (step3's `spec` field). Renders the same
+ * fields as plain label/value pairs instead; bulky object fields (`spec`,
+ * `plugin`) collapse to a "loaded" indicator since their own dedicated
+ * views (MethodSpecPicker's plugin code, the Step output card) already
+ * show the real content. */
+function RequestFieldsSummary({ requestText }: { requestText: string }) {
+  let parsed: Record<string, unknown>
+  try {
+    parsed = JSON.parse(requestText)
+  } catch {
+    return <p className="text-xs text-destructive">Request body is not valid JSON.</p>
+  }
+  const entries = Object.entries(parsed).filter(([key]) => key !== "expected_revision")
+  if (entries.length === 0) return null
+  return (
+    <div className="flex flex-col gap-1 rounded-md border border-border p-2 text-xs">
+      {entries.map(([key, value]) => (
+        <div key={key} className="flex gap-2">
+          <span className="font-mono text-muted-foreground">{key}:</span>
+          <span className="font-mono">
+            {value && typeof value === "object"
+              ? Object.keys(value as object).length > 0
+                ? "loaded"
+                : "—"
+              : typeof value === "string" && value.length > 16
+                ? `${value.slice(0, 12)}…`
+                : String(value ?? "—")}
+          </span>
+        </div>
+      ))}
     </div>
   )
 }
@@ -1885,8 +2087,14 @@ function Step6CzConfigPreview({
     queryKey: ["cz-factors"],
     queryFn: () => api.get<{ factors: { factor_id: string; acronym: string }[] }>("/api/reference/cz-factors"),
   })
-  const [selected, setSelected] = useState("")
-  const [preview, setPreview] = useState<CzConfigPreview | null>(null)
+  // Initialized from `step6PreviewStore` (localStorage) so a page reload
+  // shows the last query's dropdown selection and result instead of
+  // resetting to "never queried" -- this endpoint is a live network call
+  // (`openassetpricing`), not something worth re-fetching just because the
+  // tab was reloaded.
+  const cached = getStep6PreviewState(sessionId)
+  const [selected, setSelected] = useState(cached.czSelected ?? "")
+  const [preview, setPreview] = useState<CzConfigPreview | null>(cached.czPreview ?? null)
   const [error, setError] = useState<string | null>(null)
   const [loading, setLoading] = useState(false)
 
@@ -1904,6 +2112,7 @@ function Step6CzConfigPreview({
         `/api/sessions/${sessionId}/steps/6/cz-config?acronym=${encodeURIComponent(selected)}`,
       )
       setPreview(result)
+      setStep6PreviewState(sessionId, { czSelected: selected, czPreview: result })
       let resolved: ResolvedConfigsPreview | null = null
       if (spec && Object.keys(spec).length > 0) {
         try {
@@ -1949,6 +2158,7 @@ function Step6CzConfigPreview({
             setPreview(null)
             setError(null)
             onDataChange(null)
+            setStep6PreviewState(sessionId, { czSelected: v, czPreview: undefined, configDiff: undefined })
           }}
         >
           <SelectTrigger className="w-64">
@@ -1993,6 +2203,122 @@ function Step6CzConfigPreview({
   )
 }
 
+interface HxzReportedPreview {
+  mean_return: number | null
+  t_stat: number | null
+  n_months: number | null
+  start_year: number | null
+  end_year: number | null
+  label: string
+}
+
+/** HXZ's own reported number for the ③ (`standardized_hxz`) row's
+ * "Reported (reference)" column (docs/step6.md's `N_hxz` gap) -- recomputed
+ * from a downloaded HXZ testing-portfolio CSV via
+ * `GET /steps/6/hxz-config` (`src.infra.reference.hxz_bridge`), not a live
+ * network call like C&Z's. Only factors with a CSV wired up under
+ * `data/hxz/return_ref/` resolve (404 otherwise, e.g. anything but
+ * `AssetGrowth` today) -- reuses the same C&Z factor manifest for the
+ * acronym dropdown since it's the same factor_id/acronym pairing. */
+function Step6HxzConfigPreview({
+  sessionId,
+  sessionFactorId,
+  sampleWindow,
+  onDataChange,
+}: {
+  sessionId: string
+  sessionFactorId: string | undefined
+  sampleWindow: { startYear: number; endYear: number } | null
+  onDataChange: (data: { originalInsample: HxzReportedPreview | null; hxzPaperSample: HxzReportedPreview | null } | null) => void
+}) {
+  const factorsQuery = useQuery({
+    queryKey: ["cz-factors"],
+    queryFn: () => api.get<{ factors: { factor_id: string; acronym: string }[] }>("/api/reference/cz-factors"),
+  })
+  // Same reload-survival reasoning as Step6CzConfigPreview above.
+  const cached = getStep6PreviewState(sessionId)
+  const [selected, setSelected] = useState(cached.hxzSelected ?? "")
+  const [error, setError] = useState<string | null>(null)
+  const [loading, setLoading] = useState(false)
+  const [queriedAcronym, setQueriedAcronym] = useState<string | null>(cached.hxzPreview?.acronym ?? null)
+
+  const factors = factorsQuery.data?.factors ?? []
+  const selectedFactor = factors.find((f) => f.acronym === selected)
+  const mismatch = selectedFactor !== undefined && selectedFactor.factor_id !== sessionFactorId
+
+  async function handleQuery() {
+    setLoading(true)
+    setError(null)
+    onDataChange(null)
+    setQueriedAcronym(null)
+    try {
+      const params = new URLSearchParams({ acronym: selected })
+      if (sampleWindow) {
+        params.set("sample_start_year", String(sampleWindow.startYear))
+        params.set("sample_end_year", String(sampleWindow.endYear))
+      }
+      const result = await api.get<{
+        acronym: string
+        original_insample: HxzReportedPreview | null
+        hxz_paper_sample: HxzReportedPreview | null
+      }>(`/api/sessions/${sessionId}/steps/6/hxz-config?${params.toString()}`)
+      onDataChange({ originalInsample: result.original_insample, hxzPaperSample: result.hxz_paper_sample })
+      setQueriedAcronym(result.acronym)
+    } catch (e) {
+      setError(e instanceof ApiError ? e.message : String(e))
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  return (
+    <div className="flex flex-col gap-2 rounded-md border border-border p-3 text-xs">
+      <div>
+        <p className="font-medium">Look up HXZ's own reported result</p>
+        <p className="text-muted-foreground">
+          Recomputed from a downloaded HXZ testing-portfolio decile file (not a live call) -- reference only for the
+          ③ row, never run as its own track. Uses this factor's OWN paper sample window (
+          {sampleWindow ? `${sampleWindow.startYear}–${sampleWindow.endYear}` : "full range -- spec has no sample window yet"}
+          ), the same basis ①'s reference number is on.
+        </p>
+      </div>
+      <div className="flex items-center gap-2">
+        <Select
+          value={selected}
+          onValueChange={(v) => {
+            setSelected(v)
+            setError(null)
+            onDataChange(null)
+            setQueriedAcronym(null)
+            setStep6PreviewState(sessionId, { hxzSelected: v, hxzPreview: undefined })
+          }}
+        >
+          <SelectTrigger className="w-64">
+            <SelectValue placeholder="Choose a factor" />
+          </SelectTrigger>
+          <SelectContent>
+            {factors.map((f) => (
+              <SelectItem key={f.acronym} value={f.acronym}>
+                {f.factor_id} ({f.acronym})
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+        <Button type="button" variant="outline" size="sm" disabled={!selected || loading} onClick={handleQuery}>
+          {loading ? "Querying…" : "Query HXZ reference"}
+        </Button>
+      </div>
+      {mismatch && (
+        <p className="text-amber-600">
+          Note: "{selectedFactor?.factor_id}" is not the factor this session is replicating ("{sessionFactorId}").
+        </p>
+      )}
+      {error && <p className="text-destructive">Query failed: {error}</p>}
+      {queriedAcronym && <p className="text-muted-foreground">Queried "{queriedAcronym}" -- see the Result panel.</p>}
+    </div>
+  )
+}
+
 /** Step6 request editor helper: picks which of the three ①②③ setups to run,
  * each labeled with where its config actually comes from. ② has no
  * `run_*` field of its own -- checking it only enables the C&Z config
@@ -2004,12 +2330,14 @@ function Step6VersionsPicker({
   runOriginal,
   runStandardized,
   czEnabled,
+  autoAttribution,
   onChange,
   onToggleCz,
 }: {
   runOriginal: boolean
   runStandardized: boolean
   czEnabled: boolean
+  autoAttribution: boolean
   onChange: (patch: Record<string, unknown>) => void
   onToggleCz: (enabled: boolean) => void
 }) {
@@ -2038,6 +2366,21 @@ function Step6VersionsPicker({
         <span className="text-muted-foreground">
           (Hou, Xue &amp; Zhang (2020, RFS) "Replicating Anomalies" standard rules, same for every paper -- not
           from the paper)
+        </span>
+      </label>
+      <label className="mt-1 flex items-center gap-1.5 border-t border-border pt-1.5">
+        <input
+          type="checkbox"
+          checked={autoAttribution}
+          onChange={(e) => onChange({ auto_attribution: e.target.checked })}
+        />
+        Auto attribution for ①→②/①→③{" "}
+        <span className="text-muted-foreground">
+          (finds which config fields actually differ and runs each combination -- full factorial when 5 or
+          fewer fields differ (exact), one-at-a-time otherwise; adds extra{" "}
+          <code className="font-mono">factorial_*</code>/<code className="font-mono">ablation_*</code>/
+          <code className="font-mono">cz_factorial_*</code>/<code className="font-mono">cz_ablation_*</code>{" "}
+          tracks)
         </span>
       </label>
     </div>

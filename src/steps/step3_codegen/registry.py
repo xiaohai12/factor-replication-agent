@@ -619,8 +619,20 @@ def _build_config_from_resolved(resolved: ResolvedMethodSpec, overrides: dict | 
         "formation_month_explicit": bool(
             paper.timing.formation_month and paper.timing.formation_month.value is not None
         ),
-        "sample_start_year": paper.sample.formation.start_year,
-        "sample_end_year": paper.sample.formation.end_year,
+        # `reported_returns`, NOT `formation` -- these two feed
+        # `BacktestExecutor._sample_period_metrics`'s `insamp` cutoff, whose
+        # whole purpose is comparing our computed number against the
+        # paper's OWN headline reported number (schema_reference.py:
+        # "sample.reported_returns": "the date range the paper's headline
+        # reported numbers actually cover"). `formation` is a DIFFERENT
+        # window (when portfolios were formed/rebalanced) that for any
+        # annual-hold strategy ends up to 1 year earlier than
+        # `reported_returns` (last formation vs. last return the resulting
+        # holding period actually produces) -- using it here previously
+        # made `insamp` silently exclude months the paper's own headline
+        # number includes. See docs/decision-log.md 2026-08-16 entry.
+        "sample_start_year": paper.sample.reported_returns.start_year,
+        "sample_end_year": paper.sample.reported_returns.end_year,
         "publication_year": paper.paper.publication_year,
         "universe_filters": [
             {

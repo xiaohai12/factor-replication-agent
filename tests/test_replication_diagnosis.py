@@ -14,6 +14,8 @@ from __future__ import annotations
 
 import json
 
+import pytest
+
 from src.infra.models.diagnosis import DiagnosisClaim, ReplicationDiagnosisReport
 from src.steps.step7_replication_diff import ReplicationDiffResult, safe_diff_ablation
 from src.steps.step7_replication_diff.bundle import (
@@ -86,12 +88,17 @@ class TestTrackVsPaper:
         assert vs["track_significant"] is True
         assert vs["significance_agrees"] is True
         assert vs["significance_threshold"] == SIGNIFICANCE_T_THRESHOLD
+        # Both PAPER's t=-5.04 and the track's t=-4.0 clear all three HXZ
+        # hurdles (1.96/2.78/3.39) -- docs/step7-8.md Q7.
+        assert vs["paper_significance_tier"] == 3
+        assert vs["track_significance_tier"] == 3
 
     def test_opposite_sign_is_flagged(self):
         vs = build_track_vs_paper(PAPER, TRACKS["standardized_hxz"]["metrics"])
         assert vs["sign_agrees"] is False
         assert vs["track_significant"] is False
         assert vs["significance_agrees"] is False
+        assert vs["track_significance_tier"] == 0
 
     def test_alpha_headline_compares_against_our_alpha_not_the_raw_spread(self):
         paper = {"return_type": "three-factor alpha", "main_spread": -0.007, "main_t_stat": -3.84}
@@ -225,6 +232,77 @@ class TestEvidenceBundle:
         bundle = build_evidence_bundle(PAPER, {})
         assert bundle["derived"]["overall_tag"] == "inconclusive"
         assert bundle["config_diff"]["baseline_track"] is None
+
+
+class TestShapleyAndSignificanceWiring:
+    """docs/step7-8.md Part V: `build_evidence_bundle` always computes
+    `shapley_attribution` (only needs `mean_return`, already in `tracks`),
+    but `paired_tests`/`joint_test` need `results_dir` (the on-disk monthly
+    return series) and report `available=False` without it, never raise."""
+
+    def test_without_results_dir_paired_and_joint_are_unavailable_shapley_is_not(self):
+        bundle = build_evidence_bundle(PAPER, TRACKS)
+        assert bundle["paired_tests"]["available"] is False
+        assert bundle["joint_test"]["available"] is False
+        # TRACKS has no switches_flipped set at all, so shapley_attribution
+        # is unavailable for its OWN reason (no switches), not because
+        # results_dir is missing -- distinct failure modes.
+        assert bundle["shapley_attribution"]["available"] is False
+        assert "switches_flipped" in bundle["shapley_attribution"]["reason"]
+
+    def test_evidence_keys_include_the_new_blocks(self):
+        bundle = build_evidence_bundle(PAPER, TRACKS)
+        assert "paired_tests.available" in bundle["evidence_keys"]
+        assert "joint_test.available" in bundle["evidence_keys"]
+        assert "shapley_attribution.available" in bundle["evidence_keys"]
+
+    def test_two_comparison_lines_no_longer_collide_on_the_same_switch_name(self):
+        """The real bug this per-line split fixes: a batch running BOTH
+        \u2460\u2192\u2461 (`cz_factorial_universe`) and \u2460\u2192\u2462 (`factorial_universe`) used to have
+        both tracks fight over the same "universe" slot in one shared
+        calculation. Splitting by comparison line means each is computed
+        entirely independently and neither is ever flagged ambiguous."""
+        tracks = {
+            "original_method": {"metrics": {"mean_return": 0.01}},
+            "factorial_universe": {
+                "metrics": {"mean_return": 0.02},
+                "switches_flipped": {"universe": "hxz_value"},
+            },
+            "cz_factorial_universe": {
+                "metrics": {"mean_return": 0.03},
+                "switches_flipped": {"universe": "cz_value"},
+            },
+        }
+        bundle = build_evidence_bundle(PAPER, tracks)
+        shapley = bundle["shapley_attribution"]
+        assert shapley["to_hxz"]["available"] is True
+        assert shapley["to_hxz"]["shapley_effects"]["universe"] == pytest.approx(0.01)
+        assert shapley["to_cz"]["available"] is True
+        assert shapley["to_cz"]["shapley_effects"]["universe"] == pytest.approx(0.02)
+
+    def test_with_results_dir_and_switches_flipped_shapley_is_computed(self, tmp_path):
+        tracks = {
+            "original_method": {
+                "config": TRACKS["original_method"]["config"],
+                "metrics": {**TRACKS["original_method"]["metrics"]},
+            },
+            "factorial_a": {
+                "config": TRACKS["standardized_hxz"]["config"],
+                "metrics": {"mean_return": -0.006, "t_stat": -3.0, "n_months": 870},
+                "switches_flipped": {"a": "x"},
+            },
+        }
+        bundle = build_evidence_bundle(PAPER, tracks, results_dir=tmp_path)
+        # `factorial_a` doesn't start with "cz_" -- it belongs to the "to_hxz"
+        # comparison line (docs/step7-8.md Part V's per-line split), so the
+        # result is nested one level deeper than a batch with no switches at all.
+        assert bundle["shapley_attribution"]["to_hxz"]["available"] is True
+        assert bundle["shapley_attribution"]["to_hxz"]["shapley_effects"]["a"] == pytest.approx(0.002)
+        # No <track>.csv files exist under tmp_path at all (not even the
+        # baseline's), so the two series-based checks stay unavailable even
+        # though results_dir itself was supplied.
+        assert bundle["paired_tests"]["to_hxz"]["available"] is False
+        assert bundle["joint_test"]["to_hxz"]["available"] is False
 
 
 class TestSpecQuality:
