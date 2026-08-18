@@ -39,6 +39,9 @@ ClaimType = Literal[
     "signal_reproducibility",
     "publication_decay",
     "implementation_robustness",
+    "gap_attribution_shapley",
+    "switch_significance",
+    "joint_attribution_support",
 ]
 
 #: Which of the three reason layers (docs/tools-plus-llm-plan.md §4.3) a
@@ -58,6 +61,34 @@ REASON_LAYER_BY_CLAIM_TYPE: dict[str, str] = {
     "signal_reproducibility": "signal_fidelity",
     "publication_decay": "temporal_pattern",
     "implementation_robustness": "config_sensitivity",
+    "gap_attribution_shapley": "config_sensitivity",
+    "switch_significance": "config_sensitivity",
+    "joint_attribution_support": "config_sensitivity",
+}
+
+#: docs/step7-8.md Part IX (scheme B): a dependency-ordered narrative stage,
+#: orthogonal to `ReasonLayer` above (which stays unchanged). `per_switch` ->
+#: `joint_gate` -> `vs_paper` is a real dependency chain (the joint gate caps
+#: per-switch evidence_strength, see `_derive_claim_fields`); `auxiliary`
+#: claim types are intentionally NOT part of that chain (Part IX §9.6).
+#: `gap_attribution` (the old OAT-only type) is deliberately absent -- it gets
+#: `analysis_stage=None` ("unstaged"), not lumped into `per_switch`, so an
+#: incomplete-grid OAT contribution is never presented at the same narrative
+#: tier as a complete-grid Shapley one.
+AnalysisStage = Literal["per_switch", "joint_gate", "vs_paper", "auxiliary"]
+
+ANALYSIS_STAGE_BY_CLAIM_TYPE: dict[str, str] = {
+    "switch_significance": "per_switch",
+    "gap_attribution_shapley": "per_switch",
+    "joint_attribution_support": "joint_gate",
+    "sign_agreement": "vs_paper",
+    "magnitude_gap": "vs_paper",
+    "significance": "vs_paper",
+    "config_divergence": "vs_paper",
+    "publication_decay": "auxiliary",
+    "signal_reproducibility": "auxiliary",
+    "implementation_robustness": "auxiliary",
+    "evidence_limitation": "auxiliary",
 }
 
 #: The directional assertion a claim makes. Deliberately non-causal: even
@@ -114,6 +145,9 @@ CLAIM_RELATIONS: dict[str, tuple[str, ...]] = {
     "signal_reproducibility": ("reproduces", "diverges"),
     "publication_decay": ("decayed", "stable"),
     "implementation_robustness": ("robust", "fragile"),
+    "gap_attribution_shapley": ("associated_change",),
+    "switch_significance": ("significant", "insignificant"),
+    "joint_attribution_support": ("significant", "insignificant"),
 }
 
 #: Every claim type must cite at least one key whose dotted path starts with
@@ -131,6 +165,12 @@ CLAIM_EVIDENCE_REQUIREMENTS: dict[str, tuple[str, ...]] = {
     "signal_reproducibility": ("bridge_comparison.",),
     "publication_decay": ("publication_decay.",),
     "implementation_robustness": ("robustness_summary.",),
+    # docs/step7-8.md Part VIII: full-factorial Shapley attribution / per-switch
+    # paired Newey-West test / joint Wald test, nested one level by comparison
+    # line (`to_hxz`/`to_cz`) -- see `comparison_line` on `DiagnosisClaim`.
+    "gap_attribution_shapley": ("shapley_attribution.",),
+    "switch_significance": ("paired_tests.",),
+    "joint_attribution_support": ("joint_test.",),
 }
 
 #: Additional per-claim-type substring requirement, checked against the same
@@ -143,6 +183,9 @@ CLAIM_EVIDENCE_SUBSTRINGS: dict[str, tuple[str, ...]] = {
     "signal_reproducibility": ("signal_implementation_agreement",),
     "publication_decay": ("decayed",),
     "implementation_robustness": ("robust",),
+    "gap_attribution_shapley": ("shapley_effects",),
+    "switch_significance": ("t_stat",),
+    "joint_attribution_support": ("p_value",),
 }
 
 #: Identification level implied by each claim type's evidence. Attribution is
@@ -158,6 +201,16 @@ IDENTIFICATION_BY_CLAIM_TYPE: dict[str, str] = {
     "signal_reproducibility": "observational",
     "publication_decay": "observational",
     "implementation_robustness": "harmonized",
+    # Default before the runtime override in `_derive_claim_fields`, which reads
+    # the cited `shapley_attribution.<line>.identification_level` ("controlled"
+    # only when the full 2^n factorial grid is present, see attribution.py).
+    "gap_attribution_shapley": "controlled",
+    # A single-switch track vs baseline, same identification tier as an
+    # ablation_* track -- doesn't require a complete factorial grid.
+    "switch_significance": "harmonized",
+    # The Wald test only needs >=2 single-switch tracks, not the full grid
+    # Shapley requires -- stays "harmonized", never "controlled".
+    "joint_attribution_support": "harmonized",
 }
 
 #: Deterministic map from identification level to reported strength. Replaces
@@ -192,6 +245,11 @@ class DiagnosisClaim(BaseModel):
     #: the track segment of the cited `derived.tracks.*` / `config_diff.pairs.*`
     #: key, so the subject cannot be swapped either.
     subject_track: str | None = None
+    #: Which comparison line (①→③ `to_hxz` vs ①→② `to_cz`) the claim is about,
+    #: for claims citing the line-nested `shapley_attribution`/`paired_tests`/
+    #: `joint_test` sections (docs/step7-8.md Part VI/VIII). `None` for claims
+    #: that don't cite line-nested evidence. Derived, not LLM-authored.
+    comparison_line: Literal["to_hxz", "to_cz"] | None = None
     #: Optional supporting prose. Must contain no digits -- the renderer emits
     #: the sentence and appends the cited values, so a number written here
     #: would be an unverifiable LLM figure.
@@ -210,6 +268,12 @@ class DiagnosisClaim(BaseModel):
     #: from `claim_type` alone via `REASON_LAYER_BY_CLAIM_TYPE`, never
     #: authored by the LLM.
     reason_layer: ReasonLayer = "config_sensitivity"
+    #: Which dependency-ordered narrative stage (docs/step7-8.md Part IX) this
+    #: claim belongs to -- derived from `claim_type` alone via
+    #: `ANALYSIS_STAGE_BY_CLAIM_TYPE`, never authored by the LLM. `None` for
+    #: claim types not yet assigned a stage (currently only `gap_attribution`,
+    #: the old OAT-only type).
+    analysis_stage: AnalysisStage | None = None
 
 
 class RejectedClaim(BaseModel):
@@ -217,6 +281,66 @@ class RejectedClaim(BaseModel):
 
     reason: str
     claim: dict
+
+
+class DiagnosisSummary(BaseModel):
+    """Deterministic rollup for one comparison line (docs/step7-8.md Part IX
+    §9.3 "option 1" -- NOT a second LLM-authored free-text layer; Part XII's
+    `headline`/`details`/`footnote` are built straight from `bundle`, same
+    discipline as everything else step7/8 produces: pure template generation,
+    zero LLM involvement).
+
+    Inverted-pyramid layout (docs/step7-8.md Part XII, user-requested
+    redesign): `headline` is the one-sentence bottom line, always shown
+    first; `details` are supporting points in decreasing importance, one per
+    item (e.g. one per diverging implementation choice), never merged into
+    one long paragraph; `footnote` is de-emphasized technical caveats (e.g.
+    joint-test availability). No "vs. X"/line-label title is needed -- each
+    `headline` names its own comparison target in plain language.
+    """
+
+    #: `None` when no line-scoped (per_switch/joint_gate) claim exists at all
+    #: -- e.g. a batch with only vs_paper/auxiliary claims.
+    comparison_line: Literal["to_hxz", "to_cz"] | None = None
+    #: Copied from `bundle["derived"]["overall_tag"]`, never recomputed --
+    #: this is a whole-factor verdict, not itself per-line.
+    overall_tag: str = "inconclusive"
+    #: {switch: "significant" | "insignificant"}, read directly from each
+    #: `switch_significance` claim's own `relation` on this line.
+    per_switch_summary: dict[str, str] = Field(default_factory=dict)
+    #: From this line's `joint_attribution_support` claim's `relation`, if any
+    #: was made. `None` means "not tested", NOT "tested and insignificant" --
+    #: those are different states and must not be conflated.
+    joint_supported: bool | None = None
+    #: Switches with an accepted `gap_attribution_shapley` claim whose
+    #: `evidence_strength` was NOT capped to "low" by the joint-test gate,
+    #: ordered by the switch's own Shapley effect magnitude (read from the
+    #: bundle, not authored).
+    dominant_switches: list[str] = Field(default_factory=list)
+    #: One-sentence bottom-line verdict, always shown first (docs/step7-8.md
+    #: Part XII). Names its own comparison target in plain language --
+    #: e.g. "Compared with C&Z's independent replication of this paper, ...".
+    headline: str = ""
+    #: Supporting points in decreasing importance, one entry per item (e.g.
+    #: one per diverging implementation choice) -- never merged into a
+    #: single run-on paragraph.
+    details: list[str] = Field(default_factory=list)
+    #: De-emphasized technical caveat (e.g. joint-test availability/result),
+    #: shown last and visually de-emphasized by the renderer/frontend.
+    footnote: str = ""
+
+
+class VsPaperSummary(BaseModel):
+    """docs/step7-8.md Part XII: the baseline track vs. the paper's own
+    reported number, same `headline`/`details`/`footnote` layout as
+    `DiagnosisSummary` -- a small dedicated model rather than three loose
+    fields on `ReplicationDiagnosisReport`, since this is one coherent unit
+    (report-level, not per-comparison-line).
+    """
+
+    headline: str = ""
+    details: list[str] = Field(default_factory=list)
+    footnote: str = ""
 
 
 class ReplicationDiagnosisReport(BaseModel):
@@ -234,3 +358,13 @@ class ReplicationDiagnosisReport(BaseModel):
     overall_tag: str = "inconclusive"
     claims: list[DiagnosisClaim] = Field(default_factory=list)
     rejected_claims: list[RejectedClaim] = Field(default_factory=list)
+    #: Deterministic rollup (docs/step7-8.md Part IX), one entry per
+    #: comparison line present among `claims` (or a single `comparison_line
+    #: is None` entry when no line-scoped claim exists). Computed by
+    #: `build_deterministic_summary`, never LLM-authored.
+    summary: list[DiagnosisSummary] = Field(default_factory=list)
+    #: Track-level (not per-line) summary comparing the baseline track
+    #: against the paper's own reported number (docs/step7-8.md Part XII).
+    #: Built by `summary.py::build_vs_paper_summary`, template-generated,
+    #: never LLM-authored.
+    vs_paper_summary: VsPaperSummary = Field(default_factory=VsPaperSummary)

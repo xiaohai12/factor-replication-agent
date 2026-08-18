@@ -31,6 +31,7 @@ from pathlib import Path
 from typing import Any
 
 from src.infra.models.diagnosis import (
+    ANALYSIS_STAGE_BY_CLAIM_TYPE,
     CAUSAL_TERM_RE,
     CLAIM_EVIDENCE_REQUIREMENTS,
     CLAIM_EVIDENCE_SUBSTRINGS,
@@ -53,7 +54,12 @@ from src.infra.tooling import (
     render_tool_results,
     splice_tool_catalog,
 )
-from src.steps.step7_replication_diff.bundle import CLOSE_REPLICATION_RATIO_BAND, stage_of
+from src.steps.step7_replication_diff.bundle import (
+    CLOSE_REPLICATION_RATIO_BAND,
+    SIGNIFICANCE_T_THRESHOLD,
+    stage_of,
+)
+from src.steps.step8_diagnosis.summary import build_deterministic_summary, build_vs_paper_summary
 
 
 _PROMPT_PATH = (
@@ -71,6 +77,13 @@ _TRACK_FROM_CONFIG_DIFF_KEY = re.compile(r"^config_diff\.pairs\.([^.]+)\.details
 _TRACK_FROM_PUBLICATION_DECAY_KEY = re.compile(r"^publication_decay\.tracks\.([^.]+)\.")
 _SWITCH_FROM_CONTRIBUTION_KEY = re.compile(r"\.contributions\.([^.]+)$")
 
+# docs/step7-8.md Part VIII §8.1: `shapley_attribution`/`paired_tests`/`joint_test`
+# are nested one level by comparison line (`to_hxz`/`to_cz`) when more than one
+# line's tracks are present in the same batch -- this extracts that segment,
+# mirroring `_TRACK_FROM_*_KEY` above for `comparison_line` instead of `subject_track`.
+_LINE_FROM_NESTED_KEY = re.compile(r"^(?:shapley_attribution|paired_tests|joint_test)\.([^.]+)\.")
+_SWITCH_FROM_SHAPLEY_KEY = re.compile(r"\.shapley_effects\.([^.]+)$")
+
 # Bounded rounds for the claim-rejection retry loop (docs/tools-plus-llm-plan.md
 # §4.3): round 1 drafts claims from scratch; any additional round resubmits
 # ONLY the rejected ones with their rejection reason, never re-asks about
@@ -84,6 +97,12 @@ MAX_DIAGNOSIS_ROUNDS = 2
 # a pair rather than let a real, whitelisted contribution value be cited as
 # if the two tracks shared a sample.
 GAP_ATTRIBUTION_N_MONTHS_RATIO_THRESHOLD = 2.0
+
+# joint_switch_wald_test's own significance threshold (docs/step7-8.md Part
+# VIII §8.3) -- deliberately NOT Q7's `SIGNIFICANCE_T_THRESHOLDS` tiers, which
+# are scoped to "track vs paper" only; the joint test is a p-value against a
+# chi2 null, an unrelated question.
+JOINT_TEST_ALPHA = 0.05
 
 
 class ReplicationDiagnoser:
@@ -172,6 +191,8 @@ class ReplicationDiagnoser:
 
         report.claims = accepted
         report.rejected_claims = rejected
+        report.summary = build_deterministic_summary(accepted, bundle)
+        report.vs_paper_summary = build_vs_paper_summary(bundle)
         return report
 
     def _build_prompt(self, bundle: dict[str, Any], tool_results: list[ToolResult]) -> str:
@@ -279,6 +300,21 @@ ROBUSTNESS_SUMMARY_TOOL = _bundle_section_tool(
     "aggregate sign-flip/significance-flip count across all ablation_* tracks vs baseline",
     "requires a baseline track plus at least one ablation_* track",
 )
+SHAPLEY_ATTRIBUTION_TOOL = _bundle_section_tool(
+    "shapley_attribution",
+    "per-switch Shapley-value decomposition of the mean_return gap across a full-factorial batch, nested by comparison line (to_hxz/to_cz)",
+    "requires all 2^n corners of the factorial grid for a line to be present; unavailable (with the missing subsets named) otherwise",
+)
+PAIRED_TESTS_TOOL = _bundle_section_tool(
+    "paired_tests",
+    "per-switch paired Newey-West significance test of a single-switch track vs baseline, nested by comparison line",
+    "requires the on-disk monthly return series (<track>.csv); unavailable without results_dir or a missing CSV",
+)
+JOINT_TEST_TOOL = _bundle_section_tool(
+    "joint_test",
+    "joint Wald test across all single-switch contrasts on one comparison line -- whether they collectively explain more than noise",
+    "requires >=2 single-switch tracks with a loadable return series on that line",
+)
 
 
 def _field_evidence_detail_fn(ctx: Step8ToolContext) -> ToolResult:
@@ -327,6 +363,9 @@ STEP8_TOOLS: list[Tool[Step8ToolContext]] = [
     BRIDGE_COMPARISON_TOOL,
     PUBLICATION_DECAY_TOOL,
     ROBUSTNESS_SUMMARY_TOOL,
+    SHAPLEY_ATTRIBUTION_TOOL,
+    PAIRED_TESTS_TOOL,
+    JOINT_TEST_TOOL,
     FIELD_EVIDENCE_DETAIL_TOOL,
 ]
 
@@ -416,6 +455,10 @@ def _rejection_reason(raw: dict, evidence_keys: dict[str, Any]) -> str | None:
     if subject_reason:
         return subject_reason
 
+    line_reason = _comparison_line_reason(raw, keys)
+    if line_reason:
+        return line_reason
+
     return _entailment_reason(claim_type, relation, keys, evidence_keys, raw)
 
 
@@ -451,6 +494,37 @@ def _subject_track_reason(raw: dict, keys: list[str]) -> str | None:
         return (
             f"subject_track {subject_track!r} does not match the cited evidence's "
             f"track(s) {sorted(cited_tracks)}"
+        )
+    return None
+
+
+def _cited_lines(keys: list[str]) -> set[str]:
+    lines: set[str] = set()
+    for k in keys:
+        m = _LINE_FROM_NESTED_KEY.match(k)
+        if m:
+            lines.add(m.group(1))
+    return lines
+
+
+def _comparison_line_reason(raw: dict, keys: list[str]) -> str | None:
+    """docs/step7-8.md Part VIII §8.1: mirrors `_subject_track_reason` exactly,
+    but for `comparison_line` (`to_hxz`/`to_cz`) against `shapley_attribution`/
+    `paired_tests`/`joint_test` citations, which are organized by switch, not
+    by track, so `subject_track` cannot do this job for them.
+    """
+    cited_lines = _cited_lines(keys)
+    comparison_line = raw.get("comparison_line")
+    if not cited_lines:
+        return None
+    if comparison_line is None:
+        if len(cited_lines) == 1:
+            return None
+        return "claim cites more than one comparison line's evidence but names no comparison_line"
+    if comparison_line not in cited_lines:
+        return (
+            f"comparison_line {comparison_line!r} does not match the cited evidence's "
+            f"line(s) {sorted(cited_lines)}"
         )
     return None
 
@@ -597,6 +671,43 @@ def _entailment_reason(
         if relation != expected:
             return f"relation {relation!r} contradicts the cited robust value ({value!r})"
 
+    elif claim_type == "gap_attribution_shapley":
+        effect_key = next((k for k in keys if ".shapley_effects." in k), None)
+        if effect_key is None:
+            return (
+                "gap_attribution_shapley must cite a "
+                "shapley_attribution.<line>.shapley_effects.<switch> value"
+            )
+        if evidence_keys.get(effect_key) is None:
+            return "gap_attribution_shapley's cited shapley_effects value is null"
+
+    elif claim_type == "switch_significance":
+        t_key = next(
+            (k for k in keys if k.endswith(".t_stat") and ".per_switch." in k), None
+        )
+        if t_key is None:
+            return (
+                "switch_significance must cite a "
+                "paired_tests.<line>.per_switch.<switch>.t_stat value"
+            )
+        t = evidence_keys.get(t_key)
+        if t is None:
+            return "switch_significance's cited t_stat is null; cite evidence_limitation instead"
+        expected = "significant" if abs(t) >= SIGNIFICANCE_T_THRESHOLD else "insignificant"
+        if relation != expected:
+            return f"relation {relation!r} contradicts the cited t_stat value ({t!r})"
+
+    elif claim_type == "joint_attribution_support":
+        p_key = next((k for k in keys if k.endswith(".p_value")), None)
+        if p_key is None:
+            return "joint_attribution_support must cite a joint_test.<line>.p_value value"
+        p = evidence_keys.get(p_key)
+        if p is None:
+            return "joint_attribution_support's cited p_value is null; cite evidence_limitation instead"
+        expected = "significant" if p < JOINT_TEST_ALPHA else "insignificant"
+        if relation != expected:
+            return f"relation {relation!r} contradicts the cited p_value ({p!r})"
+
     return None
 
 
@@ -615,6 +726,11 @@ def _derive_claim_fields(raw: dict, evidence_keys: dict[str, Any]) -> dict[str, 
         next(iter(cited_tracks)) if len(cited_tracks) == 1 else None
     )
 
+    cited_lines = _cited_lines(keys)
+    comparison_line = raw.get("comparison_line") or (
+        next(iter(cited_lines)) if len(cited_lines) == 1 else None
+    )
+
     stage = None
     if claim_type == "config_divergence":
         stages = {
@@ -627,19 +743,43 @@ def _derive_claim_fields(raw: dict, evidence_keys: dict[str, Any]) -> dict[str, 
         switches = {k.rsplit(".", 1)[-1] for k in keys if ".contributions." in k}
         stages = {stage_of(s) for s in switches}
         stage = next(iter(stages)) if len(stages) == 1 else None
+    elif claim_type == "gap_attribution_shapley":
+        switches = {
+            m.group(1)
+            for k in keys
+            if (m := _SWITCH_FROM_SHAPLEY_KEY.search(k))
+        }
+        stages = {stage_of(s) for s in switches}
+        stage = next(iter(stages)) if len(stages) == 1 else None
 
     identification_level = IDENTIFICATION_BY_CLAIM_TYPE.get(claim_type, "observational")
     if claim_type == "gap_attribution":
         found = evidence_keys.get("gap_decomposition.identification_level")
         identification_level = found or identification_level
+    elif claim_type == "gap_attribution_shapley" and comparison_line:
+        found = evidence_keys.get(f"shapley_attribution.{comparison_line}.identification_level")
+        identification_level = found or identification_level
 
     evidence_strength = EVIDENCE_STRENGTH_BY_IDENTIFICATION.get(identification_level, "low")
+
+    # docs/step7-8.md Part VIII \u00a78.4: joint-test gate. A per-switch Shapley
+    # claim's evidence_strength is capped to "low" when the SAME comparison
+    # line's joint test is available but not significant -- data-layer
+    # equivalent of the frontend ShapleyAttributionTable's dim+badge behavior,
+    # not a rejection (the number is still real, just not jointly supported).
+    if claim_type == "gap_attribution_shapley" and comparison_line:
+        joint_p = evidence_keys.get(f"joint_test.{comparison_line}.p_value")
+        if joint_p is not None and joint_p >= JOINT_TEST_ALPHA:
+            evidence_strength = "low"
+
     reason_layer = REASON_LAYER_BY_CLAIM_TYPE.get(claim_type, "config_sensitivity")
 
     return {
         "subject_track": subject_track,
+        "comparison_line": comparison_line,
         "stage": stage,
         "identification_level": identification_level,
         "evidence_strength": evidence_strength,
         "reason_layer": reason_layer,
+        "analysis_stage": ANALYSIS_STAGE_BY_CLAIM_TYPE.get(claim_type),
     }

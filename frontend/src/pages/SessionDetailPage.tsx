@@ -771,7 +771,7 @@ export function SessionDetailPage() {
                     </div>
                   )}
                   {(step === 3 || step === 4 || step === 5) && <RequestFieldsSummary requestText={requestText} />}
-                  {step !== 6 && step !== 3 && step !== 4 && step !== 5 && step !== 7 && (
+                  {step !== 6 && step !== 3 && step !== 4 && step !== 5 && step !== 7 && step !== 8 && (
                     <Textarea
                       className="h-64 font-mono text-xs"
                       value={requestText}

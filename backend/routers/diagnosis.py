@@ -14,14 +14,13 @@ from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
 from backend.jobs import job_manager
-from backend.serialization import to_jsonable
 from backend.sessions import append_event, complete_attempt_with_retry, session_store
 from backend.state import build_llm_client
 from src.evaluation import diagnostics as step_diagnostics
 from src.infra.models.session import ConcurrentModificationError, StepStatus
 from src.infra.session_store import SessionNotFoundError
 from src.steps.step8_diagnosis import ReplicationDiagnoser
-from src.steps.step8_diagnosis.render import write_diagnosis
+from src.steps.step8_diagnosis.render import report_to_jsonable, write_diagnosis
 
 router = APIRouter(prefix="/api/sessions", tags=["diagnosis"])
 
@@ -72,7 +71,11 @@ async def run_step8_diagnosis(session_id: str, req: DiagnosisRequest) -> dict:
             session_id, step=8, stage="diagnosis", event="diagnosed",
             detail=f"accepted={len(report.claims)} rejected={len(report.rejected_claims)}",
         )
-        return {"report": to_jsonable(report), "diagnosis_json_path": str(json_path), "diagnosis_md_path": str(md_path)}
+        return {
+            "report": report_to_jsonable(report, bundle),
+            "diagnosis_json_path": str(json_path),
+            "diagnosis_md_path": str(md_path),
+        }
 
     job_id = job_manager.create_job(run, session_id=session_id, step=8, stage="diagnosis")
     try:

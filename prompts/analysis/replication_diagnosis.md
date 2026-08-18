@@ -45,6 +45,18 @@ citations, not just the summary.
   null result. When available, contributions are **harmonized, one-at-a-time**
   evidence, not a controlled/factorial design: they need not be additive, may depend
   on switch order, and do not identify interaction effects between switches.
+- `shapley_attribution` / `paired_tests` / `joint_test` — a full-factorial batch's
+  per-switch Shapley-value decomposition of the `mean_return` gap, each switch's own
+  paired Newey-West significance test, and a joint Wald test across all single-switch
+  contrasts at once. **Nested one level by comparison line** (`to_hxz` for ①→③,
+  `to_cz` for ①→②) whenever more than one line's tracks are present in the same
+  batch — e.g. `shapley_attribution.to_hxz.shapley_effects.weighting`. When only one
+  line exists, the section is flat (no `to_hxz`/`to_cz` level) and you may omit
+  `comparison_line`; when two lines exist, `comparison_line` is required exactly like
+  `subject_track` is required when a claim cites more than one track. `shapley_
+  attribution` requires the complete 2^n factorial grid for that line; `paired_tests`/
+  `joint_test` require the on-disk monthly return series. Any of the three may be
+  `unavailable` — never fabricate this evidence, use `evidence_limitation` instead.
 - `evidence_keys` — a flat dotted-key → value whitelist. This is the complete set of
   facts you are permitted to cite.
 
@@ -59,6 +71,10 @@ Every claim is a structured tuple, not free prose:
   supports — not to write the sentence yourself.
 - `subject_track` — which track the claim is about, when applicable. Must match the
   track named in your cited evidence keys.
+- `comparison_line` — which comparison line (`to_hxz` or `to_cz`) the claim is about,
+  only for claims citing `shapley_attribution`/`paired_tests`/`joint_test`. Must match
+  the line segment of your cited keys; required when your citations span both lines,
+  optional (auto-filled) when only one line's evidence is cited.
 - `evidence_keys` — whitelisted keys supporting the relation.
 - `text` — **optional** supporting prose. It may add nuance but must never contradict
   the relation, and it is never a substitute for it — the renderer's sentence is
@@ -75,6 +91,9 @@ Every claim is a structured tuple, not free prose:
 | `signal_reproducibility` | `reproduces`, `diverges` |
 | `publication_decay` | `decayed`, `stable` |
 | `implementation_robustness` | `robust`, `fragile` |
+| `gap_attribution_shapley` | `associated_change` |
+| `switch_significance` | `significant`, `insignificant` |
+| `joint_attribution_support` | `significant`, `insignificant` |
 
 `stage`, `identification_level`, and `evidence_strength` are **not yours to set** —
 they are computed deterministically from the evidence you cite and will be attached
@@ -113,6 +132,18 @@ to your claim automatically. Do not include them in your output.
      Unavailable when no track configured a publication-year sample split.
    - `implementation_robustness` — must cite `robustness_summary.robust`. Requires a
      baseline track plus at least one `ablation_*` track.
+   - `gap_attribution_shapley` — must cite a `shapley_attribution.<line>.
+     shapley_effects.<switch>` key. Unavailable when the full factorial grid for that
+     line isn't present. Note: your claim may still be accepted but reported at low
+     evidence strength if the same line's `joint_test` is available and not
+     significant — that's expected, not an error on your part.
+   - `switch_significance` — must cite a `paired_tests.<line>.per_switch.<switch>.
+     t_stat` key; the relation is checked against whether `|t_stat|` clears the
+     significance threshold. This is about ONE switch's own paired test, unrelated to
+     `significance` (which is track-vs-paper).
+   - `joint_attribution_support` — must cite a `joint_test.<line>.p_value` key; the
+     relation is checked against whether `p_value` clears the joint-test alpha.
+     Unavailable with fewer than two single-switch tracks on that line.
 6. **Do not set the verdict.** Do not restate, contradict, or re-derive `overall_tag`.
 7. **Never use causal language.** Words like "drives", "explains", "caused by",
    "results in", "due to", "responsible for" are rejected outright. This pipeline
@@ -156,6 +187,18 @@ Return a single JSON object and nothing else:
       "relation": "unavailable",
       "text": "No one-at-a-time ablation tracks were executed.",
       "evidence_keys": ["gap_decomposition.available", "gap_decomposition.reason"]
+    },
+    {
+      "claim_type": "switch_significance",
+      "relation": "significant",
+      "comparison_line": "to_hxz",
+      "evidence_keys": ["paired_tests.to_hxz.per_switch.weighting.t_stat"]
+    },
+    {
+      "claim_type": "joint_attribution_support",
+      "relation": "significant",
+      "comparison_line": "to_hxz",
+      "evidence_keys": ["joint_test.to_hxz.p_value"]
     }
   ],
   "tool_requests": []
@@ -164,9 +207,12 @@ Return a single JSON object and nothing else:
 
 `claim_type` must be one of: `sign_agreement`, `magnitude_gap`, `significance`,
 `config_divergence`, `gap_attribution`, `evidence_limitation`, `signal_reproducibility`,
-`publication_decay`, `implementation_robustness`.
+`publication_decay`, `implementation_robustness`, `gap_attribution_shapley`,
+`switch_significance`, `joint_attribution_support`.
 `relation` must be a valid value for that `claim_type` per the table above.
 `subject_track` is a string naming a track, or omitted.
+`comparison_line` is `"to_hxz"` or `"to_cz"`, required only when your
+`shapley_attribution`/`paired_tests`/`joint_test` citations span both lines.
 `text` is optional prose containing no digits and no causal language.
 `tool_requests` is a list of tool names (from the tool catalog's "can be requested"
 section) you want run next round -- currently only `field_evidence_detail` is opt_in;

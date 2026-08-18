@@ -177,6 +177,158 @@ function fmtNum(v: number | undefined, digits = 4): string {
   return v === undefined || v === null || Number.isNaN(v) ? "—" : v.toFixed(digits)
 }
 
+// docs/step7-8.md Q8: HXZ's tiered thresholds (Q7), reused here so the forest
+// plot's reference lines match the same tiers `track_significance_tier`
+// already reports -- not a new/independent threshold set.
+const HXZ_TIERS = [1.96, 2.78, 3.39]
+
+/** docs/step7-8.md Q8's "forest plot" candidate: one row per track, its own
+ * t-stat as a point, HXZ's three tiered significance thresholds (Q7) as
+ * dashed reference lines -- lets you see at a glance which tier each track
+ * clears without reading the significance table row by row. Tracks with a
+ * `null` t-stat are omitted (never plotted as zero). */
+export function ForestPlot({
+  tracks,
+  baselineTrack,
+}: {
+  tracks: Record<string, { vs_paper?: { track_raw_t_stat?: number | null; track_significance_tier?: number | null } }>
+  baselineTrack?: string
+}) {
+  const rows = Object.entries(tracks)
+    .map(([track, d]) => ({
+      track,
+      tStat: d.vs_paper?.track_raw_t_stat,
+      tier: d.vs_paper?.track_significance_tier ?? null,
+    }))
+    .filter((r): r is { track: string; tStat: number; tier: number | null } => typeof r.tStat === "number")
+    .sort((a, b) => Math.abs(b.tStat) - Math.abs(a.tStat))
+
+  if (rows.length === 0) {
+    return <p className="text-xs text-muted-foreground">No track t-stats available to plot.</p>
+  }
+
+  const height = Math.max(120, rows.length * 32 + 40)
+  return (
+    <div className="w-full rounded-lg border border-border p-3" style={{ height }}>
+      <ResponsiveContainer width="100%" height="100%">
+        <BarChart
+          data={rows}
+          layout="vertical"
+          margin={{ top: 8, right: 24, bottom: 24, left: 8 }}
+          barCategoryGap={10}
+        >
+          <CartesianGrid strokeDasharray="3 3" className="stroke-border" />
+          <XAxis
+            type="number"
+            tick={{ fontSize: 11 }}
+            label={{ value: "t-stat", position: "insideBottom", offset: -12, fontSize: 11 }}
+          />
+          <YAxis type="category" dataKey="track" tick={{ fontSize: 11 }} width={140} />
+          {HXZ_TIERS.flatMap((tier) => [
+            <ReferenceLine key={`+${tier}`} x={tier} strokeDasharray="4 4" className="stroke-amber-500" />,
+            <ReferenceLine key={`-${tier}`} x={-tier} strokeDasharray="4 4" className="stroke-amber-500" />,
+          ])}
+          <ReferenceLine x={0} className="stroke-border" />
+          <Tooltip
+            content={({ active, payload }) => {
+              if (!active || !payload?.length) return null
+              const p = payload[0].payload as { track: string; tStat: number; tier: number | null }
+              return (
+                <div className="rounded-md border border-border bg-background p-2 text-xs shadow">
+                  <p className="font-medium">{p.track}</p>
+                  <p>t_stat: {p.tStat.toFixed(2)}</p>
+                  <p>HXZ tier: {p.tier ?? "n/a"}</p>
+                </div>
+              )
+            }}
+          />
+          <Bar dataKey="tStat" barSize={14}>
+            {rows.map((r) => (
+              <Cell
+                key={r.track}
+                fill={r.track === baselineTrack ? "var(--color-muted-foreground)" : "var(--color-primary)"}
+              />
+            ))}
+          </Bar>
+        </BarChart>
+      </ResponsiveContainer>
+    </div>
+  )
+}
+
+type ConfigDiffPairDetail = { stage?: string; baseline_value?: unknown; track_value?: unknown }
+type ConfigDiffPair = { changed_keys?: string[]; details?: Record<string, ConfigDiffPairDetail> }
+
+const STAGE_COLORS: Record<string, string> = {
+  signal_input: "bg-blue-500/70",
+  portfolio: "bg-purple-500/70",
+  universe: "bg-emerald-500/70",
+  sample: "bg-amber-500/70",
+  estimator: "bg-rose-500/70",
+  unclassified: "bg-muted-foreground/50",
+}
+
+/** docs/step7-8.md Q8's "config diff heatmap" candidate: track x config-key
+ * matrix, colored by the changed key's own pipeline `stage` (same taxonomy
+ * `config_diff` already tags each key with) -- lowest-effort of the Q8
+ * candidates since it's a direct re-render of `config_diff.pairs`, no new
+ * computation. A cell is only colored when that key actually changed for
+ * that track; hovering shows baseline_value -> track_value. */
+export function ConfigDiffHeatmap({
+  pairs,
+}: {
+  pairs: Record<string, ConfigDiffPair> | undefined
+}) {
+  const trackNames = Object.keys(pairs ?? {})
+  const allKeys = Array.from(
+    new Set(trackNames.flatMap((t) => pairs?.[t]?.changed_keys ?? [])),
+  ).sort()
+
+  if (trackNames.length === 0 || allKeys.length === 0) {
+    return <p className="text-xs text-muted-foreground">No config differences to show.</p>
+  }
+
+  return (
+    <div className="overflow-x-auto rounded-lg border border-border p-2">
+      <table className="border-collapse text-xs">
+        <thead>
+          <tr>
+            <th className="p-1 text-left font-medium">track \\ key</th>
+            {allKeys.map((key) => (
+              <th key={key} className="p-1 text-left font-mono font-normal text-muted-foreground">
+                {key}
+              </th>
+            ))}
+          </tr>
+        </thead>
+        <tbody>
+          {trackNames.map((track) => (
+            <tr key={track}>
+              <td className="p-1 font-mono">{track}</td>
+              {allKeys.map((key) => {
+                const detail = pairs?.[track]?.details?.[key]
+                if (!detail) {
+                  return <td key={key} className="p-1" />
+                }
+                const color = STAGE_COLORS[detail.stage ?? "unclassified"] ?? STAGE_COLORS.unclassified
+                return (
+                  <td
+                    key={key}
+                    className="p-1"
+                    title={`${String(detail.baseline_value)} → ${String(detail.track_value)} (${detail.stage ?? "unclassified"})`}
+                  >
+                    <div className={cn("h-4 w-8 rounded", color)} />
+                  </td>
+                )
+              })}
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  )
+}
+
 /** step7's `joint_test` result, as one banner line -- the gate described in
  * docs/step7-8.md Part V: whether the switches this batch varied
  * collectively explain more than noise, BEFORE reading any single switch's

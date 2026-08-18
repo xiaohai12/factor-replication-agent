@@ -1,11 +1,11 @@
 import { useQuery } from "@tanstack/react-query"
-import { Badge } from "@/components/ui/badge"
 import { JsonTree } from "@/components/JsonTree"
 import { Step3Output } from "@/components/steps/Step3Output"
 import { Step4Output } from "@/components/steps/Step4Output"
 import { Step5Output } from "@/components/steps/Step5Output"
 import { Step6Output } from "@/components/steps/Step6Output"
 import { Step7Output } from "@/components/steps/Step7Output"
+import { Step8Output } from "@/components/steps/Step8Output"
 import { api } from "@/lib/api"
 import { sessionApi } from "@/lib/sessionApi"
 import type { SessionManifest, StepAttempt } from "@/lib/types"
@@ -82,28 +82,7 @@ export function StepOutputView({
   }
 
   if (step === 8 && step8Diagnosis.data) {
-    const claims = (step8Diagnosis.data.claims as Record<string, unknown>[]) ?? []
-    const rejected = (step8Diagnosis.data.rejected_claims as Record<string, unknown>[]) ?? []
-    return (
-      <div className="flex flex-col gap-2">
-        <Badge variant="outline">{String(step8Diagnosis.data.status)}</Badge>
-        {claims.map((c, i) => (
-          <p key={i} className="rounded-md border border-border p-2 text-xs">
-            {String(c.text)}
-          </p>
-        ))}
-        {rejected.length > 0 && (
-          <div className="rounded-md border border-destructive/40 p-2 text-xs">
-            <p className="font-medium text-destructive">Rejected claims (audit)</p>
-            {rejected.map((r, i) => (
-              <p key={i} className="text-muted-foreground">
-                ⚑ {String(r.reason)}
-              </p>
-            ))}
-          </div>
-        )}
-      </div>
-    )
+    return <Step8Output diagnosis={step8Diagnosis.data} />
   }
 
   // Fallback: whatever the step just returned (or nothing yet).

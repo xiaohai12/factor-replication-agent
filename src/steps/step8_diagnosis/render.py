@@ -21,17 +21,24 @@ _BANNER = (
     "This is a hypothesis for human review, not an automatic empirical conclusion."
 )
 
-_CLAIM_TYPE_HEADINGS = {
-    "sign_agreement": "Sign agreement",
-    "magnitude_gap": "Magnitude gap",
-    "significance": "Statistical significance",
-    "config_divergence": "Configuration divergence",
-    "gap_attribution": "Gap attribution",
-    "evidence_limitation": "Evidence limitations",
-    "signal_reproducibility": "Signal reproducibility (bridge track)",
-    "publication_decay": "Post-publication decay",
-    "implementation_robustness": "Implementation robustness",
+#: Friendlier labels for the comparison-line values used by
+#: `shapley_attribution`/`paired_tests`/`joint_test` (docs/step7-8.md Part VI).
+#: docs/step7-8.md Part XI: dropped the "①→②"/"①→③" prefix (internal-jargon
+#: shorthand, confusing to show in a UI meant for a general reader) -- keep
+#: only the descriptive part. Falls back to the raw value.
+_LINE_LABELS = {
+    "to_hxz": "vs. HXZ standardized config",
+    "to_cz": "vs. C&Z actual config",
 }
+
+#: docs/step7-8.md Part XV §15.4: the whole per-analysis_stage "## Findings"
+#: listing (every stage, not just per_switch/joint_gate) duplicated evidence
+#: the Summary section already states in prose -- `_build_cz_summary`/
+#: `_build_sensitivity_summary`/`build_vs_paper_summary` are all built
+#: directly from the bundle (module docstring in `summary.py`), so Findings
+#: never carried information Summary structurally couldn't. `report.claims`
+#: is unchanged (still returned by the API, `rendered_sentence` still
+#: computed by `report_to_jsonable`) -- only this markdown listing is gone.
 
 #: Canonical sentence per (claim_type, relation). The LLM contributes only the
 #: `subject_track`/evidence selection (validated against the bundle); the
@@ -92,14 +99,57 @@ _RELATION_TEMPLATES: dict[str, dict[str, str]] = {
             "significance threshold relative to the baseline for at least one implementation choice."
         ),
     },
+    "gap_attribution_shapley": {
+        "associated_change": (
+            "On the {line} line, a Shapley-attributed share of the mean-return gap is "
+            "associated with the {subject} switch (full-factorial evidence: the switches' "
+            "Shapley effects sum exactly to the total gap, but this alone does not establish that "
+            "the {subject} switch's own effect is statistically distinguishable from noise)."
+        ),
+    },
+    "switch_significance": {
+        "significant": (
+            "On the {line} line, the {subject} switch's own paired effect (vs. baseline) "
+            "is statistically significant."
+        ),
+        "insignificant": (
+            "On the {line} line, the {subject} switch's own paired effect (vs. baseline) "
+            "is not statistically significant."
+        ),
+    },
+    "joint_attribution_support": {
+        "significant": (
+            "On the {line} line, the switches varied jointly explain a statistically "
+            "significant share of the gap (joint Wald test)."
+        ),
+        "insignificant": (
+            "On the {line} line, the switches varied jointly do not explain a "
+            "statistically significant share of the gap (joint Wald test) -- any single-switch "
+            "Shapley attribution on this line lacks joint support."
+        ),
+    },
 }
 
 
 def _switch_subject(claim: DiagnosisClaim, evidence: dict[str, Any]) -> str:
     for key in claim.evidence_keys:
-        if ".contributions." in key:
+        if ".contributions." in key or ".shapley_effects." in key:
             return key.rsplit(".", 1)[-1]
     return "this switch"
+
+
+def _per_switch_subject(claim: DiagnosisClaim) -> str:
+    for key in claim.evidence_keys:
+        if ".per_switch." in key:
+            # paired_tests.<line>.per_switch.<switch>.t_stat
+            return key.split(".per_switch.", 1)[1].split(".", 1)[0]
+    return "this switch"
+
+
+def _line_label(comparison_line: str | None) -> str:
+    if comparison_line is None:
+        return "this comparison"
+    return _LINE_LABELS.get(comparison_line, comparison_line)
 
 
 def deterministic_sentence(claim: DiagnosisClaim, evidence: dict[str, Any]) -> str:
@@ -113,13 +163,15 @@ def deterministic_sentence(claim: DiagnosisClaim, evidence: dict[str, Any]) -> s
     template = templates.get(claim.relation)
     if template is None:
         return claim.text or f"{claim.claim_type}: {claim.relation}"
-    if claim.claim_type == "gap_attribution":
+    if claim.claim_type in ("gap_attribution", "gap_attribution_shapley"):
         subject = _switch_subject(claim, evidence)
+    elif claim.claim_type == "switch_significance":
+        subject = _per_switch_subject(claim)
     elif claim.claim_type == "evidence_limitation":
         subject = "the requested comparison"
     else:
         subject = claim.subject_track or "track"
-    return template.format(subject=subject)
+    return template.format(subject=subject, line=_line_label(claim.comparison_line))
 
 
 def format_value(value: Any) -> str:
@@ -188,6 +240,53 @@ def _gap_section(bundle: dict[str, Any]) -> list[str]:
     return lines
 
 
+def _summary_line_priority(comparison_line: str | None) -> int:
+    """docs/step7-8.md Part XI: `to_cz` is the project's core research
+    question (AGENTS.md -- inter-implementer agreement), always shown
+    first; `to_hxz` is supporting sensitivity context, shown second; any
+    other/unrecognized line follows; the line-less ("Overall") summary
+    goes last, since it's about the baseline track, not a comparison line.
+    """
+    order = {"to_cz": 0, "to_hxz": 1}
+    if comparison_line is None:
+        return 3
+    return order.get(comparison_line, 2)
+
+
+def _summary_section(report: ReplicationDiagnosisReport) -> list[str]:
+    """docs/step7-8.md Part XII: renders the deterministic rollup in
+    inverted-pyramid order -- `headline` (bottom line, always first), then
+    `details` (one bullet per supporting point, decreasing importance), then
+    `footnote` (de-emphasized technical caveat). No "vs. X" line-label
+    heading -- `headline` names its own comparison target in plain language
+    (user-requested redesign, docs/step7-8.md Part XII).
+    """
+    lines = ["## Summary", ""]
+    if not report.summary and not report.vs_paper_summary.headline:
+        return lines + ["No deterministic summary available.", ""]
+    for s in sorted(report.summary, key=lambda s: _summary_line_priority(s.comparison_line)):
+        if s.headline:
+            lines.append(f"**{s.headline}**")
+            lines.append("")
+        for detail in s.details:
+            lines.append(f"- {detail}")
+        if s.details:
+            lines.append("")
+        lines.append(f"- Verdict: `{s.overall_tag}`")
+        if s.footnote:
+            lines.append(f"- _{s.footnote}_")
+        lines.append("")
+    if report.vs_paper_summary.headline:
+        lines.append(f"**{report.vs_paper_summary.headline}**")
+        lines.append("")
+        for detail in report.vs_paper_summary.details:
+            lines.append(f"- {detail}")
+        if report.vs_paper_summary.footnote:
+            lines.append(f"- _{report.vs_paper_summary.footnote}_")
+        lines.append("")
+    return lines
+
+
 def render_markdown(report: ReplicationDiagnosisReport, bundle: dict[str, Any]) -> str:
     """Render a human-readable diagnosis with all figures taken from `bundle`."""
     evidence = bundle.get("evidence_keys") or {}
@@ -209,31 +308,7 @@ def render_markdown(report: ReplicationDiagnosisReport, bundle: dict[str, Any]) 
     lines.append("")
     lines += _gap_section(bundle)
 
-    lines += ["## Findings", ""]
-    if not report.claims:
-        lines += ["No claims survived evidence validation.", ""]
-    else:
-        by_type: dict[str, list] = {}
-        for claim in report.claims:
-            by_type.setdefault(claim.claim_type, []).append(claim)
-        for claim_type, claims in by_type.items():
-            lines.append(f"### {_CLAIM_TYPE_HEADINGS.get(claim_type, claim_type)}")
-            lines.append("")
-            for claim in claims:
-                cited = ", ".join(
-                    f"`{key}` = {format_value(evidence.get(key))}" for key in claim.evidence_keys
-                )
-                stage = f" _[stage: {claim.stage}]_" if claim.stage else ""
-                sentence = deterministic_sentence(claim, evidence)
-                lines.append(f"- {sentence}{stage}")
-                if claim.text and claim.text.strip() and claim.text.strip() != sentence.strip():
-                    lines.append(f"  - model wording (not authoritative): {claim.text}")
-                lines.append(f"  - evidence: {cited}")
-                lines.append(
-                    f"  - identification: {claim.identification_level} · "
-                    f"evidence strength: {claim.evidence_strength}"
-                )
-            lines.append("")
+    lines += _summary_section(report)
 
     if report.rejected_claims:
         lines += ["## Rejected claims (audit)", ""]
@@ -245,6 +320,19 @@ def render_markdown(report: ReplicationDiagnosisReport, bundle: dict[str, Any]) 
     return "\n".join(lines)
 
 
+def report_to_jsonable(report: ReplicationDiagnosisReport, bundle: dict[str, Any]) -> dict[str, Any]:
+    """`report.model_dump()` with each claim's `deterministic_sentence(...)` spliced
+    in as `rendered_sentence` -- the same sentence `diagnosis.md` shows, exposed to
+    JSON consumers (the frontend) too, so they never have to re-derive or duplicate
+    the `_RELATION_TEMPLATES` wording logic themselves.
+    """
+    evidence = bundle.get("evidence_keys") or {}
+    data = report.model_dump(mode="json")
+    for claim, claim_data in zip(report.claims, data["claims"]):
+        claim_data["rendered_sentence"] = deterministic_sentence(claim, evidence)
+    return data
+
+
 def write_diagnosis(
     report: ReplicationDiagnosisReport, bundle: dict[str, Any], results_dir: str | Path
 ) -> tuple[Path, Path]:
@@ -253,7 +341,7 @@ def write_diagnosis(
     results_dir.mkdir(parents=True, exist_ok=True)
 
     json_path = results_dir / "diagnosis.json"
-    json_path.write_text(json.dumps(report.model_dump(), indent=2, default=str))
+    json_path.write_text(json.dumps(report_to_jsonable(report, bundle), indent=2, default=str))
 
     md_path = results_dir / "diagnosis.md"
     md_path.write_text(render_markdown(report, bundle))

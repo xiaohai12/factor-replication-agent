@@ -28,13 +28,16 @@ from src.steps.step7_replication_diff.bundle import (
     build_publication_decay,
     build_robustness_summary,
     build_spec_quality,
+    build_universe_description,
+    build_t_channel_decomposition,
     build_track_vs_paper,
     classify_overall,
     flatten,
     stage_of,
 )
 from src.steps.step8_diagnosis import ReplicationDiagnoser, validate_claims
-from src.steps.step8_diagnosis.render import render_markdown
+from src.steps.step8_diagnosis.render import deterministic_sentence, render_markdown, report_to_jsonable
+from src.steps.step8_diagnosis.summary import build_deterministic_summary, build_vs_paper_summary
 from tests._spec_test_helpers import minimal_resolved_spec
 
 
@@ -194,6 +197,86 @@ class TestSafeDiffAblation:
         assert safe_diff_ablation([]) is None
 
 
+class TestTChannelDecomposition:
+    """docs/step7-8.md Q1/Q5: t-stat's own exact log-identity decomposition,
+    a companion to (not a replacement for) the mean_return-based
+    gap_decomposition/Shapley attribution."""
+
+    def test_non_degenerate_channels_sum_exactly_to_the_log_t_ratio(self):
+        tracks = {
+            "original_method": {"metrics": {"mean_return": 0.005, "t_stat": 2.0, "n_months": 400}},
+            "standardized_hxz": {"metrics": {"mean_return": 0.008, "t_stat": 3.6, "n_months": 400}},
+        }
+        result = build_t_channel_decomposition(tracks)
+        assert result["available"] is True
+        entry = result["tracks"]["standardized_hxz"]
+        assert entry["degenerate"] is False
+        channels = entry["channels"]
+        assert channels["mean_return"] + channels["volatility"] + channels["sample_size"] == pytest.approx(
+            entry["log_t_ratio"], rel=1e-9
+        )
+        assert entry["channel_sum_check"] == pytest.approx(entry["log_t_ratio"], rel=1e-9)
+
+    def test_sample_size_channel_isolates_a_pure_n_months_change(self):
+        # Same mean_return everywhere; t_stat only moves because n_months doubles
+        # (t scales with sqrt(N) at fixed mean/vol) -- mean_return/volatility
+        # channels should be ~0, sample_size should carry the whole ratio.
+        import math
+
+        tracks = {
+            "original_method": {"metrics": {"mean_return": 0.005, "t_stat": 2.0, "n_months": 400}},
+            "double_n": {"metrics": {"mean_return": 0.005, "t_stat": 2.0 * math.sqrt(2), "n_months": 800}},
+        }
+        result = build_t_channel_decomposition(tracks)
+        entry = result["tracks"]["double_n"]
+        assert entry["channels"]["mean_return"] == pytest.approx(0.0, abs=1e-9)
+        assert entry["channels"]["volatility"] == pytest.approx(0.0, abs=1e-9)
+        assert entry["channels"]["sample_size"] == pytest.approx(0.5 * math.log(2), rel=1e-9)
+
+    def test_negative_baseline_mean_return_degenerates_to_abs_t_delta(self):
+        tracks = {
+            "original_method": {"metrics": {"mean_return": -0.005, "t_stat": -2.0, "n_months": 400}},
+            "standardized_hxz": {"metrics": {"mean_return": 0.008, "t_stat": 3.6, "n_months": 400}},
+        }
+        result = build_t_channel_decomposition(tracks)
+        entry = result["tracks"]["standardized_hxz"]
+        assert entry["degenerate"] is True
+        assert "positive" in entry["reason"]
+        assert entry["t_stat_abs_delta"] == pytest.approx(3.6 - 2.0)
+        assert "channels" not in entry
+
+    def test_opposite_signed_track_mean_return_also_degenerates(self):
+        # Both individually positive-required-baseline case aside: a track whose
+        # mean_return is negative while baseline's is positive must degenerate too.
+        tracks = {
+            "original_method": {"metrics": {"mean_return": 0.005, "t_stat": 2.0, "n_months": 400}},
+            "flipped": {"metrics": {"mean_return": -0.003, "t_stat": -1.5, "n_months": 400}},
+        }
+        result = build_t_channel_decomposition(tracks)
+        entry = result["tracks"]["flipped"]
+        assert entry["degenerate"] is True
+
+    def test_missing_metrics_degenerates_with_a_reason_not_a_crash(self):
+        tracks = {
+            "original_method": {"metrics": {"mean_return": 0.005, "t_stat": 2.0, "n_months": 400}},
+            "no_metrics": {"metrics": {}},
+        }
+        result = build_t_channel_decomposition(tracks)
+        entry = result["tracks"]["no_metrics"]
+        assert entry["degenerate"] is True
+        assert entry["t_stat_abs_delta"] is None
+
+    def test_no_tracks_is_unavailable(self):
+        result = build_t_channel_decomposition({})
+        assert result["available"] is False
+
+    def test_wired_into_evidence_bundle_and_citable(self):
+        bundle = build_evidence_bundle(PAPER, TRACKS)
+        assert "t_channel_decomposition" in bundle
+        key = "t_channel_decomposition.tracks.standardized_hxz.degenerate"
+        assert key in bundle["evidence_keys"]
+
+
 class TestEvidenceBundle:
     def test_bundle_exposes_derived_config_diff_and_a_citable_key_whitelist(self):
         bundle = build_evidence_bundle(PAPER, TRACKS)
@@ -326,6 +409,25 @@ class TestSpecQuality:
         spec = minimal_resolved_spec()
         section = build_spec_quality(spec)
         assert section["weak_fields"] == []
+
+
+class TestUniverseDescription:
+    """docs/step7-8.md Part XIII: the paper's own extracted universe
+    description, so step8 can quote the paper directly instead of us
+    re-deriving a description from resolved `universe_filters` (which can't
+    generalize to a future paper's own filter choices the way the paper's
+    own extracted text already does)."""
+
+    def test_no_spec_reports_unavailable(self):
+        section = build_universe_description(None)
+        assert section["available"] is False
+
+    def test_available_spec_surfaces_the_papers_own_text(self):
+        spec = minimal_resolved_spec()
+        spec.paper.universe.description.value = "NYSE/AMEX/NASDAQ nonfinancial firms"
+        section = build_universe_description(spec)
+        assert section["available"] is True
+        assert section["text"] == "NYSE/AMEX/NASDAQ nonfinancial firms"
 
 
 class TestMenuDeviations:
@@ -960,6 +1062,552 @@ class TestValidateClaimsNewTypes:
         assert accepted[0].reason_layer == "config_sensitivity"
 
 
+def _bundle_with_attribution_extras() -> dict:
+    """`_bundle_with_extras()` plus docs/step7-8.md Part VIII's three new
+    line-nested sections (shapley_attribution/paired_tests/joint_test),
+    hand-built with two comparison lines present (to_hxz/to_cz) so
+    `comparison_line` derivation/validation has something real to check."""
+    bundle = _bundle_with_extras()
+    bundle["shapley_attribution"] = {
+        "to_hxz": {
+            "available": True,
+            "identification_level": "controlled",
+            "switches": ["weighting"],
+            "total_gap": -0.005645,
+            "shapley_effects": {"weighting": -0.005645},
+            "shapley_sum_check": -0.005645,
+        },
+        "to_cz": {
+            "available": True,
+            "identification_level": "controlled",
+            "switches": ["universe"],
+            "total_gap": 0.000257,
+            "shapley_effects": {"universe": 0.000257},
+            "shapley_sum_check": 0.000257,
+        },
+    }
+    bundle["paired_tests"] = {
+        "to_hxz": {
+            "available": True,
+            "lags": 6,
+            "per_switch": {
+                "weighting": {
+                    "available": True, "track": "factorial_weighting",
+                    "mean_diff": 0.00702, "t_stat": 2.74, "n_overlap_months": 432,
+                }
+            },
+        },
+        "to_cz": {
+            "available": True,
+            "lags": 6,
+            "per_switch": {
+                "universe": {
+                    "available": True, "track": "cz_actual_config",
+                    "mean_diff": 0.000874, "t_stat": 1.781, "n_overlap_months": 432,
+                }
+            },
+        },
+    }
+    bundle["joint_test"] = {
+        "to_hxz": {
+            "available": True, "switches": ["weighting"],
+            "wald_stat": 21.62, "df": 1, "p_value": 0.0000784,
+        },
+        "to_cz": {
+            "available": False,
+            "reason": "need >=2 single-switch tracks with a loadable return series for a joint test, found 1",
+        },
+    }
+    bundle["evidence_keys"].update(flatten({
+        "shapley_attribution": bundle["shapley_attribution"],
+        "paired_tests": bundle["paired_tests"],
+        "joint_test": bundle["joint_test"],
+    }))
+    return bundle
+
+
+class TestValidateClaimsPartVIIITypes:
+    """docs/step7-8.md Part VIII: gap_attribution_shapley/switch_significance/
+    joint_attribution_support, plus the new comparison_line field these three
+    (and only these three) need."""
+
+    def setup_method(self):
+        self.evidence = _bundle_with_attribution_extras()["evidence_keys"]
+
+    def _validate_one(self, claim: dict):
+        return validate_claims([claim], self.evidence)
+
+    def test_gap_attribution_shapley_accepted_with_controlled_identification(self):
+        accepted, rejected = self._validate_one({
+            "claim_type": "gap_attribution_shapley",
+            "relation": "associated_change",
+            "evidence_keys": ["shapley_attribution.to_hxz.shapley_effects.weighting"],
+        })
+        assert rejected == []
+        claim = accepted[0]
+        assert claim.comparison_line == "to_hxz"
+        assert claim.identification_level == "controlled"
+        # to_hxz's joint_test IS significant (p=0.0000784 < 0.05), so no cap applied.
+        assert claim.evidence_strength == "high"
+        assert claim.reason_layer == "config_sensitivity"
+
+    def test_gap_attribution_shapley_evidence_strength_capped_when_joint_test_not_significant(self):
+        evidence = dict(self.evidence)
+        # Same shape as to_hxz but flip the joint test to "measured, not significant".
+        evidence["joint_test.to_hxz.p_value"] = 0.4
+        accepted, rejected = validate_claims([{
+            "claim_type": "gap_attribution_shapley",
+            "relation": "associated_change",
+            "evidence_keys": ["shapley_attribution.to_hxz.shapley_effects.weighting"],
+        }], evidence)
+        assert rejected == []
+        claim = accepted[0]
+        # identification_level is still "controlled" (the grid itself is complete) --
+        # only evidence_strength is downgraded, per Part VIII's gating rule.
+        assert claim.identification_level == "controlled"
+        assert claim.evidence_strength == "low"
+
+    def test_gap_attribution_shapley_rejected_without_shapley_effects_citation(self):
+        accepted, rejected = self._validate_one({
+            "claim_type": "gap_attribution_shapley",
+            "relation": "associated_change",
+            "evidence_keys": ["shapley_attribution.to_hxz.available"],
+        })
+        assert accepted == []
+        assert "shapley_effects" in rejected[0].reason
+
+    def test_switch_significance_accepted_when_relation_matches_threshold(self):
+        accepted, rejected = self._validate_one({
+            "claim_type": "switch_significance",
+            "relation": "significant",
+            "evidence_keys": ["paired_tests.to_hxz.per_switch.weighting.t_stat"],
+        })
+        assert rejected == []
+        assert accepted[0].comparison_line == "to_hxz"
+        assert accepted[0].identification_level == "harmonized"
+
+    def test_switch_significance_borderline_t_stat_is_insignificant(self):
+        # docs/step7-8.md Part VII example 5: to_cz's universe t=1.781 < 1.96.
+        accepted, rejected = self._validate_one({
+            "claim_type": "switch_significance",
+            "relation": "insignificant",
+            "evidence_keys": ["paired_tests.to_cz.per_switch.universe.t_stat"],
+        })
+        assert rejected == []
+        assert accepted[0].comparison_line == "to_cz"
+
+    def test_switch_significance_rejected_when_relation_contradicts(self):
+        accepted, rejected = self._validate_one({
+            "claim_type": "switch_significance",
+            "relation": "significant",
+            "evidence_keys": ["paired_tests.to_cz.per_switch.universe.t_stat"],
+        })
+        assert accepted == []
+        assert "contradicts" in rejected[0].reason
+
+    def test_joint_attribution_support_accepted_when_significant(self):
+        accepted, rejected = self._validate_one({
+            "claim_type": "joint_attribution_support",
+            "relation": "significant",
+            "evidence_keys": ["joint_test.to_hxz.p_value"],
+        })
+        assert rejected == []
+        assert accepted[0].comparison_line == "to_hxz"
+        assert accepted[0].identification_level == "harmonized"
+
+    def test_joint_attribution_support_rejected_when_relation_contradicts(self):
+        accepted, rejected = self._validate_one({
+            "claim_type": "joint_attribution_support",
+            "relation": "insignificant",
+            "evidence_keys": ["joint_test.to_hxz.p_value"],
+        })
+        assert accepted == []
+        assert "contradicts" in rejected[0].reason
+
+    def test_comparison_line_required_when_citing_both_lines(self):
+        accepted, rejected = self._validate_one({
+            "claim_type": "gap_attribution_shapley",
+            "relation": "associated_change",
+            "evidence_keys": [
+                "shapley_attribution.to_hxz.shapley_effects.weighting",
+                "shapley_attribution.to_cz.shapley_effects.universe",
+            ],
+        })
+        assert accepted == []
+        assert "names no comparison_line" in rejected[0].reason
+
+    def test_comparison_line_mismatch_with_citation_is_rejected(self):
+        accepted, rejected = self._validate_one({
+            "claim_type": "switch_significance",
+            "relation": "significant",
+            "comparison_line": "to_cz",
+            "evidence_keys": ["paired_tests.to_hxz.per_switch.weighting.t_stat"],
+        })
+        assert accepted == []
+        assert "does not match" in rejected[0].reason
+
+    def test_new_claim_types_get_per_switch_or_joint_gate_analysis_stage(self):
+        accepted, _ = self._validate_one({
+            "claim_type": "gap_attribution_shapley",
+            "relation": "associated_change",
+            "evidence_keys": ["shapley_attribution.to_hxz.shapley_effects.weighting"],
+        })
+        assert accepted[0].analysis_stage == "per_switch"
+
+        accepted, _ = self._validate_one({
+            "claim_type": "switch_significance",
+            "relation": "significant",
+            "evidence_keys": ["paired_tests.to_hxz.per_switch.weighting.t_stat"],
+        })
+        assert accepted[0].analysis_stage == "per_switch"
+
+        accepted, _ = self._validate_one({
+            "claim_type": "joint_attribution_support",
+            "relation": "significant",
+            "evidence_keys": ["joint_test.to_hxz.p_value"],
+        })
+        assert accepted[0].analysis_stage == "joint_gate"
+
+    def test_vs_paper_and_auxiliary_claim_types_get_their_analysis_stage(self):
+        accepted, _ = self._validate_one({
+            "claim_type": "sign_agreement",
+            "relation": "agrees",
+            "evidence_keys": ["derived.tracks.original_method.vs_paper.sign_agrees"],
+        })
+        assert accepted[0].analysis_stage == "vs_paper"
+
+        accepted, _ = self._validate_one({
+            "claim_type": "publication_decay",
+            "relation": "decayed",
+            "evidence_keys": ["publication_decay.tracks.original_method.decayed"],
+        })
+        assert accepted[0].analysis_stage == "auxiliary"
+
+    def test_gap_attribution_is_unstaged(self):
+        result = ReplicationDiffResult(
+            factor_id="t", total_gap=1.5, contributions={"breakpoint": 1.0}
+        )
+        gap = build_gap_decomposition(result)
+        evidence = {**self.evidence, **flatten({"gap_decomposition": gap})}
+        accepted, rejected = validate_claims([{
+            "claim_type": "gap_attribution",
+            "relation": "associated_change",
+            "evidence_keys": ["gap_decomposition.contributions.breakpoint"],
+        }], evidence)
+        assert rejected == []
+        assert accepted[0].analysis_stage is None
+
+
+def _bundle_with_narrative_extras() -> dict:
+    """`_bundle_with_attribution_extras()` plus what docs/step7-8.md Part XI's
+    narrative builders need: a real `config_diff.pairs.cz_actual_config`
+    (universe_filters differs -- a CZ_HOUSE_CONVENTION_KEYS member, so this
+    should classify as "house_convention" regardless of spec_quality),
+    `menu_deviations.clamped_by_track.original_method` with a paper-silent
+    field (mirrors the real AssetGrowth session's `accounting_lag_months`),
+    and a `publication_decay` entry for `factorial_universe` (cross-line
+    callout target)."""
+    bundle = _bundle_with_attribution_extras()
+    bundle["config_diff"]["pairs"]["cz_actual_config"] = {
+        "changed_keys": ["universe_filters"],
+        "changed_stages": ["universe"],
+        "keys_by_stage": {"universe": ["universe_filters"]},
+        "identification_level": "observational",
+        "details": {
+            "universe_filters": {
+                "stage": "universe",
+                "baseline_value": [{"field": "siccd", "op": "not_between", "value": [6000, 6999]}],
+                "track_value": [
+                    {"field": "shrcd", "op": "in", "value": [10, 11, 12]},
+                    {"field": "exchcd", "op": "in", "value": [1, 2, 3]},
+                ],
+            }
+        },
+    }
+    bundle["menu_deviations"]["clamped_by_track"]["original_method"] = [
+        {
+            "config_key": "accounting_lag_months", "value": 6,
+            "reason": "MethodSpec field unspecified; engine default applied", "paper_value": None,
+        },
+    ]
+    bundle["publication_decay"]["tracks"]["factorial_universe"] = {
+        "insamp_t_stat": 7.45, "postpub_t_stat": 2.84,
+        "insamp_significant": True, "postpub_significant": True, "decayed": False,
+    }
+    bundle["evidence_keys"].update(flatten({
+        "config_diff": bundle["config_diff"],
+        "menu_deviations": bundle["menu_deviations"],
+        "publication_decay": bundle["publication_decay"],
+    }))
+    return bundle
+
+
+class TestCzNarrative:
+    """docs/step7-8.md Part XI: the PRIMARY narrative (project's core
+    research question, AGENTS.md -- inter-implementer agreement)."""
+
+    def setup_method(self):
+        self.bundle = _bundle_with_narrative_extras()
+
+    def test_house_convention_classification_and_effect_are_reported(self):
+        summaries = build_deterministic_summary([], self.bundle)
+        to_cz = next(s for s in summaries if s.comparison_line == "to_cz")
+        detail_text = " ".join(to_cz.details)
+        # docs/step7-8.md Part XI readability follow-up: no raw config-key
+        # identifiers in reader-facing text -- a human-readable label instead.
+        assert "universe_filters" not in detail_text
+        assert "which stocks are allowed into consideration at all" in detail_text.lower()
+        assert "excludes financial companies" in detail_text
+        assert "listed on the nyse, amex, or nasdaq" in detail_text.lower()
+        assert "cross-factor house" in detail_text
+        assert "not an ambiguity in the paper" in detail_text
+        assert "t=-0.52" in detail_text or "t=" in detail_text
+        # docs/step7-8.md Part XII: headline is the bottom line, shown first,
+        # and names the comparison target itself (no separate "vs. C&Z" title).
+        assert to_cz.headline
+        assert "Compared with C&Z's independent replication" in to_cz.headline
+
+    def test_cross_line_callout_mentions_hxz_decay_status(self):
+        summaries = build_deterministic_summary([], self.bundle)
+        to_cz = next(s for s in summaries if s.comparison_line == "to_cz")
+        assert "does NOT decay" in " ".join(to_cz.details)
+
+    def test_headline_reflects_high_agreement_when_all_explained_and_insignificant(self):
+        summaries = build_deterministic_summary([], self.bundle)
+        to_cz = next(s for s in summaries if s.comparison_line == "to_cz")
+        assert "none has a statistically significant effect" in to_cz.headline
+
+    def test_unresolved_divergence_gets_the_concerning_headline(self):
+        bundle = _bundle_with_narrative_extras()
+        # Make it NOT a house-convention key and NOT flagged weak, to hit "unresolved".
+        bundle["config_diff"]["pairs"]["cz_actual_config"]["changed_keys"] = ["some_other_key"]
+        bundle["config_diff"]["pairs"]["cz_actual_config"]["details"] = {
+            "some_other_key": {"stage": "portfolio", "baseline_value": "a", "track_value": "b"}
+        }
+        bundle["evidence_keys"].update(flatten({"config_diff": bundle["config_diff"]}))
+        summaries = build_deterministic_summary([], bundle)
+        to_cz = next(s for s in summaries if s.comparison_line == "to_cz")
+        assert "warrants human review" in to_cz.headline
+
+    def test_paper_ambiguous_classification_when_flagged_weak(self):
+        bundle = _bundle_with_narrative_extras()
+        bundle["config_diff"]["pairs"]["cz_actual_config"]["changed_keys"] = ["rebalance_frequency"]
+        bundle["config_diff"]["pairs"]["cz_actual_config"]["details"] = {
+            "rebalance_frequency": {"stage": "portfolio", "baseline_value": "annual", "track_value": "monthly"}
+        }
+        bundle["spec_quality"]["weak_fields"].append(
+            {"field_path": "timing.rebalance_frequency", "reason": "evidence_status=unspecified", "disposition": "needs_human_confirmation"}
+        )
+        bundle["evidence_keys"].update(flatten({
+            "config_diff": bundle["config_diff"], "spec_quality": bundle["spec_quality"],
+        }))
+        summaries = build_deterministic_summary([], bundle)
+        to_cz = next(s for s in summaries if s.comparison_line == "to_cz")
+        assert "flagged by our own review as weakly specified" in " ".join(to_cz.details)
+
+    def test_no_cz_pair_yields_no_headline_not_a_crash(self):
+        bundle = _bundle_with_attribution_extras()
+        summaries = build_deterministic_summary([], bundle)
+        to_cz = next((s for s in summaries if s.comparison_line == "to_cz"), None)
+        assert to_cz is None or to_cz.headline == ""
+
+    def test_universe_filters_prefers_the_papers_own_extracted_description(self):
+        # docs/step7-8.md Part XIII: when available, quote the paper's own
+        # words instead of re-deriving a description from the resolved
+        # universe_filters config -- this is what lets it generalize to any
+        # future paper without a hardcoded per-value lookup table.
+        bundle = _bundle_with_narrative_extras()
+        bundle["universe_description"] = {
+            "available": True,
+            "text": "NYSE/AMEX/NASDAQ nonfinancial firms excluding SIC 6000-6999",
+        }
+        summaries = build_deterministic_summary([], bundle)
+        to_cz = next(s for s in summaries if s.comparison_line == "to_cz")
+        detail_text = " ".join(to_cz.details)
+        assert 'the paper describes its universe as: "NYSE/AMEX/NASDAQ nonfinancial firms excluding SIC 6000-6999"' in detail_text
+        # C&Z's side stays the fixed house-convention description either way.
+        assert "C&Z's own fixed cross-factor universe convention" in detail_text
+
+
+class TestSensitivitySummary:
+    """docs/step7-8.md Part XII: the SUPPORTING summary for non-to_cz lines."""
+
+    def test_dominant_choice_and_joint_gate_are_both_mentioned(self):
+        bundle = _bundle_with_narrative_extras()
+        summaries = build_deterministic_summary([], bundle)
+        to_hxz = next(s for s in summaries if s.comparison_line == "to_hxz")
+        assert any("bigger companies count for more" in d.lower() for d in to_hxz.details)
+        assert "joint significance test" in to_hxz.headline.lower()
+        assert "sensitivity context, not itself the reproducibility question" in to_hxz.footnote
+        assert "Compared with the fully standardized HXZ protocol" in to_hxz.headline
+
+    def test_unavailable_shapley_yields_no_headline(self):
+        bundle = _bundle_with_narrative_extras()
+        bundle["shapley_attribution"]["to_hxz"] = {"available": False, "reason": "no grid"}
+        summaries = build_deterministic_summary([], bundle)
+        to_hxz = next(s for s in summaries if s.comparison_line == "to_hxz")
+        assert to_hxz.headline == ""
+        assert to_hxz.details == []
+
+    def test_joint_test_not_significant_is_reflected_in_the_headline(self):
+        bundle = _bundle_with_narrative_extras()
+        bundle["joint_test"]["to_hxz"]["p_value"] = 0.4  # flip to "measured, not significant"
+        summaries = build_deterministic_summary([], bundle)
+        to_hxz = next(s for s in summaries if s.comparison_line == "to_hxz")
+        assert "does not confirm this" in to_hxz.headline
+
+
+class TestVsPaperSummary:
+    def test_mentions_paper_silent_fields_as_a_caveat(self):
+        bundle = _bundle_with_narrative_extras()
+        summary = build_vs_paper_summary(bundle)
+        # docs/step7-8.md Part XI readability follow-up: readable label, not the
+        # raw `accounting_lag_months` config-key identifier.
+        assert "accounting_lag_months" not in " ".join(summary.details)
+        assert "how many months we wait after a company's fiscal year ends" in " ".join(summary.details)
+        assert "cannot separate the two" in summary.footnote
+        assert "Compared with the paper's own reported result" in summary.headline
+
+    def test_no_clamped_fields_omits_the_caveat(self):
+        bundle = _bundle_with_narrative_extras()
+        bundle["menu_deviations"]["clamped_by_track"]["original_method"] = []
+        summary = build_vs_paper_summary(bundle)
+        assert summary.footnote == ""
+        assert summary.details == []
+
+    def test_no_baseline_track_is_handled(self):
+        bundle = _bundle_with_narrative_extras()
+        bundle["derived"]["baseline_track"] = None
+        summary = build_vs_paper_summary(bundle)
+        assert summary.headline == ""
+
+
+class TestBuildDeterministicSummary:
+    """docs/step7-8.md Part IX §9.3: a pure rollup over already-validated
+    claims -- no LLM call, no re-reading of raw bundle evidence beyond
+    `derived.overall_tag` (copied) and `shapley_attribution` magnitudes
+    (sorting only, not a new conclusion)."""
+
+    def setup_method(self):
+        self.bundle = _bundle_with_attribution_extras()
+
+    def _claims(self, raws: list[dict]) -> list[DiagnosisClaim]:
+        accepted, rejected = validate_claims(raws, self.bundle["evidence_keys"])
+        assert rejected == [], rejected
+        return accepted
+
+    def test_one_summary_per_comparison_line_present(self):
+        claims = self._claims([
+            {
+                "claim_type": "switch_significance", "relation": "significant",
+                "evidence_keys": ["paired_tests.to_hxz.per_switch.weighting.t_stat"],
+            },
+            {
+                "claim_type": "switch_significance", "relation": "insignificant",
+                "evidence_keys": ["paired_tests.to_cz.per_switch.universe.t_stat"],
+            },
+        ])
+        summaries = build_deterministic_summary(claims, self.bundle)
+        lines = {s.comparison_line for s in summaries}
+        assert lines == {"to_hxz", "to_cz"}
+
+    def test_per_switch_summary_and_joint_supported_and_dominant_switches(self):
+        claims = self._claims([
+            {
+                "claim_type": "switch_significance", "relation": "significant",
+                "evidence_keys": ["paired_tests.to_hxz.per_switch.weighting.t_stat"],
+            },
+            {
+                "claim_type": "joint_attribution_support", "relation": "significant",
+                "evidence_keys": ["joint_test.to_hxz.p_value"],
+            },
+            {
+                "claim_type": "gap_attribution_shapley", "relation": "associated_change",
+                "evidence_keys": ["shapley_attribution.to_hxz.shapley_effects.weighting"],
+            },
+        ])
+        summaries = build_deterministic_summary(claims, self.bundle)
+        to_hxz = next(s for s in summaries if s.comparison_line == "to_hxz")
+        assert to_hxz.overall_tag == self.bundle["derived"]["overall_tag"]
+        assert to_hxz.per_switch_summary == {"weighting": "significant"}
+        assert to_hxz.joint_supported is True
+        assert to_hxz.dominant_switches == ["weighting"]
+
+    def test_not_significant_joint_test_downgrades_evidence_strength_and_drops_dominance(self):
+        evidence = dict(self.bundle["evidence_keys"])
+        evidence["joint_test.to_hxz.p_value"] = 0.4  # flip to "measured, not significant"
+        accepted, rejected = validate_claims([
+            {
+                "claim_type": "joint_attribution_support", "relation": "insignificant",
+                "evidence_keys": ["joint_test.to_hxz.p_value"],
+            },
+            {
+                "claim_type": "gap_attribution_shapley", "relation": "associated_change",
+                "evidence_keys": ["shapley_attribution.to_hxz.shapley_effects.weighting"],
+            },
+        ], evidence)
+        assert rejected == []
+        summaries = build_deterministic_summary(accepted, self.bundle)
+        to_hxz = next(s for s in summaries if s.comparison_line == "to_hxz")
+        assert to_hxz.joint_supported is False
+        # capped evidence_strength ("low") excludes it from dominant_switches
+        assert to_hxz.dominant_switches == []
+        # Note: `headline`/`details`/`footnote` are built straight from `bundle`
+        # (docs/step7-8.md Part XII), not from these claims -- `self.bundle`'s
+        # OWN `joint_test.to_hxz.p_value` is still significant here (only the
+        # local `evidence` copy used for claim validation was flipped above),
+        # so the headline still reads as joint-supported; see
+        # TestSensitivitySummary for the bundle-driven "not confirmed" case.
+
+    def test_joint_supported_is_none_not_false_when_not_tested(self):
+        claims = self._claims([
+            {
+                "claim_type": "switch_significance", "relation": "insignificant",
+                "evidence_keys": ["paired_tests.to_cz.per_switch.universe.t_stat"],
+            },
+        ])
+        summaries = build_deterministic_summary(claims, self.bundle)
+        to_cz = next(s for s in summaries if s.comparison_line == "to_cz")
+        assert to_cz.joint_supported is None
+
+    def test_line_scoped_summaries_now_surface_even_without_matching_claims(self):
+        """docs/step7-8.md Part XI: narratives are built straight from `bundle`
+        (`to_hxz`'s Shapley grid, `to_cz`'s config_diff pair), so both lines get
+        a summary even when the only accepted claim is a line-less one -- this
+        used to yield exactly 1 summary before Part XI; the extra 2 are the
+        (now claim-independent) `to_hxz`/`to_cz` narrative summaries."""
+        claims = self._claims([
+            {
+                "claim_type": "sign_agreement", "relation": "agrees",
+                "evidence_keys": ["derived.tracks.original_method.vs_paper.sign_agrees"],
+            },
+        ])
+        summaries = build_deterministic_summary(claims, self.bundle)
+        lines = {s.comparison_line for s in summaries}
+        assert lines == {None, "to_hxz", "to_cz"}
+        none_summary = next(s for s in summaries if s.comparison_line is None)
+        assert none_summary.overall_tag == self.bundle["derived"]["overall_tag"]
+
+
+class TestDiagnoseWiresSummary:
+    def test_diagnose_populates_report_summary_from_accepted_claims(self):
+        bundle = _bundle_with_attribution_extras()
+        llm = FakeLLM({
+            "claims": [
+                {
+                    "claim_type": "switch_significance", "relation": "significant",
+                    "evidence_keys": ["paired_tests.to_hxz.per_switch.weighting.t_stat"],
+                },
+            ]
+        })
+        report = ReplicationDiagnoser(llm_client=llm, model="fake").diagnose(bundle)
+        # docs/step7-8.md Part XI: `to_cz` also gets a summary now, built
+        # straight from `bundle`'s own evidence, independent of this claim.
+        assert {s.comparison_line for s in report.summary} == {"to_hxz", "to_cz"}
+        to_hxz = next(s for s in report.summary if s.comparison_line == "to_hxz")
+        assert to_hxz.per_switch_summary == {"weighting": "significant"}
+
+
 class _CyclingFakeLLM:
     """Returns each payload in `payloads` in turn (one per call); repeats the
     last payload if more calls happen than payloads supplied."""
@@ -1081,7 +1729,116 @@ class TestFieldEvidenceDetailOptIn:
 
 
 class TestRenderMarkdown:
-    def test_figures_come_from_the_bundle_and_sentence_from_the_relation(self):
+    def test_banner_and_deterministic_table_come_from_the_bundle(self):
+        bundle = _bundle()
+        report = ReplicationDiagnosisReport(factor_id="t", overall_tag=bundle["derived"]["overall_tag"])
+        md = render_markdown(report, bundle)
+
+        assert "llm-assisted proposal" in md.lower()
+        assert "`close_replication`" in md
+        # the deterministic table carries the actual numbers
+        assert "-0.008" in md
+        assert "870" in md
+
+    def test_missing_gap_decomposition_is_stated_as_unavailable(self):
+        bundle = _bundle()
+        md = render_markdown(ReplicationDiagnosisReport(factor_id="t"), bundle)
+        assert "Not available" in md
+
+    def test_sentence_generated_from_relation_not_claim_text(self):
+        # docs/step7-8.md Part XV §15.4: the per-claim "Findings" listing was
+        # dropped from render_markdown entirely (duplicated the Summary
+        # section's own bundle-derived prose) -- `deterministic_sentence` is
+        # exercised directly here instead; it still backs `report_to_jsonable`'s
+        # `rendered_sentence` field for API/audit consumers.
+        bundle = _bundle()
+        claim = DiagnosisClaim(
+            claim_type="sign_agreement",
+            relation="agrees",
+            subject_track="original_method",
+            evidence_keys=["derived.tracks.original_method.vs_paper.sign_agrees"],
+            identification_level="observational",
+            evidence_strength="low",
+        )
+        sentence = deterministic_sentence(claim, bundle["evidence_keys"])
+        assert "agrees with the paper's headline sign" in sentence
+
+    def test_part_viii_claim_types_render_switch_and_line_into_the_sentence(self):
+        bundle = _bundle_with_attribution_extras()
+        evidence = bundle["evidence_keys"]
+        shapley_claim = DiagnosisClaim(
+            claim_type="gap_attribution_shapley",
+            relation="associated_change",
+            comparison_line="to_hxz",
+            evidence_keys=["shapley_attribution.to_hxz.shapley_effects.weighting"],
+            identification_level="controlled",
+            evidence_strength="high",
+        )
+        switch_claim = DiagnosisClaim(
+            claim_type="switch_significance",
+            relation="insignificant",
+            comparison_line="to_cz",
+            evidence_keys=["paired_tests.to_cz.per_switch.universe.t_stat"],
+            identification_level="harmonized",
+            evidence_strength="medium",
+        )
+        joint_claim = DiagnosisClaim(
+            claim_type="joint_attribution_support",
+            relation="significant",
+            comparison_line="to_hxz",
+            evidence_keys=["joint_test.to_hxz.p_value"],
+            identification_level="harmonized",
+            evidence_strength="medium",
+        )
+
+        assert "weighting switch" in deterministic_sentence(shapley_claim, evidence)
+        assert "universe switch's own paired effect" in deterministic_sentence(switch_claim, evidence)
+        assert "not statistically significant" in deterministic_sentence(switch_claim, evidence)
+        assert "switches varied jointly explain a statistically significant" in deterministic_sentence(
+            joint_claim, evidence
+        )
+        # both comparison lines' friendly labels show up, distinguishing the claims
+        assert "vs. HXZ standardized config" in deterministic_sentence(shapley_claim, evidence)
+        assert "vs. C&Z actual config" in deterministic_sentence(switch_claim, evidence)
+
+    def test_findings_are_grouped_by_analysis_stage_and_summary_section_is_rendered(self):
+        bundle = _bundle_with_attribution_extras()
+        claims, rejected = validate_claims([
+            {
+                "claim_type": "switch_significance", "relation": "significant",
+                "evidence_keys": ["paired_tests.to_hxz.per_switch.weighting.t_stat"],
+            },
+            {
+                "claim_type": "joint_attribution_support", "relation": "significant",
+                "evidence_keys": ["joint_test.to_hxz.p_value"],
+            },
+            {
+                "claim_type": "sign_agreement", "relation": "agrees",
+                "evidence_keys": ["derived.tracks.original_method.vs_paper.sign_agrees"],
+            },
+        ], bundle["evidence_keys"])
+        assert rejected == []
+        report = ReplicationDiagnosisReport(
+            factor_id="t", overall_tag=bundle["derived"]["overall_tag"], claims=claims,
+            summary=build_deterministic_summary(claims, bundle),
+        )
+        md = render_markdown(report, bundle)
+
+        # docs/step7-8.md Part XV §15.4: the per-analysis_stage "## Findings"
+        # listing was removed entirely -- per-switch/joint-gate claim evidence
+        # is folded into the Summary section's own details bullets instead
+        assert "## Findings" not in md
+        assert "LLM-reviewed per-setting significance: whether bigger companies count for more in the portfolio, or every stock counts equally (significant)." in md
+        assert "LLM-reviewed joint-significance conclusion: supported by the data." in md
+
+
+class TestReportToJsonable:
+    """Frontend follow-up to Part IX: `diagnosis.json` (what the GET
+    .../steps/8/diagnosis endpoint serves) carries a `rendered_sentence` per
+    claim, computed by the SAME `deterministic_sentence` function `diagnosis.md`
+    uses -- a single Python source of truth, not duplicated in TypeScript."""
+
+    def test_each_claim_gets_the_same_sentence_render_markdown_would_show(self):
         bundle = _bundle()
         report = ReplicationDiagnosisReport(
             factor_id="t",
@@ -1097,20 +1854,35 @@ class TestRenderMarkdown:
                 )
             ],
         )
-        md = render_markdown(report, bundle)
+        data = report_to_jsonable(report, bundle)
+        assert (
+            data["claims"][0]["rendered_sentence"]
+            == "The original_method track's spread sign agrees with the paper's headline sign."
+        )
 
-        assert "llm-assisted proposal" in md.lower()
-        assert "`close_replication`" in md
-        # the sentence is generated from the relation, not from claim.text
-        assert "agrees with the paper's headline sign" in md
-        # the cited value is rendered from the bundle
-        assert "`derived.tracks.original_method.vs_paper.sign_agrees` = true" in md
-        # the deterministic table carries the actual numbers
-        assert "-0.008" in md
-        assert "870" in md
-
-    def test_missing_gap_decomposition_is_stated_as_unavailable(self):
+    def test_rendered_sentence_survives_json_round_trip(self):
         bundle = _bundle()
-        md = render_markdown(ReplicationDiagnosisReport(factor_id="t"), bundle)
-        assert "Not available" in md
-        assert "No claims survived evidence validation." in md
+        report = ReplicationDiagnosisReport(
+            factor_id="t",
+            overall_tag=bundle["derived"]["overall_tag"],
+            claims=[
+                DiagnosisClaim(
+                    claim_type="sign_agreement",
+                    relation="agrees",
+                    subject_track="original_method",
+                    evidence_keys=["derived.tracks.original_method.vs_paper.sign_agrees"],
+                    identification_level="observational",
+                    evidence_strength="low",
+                )
+            ],
+        )
+        data = json.loads(json.dumps(report_to_jsonable(report, bundle), default=str))
+        assert "rendered_sentence" in data["claims"][0]
+        assert data["claims"][0]["rendered_sentence"]
+
+    def test_empty_claims_list_is_handled(self):
+        bundle = _bundle()
+        report = ReplicationDiagnosisReport(factor_id="t", overall_tag=bundle["derived"]["overall_tag"])
+        data = report_to_jsonable(report, bundle)
+        assert data["claims"] == []
+

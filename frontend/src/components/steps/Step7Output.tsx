@@ -3,10 +3,13 @@ import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { DiffView } from "@/components/DiffView"
 import { GapWaterfallChart } from "@/components/GapWaterfallChart"
-import { JointTestBanner, MeasuresExplainer, PairedTestsTable, ShapleyAttributionTable, TrackMetricsChart, TrackScatterChart } from "@/components/AttributionPanel"
+import { JointTestBanner, MeasuresExplainer, PairedTestsTable, ShapleyAttributionTable, TrackMetricsChart, TrackScatterChart, ForestPlot, ConfigDiffHeatmap } from "@/components/AttributionPanel"
 import { cn } from "@/lib/utils"
 
-type ConfigDiffPair = { changed_keys?: string[] }
+type ConfigDiffPair = {
+  changed_keys?: string[]
+  details?: Record<string, { stage?: string; baseline_value?: unknown; track_value?: unknown }>
+}
 
 const TRACK_METRIC_OPTIONS = [
   { key: "mean_return", label: "Mean return" },
@@ -16,8 +19,8 @@ const TRACK_METRIC_OPTIONS = [
 ] as const
 
 const LINE_LABELS: Record<string, string> = {
-  to_hxz: "① → ③ (HXZ standardized config)",
-  to_cz: "① → ② (C&Z actual config)",
+  to_hxz: "vs. HXZ standardized config",
+  to_cz: "vs. C&Z actual config",
   default: "",
 }
 
@@ -94,6 +97,15 @@ export function Step7Output({ bundle }: { bundle: Record<string, unknown> }) {
     <div className="flex flex-col gap-3">
       <Badge variant="outline">overall_tag: {String(derived.overall_tag ?? "inconclusive")}</Badge>
       <MeasuresExplainer />
+      <div className="flex flex-col gap-1">
+        <p className="text-xs text-muted-foreground">
+          Forest plot -- each track's own t-stat against HXZ's tiered significance thresholds (docs/step7-8.md Q7/Q8)
+        </p>
+        <ForestPlot
+          tracks={derived.tracks as Record<string, { vs_paper?: Record<string, unknown> }>}
+          baselineTrack={baselineTrack}
+        />
+      </div>
       {showGapWaterfall && <GapWaterfallChart gapDecomposition={bundle.gap_decomposition as Record<string, unknown>} />}
       {shapleyLines.map(([line, shapley]) => (
         <div key={line} className="flex flex-col gap-2 rounded-md border border-border p-2">
@@ -146,6 +158,12 @@ export function Step7Output({ bundle }: { bundle: Record<string, unknown> }) {
                 baselineTrack={baselineTrack}
               />
             </div>
+          </div>
+          <div className="flex flex-col gap-1">
+            <p className="text-xs text-muted-foreground">
+              Config diff heatmap -- track × changed key, colored by pipeline stage (docs/step7-8.md Q8)
+            </p>
+            <ConfigDiffHeatmap pairs={configDiff.pairs} />
           </div>
           <div className="flex flex-wrap items-center gap-x-3 gap-y-1 rounded-md border border-border p-2 text-xs">
             <span className="text-muted-foreground">Compare against {baselineTrack}:</span>

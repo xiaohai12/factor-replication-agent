@@ -2,6 +2,640 @@
 
 ## [Unreleased]
 
+### frontend: restyle Step8Output for visual clarity, no behavior/data change (2026-08-18)
+
+Pure UI polish on `frontend/src/components/steps/Step8Output.tsx` (no schema
+or backend change): summary cards now use the shared `Card`/`CardHeader`/
+`CardTitle`/`CardContent` components instead of plain bordered `<div>`s, with
+a colored left-border accent + small-caps eyebrow label distinguishing the
+core `to_cz` comparison from the supporting `to_hxz` one and the vs-paper
+card; `overall_tag`/per-card verdict badges are color-coded (emerald for
+`close_replication`, destructive-red for `sign_mismatch`, amber for
+`sign_agrees_magnitude_differs`) instead of one flat outline badge; detail
+bullets use a subtler dot marker with a `Separator` before the footnote
+instead of a plain `<ul>`; the top-level Summary `<details>` wrapper (never
+useful now that Findings is gone -- Summary is the only content) was
+removed so the cards are always visible without an extra click; the
+rejected-claims audit box got a light destructive tint and a visible count
+in its `<summary>`. `npx tsc --noEmit` and `npx oxlint` on the file both
+clean.
+
+### step8: remove the entire "## Findings" per-analysis_stage claims listing; only the Summary section is rendered now (docs/step7-8.md Part XV §15.3) (2026-08-18)
+
+Follow-up to the previous round (which only folded `per_switch`/`joint_gate`
+claim evidence into Summary's `details`): user pointed out `## Findings`
+still rendered `vs_paper`/`auxiliary`/unstaged claims as their own
+collapsible sections too ("not only two stage sections, all sections except
+summary"). Since `SummaryCard`/`VsPaperCard` are built directly from the
+bundle (Part XI), not from claims, Findings never carried information
+Summary structurally couldn't -- so it's dropped entirely, not just two of
+its five stages.
+
+`src/steps/step8_diagnosis/render.py`: `render_markdown` no longer emits
+`## Findings` at all; removed the now-dead `_STAGE_ORDER`/`_STAGE_HEADINGS`/
+`_CLAIM_TYPE_HEADINGS`/`_FINDINGS_HIDDEN_STAGES` constants that only served
+that loop. `frontend/src/components/steps/Step8Output.tsx`: removed the
+per-stage `<details>` blocks, the `unstaged`/"Other" block, the now-unused
+`ClaimCard` component, and the `DiagnosisClaim`/`STAGE_ORDER`/
+`STAGE_LABELS`/`LINE_LABELS`/`lineLabel` symbols that only fed it. The page
+now shows exactly two things: **Summary** (unchanged) and **Rejected claims
+(audit)** (kept -- a validation-failure audit trail, not a duplicate of
+already-accepted evidence, out of scope for this request).
+
+`report.claims`/`report_to_jsonable`'s `rendered_sentence` field are
+unchanged -- `diagnosis.json` (the API response) still carries the full
+claims list with each one's deterministic sentence, for citation/audit by
+other consumers; only the UI/markdown rendering of it is gone.
+`deterministic_sentence`/`_RELATION_TEMPLATES` (the claim-to-sentence
+generator) are unchanged and still used by `report_to_jsonable` -- tests
+that previously asserted claim sentences via `render_markdown`
+(`test_figures_come_from_the_bundle_and_sentence_from_the_relation`,
+`test_part_viii_claim_types_render_switch_and_line_into_the_sentence`) now
+call `deterministic_sentence(claim, evidence)` directly instead.
+
+`tests/test_replication_diagnosis.py` 122 passed; broader diagnosis/step8/
+replication_diff/attribution suite 156 passed, zero regressions; frontend
+`npx tsc --noEmit` and `npx oxlint` on the edited file both clean.
+
+### step8: translate raw config VALUES (not just the setting name) into plain language, and fold per-switch/joint-gate claim evidence into the summary prose instead of a separate section (docs/step7-8.md Part XV) (2026-08-18)
+
+Two follow-up requests on the same narrative:
+
+1. `CONFIG_KEY_LABELS` already explains what a setting IS in plain English
+   (e.g. "whether bigger companies count for more..."), but the actual
+   VALUE on each side of the comparison was still the raw menu token
+   (`"vw"`/`"ew"`) via `_readable_value`'s `str(value)` fallback. New
+   `_VALUE_LABELS: dict[key, dict[raw_value, plain_label]]` in
+   `src/steps/step8_diagnosis/summary.py` translates menu-governed keys'
+   actual values (`weighting_rule`/`breakpoint_source`/`missing_action`/
+   `return_combination_type`, menu per `src/steps/step3_codegen/
+   registry.py`'s `STANDARD`) into plain terms (`"vw"` -> "value-weighted",
+   `"ew"` -> "equal-weighted", etc). New `_quantile_label` for
+   `breakpoint_quantiles` (a raw group count -> e.g. "10 groups
+   (deciles)") and month-unit formatting for `accounting_lag_months`/
+   `formation_lag_months` (`6` -> "6 months"). Falls back to `str(value)`
+   only for keys/values not yet in the table (never crashes).
+
+2. `DiagnosisSummary.per_switch_summary`/`joint_supported`/`dominant_
+   switches` (LLM-claim-derived, Part IX) were rendered in `render.py`/
+   `Step8Output.tsx` as their own separate lines/badges alongside the
+   bundle-derived `headline`/`details` (Part XI+), duplicating similar
+   information in two places. New `_fold_claim_evidence_into_details` in
+   `summary.py` appends these as extra prose bullets onto the SAME
+   `details` list (e.g. "LLM-reviewed per-setting significance: ...",
+   "LLM-reviewed joint-significance conclusion: supported by the data.",
+   "LLM flagged as dominant driver(s): ..."), one bullet per non-empty
+   field. The three `DiagnosisSummary` fields themselves are unchanged
+   (still populated, still returned by the API, still usable for
+   evidence_keys/citation) -- only the separate rendering is removed:
+   `render.py`'s `_summary_section` no longer emits the old "Per-switch
+   significance:"/"Joint test:"/"Dominant switches:" markdown lines, and
+   `Step8Output.tsx`'s `SummaryCard` drops the corresponding badge/
+   paragraphs.
+
+Updated `test_findings_are_grouped_by_analysis_stage_and_summary_section_
+is_rendered` to assert the new folded-in prose instead of the old separate
+lines. `tests/test_replication_diagnosis.py` 121 passed; broader
+diagnosis/step8/replication_diff/attribution suite 155 passed, zero
+regressions; frontend `npx tsc --noEmit` and `npx oxlint` on the edited
+file both clean.
+
+### step7/step8: universe-filter descriptions now come from the MethodSpec's own extracted text, not a hardcoded lookup table (docs/step7-8.md Part XIII §13.5) (2026-08-18)
+
+User pushback on the previous round's `_KNOWN_FILTER_DESCRIPTIONS` table: a
+hardcoded per-`(field, op, value)` lookup can never enumerate every future
+paper's own universe-filter choices. Fix: the paper's own natural-language
+universe description is already extracted at Step1 into `spec.paper.
+universe.description` (a `SourcedValue[str]`, with its own paper-quote
+evidence) -- this generalizes to any paper automatically, no lookup table
+needed. New `build_universe_description(spec)` in `src/steps/step7_
+replication_diff/bundle.py` (same pattern as `build_spec_quality`/
+`build_menu_deviations`), wired into `build_evidence_bundle` as a new
+top-level `universe_description` bundle key; `src/steps/step5_backtest_
+runner/__init__.py` already calls `build_evidence_bundle(..., spec=spec,
+...)` with a real resolved spec, so this populates automatically in the
+real pipeline (does NOT depend on the separate, still-unfixed "`resolved_
+spec` never passed to step8's `diagnose()`" gap -- that only affects the
+opt_in `field_evidence_detail` tool).
+
+`summary.py`'s new `_universe_filters_clause(bundle, detail, ours)`: OUR
+side prefers `bundle["universe_description"]["text"]` (quotes the paper
+verbatim: 'the paper describes its universe as: "..."'); C&Z's side is now
+a **fixed constant** `_CZ_HOUSE_UNIVERSE_DESCRIPTION` instead of a lookup
+too -- it never varies per paper (`cz_profile_to_config_override` always
+sets the same `shrcd`/`exchcd` filter for every C&Z factor), so a static
+description is the correct design, not something that needs to scale.
+`_KNOWN_FILTER_DESCRIPTIONS`/`_readable_filter` from the previous round are
+now an explicitly-documented FALLBACK ONLY, used when no resolved spec was
+supplied to `build_evidence_bundle`.
+
+Verified against the real extracted AssetGrowth paper text (not invented):
+"the paper describes its universe as: \"We use all NYSE, Amex, and NASDAQ
+nonfinancial firms (excluding firms with four-digit SIC codes between 6000
+and 6999) listed on the CRSP monthly stock return files and the Compustat
+annual industrial files\"". New `TestUniverseDescription` (bundle-level,
+2 cases) + `test_universe_filters_prefers_the_papers_own_extracted_
+description` (summary-level, confirms the paper's own text wins over the
+fallback decoder while C&Z's side stays the fixed description either way).
+`tests/test_replication_diagnosis.py` 121 passed; broader diagnosis/step8/
+replication_diff/attribution suite 155 passed, zero regressions.
+
+### step8: plain-language explanations for a total layperson + a real grammar bug fix (docs/step7-8.md Part XIII) (2026-08-18)
+
+User feedback: even after Part XI's readable labels, someone with no
+finance background still can't tell what "lag" means or what `siccd not
+between 6000-6999` means. `CONFIG_KEY_LABELS` rewritten to explain what a
+setting DOES and WHY it exists, not just restate the technical name in
+English -- e.g. `formation_lag_months` was "the lag between signal
+formation and portfolio start", now "how long after picking which stocks go
+in a portfolio before that portfolio actually starts trading (a safety
+delay so the strategy can't accidentally use information before it was
+realistically available)". New `_KNOWN_FILTER_DESCRIPTIONS`: an exact
+`(field, op, value)` lookup table translating the small, fixed set of
+universe-filter code combinations this codebase actually produces into full
+sentences (`siccd not_between (6000, 6999)` -> "excludes financial
+companies such as banks, insurers, and real estate firms"; `shrcd in (10,
+11, 12)` -> "includes only ordinary common shares"; `exchcd in (1, 2, 3)`
+-> "includes only stocks listed on the NYSE, AMEX, or Nasdaq exchanges") --
+deliberately NOT a general SIC/CRSP-code decoder, just this project's known
+combinations; anything unmatched falls back to a generic-but-still-readable
+`_readable_field`/`_OP_LABELS` phrasing rather than a raw code.
+
+Also fixed a real grammar bug caught while verifying against the real
+bundle: `universe_filters`' readable value is already a full verb clause
+("excludes financial companies..."), so the generic "we use {value}, C&Z
+uses {value}" template produced broken English ("we use excludes financial
+companies..."). New `_CLAUSE_VALUED_KEYS`/`_value_clause` special-cases
+clause-valued keys to "our version {clause}"/"C&Z's version {clause}"
+instead; multiple filter descriptions now join with "and" instead of ";" so
+they read as one sentence. Also replaced `str.capitalize()` (which
+lowercases the rest of the string, risking mangling a future embedded
+acronym like "NYSE") with a new `_sentence_case` helper that only
+uppercases the first character.
+
+Verified against the real AssetGrowth bundle -- now reads: "Which stocks
+are allowed into consideration at all: our version excludes financial
+companies such as banks, insurers, and real estate firms (identified by
+SIC industry codes 6000-6999), C&Z's version includes only ordinary common
+shares (not REITs, ADRs, or other special share types) and includes only
+stocks listed on the NYSE, AMEX, or Nasdaq exchanges -- ...". 5 test
+assertions updated for the new wording. `tests/test_replication_
+diagnosis.py` 118 passed; broader suite 152 passed, zero regressions.
+
+### frontend: fixed a step8 page crash on old persisted `diagnosis.json` (2026-08-18)
+
+Old sessions' `diagnosis.json` (generated before Part XII's schema change)
+have `summary` entries in the OLD shape (`narrative`/`caveats`, no
+`details`/`headline`/`footnote`). `Step8Output.tsx`'s `SummaryCard`/
+`VsPaperCard` read `summary.details.length` unconditionally, so opening an
+old session's step8 page crashed the whole page with `Cannot read
+properties of undefined (reading 'length')`. Fixed with `summary.details ??
+[]` defaults in both components -- never assume a persisted artifact
+matches the CURRENT schema version. `npx tsc --noEmit`/`npx oxlint` clean.
+
+### step8: `DiagnosisSummary`/`VsPaperSummary` restructured into `headline`/`details`/`footnote` (docs/step7-8.md Part XII) (2026-08-18)
+
+User feedback on Part XI: the single `narrative` string read as one long
+run-on paragraph with the conclusion buried at the end, and no separate "vs.
+C&Z"/"vs. HXZ" card title should be needed if the headline names its own
+comparison target. Schema change: `DiagnosisSummary.narrative`/`.caveats`
+removed, replaced with `headline: str` (one-sentence bottom line, always
+shown first, self-descriptive -- "Compared with C&Z's independent
+replication of this paper, ..."), `details: list[str]` (one bullet per
+supporting point, decreasing importance, never merged into one paragraph),
+`footnote: str` (de-emphasized technical caveat, e.g. joint-test
+availability). `per_switch_summary`/`joint_supported`/`dominant_switches`
+kept unchanged (structured data for frontend badges, not prose duplicating
+`details`). New `VsPaperSummary` model (`headline`/`details`/`footnote`,
+same layout) replaces `ReplicationDiagnosisReport.vs_paper_narrative: str`
+as `vs_paper_summary: VsPaperSummary`.
+
+`summary.py`: `_build_cz_narrative`/`_build_sensitivity_narrative` ->
+`_build_cz_summary`/`_build_sensitivity_summary`, now returning `(headline,
+details, footnote)` tuples instead of one string; `build_vs_paper_narrative`
+-> `build_vs_paper_summary`, returning `VsPaperSummary`. Also fixed the
+readability gap flagged in the same round: `formation_lag_months`/
+`cz_actual_config`-style raw identifiers no longer appear anywhere in
+reader-facing text -- new `CONFIG_KEY_LABELS`/`TRACK_LABELS` maps (every key/
+track the narrative can mention -> a human-readable phrase, with a generic
+underscore->space fallback for anything unlisted) and a `_readable_value`
+formatter specifically for `universe_filters` (was an unreadable Python
+list-of-dicts repr, now renders as e.g. "siccd not between 6000-6999").
+
+Verified against the real AssetGrowth bundle
+(`runs/backtest_scripts/results/099f6e1136bd316c/comparison.json`): e.g.
+`to_cz.headline` = "Compared with C&Z's independent replication of this
+paper, the only differences are explained by paper ambiguity or C&Z's own
+conventions, and none has a statistically significant effect." --
+`to_cz.details` lists the two house-convention divergences
+(`formation_lag_months`/`universe_filters`) each with their own effect size/
+significance and the HXZ-line cross-callout, `to_cz.footnote` notes the
+joint test is unavailable (only one setting has paired-test evidence).
+
+`render.py::_summary_section` rewritten for the inverted-pyramid layout (bold
+headline first, `details` as a bullet list, `footnote` italicized last) --
+no more "### vs. X" line-label heading. `frontend/src/components/steps/
+Step8Output.tsx`: `SummaryCard`/new `VsPaperCard` render the same layout;
+`Step8Output.tsx`'s own `LINE_LABELS` map is now only used for `ClaimCard`
+badges (a claim still names a specific track/line), not for summary titles.
+
+Updated ~10 existing test assertions across `TestCzNarrative` ->
+`TestCzNarrative` (kept name, updated bodies), `TestSensitivityNarrative` ->
+`TestSensitivitySummary`, `TestVsPaperNarrative` -> `TestVsPaperSummary` for
+the new field names; added `test_joint_test_not_significant_is_reflected_in_
+the_headline` (the "lacks joint support" caveat that used to live in a
+separate `.caveats` list now lives in the headline itself, phrased as
+"though a joint test does not confirm this"). `tests/test_replication_
+diagnosis.py` 118 passed; broader diagnosis/step8/replication_diff/
+attribution suite 152 passed, zero regressions. Frontend `npx tsc --noEmit`/
+`npx tsc -b`/`npx oxlint` all clean.
+
+### step8: narrative text no longer exposes raw config-key/track-name identifiers (docs/step7-8.md Part XI readability follow-up) (2026-08-18)
+
+User feedback: `formation_lag_months`/`cz_actual_config`-style raw
+identifiers showing up in the narrative aren't readable. New
+`src/steps/step8_diagnosis/summary.py::CONFIG_KEY_LABELS`/`TRACK_LABELS`
+(every config key and track name Part XI's narrative can mention now maps to
+a human-readable phrase, e.g. `formation_lag_months` -> "the lag between
+signal formation and portfolio start", `cz_actual_config` -> "C&Z's own
+independent replication"; `_readable_key`/`_readable_track` fall back to a
+generic underscore->space humanization for anything not yet listed, so an
+unlisted key degrades gracefully instead of crashing) and a new
+`_readable_value` for `universe_filters` specifically (was printing as an
+unreadable Python list-of-dicts repr, e.g. `[{'field': 'siccd', 'op':
+'not_between', 'value': [6000, 6999]}]`; now renders as "siccd not between
+6000-6999"). Updated `_build_cz_narrative`/`_build_sensitivity_narrative`/
+`build_vs_paper_narrative` to use these everywhere a raw key/track name
+previously appeared in backticks. Verified against the real AssetGrowth
+bundle: the narrative now reads e.g. "On the lag between signal formation
+and portfolio start (we use 0, C&Z uses 1), ..." instead of "On
+`formation_lag_months` (our value 0 vs C&Z's 1), ...". 2 existing test
+assertions updated to check for the readable phrase (and the ABSENCE of the
+raw identifier) instead of the raw key. `tests/test_replication_
+diagnosis.py` 117 passed; broader suite 151 passed, zero regressions.
+
+### frontend: hide the raw request-JSON textarea for step8, bump Step8Output prose to `text-sm` (2026-08-18)
+
+`SessionDetailPage.tsx`'s step3-8 request editor now also excludes step 8
+(`step !== 8` added alongside the existing 3/4/5/6/7 exclusions) -- step 8's
+request body (`expected_revision`/`llm_provider`/`llm_model`) is already
+fully auto-managed (the sidebar's single provider/model picker + the
+existing auto-revision-fill effect), so showing/editing it as raw JSON was
+unnecessary clutter; `requestText` state itself is untouched (still
+populated by the existing auto-fill effect), so the "Run" button's
+`JSON.parse(requestText)` flow is unaffected. `Step8Output.tsx`: the
+narrative/rendered-sentence paragraphs (the actual read content) bumped from
+`text-xs` to `text-sm`; badges/metadata stay `text-xs` to keep the visual
+hierarchy. `npx tsc --noEmit`/`npx tsc -b`/`npx oxlint` all clean.
+
+### step8: redesigned deterministic summary as a cross-referenced narrative, `to_cz`-first (docs/step7-8.md Part XI) (2026-08-17)
+
+User feedback on Part IX's layered summary: didn't like the "①→②/①→③"
+labelling, and the content felt shallow. Three changes: (1) dropped the
+arrow-circled-number label prefix everywhere (`render.py`/
+`Step7Output.tsx`/`Step8Output.tsx`'s line-label maps now show only
+`"vs. HXZ standardized config"`/`"vs. C&Z actual config"`; claim sentence
+templates changed "On comparison line {line}" -> "On the {line} line" to
+avoid "line vs. line" phrasing); (2) reader-facing copy says "choice"
+instead of "switch" (internal field/variable names unchanged -- too broad a
+rename for too little benefit); (3) **reordered priority to match AGENTS.md's
+actual research question** -- inter-implementer agreement (agent vs C&Z,
+`to_cz`) is the core question, HXZ standardization (`to_hxz`) is supporting
+sensitivity context, not a peer comparison; `to_cz` now always sorts first
+(`_summary_line_priority`/frontend `summaryLinePriority`) with proportionally
+more analytical depth.
+
+Core new piece: `DiagnosisSummary.narrative` (per line) +
+`ReplicationDiagnosisReport.vs_paper_narrative` (report-level), built by new
+functions in `src/steps/step8_diagnosis/summary.py` -- **generated directly
+from `bundle`, independent of whatever claims the LLM produced** (module
+docstring updated: this is MORE deterministic than the claim-based fields,
+not less, since it's pure step7 arithmetic with zero LLM involvement).
+`_build_cz_narrative` (the primary narrative): for every config key that
+differs between baseline and `cz_actual_config`, classifies WHY via
+`_divergence_reason` into `house_convention` (the key is one of
+`CZ_HOUSE_CONVENTION_KEYS` -- `weighting_rule`/`breakpoint_quantiles`/
+`breakpoint_source`/`accounting_lag_months`/`missing_action`/
+`formation_lag_months`/`universe_filters`, the set `cz_profile_to_config_
+override` unconditionally overrides for every C&Z factor, a structural fact
+independent of any one paper) / `paper_ambiguous` (flagged weak in
+`spec_quality`) / `unresolved` (neither -- an honest fallback, deliberately
+NOT claiming to know it's an implementation error), plus that key's own
+paired-test effect size/significance and a cross-line callout (does the same
+choice's single-choice track on the `to_hxz` line survive post-publication
+decay, echoing Part VII example 6), closing with an explicit
+reproducibility-framing sentence. `_build_sensitivity_narrative` (supporting,
+for `to_hxz`): total gap + joint-test gate + per-choice Shapley share/
+significance, explicitly labelled "sensitivity context, not itself the
+reproducibility question" to avoid it reading as equally important.
+`build_vs_paper_narrative`: baseline-vs-paper sign/magnitude comparison plus
+the honest caveat that config fields the paper never specified at all
+(`menu_deviations.clamped_by_track`, filtered to `paper_value in (None,
+"unspecified")`) may account for part of any magnitude gap -- verified
+against the real AssetGrowth bundle: `original_method` itself has 2 such
+fields (`accounting_lag_months`/`missing_action`), so the 2.11x magnitude
+ratio can't be entirely attributed to implementation choices.
+
+Verified against the REAL `runs/backtest_scripts/results/099f6e1136bd316c/
+comparison.json` (not synthetic) -- and this run surfaced a genuine finding
+neither of us had manually checked: `formation_lag_months` (0 vs 1) is ALSO a
+`house_convention` divergence between `original_method` and
+`cz_actual_config`, alongside the already-discussed `universe_filters`.
+
+New tests: `TestCzNarrative` (6), `TestSensitivityNarrative` (2),
+`TestVsPaperNarrative` (3), plus 2 pre-existing tests updated for an
+intentional behavior change (line summaries now surface whenever `bundle`
+has real evidence for that line, not only when the LLM happened to produce a
+matching claim -- `to_cz` in particular must never go missing just because
+the LLM said nothing about it, since it's the core research question).
+`tests/test_replication_diagnosis.py` 117 passed; broader diagnosis/step8/
+replication_diff/attribution suite 151 passed, zero regressions. Frontend
+`Step8Output.tsx`: `SummaryCard` now shows `narrative` as its primary content
+(sorted `to_cz` first) plus a new "Vs. paper" card for `vs_paper_narrative`;
+`npx tsc --noEmit`/`npx tsc -b`/`npx oxlint` all clean. Known limitations
+(documented in docs/step7-8.md Part XI §11.4): the config-key-to-MethodSpec-
+field matching for `paper_ambiguous` is a substring heuristic, not an exact
+mapping; `CZ_HOUSE_CONVENTION_KEYS` is a hardcoded constant that must be
+kept in sync by hand if `cz_profile_to_config_override`'s own override set
+ever changes; the frontend renders `narrative` as plain text with no extra
+formatting yet.
+
+### frontend: Q8 `ForestPlot` + `ConfigDiffHeatmap` (docs/step7-8.md Q8) (2026-08-17)
+
+Two of Q8's four visualization candidates implemented (the two flagged as
+lowest-effort/no-new-computation): `AttributionPanel.tsx::ForestPlot` (one
+row per track, its own `t_stat` as a point, HXZ's 3 tiered thresholds
+(`1.96/2.78/3.39`, Q7) as +/- dashed reference lines, sorted by `|t_stat|`
+descending -- reads only `derived.tracks[*].vs_paper.track_raw_t_stat`/
+`track_significance_tier`, zero new backend calls) and
+`AttributionPanel.tsx::ConfigDiffHeatmap` (track x changed-config-key matrix,
+cell color keyed to that key's own pipeline `stage` via `STAGE_COLORS`, hover
+title shows `baseline_value -> track_value` -- a direct re-render of
+`config_diff.pairs`, no new computation). Both wired into `Step7Output.tsx`.
+NOT done this round (documented in docs/step7-8.md Q8 with reasons): the
+waterfall chart (Shapley table already covers this need) and the paired-diff
+time-series chart (would require `Step7Output` to gain a `sessionId` prop and
+a new `fetchReturnSeries`-based query per track -- a structural change bigger
+than the other two, deferred as its own task). Verified: `npx tsc --noEmit`,
+`npx tsc -b`, `npx oxlint` all clean on the new/changed files.
+
+### step7: implemented Q5's `t_channel_decomposition` (docs/step7-8.md Q5) (2026-08-17)
+
+New `build_t_channel_decomposition(tracks, baseline)` in
+`src/steps/step7_replication_diff/bundle.py`, wired into
+`build_evidence_bundle` as a new top-level `t_channel_decomposition` key
+(baseline-vs-each, same organization as `build_config_diff` -- NOT grouped by
+switch/comparison-line like Shapley). Exact log-identity decomposition of
+each track's t-stat vs baseline's: `log(t_track) - log(t_baseline) =
+[log(mean_return_track) - log(mean_return_baseline)] - [log(sigma_track) -
+log(sigma_baseline)] + 0.5*[log(n_months_track) - log(n_months_baseline)]`,
+with `sigma` back-solved from `t = mean_return / (sigma / sqrt(n_months))`
+(no new persisted field needed). Non-degenerate output carries `log_t_ratio`/
+`channels.{mean_return,volatility,sample_size}` (sum exactly equals
+`log_t_ratio`, no residual)/`channel_sum_check`/`implied_sigma`. Degenerates
+per-track (to `t_stat_abs_delta` = `|t_track| - |t_baseline|` + a `reason`,
+never a fabricated channel split) more precisely than Q5's original "mu<0"
+framing: requires `mean_return` STRICTLY POSITIVE on BOTH baseline and track
+(not merely same-signed -- an individual `log(negative)` is undefined even
+though the ratio of two negatives would be positive), plus non-null/non-zero
+`t_stat`, positive `n_months`, and sign-consistency between `t_stat` and
+`mean_return` (an inconsistency there would back-solve a negative implied
+volatility). New `TestTChannelDecomposition` (7 cases: exact-identity sum
+check, a pure-n_months-change case isolating the sample_size channel to
+`0.5*log(2)` with the other two channels ~0, negative-baseline-mean_return
+degenerate case, opposite-signed-track degenerate case, missing-metrics
+degenerate case, no-tracks unavailable case, evidence-bundle wiring).
+`tests/test_replication_diagnosis.py` 106 passed, zero regressions. NOT done
+this round (deferred per Q6's own sequencing -- step7 evidence first, step8
+claim contract later): a corresponding step8 `ClaimType` for this evidence
+(the `gap_attribution_shapley`/`switch_significance`/
+`joint_attribution_support` precedent from Part VIII shows the pattern is
+straightforward to replicate when actually needed).
+
+### docs/step7-8.md Part X: multi-factor validation feasibility assessment (2026-08-17, evaluated and deliberately deferred, not executed)
+
+Investigated running a genuinely independent second factor (not AssetGrowth)
+through the full Shapley/paired/joint pipeline. Findings recorded in Part X:
+(1) `src/infra/models/method_spec.py` (v1 MethodSpec) still exists in this
+repo, contradicting an earlier session's memory note claiming full deletion
+-- corrected `/memories/repo/methodspec_schema_notes.md` with a note to
+re-verify via `file_search` rather than trust that note at face value; (2)
+`tests/_spec_test_helpers.py::accruals_resolved_spec()` is a verified v2
+`ResolvedMethodSpec` fixture, but its docstring says it reuses
+`asset_growth_synthetic_data`'s golden numbers -- running it would validate
+the methodology generalizes to a different MethodSpec shape, but would NOT
+be an independent real-data economic result; (3) real WRDS columns needed
+for `gross_profitability`/`book_to_market` exist in `data/local/`, but their
+only fixtures are old v1-schema JSON, requiring a from-scratch v2
+`ResolvedMethodSpec` build (mirroring `asset_growth_resolved_spec()`) before
+any real run. Decision: deliberately NOT attempted this round -- recorded a
+concrete 5-step follow-up plan (pick `gross_profitability`, build its v2
+spec, check for a `GP` CZReferenceProfile/SignalDoc entry, run a real
+`MultiTrackController` factorial batch, repeat Part VII's verify-before-write
+process) as its own future session's task rather than risk generating
+plausible-looking but unverified second-factor numbers under time pressure.
+
+### step8/frontend: `rendered_sentence` per claim closes the "frontend shows raw LLM text" gap (2026-08-17)
+
+Follow-up to the previous round's known limitation. New
+`render.py::report_to_jsonable(report, bundle)`: same as `report.model_dump()`
+but splices `deterministic_sentence(claim, evidence)` into each claim as
+`rendered_sentence` -- the identical sentence `diagnosis.md` shows, now
+reaching JSON consumers too, so the frontend never has to duplicate
+`_RELATION_TEMPLATES`' wording logic (and risk drifting from it).
+`write_diagnosis` now writes this augmented dict to `diagnosis.json` (what
+`GET .../steps/8/diagnosis` serves) instead of the bare `report.model_dump()`;
+`backend/routers/diagnosis.py`'s POST handler's job-result `"report"` key
+switched from the generic `to_jsonable(report)` to the same
+`report_to_jsonable(report, bundle)` for consistency between the two response
+paths (removed the now-unused `to_jsonable` import).
+`frontend/src/components/steps/Step8Output.tsx`'s `ClaimCard` now shows
+`rendered_sentence` as the primary line and only shows the LLM's own `text`
+as a secondary "model wording (not authoritative)" aside when it differs --
+mirrors `render.py`'s own dedup logic exactly. New backend tests
+`TestReportToJsonable` (3 cases: sentence matches `render_markdown`'s own
+template output, survives a JSON round-trip, empty-claims batch doesn't
+crash). `tests/test_replication_diagnosis.py` 99 passed; broader diagnosis/
+step8/replication_diff/attribution suite 133 passed; the existing
+`TestStep8Diagnosis` API integration tests (which exercise the real POST/GET
+endpoints end-to-end) also green. Frontend: `npx tsc --noEmit` / `npx oxlint`
+both clean.
+
+### frontend: layered step8 UI (`Step8Output.tsx`), closing Part IX §9.4 (2026-08-17)
+
+New `frontend/src/components/steps/Step8Output.tsx`, wired into
+`StepOutputView.tsx` in place of the old flat `claim.text`-only list. A
+deterministic `## Summary`-equivalent section (expanded `<details>` by
+default, one `SummaryCard` per `report.summary` entry: comparison-line label,
+`overall_tag`, per-switch significance, joint-test supported/not-supported
+badge, dominant switches, caveats) sits above four collapsible `<details>`
+sections in Part IX's dependency order (`per_switch` -> `joint_gate` ->
+`vs_paper` -> `auxiliary`, plus a final "Other" section for claims with no
+`analysis_stage`, e.g. the old OAT-only `gap_attribution` type). Each
+`ClaimCard` shows `claim_type`/`relation`/`subject_track`/`comparison_line`/
+`identification_level`/`evidence_strength` as badges and visually dims
+(opacity) when `evidence_strength === "low"` -- reads the field Part VIII
+already computes (e.g. the joint-test gate capping a Shapley claim), no
+threshold logic re-derived in the frontend. Rejected-claims audit trail kept
+unchanged at the bottom. Known limitation, called out in the component's own
+comment: `claim.text` shown per claim is the LLM's raw prose, NOT the
+deterministic sentence `render.py::deterministic_sentence` generates for
+`diagnosis.md` -- that renderer's logic isn't exposed by the `GET .../steps/
+8/diagnosis` endpoint (which returns the raw `ReplicationDiagnosisReport`
+JSON, not rendered markdown), so reproducing it in TypeScript was left out of
+scope this round rather than half-duplicated and risking drift from the
+Python source of truth. Verified: `npx tsc --noEmit` / `npx tsc -b` both
+clean, `npx oxlint` clean on the new/changed files.
+
+### step8: implemented Part IX's backend (analysis_stage taxonomy + deterministic `DiagnosisSummary` rollup + stage-grouped rendering) (2026-08-17)
+
+Backend half of Part IX's layered-analysis design (scheme B / summary option
+1, confirmed earlier). `src/infra/models/diagnosis.py`: new
+`AnalysisStage = Literal["per_switch", "joint_gate", "vs_paper", "auxiliary"]`
++ `ANALYSIS_STAGE_BY_CLAIM_TYPE` static map (`gap_attribution` -- the old
+OAT-only type -- deliberately maps to nothing, stays `None`/"unstaged"),
+`DiagnosisClaim.analysis_stage` field, new `DiagnosisSummary` model, and
+`ReplicationDiagnosisReport.summary: list[DiagnosisSummary]`. New
+`src/steps/step8_diagnosis/summary.py::build_deterministic_summary`: pure
+function over already-*validated* claims (never re-reads raw bundle evidence
+beyond `derived.overall_tag`, copied, and `shapley_attribution` magnitudes for
+sorting `dominant_switches` only) -- one `DiagnosisSummary` per comparison
+line present among the claims (or a single `comparison_line=None` entry when
+no line-scoped claim exists), computing `per_switch_summary`/`joint_supported`
+(`None` when not tested, distinct from `False`)/`dominant_switches` (Shapley
+claims NOT capped to `evidence_strength="low"` by the Part VIII joint-test
+gate, sorted by the switch's own Shapley magnitude)/fixed-template `caveats`.
+Wired into `ReplicationDiagnoser.diagnose()` (`report.summary =
+build_deterministic_summary(accepted, bundle)`) and `_derive_claim_fields`
+(`analysis_stage` derived by static lookup, same pattern as `reason_layer`).
+`render.py`: `## Findings` now groups by `analysis_stage` (dependency order:
+per_switch -> joint_gate -> vs_paper -> auxiliary -> unstaged) before
+`claim_type`, and a new `## Summary` section (rendered from `report.summary`,
+above Findings) -- also fixed a latent local-variable name collision (`stage`
+was reused for both the outer analysis-stage loop and each claim's own
+pipeline `.stage`, e.g. "portfolio"; renamed the inner one to `claim_stage`).
+New tests: `TestValidateClaimsPartVIIITypes` (+2 `analysis_stage` cases),
+`TestBuildDeterministicSummary` (6 cases), `TestDiagnoseWiresSummary` (1),
+`TestRenderMarkdown` (+1, stage-ordering/Summary-section assertions).
+`tests/test_replication_diagnosis.py` 96 passed; broader diagnosis/step8/
+replication_diff/attribution suite 130 passed, zero regressions. Backend-only
+API changes are transparent (`backend/serialization.py::to_jsonable` uses
+`model_dump(mode="json")` generically, so `report.summary` reaches the
+frontend automatically). NOT done this round (Part IX §9.4, explicitly a
+separate follow-up): the layered/collapsible `StepOutputView.tsx` step8 UI --
+the frontend still only renders `claim.text` in a flat list and doesn't yet
+read `analysis_stage`/`comparison_line`/`evidence_strength`/`report.summary`
+at all.
+
+### `render.py`: deterministic sentence templates for Part VIII's 3 new claim types (2026-08-17)
+
+Closes the gap flagged right after Part VIII landed: claims of type
+`gap_attribution_shapley`/`switch_significance`/`joint_attribution_support`
+validated correctly but rendered as the generic `"claim_type: relation"`
+fallback (no switch name, no comparison line, no real sentence). Added
+`_RELATION_TEMPLATES` entries for all three, a `_LINE_LABELS` map (`to_hxz`
+-> "①→③ (HXZ standardized config)", `to_cz` -> "①→② (C&Z actual config)",
+matching the frontend's existing labelling) feeding a new `{line}` template
+placeholder, `_per_switch_subject` (extracts the switch name from a
+`paired_tests.<line>.per_switch.<switch>.t_stat` key, mirroring
+`_switch_subject`'s existing `.contributions.`/now also `.shapley_effects.`
+handling). `deterministic_sentence` passes `line=_line_label(claim.
+comparison_line)` for every claim type now (a no-op extra `format()` kwarg
+for templates that don't reference `{line}`). New test
+`TestRenderMarkdown::test_part_viii_claim_types_render_switch_and_line_into_the_sentence`.
+Full `tests/test_replication_diagnosis.py` 86 passed, zero regressions.
+
+### step8: implemented Part VIII's 3 new claim types (`gap_attribution_shapley`/`switch_significance`/`joint_attribution_support`) + `comparison_line` field (2026-08-17)
+
+Turns the Part VIII design into code -- step8 can now cite `shapley_attribution`/
+`paired_tests`/`joint_test` (previously unreachable). `src/infra/models/
+diagnosis.py`: added the 3 `ClaimType` values + their `CLAIM_RELATIONS`/
+`CLAIM_EVIDENCE_REQUIREMENTS`/`CLAIM_EVIDENCE_SUBSTRINGS`/
+`REASON_LAYER_BY_CLAIM_TYPE`/`IDENTIFICATION_BY_CLAIM_TYPE` entries, and
+`DiagnosisClaim.comparison_line: Literal["to_hxz", "to_cz"] | None` (mirrors
+`subject_track`'s derivation/validation pattern, needed since these three
+bundle sections are nested by comparison line). `src/steps/step8_diagnosis/
+__init__.py`: `_cited_lines`/`_comparison_line_reason` (mirror `_cited_tracks`/
+`_subject_track_reason`), 3 new entailment branches in `_entailment_reason`
+(inline threshold checks reusing `bundle.SIGNIFICANCE_T_THRESHOLD` for
+`switch_significance` and a new `JOINT_TEST_ALPHA = 0.05` module constant for
+`joint_attribution_support` -- deliberately NOT Q7's 3-tier thresholds, which
+are scoped to track-vs-paper only), `comparison_line` derivation in
+`_derive_claim_fields`, and the Part VIII §8.4 joint-test gate: a
+`gap_attribution_shapley` claim's `evidence_strength` is forced to `"low"`
+when the same line's `joint_test.p_value >= JOINT_TEST_ALPHA` even though its
+`identification_level` stays `"controlled"` (the grid is still complete --
+only the reported strength is capped). Added `SHAPLEY_ATTRIBUTION_TOOL`/
+`PAIRED_TESTS_TOOL`/`JOINT_TEST_TOOL` to `STEP8_TOOLS`. `prompts/analysis/
+replication_diagnosis.md` updated with the 3 new claim types' evidence
+requirements and a `comparison_line` explanation. New tests in
+`tests/test_replication_diagnosis.py::TestValidateClaimsPartVIIITypes` (11
+cases: accept/reject per new type, the joint-test-gate evidence_strength cap,
+and comparison_line auto-derivation/required-on-conflict/mismatch-rejection).
+Full `tests/test_replication_diagnosis.py` 85 passed; broader
+diagnosis/step8/replication_diff/attribution-related suite 119 passed, zero
+regressions. Not done this round (per Part VIII/IX's own explicit scope):
+`render.py` templates for the 3 new claim types, and all of Part IX's layered
+UI/summary work.
+
+### `docs/step7-8.md` Part IX: step8 layered analysis + deterministic summary design (round 2, after Part VIII) (2026-08-17)
+
+Design only, no code changed. User confirmed: layering scheme B (dependency-
+ordered stages -- `per_switch` (`switch_significance`/`gap_attribution_
+shapley`) -> `joint_gate` (`joint_attribution_support`) -> `vs_paper`
+(`sign_agreement`/`magnitude_gap`/`significance`/`config_divergence`) ->
+`auxiliary` (`publication_decay`/`signal_reproducibility`/
+`implementation_robustness`/`evidence_limitation`), NOT the existing 3-value
+`ReasonLayer`, which stays unchanged and orthogonal); summary option 1
+(a deterministic rollup over already-validated claims via a new
+`build_deterministic_summary` function, NOT a second LLM-authored free-text
+layer -- no new trust surface, no re-reading of raw bundle keys); and
+explicit two-round sequencing (Part VIII's new claim types land first, this
+layering/rendering work is a separate follow-up round). New `DiagnosisClaim.
+analysis_stage` field (static claim_type lookup, mirrors `reason_layer`'s
+derivation), new `DiagnosisSummary`/`ReplicationDiagnosisReport.summary`,
+`render.py` grouping by stage instead of flat claim_type, and a layered/
+collapsible `StepOutputView.tsx` step8 UI (summary expanded on top, 4
+collapsible stage sections below, `evidence_strength=low` visually
+de-emphasized using the field Part VIII already computes -- no new
+threshold logic in the frontend).
+
+### `docs/step7-8.md` Part VIII: step8 claim-contract extension design for `shapley_attribution`/`paired_tests`/`joint_test` (Q6 follow-up) (2026-08-17)
+
+Design only, no code changed. Specifies 3 new `ClaimType` values
+(`gap_attribution_shapley`, `switch_significance`, `joint_attribution_support`)
+with their evidence-prefix/substring/relation/reason-layer/identification-level
+entries, a new `DiagnosisClaim.comparison_line` field (mirrors the existing
+`subject_track` derivation pattern, needed since Part VI nests these three
+bundle sections by comparison line `to_hxz`/`to_cz`), entailment logic for
+each (inline threshold checks, same precedent as the existing
+`_n_months_mismatch_reason`), and a joint-test gating rule that caps
+`gap_attribution_shapley`'s `evidence_strength` to `low` when the same line's
+joint test is available but not significant (data-layer equivalent of the
+existing frontend `ShapleyAttributionTable` dim+badge behavior). Explicitly
+out of scope this round: no `publication_decay` claim-type changes needed
+(example 6 already works under the existing contract), no Q3 pairwise-
+interaction or Q5 `t_channel_decomposition` claim types (still pending their
+own step7 design decisions).
+
+### `docs/step7-8.md` Part VII: added example 5 (①→② `to_cz` universe paired-test, AGENTS.md's core inter-implementer-agreement question) and example 6 (`publication_decay`, previously computed but never featured) (2026-08-17)
+
+Both use real numbers already on disk in `runs/backtest_scripts/results/
+099f6e1136bd316c/comparison.json` -- no new code, doc-only. Example 5
+corrects an earlier drafted (never-committed) claim that mis-described
+C&Z's universe filter as including a `ceq > 0` check; the real
+`cz_actual_config` universe is only `shrcd in [10,11,12]` + `exchcd in
+[1,2,3]` (`src/infra/reference/__init__.py::cz_profile_to_config_override`),
+vs the agent's `siccd not_between [6000,6999]` -- the previously-drafted
+`mean_diff`/`t_stat` numbers (+0.000874/month, t=1.78) were themselves real
+(verified against `paired_tests.to_cz.universe`), only the filter
+description was wrong. Example 6 surfaces `publication_decay` for the
+first time in any Part VII example: `factorial_universe` is the only
+single-switch ①→③ track that doesn't decay post-publication, which lines
+up with `universe` also being the one dimension example 5 flags as
+agent/C&Z's sole point of disagreement -- flagged as a pattern worth
+checking across more factors, not yet a generalizable claim.
+
 ### `derived.tracks[*].vs_paper` now compares the paper's own in-sample window, not our full extended history (2026-08-17)
 
 Found while building step7 usage examples: `build_track_vs_paper` (and thus

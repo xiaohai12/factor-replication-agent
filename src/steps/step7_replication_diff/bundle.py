@@ -19,6 +19,7 @@ off.
 
 from __future__ import annotations
 
+import math
 from typing import Any, TYPE_CHECKING
 
 from src.steps.step3_codegen.registry import (
@@ -366,6 +367,24 @@ def build_spec_quality(spec: "ResolvedMethodSpec | None") -> dict[str, Any]:
     return {"available": True, "weak_fields": weak_fields}
 
 
+def build_universe_description(spec: "ResolvedMethodSpec | None") -> dict[str, Any]:
+    """docs/step7-8.md Part XIII: the paper's OWN natural-language universe
+    description (`spec.paper.universe.description`, a `SourcedValue[str]`
+    already extracted -- with its own paper-quote evidence -- by step1).
+
+    Exists so step8 can quote what the paper actually said about its
+    universe instead of us re-deriving a plain-English description from the
+    resolved `universe_filters` config -- a hardcoded per-value lookup table
+    (SIC/share-code/exchange-code combinations) cannot generalize to every
+    future paper's own filter choices, but the paper's own extracted text
+    already does, for any paper, by construction.
+    """
+    if spec is None:
+        return {"available": False, "reason": "no resolved spec supplied"}
+    description = spec.paper.universe.description
+    return {"available": True, "text": description.value}
+
+
 def build_menu_deviations(
     spec: "ResolvedMethodSpec | None", tracks: dict[str, dict]
 ) -> dict[str, Any]:
@@ -533,6 +552,110 @@ def build_robustness_summary(tracks: dict[str, dict]) -> dict[str, Any]:
     }
 
 
+def build_t_channel_decomposition(
+    tracks: dict[str, dict], baseline: str | None = None
+) -> dict[str, Any]:
+    """docs/step7-8.md Q1/Q5: the t-stat's OWN exact-identity decomposition,
+    a companion to `gap_decomposition`/Shapley (which operate on
+    `mean_return`, the only additive quantity) -- NOT an alternative to
+    them, per Q1's decision to keep the two dimensions as separate,
+    unmerged evidence blocks.
+
+    Uses ONLY (mean_return, t_stat, n_months), already in `RunMetrics` --
+    no persisted std-dev needed, since sigma is back-solved from the exact
+    identity `t = mean_return / (sigma / sqrt(n_months))`:
+
+        log(t_track) - log(t_baseline)
+          = [log(mean_return_track) - log(mean_return_baseline)]     (mean_return channel)
+          - [log(sigma_track)       - log(sigma_baseline)]           (volatility channel)
+          + 0.5 * [log(n_months_track) - log(n_months_baseline)]     (sample_size channel)
+
+    Each channel needs a STANDALONE log(mean_return_*)/log(sigma_*), which
+    requires `mean_return > 0` for BOTH the track and the baseline -- not
+    merely same-signed: log of an individual negative value is undefined
+    even though the ratio of two negatives would be positive (docs/step7-8.md
+    Q5's "mu<0 -> log undefined" case). Degenerates per-track to a bare
+    `t_stat_abs_delta` (|t_track| - |t_baseline|) instead, tagged
+    `degenerate: True` with a `reason`, when this fails -- never silently
+    drops the track or fabricates a channel split.
+    """
+    if not tracks:
+        return {
+            "available": False,
+            "identification_level": MISSING_IDENTIFICATION,
+            "reason": "no tracks",
+            "baseline_track": None,
+            "tracks": {},
+        }
+    base_name = baseline if baseline in tracks else (
+        BASELINE_TRACK if BASELINE_TRACK in tracks else next(iter(tracks))
+    )
+    base_metrics = tracks[base_name].get("metrics") or {}
+    base_mu = _as_float(base_metrics.get("mean_return"))
+    base_t = _as_float(base_metrics.get("t_stat"))
+    base_n = _as_float(base_metrics.get("n_months"))
+
+    per_track: dict[str, Any] = {}
+    for name, payload in tracks.items():
+        if name == base_name:
+            continue
+        metrics = payload.get("metrics") or {}
+        mu = _as_float(metrics.get("mean_return"))
+        t = _as_float(metrics.get("t_stat"))
+        n = _as_float(metrics.get("n_months"))
+
+        abs_t = None if t is None else abs(t)
+        abs_base_t = None if base_t is None else abs(base_t)
+        t_stat_abs_delta = None if abs_t is None or abs_base_t is None else abs_t - abs_base_t
+
+        reason: str | None = None
+        if base_mu is None or mu is None:
+            reason = "mean_return missing on baseline or track"
+        elif base_mu <= 0 or mu <= 0:
+            reason = "mean_return must be positive on both baseline and track for a log decomposition"
+        elif base_t is None or t is None or base_t == 0 or t == 0:
+            reason = "t_stat missing or zero on baseline or track"
+        elif base_n is None or n is None or base_n <= 0 or n <= 0:
+            reason = "n_months missing or non-positive on baseline or track"
+        elif _sign(base_t) != _sign(base_mu) or _sign(t) != _sign(mu):
+            reason = "t_stat and mean_return signs are inconsistent (cannot back-solve a positive implied volatility)"
+
+        if reason is not None:
+            per_track[name] = {
+                "degenerate": True,
+                "reason": reason,
+                "t_stat_abs_delta": t_stat_abs_delta,
+            }
+            continue
+
+        base_sigma = base_mu * (base_n**0.5) / base_t
+        sigma = mu * (n**0.5) / t
+        mean_return_channel = math.log(mu) - math.log(base_mu)
+        volatility_channel = -(math.log(sigma) - math.log(base_sigma))
+        sample_size_channel = 0.5 * (math.log(n) - math.log(base_n))
+
+        per_track[name] = {
+            "degenerate": False,
+            "log_t_ratio": math.log(t) - math.log(base_t),
+            "channels": {
+                "mean_return": mean_return_channel,
+                "volatility": volatility_channel,
+                "sample_size": sample_size_channel,
+            },
+            "channel_sum_check": mean_return_channel + volatility_channel + sample_size_channel,
+            "implied_sigma": sigma,
+            "implied_baseline_sigma": base_sigma,
+            "t_stat_abs_delta": t_stat_abs_delta,
+        }
+
+    return {
+        "available": True,
+        "identification_level": CONFIG_DIFF_IDENTIFICATION,
+        "baseline_track": base_name,
+        "tracks": per_track,
+    }
+
+
 def build_shapley_and_significance(
     tracks: dict[str, dict], results_dir: "Path | None", baseline: str | None
 ) -> dict[str, Any]:
@@ -631,7 +754,9 @@ def build_evidence_bundle(
 
     config_diff = build_config_diff(tracks, baseline)
     gap_decomposition = build_gap_decomposition(diff_result)
+    t_channel_decomposition = build_t_channel_decomposition(tracks, baseline)
     spec_quality = build_spec_quality(spec)
+    universe_description = build_universe_description(spec)
     menu_deviations = build_menu_deviations(spec, tracks)
     bridge_comparison = build_bridge_comparison(tracks, paper_reported)
     publication_decay = build_publication_decay(tracks)
@@ -644,7 +769,9 @@ def build_evidence_bundle(
         "derived": derived,
         "config_diff": config_diff,
         "gap_decomposition": gap_decomposition,
+        "t_channel_decomposition": t_channel_decomposition,
         "spec_quality": spec_quality,
+        "universe_description": universe_description,
         "menu_deviations": menu_deviations,
         "bridge_comparison": bridge_comparison,
         "publication_decay": publication_decay,
@@ -655,7 +782,9 @@ def build_evidence_bundle(
         "derived": derived,
         "config_diff": config_diff,
         "gap_decomposition": gap_decomposition,
+        "t_channel_decomposition": t_channel_decomposition,
         "spec_quality": spec_quality,
+        "universe_description": universe_description,
         "menu_deviations": menu_deviations,
         "bridge_comparison": bridge_comparison,
         "publication_decay": publication_decay,
