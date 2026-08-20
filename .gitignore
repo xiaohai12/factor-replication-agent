@@ -38,3 +38,6 @@ runs/
 
 # pdf 
 *.pdf
+
+# CSV data stays local unless explicitly force-added.
+*.csv

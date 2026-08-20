@@ -2,6 +2,12 @@
 
 ## [Unreleased]
 
+### repo: keep CSV data local by default (2026-08-20)
+
+Added a global CSV ignore rule and removed the CSV files accidentally added by
+the latest commit from Git tracking. The local files are retained; the older
+tracked HXZ reference CSV is unchanged.
+
 ### latex: adapted thesis presentation to the supplied master's template (2026-08-20)
 
 Reformatted the existing `latex/` document as an Overleaf-compatible KOMA-
