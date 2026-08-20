@@ -2,6 +2,11 @@
 
 ## [Unreleased]
 
+### repo: keep ZIP data archives local by default (2026-08-20)
+
+Added a global ZIP ignore rule and removed the HXZ testing-portfolio archives
+from Git tracking while retaining every archive in the local working tree.
+
 ### repo: keep CSV data local by default (2026-08-20)
 
 Added a global CSV ignore rule and removed the CSV files accidentally added by

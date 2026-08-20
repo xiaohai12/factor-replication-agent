@@ -41,3 +41,6 @@ runs/
 
 # CSV data stays local unless explicitly force-added.
 *.csv
+
+# ZIP data archives stay local unless explicitly force-added.
+*.zip
