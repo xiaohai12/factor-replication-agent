@@ -47,11 +47,11 @@ def clean_registry():
 
 
 def test_register_and_get_roundtrip(clean_registry):
-    src = _DummySource("comp_funda")
+    src = _DummySource("compustat_fundamental_annual")
     assert S.register(src) is src
-    assert S.get_source("comp_funda") is src
-    assert S.has_source("comp_funda")
-    assert [s.name for s in S.iter_sources()] == ["comp_funda"]
+    assert S.get_source("compustat_fundamental_annual") is src
+    assert S.has_source("compustat_fundamental_annual")
+    assert [s.name for s in S.iter_sources()] == ["compustat_fundamental_annual"]
 
 
 def test_duplicate_registration_fails_loud(clean_registry):
@@ -76,9 +76,9 @@ def test_crsp_link_spec_permno_keyed_flag():
 
 def test_source_spec_holds_declarative_fields():
     spec = S.SourceSpec(
-        name="comp_funda",
+        name="compustat_fundamental_annual",
         role="signal",
-        raw_file="comp_funda.csv",
+        raw_file="compustat_fundamental_annual.csv",
         physical_columns={"at", "ceq"},
         concept_columns={"total_assets": "at"},
         source_key="gvkey",
@@ -119,7 +119,7 @@ def test_signal_source_load_returns_none_when_file_absent(tmp_path):
     # A generic SignalSource.load returns None (source not available in this
     # data dir) rather than raising, so the assembler can drop it.
     spec = S.SourceSpec(
-        name="comp_funda", role="signal", raw_file="COMPUSTAT_FUNDAMENTALS_ANNUAL.csv",
+        name="compustat_fundamental_annual", role="signal", raw_file="COMPUSTAT_FUNDAMENTALS_ANNUAL.csv",
         physical_columns={"at"}, concept_columns={"total_assets": "at"},
         source_key="gvkey", observation_date="datadate", lag=0,
         crsp_link=S.CrspLinkSpec(native_key="gvkey", link_table="ccm"),

@@ -137,7 +137,7 @@ def _resolved(paper: MethodSpec, concept_mapping: dict[str, SourceColumn], retur
 
 class TestBuildConfigSingleSort:
     def test_resolves_expected_keys(self):
-        resolved = _resolved(_single_sort_spec(), {"at": SourceColumn(source="comp_funda", column="at")})
+        resolved = _resolved(_single_sort_spec(), {"at": SourceColumn(source="compustat_fundamental_annual", column="at")})
         config = build_config(resolved, None)
 
         assert config["breakpoint_source"] == "nyse"
@@ -162,14 +162,14 @@ class TestBuildConfigSingleSort:
         paper.universe.filters.append(
             FilterSpec(concept_id="listing_exchange", op=FilterOp.IN, value=[1, 2])
         )
-        resolved = _resolved(paper, {"at": SourceColumn(source="comp_funda", column="at")})
+        resolved = _resolved(paper, {"at": SourceColumn(source="compustat_fundamental_annual", column="at")})
         with pytest.raises(ValueError, match="listing_exchange"):
             build_config(resolved, None)
 
     def test_defaults_applied_when_lag_unspecified(self):
         paper = _single_sort_spec()
         paper.timing.data_availability = DataAvailability()
-        resolved = _resolved(paper, {"at": SourceColumn(source="comp_funda", column="at")})
+        resolved = _resolved(paper, {"at": SourceColumn(source="compustat_fundamental_annual", column="at")})
         config = build_config(resolved, None)
         assert config["accounting_lag_months"] == 6
         assert any(d["config_key"] == "accounting_lag_months" for d in config.get("defaults_applied", []))
@@ -188,7 +188,7 @@ class TestUniverseFilterValueEncodingTranslation:
             FilterSpec(concept_id="listing_exchange", op=FilterOp.IN, value=value)
         )
         return _resolved(paper, {
-            "at": SourceColumn(source="comp_funda", column="at"),
+            "at": SourceColumn(source="compustat_fundamental_annual", column="at"),
             "listing_exchange": SourceColumn(source="crsp_msf", column="exchcd"),
         })
 
@@ -219,7 +219,7 @@ class TestUniverseFilterValueEncodingTranslation:
         paper = _single_sort_spec()
         paper.universe.filters.append(FilterSpec(concept_id="size_floor", op=FilterOp.GTE, value=100))
         resolved = _resolved(paper, {
-            "at": SourceColumn(source="comp_funda", column="at"),
+            "at": SourceColumn(source="compustat_fundamental_annual", column="at"),
             "size_floor": SourceColumn(source="crsp_msf", column="me"),
         })
         config = build_config(resolved, None)
@@ -241,7 +241,7 @@ class TestAcceptedUnappliedUniverseFilter:
         )
         # No concept_mapping entry at all for compustat_listing_duration --
         # would fail loudly if this filter were treated as applied.
-        resolved = _resolved(paper, {"at": SourceColumn(source="comp_funda", column="at")})
+        resolved = _resolved(paper, {"at": SourceColumn(source="compustat_fundamental_annual", column="at")})
         config = build_config(resolved, None)
         assert config["universe_filters"] == []
         assert config["unapplied_universe_filters"] == [
@@ -259,7 +259,7 @@ class TestAcceptedUnappliedUniverseFilter:
                 accepted_unapplied=True, unapplied_reason="no eligibility-panel wiring yet",
             )
         )
-        resolved = _resolved(paper, {"at": SourceColumn(source="comp_funda", column="at")})
+        resolved = _resolved(paper, {"at": SourceColumn(source="compustat_fundamental_annual", column="at")})
         assert "compustat_listing_duration" not in resolved.unmapped_concepts()
 
     def test_mixed_applied_and_unapplied_filters(self):
@@ -274,7 +274,7 @@ class TestAcceptedUnappliedUniverseFilter:
             )
         )
         resolved = _resolved(paper, {
-            "at": SourceColumn(source="comp_funda", column="at"),
+            "at": SourceColumn(source="compustat_fundamental_annual", column="at"),
             "listing_exchange": SourceColumn(source="crsp_msf", column="exchcd"),
         })
         config = build_config(resolved, None)
@@ -285,7 +285,7 @@ class TestAcceptedUnappliedUniverseFilter:
 
 class TestUniverseFilterJoinSources:
     """A universe filter resolved to a REAL registered non-native column
-    (e.g. comp_funda.at) is joined onto the returns panel by the generated
+    (e.g. compustat_fundamental_annual.at) is joined onto the returns panel by the generated
     script (2026-08-13) instead of being blocked -- `build_config` records
     which {source: [columns]} the script needs to join."""
 
@@ -293,17 +293,17 @@ class TestUniverseFilterJoinSources:
         paper = _single_sort_spec()
         paper.universe.filters.append(FilterSpec(concept_id="total_assets", op=FilterOp.GTE, value=0))
         resolved = _resolved(paper, {
-            "at": SourceColumn(source="comp_funda", column="at"),
-            "total_assets": SourceColumn(source="comp_funda", column="at"),
+            "at": SourceColumn(source="compustat_fundamental_annual", column="at"),
+            "total_assets": SourceColumn(source="compustat_fundamental_annual", column="at"),
         })
         config = build_config(resolved, None)
-        assert config["universe_filter_join_sources"] == {"comp_funda": ["at"]}
+        assert config["universe_filter_join_sources"] == {"compustat_fundamental_annual": ["at"]}
 
     def test_native_column_needs_no_join(self):
         paper = _single_sort_spec()
         paper.universe.filters.append(FilterSpec(concept_id="listing_exchange", op=FilterOp.IN, value=[1, 2]))
         resolved = _resolved(paper, {
-            "at": SourceColumn(source="comp_funda", column="at"),
+            "at": SourceColumn(source="compustat_fundamental_annual", column="at"),
             "listing_exchange": SourceColumn(source="crsp_msf", column="exchcd"),
         })
         config = build_config(resolved, None)
@@ -313,8 +313,8 @@ class TestUniverseFilterJoinSources:
         paper = _single_sort_spec()
         paper.universe.filters.append(FilterSpec(concept_id="compustat_listing_duration", op=FilterOp.GTE, value=2))
         resolved = _resolved(paper, {
-            "at": SourceColumn(source="comp_funda", column="at"),
-            "compustat_listing_duration": SourceColumn(source="comp_funda", column="listing_duration_years"),
+            "at": SourceColumn(source="compustat_fundamental_annual", column="at"),
+            "compustat_listing_duration": SourceColumn(source="compustat_fundamental_annual", column="listing_duration_years"),
         })
         config = build_config(resolved, None)
         assert config["universe_filter_join_sources"] == {}
@@ -352,7 +352,7 @@ class TestEngineMenuAutoClamp:
     def test_non_quantile_group_type_is_recorded_not_executed_differently(self):
         paper = _single_sort_spec()
         paper.portfolio.sorts[0].group_type = SourcedValue(value=GroupType.CATEGORICAL, status=EvidenceStatus.CLEAR)
-        resolved = _resolved(paper, {"at": SourceColumn(source="comp_funda", column="at")})
+        resolved = _resolved(paper, {"at": SourceColumn(source="compustat_fundamental_annual", column="at")})
         config = build_config(resolved, None)
         assert any(
             d["config_key"] == "sorts[0].group_type" and d["value"] == "quantile"
@@ -372,7 +372,7 @@ class TestEngineMenuAutoClamp:
             RequiredField(concept_id="me", name_in_paper="market equity", paper_source_hint="CRSP", roles=[FieldRole.WEIGHTING_INPUT])
         )
         resolved = _resolved(paper, {
-            "at": SourceColumn(source="comp_funda", column="at"),
+            "at": SourceColumn(source="compustat_fundamental_annual", column="at"),
             "me": SourceColumn(source="crsp_msf", column="me"),
         })
         config = build_config(resolved, None)
@@ -400,7 +400,7 @@ class TestEngineMenuAutoClamp:
             RequiredField(concept_id="me", name_in_paper="market equity", paper_source_hint="CRSP", roles=[FieldRole.WEIGHTING_INPUT])
         )
         resolved = _resolved(paper, {
-            "at": SourceColumn(source="comp_funda", column="at"),
+            "at": SourceColumn(source="compustat_fundamental_annual", column="at"),
             "me": SourceColumn(source="crsp_msf", column="me"),
         })
         config = build_config(resolved, None)
@@ -412,7 +412,7 @@ class TestEngineMenuAutoClamp:
     def test_daily_rebalance_frequency_clamps_to_monthly_and_is_recorded(self):
         paper = _single_sort_spec()
         paper.timing.rebalance_frequency = SourcedValue(value=TimeUnit.DAY, status=EvidenceStatus.CLEAR)
-        resolved = _resolved(paper, {"at": SourceColumn(source="comp_funda", column="at")})
+        resolved = _resolved(paper, {"at": SourceColumn(source="compustat_fundamental_annual", column="at")})
         config = build_config(resolved, None)
         assert config["rebalance_frequency"] == "monthly"
         assert any(d["config_key"] == "rebalance_frequency" for d in config.get("defaults_applied", []))
@@ -420,7 +420,7 @@ class TestEngineMenuAutoClamp:
     def test_daily_lag_unit_defaults_to_6_months_with_honest_reason(self):
         paper = _single_sort_spec()
         paper.timing.data_availability = DataAvailability(lag_value=5, lag_unit=TimeUnit.DAY)
-        resolved = _resolved(paper, {"at": SourceColumn(source="comp_funda", column="at")})
+        resolved = _resolved(paper, {"at": SourceColumn(source="compustat_fundamental_annual", column="at")})
         config = build_config(resolved, None)
         assert config["accounting_lag_months"] == 6
         entry = next(d for d in config["defaults_applied"] if d["config_key"] == "accounting_lag_months")
@@ -438,7 +438,7 @@ class TestEngineMenuAutoClamp:
                     breakpoints=BreakpointSpec(basis=SourcedValue(value="nyse", status=EvidenceStatus.CLEAR)),
                 )
             )
-        resolved = _resolved(paper, {"at": SourceColumn(source="comp_funda", column="at")})
+        resolved = _resolved(paper, {"at": SourceColumn(source="compustat_fundamental_annual", column="at")})
         assert resolved.is_ready
         config = build_config(resolved, None)
         assert len(config["sort_dims"]) == 2
@@ -449,7 +449,7 @@ class TestBuildConfigDoubleSort:
     def test_resolves_sort_dims_in_order(self):
         resolved = _resolved(
             _double_sort_spec(),
-            {"at": SourceColumn(source="comp_funda", column="at"), "me": SourceColumn(source="crsp_msf", column="me")},
+            {"at": SourceColumn(source="compustat_fundamental_annual", column="at"), "me": SourceColumn(source="crsp_msf", column="me")},
         )
         config = build_config(resolved, None)
         assert [d["column"] for d in config["sort_dims"]] == ["me", "signal"]
@@ -484,7 +484,7 @@ class TestBuildConfigEndToEnd:
         })
 
     def test_single_sort_end_to_end(self):
-        resolved = _resolved(_single_sort_spec(), {"at": SourceColumn(source="comp_funda", column="at")})
+        resolved = _resolved(_single_sort_spec(), {"at": SourceColumn(source="compustat_fundamental_annual", column="at")})
         config = build_config(resolved, None)
         config["weighting_rule"] = "ew"
 
@@ -499,7 +499,7 @@ class TestBuildConfigEndToEnd:
         same mechanics as tests/test_double_sort_engine.py's 2x2 fixture)."""
         resolved = _resolved(
             _double_sort_spec(),
-            {"at": SourceColumn(source="comp_funda", column="at"), "me": SourceColumn(source="crsp_msf", column="me")},
+            {"at": SourceColumn(source="compustat_fundamental_annual", column="at"), "me": SourceColumn(source="crsp_msf", column="me")},
         )
         config = build_config(resolved, None)
         config["weighting_rule"] = "ew"

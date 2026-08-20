@@ -1,0 +1,75 @@
+\documentclass[
+  11pt,
+  a4paper,
+  oneside,
+  headings=big,
+  headsepline,
+  bibliography=totoc,
+  listof=totoc,
+  abstract=true
+]{scrreprt}
+\input{preamble}
+
+\title{Underdetermination in Factor Replication:\\
+  A Controlled, Leakage-Proof LLM Agent as an Independent Second Implementer}
+\author{Your Name}
+\date{\today}
+
+\begin{document}
+
+\pagenumbering{roman}
+\maketitle
+
+\clearpage
+\thispagestyle{empty}
+\begin{abstract}
+% TODO: 2026-08-18 draft skeleton. Fill in after Ch.1/Ch.7 numbers are final.
+% Should state: (1) the underdetermination framing (not "replication crisis"),
+% (2) the two research questions RQ1 (why do C&Z/HXZ diverge on a given
+% factor, and can an independent paper-faithful implementation attribute the
+% divergence) and RQ2 (what is the agent's autonomy/capability boundary in
+% producing that implementation), (3) the n=6 factor slate and headline
+% finding, (4) that all empirical numbers are deterministic once the LLM
+% step is frozen.
+Placeholder abstract.
+\end{abstract}
+
+\clearpage
+\tableofcontents
+\listoftables
+\listoffigures
+
+\clearpage
+\pagenumbering{arabic}
+
+% The source files deliberately retain their original section commands.
+% For this thesis layout, promote those levels at the presentation layer:
+% section -> chapter, subsection -> section, subsubsection -> subsection.
+\let\thesischapter\chapter
+\let\thesissection\section
+\let\thesissubsection\subsection
+\let\section\thesischapter
+\let\subsection\thesissection
+\let\subsubsection\thesissubsection
+
+\input{sections/01_introduction}
+\input{sections/02_related_literature}
+\input{sections/03_conceptual_framework}
+\input{sections/04_pipeline}
+\input{sections/05_data_and_factors}
+\input{sections/06_experimental_design}
+\input{sections/07_results}
+\input{sections/08_discussion}
+
+\appendix
+\input{sections/appendix_a_methodspec}
+\input{sections/appendix_b_config_menu}
+\input{sections/appendix_c_prompts}
+\input{sections/appendix_d_validator}
+\input{sections/appendix_e_per_factor}
+\input{sections/appendix_f_reproducibility}
+
+\bibliographystyle{plainnat}
+\bibliography{refs}
+
+\end{document}

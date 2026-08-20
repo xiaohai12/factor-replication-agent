@@ -404,6 +404,7 @@ export function MethodSpecBoard({
               <TableRow>
                 <TableHead>Metric</TableHead>
                 <TableHead>Label</TableHead>
+                <TableHead>Weighting</TableHead>
                 <TableHead>Estimand</TableHead>
                 <TableHead>Adjustment</TableHead>
                 <TableHead>Estimate</TableHead>
@@ -416,6 +417,7 @@ export function MethodSpecBoard({
                 <TableRow key={m.metric_id}>
                   <TableCell className="text-xs">{m.metric_id}</TableCell>
                   <TableCell className="text-xs">{m.label}</TableCell>
+                  <TableCell className="text-xs">{fmt(m.weighting)}</TableCell>
                   <TableCell className="text-xs">{m.estimand}</TableCell>
                   <TableCell className="text-xs">{m.adjustment_model}</TableCell>
                   <TableCell className="text-xs">

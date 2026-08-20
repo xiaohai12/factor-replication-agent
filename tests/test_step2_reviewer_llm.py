@@ -88,7 +88,7 @@ def _minimal_raw_spec(**overrides) -> dict:
                 {
                     "concept_id": "at", "name_in_paper": "total assets",
                     "paper_source_hint": "Compustat annual", "roles": ["signal_input"], "evidence": [],
-                    "source_table": {"value": "comp_funda", "evidence": [], "status": "clear"},
+                    "source_table": {"value": "compustat_fundamental_annual", "evidence": [], "status": "clear"},
                     "source_column": {"value": "at", "evidence": [], "status": "clear"},
                 }
             ],

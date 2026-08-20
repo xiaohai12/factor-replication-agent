@@ -462,7 +462,7 @@ class TestResolvedMethodSpecReadiness:
         )
         resolution = ImplementationResolution(
             factor_id=paper.factor_id,
-            concept_mapping={"at": SourceColumn(source="comp_funda", column="at")},
+            concept_mapping={"at": SourceColumn(source="compustat_fundamental_annual", column="at")},
             returns_source="us_equity_crsp",
         )
         return ResolvedMethodSpec(paper=paper, review=review, resolution=resolution)
@@ -509,7 +509,7 @@ class TestUnsupportedUniverseFilter:
     returns panel (`RETURNS_PANEL_NATIVE_COLUMNS`) is `unsupported` only if
     that column isn't even registered in `catalog.DATA_CATALOG` for its
     source -- there's no way to load it at all. A filter resolved to a REAL
-    registered non-native column (e.g. comp_funda.at) is supported: the
+    registered non-native column (e.g. compustat_fundamental_annual.at) is supported: the
     generated script joins it onto the returns panel before
     filter_universe runs (2026-08-13, `registry._universe_filter_join_
     sources`/`script_generator.join_universe_filter_sources`). Either way, a
@@ -524,15 +524,15 @@ class TestUnsupportedUniverseFilter:
         resolution = ImplementationResolution(
             factor_id=paper.factor_id,
             concept_mapping={
-                "at": SourceColumn(source="comp_funda", column="at"),
-                filter_spec.concept_id: SourceColumn(source="comp_funda", column=filter_column),
+                "at": SourceColumn(source="compustat_fundamental_annual", column="at"),
+                filter_spec.concept_id: SourceColumn(source="compustat_fundamental_annual", column=filter_column),
             },
             returns_source="us_equity_crsp",
         )
         return ResolvedMethodSpec(paper=paper, review=review, resolution=resolution)
 
     def test_non_returns_panel_filter_is_unsupported_and_blocks_is_ready(self):
-        # "listing_duration_years" is NOT a real registered comp_funda
+        # "listing_duration_years" is NOT a real registered compustat_fundamental_annual
         # physical column -- there's no way to load it, so it stays blocked.
         resolved = self._resolved_with_filter(
             FilterSpec(concept_id="compustat_listing_duration", op=FilterOp.GTE, value=2)
@@ -541,7 +541,7 @@ class TestUnsupportedUniverseFilter:
         assert not resolved.is_ready
 
     def test_registered_non_native_filter_is_supported_via_join(self):
-        # "at" IS a real registered comp_funda physical column -- the
+        # "at" IS a real registered compustat_fundamental_annual physical column -- the
         # generated script can join it onto the returns panel, so it's no
         # longer "unsupported" even though it's not CRSP-native.
         resolved = self._resolved_with_filter(
@@ -567,7 +567,7 @@ class TestUnsupportedUniverseFilter:
         resolution = ImplementationResolution(
             factor_id=paper.factor_id,
             concept_mapping={
-                "at": SourceColumn(source="comp_funda", column="at"),
+                "at": SourceColumn(source="compustat_fundamental_annual", column="at"),
                 "listing_exchange": SourceColumn(source="crsp_msf", column="exchcd"),
             },
             returns_source="us_equity_crsp",

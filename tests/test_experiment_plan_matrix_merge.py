@@ -39,7 +39,7 @@ class FakeRunner:
         self.comparison_calls: list[dict] = []
         self.comparison_path = None
 
-    def build_script(self, plugin, spec, snapshot_id, config_overrides, track_name=None, precomputed_signal_path=None):
+    def build_script(self, plugin, spec, snapshot_id, config_overrides, track_name=None):
         self.build_calls.append({"track_name": track_name, "config_overrides": dict(config_overrides or {})})
         return {"config": dict(config_overrides or {}), "script_text": plugin.code}
 
@@ -385,8 +385,10 @@ class TestAutoAttribution:
         """More than MAX_FACTORIAL_SWITCHES (4) differing fields must fall
         back to one-at-a-time (ablation_*) instead of a full 2^n factorial --
         exercised directly against `_auto_attribution_specs` with a
-        hand-built target differing on all 6 known switches, since a real
-        spec/HXZ diff practically never reaches 6."""
+        hand-built target differing on all 5 known switches (`missing_action`
+        is deliberately not one, see step6's `_ABLATION_SWITCH_TO_CONFIG_KEY`:
+        it can never actually differ between tracks this pipeline produces),
+        since a real spec/HXZ diff practically never reaches that many."""
         controller = MultiTrackController(runner=FakeRunner(), meta_coder=FakeMetaCoder(), sandbox=FakeSandbox())
         baseline_config = build_config(_spec_ew(), None)
         target_config = dict(baseline_config)
@@ -394,7 +396,6 @@ class TestAutoAttribution:
             "breakpoint_source": "nyse",
             "weighting_rule": "vw",
             "accounting_lag_months": (baseline_config["accounting_lag_months"] or 0) + 1,
-            "missing_action": "unspecified",
             "rebalance_frequency": "quarterly",
             "universe_filters": [{"field": "exchcd", "op": "in", "value": [1]}],
         })
@@ -404,5 +405,5 @@ class TestAutoAttribution:
             factorial_prefix="factorial", ablation_prefix="ablation",
         )
 
-        assert len(specs) == 6
+        assert len(specs) == 5
         assert all(s.name.startswith("ablation_") for s in specs)

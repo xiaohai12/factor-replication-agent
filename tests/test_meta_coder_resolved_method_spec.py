@@ -157,7 +157,7 @@ def _resolved_spec() -> ResolvedMethodSpec:
     review = review_method_spec(paper)
     resolution = ImplementationResolution(
         factor_id=paper.factor_id,
-        concept_mapping={"at": SourceColumn(source="comp_funda", column="at")},
+        concept_mapping={"at": SourceColumn(source="compustat_fundamental_annual", column="at")},
         returns_source="us_equity_crsp",
     )
     return ResolvedMethodSpec(paper=paper, review=review, resolution=resolution)
@@ -200,4 +200,4 @@ class TestGeneratePluginFromResolved:
         assert "column_mapping" in system_prompt
         assert "## TOOL RESULTS" in user_prompt
         assert '"at"' in user_prompt
-        assert '"comp_funda"' in user_prompt
+        assert '"compustat_fundamental_annual"' in user_prompt

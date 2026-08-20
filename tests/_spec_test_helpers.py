@@ -52,7 +52,7 @@ def spec_factor_id(spec) -> str:
 
 def minimal_resolved_spec(
     factor_id: str = "t", weighting: str = "vw", breakpoint_source: str = "nyse",
-    concept_source: str = "comp_funda", concept_column: str = "x",
+    concept_source: str = "compustat_fundamental_annual", concept_column: str = "x",
 ) -> ResolvedMethodSpec:
     """A generic, fully-`is_ready` minimal `ResolvedMethodSpec` for tests that
     just need SOME valid spec-agnostic-infra fixture (dual-track controller,
@@ -86,7 +86,7 @@ def minimal_resolved_spec(
                 # validation) -- a fixed, always-real catalog column so this "fully
                 # is_ready" fixture stays fully clean under the source_table/source_column
                 # high-impact check too.
-                source_table=SourcedValue(value=SourceName.COMP_FUNDA, status=EvidenceStatus.CLEAR),
+                source_table=SourcedValue(value=SourceName.COMPUSTAT_FUNDAMENTAL_ANNUAL, status=EvidenceStatus.CLEAR),
                 source_column=SourcedValue(value="at", status=EvidenceStatus.CLEAR),
             )],
         ),
@@ -172,7 +172,7 @@ def asset_growth_resolved_spec(factor_id: str = "cooper_gulen_schill_2008_asset_
             fields=[RequiredField(
                 concept_id="total_assets", name_in_paper="Total assets", paper_source_hint="Compustat data item 6",
                 roles=[FieldRole.SIGNAL_INPUT],
-                source_table=SourcedValue(value=SourceName.COMP_FUNDA, status=EvidenceStatus.CLEAR),
+                source_table=SourcedValue(value=SourceName.COMPUSTAT_FUNDAMENTAL_ANNUAL, status=EvidenceStatus.CLEAR),
                 source_column=SourcedValue(value="at", status=EvidenceStatus.CLEAR),
             )],
         ),
@@ -217,7 +217,7 @@ def asset_growth_resolved_spec(factor_id: str = "cooper_gulen_schill_2008_asset_
     review = review_method_spec(paper)
     resolution = ImplementationResolution(
         factor_id=paper.factor_id,
-        concept_mapping={"total_assets": SourceColumn(source="comp_funda", column="at")},
+        concept_mapping={"total_assets": SourceColumn(source="compustat_fundamental_annual", column="at")},
         returns_source="us_equity_crsp",
     )
     return ResolvedMethodSpec(paper=paper, review=review, resolution=resolution)
@@ -260,7 +260,7 @@ def accruals_resolved_spec() -> ResolvedMethodSpec:
                 RequiredField(
                     concept_id=c, name_in_paper=c, paper_source_hint="Compustat annual",
                     roles=[FieldRole.SIGNAL_INPUT],
-                    source_table=SourcedValue(value=SourceName.COMP_FUNDA, status=EvidenceStatus.CLEAR),
+                    source_table=SourcedValue(value=SourceName.COMPUSTAT_FUNDAMENTAL_ANNUAL, status=EvidenceStatus.CLEAR),
                     source_column=SourcedValue(value=columns[c], status=EvidenceStatus.CLEAR),
                 )
                 for c in concepts
@@ -307,7 +307,7 @@ def accruals_resolved_spec() -> ResolvedMethodSpec:
     review = review_method_spec(paper)
     resolution = ImplementationResolution(
         factor_id=paper.factor_id,
-        concept_mapping={c: SourceColumn(source="comp_funda", column=columns[c]) for c in concepts},
+        concept_mapping={c: SourceColumn(source="compustat_fundamental_annual", column=columns[c]) for c in concepts},
         returns_source="us_equity_crsp",
     )
     return ResolvedMethodSpec(paper=paper, review=review, resolution=resolution)

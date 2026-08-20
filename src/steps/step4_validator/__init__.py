@@ -274,6 +274,87 @@ class AdversarialSandbox:
                 "output on the validation slice (likely data coverage, not a code "
                 "defect) -- deferring to the full Step-5 run"
             )
+
+        # Group-balance findings: thresholded on RATES across all sampled
+        # months (never a single occurrence) since a thin validation slice
+        # legitimately produces one empty/merged bin here and there just
+        # from having few names that month -- that's sampling noise, not a
+        # defect. `median_distinct_value_ratio` is the sample-size-INDEPENDENT
+        # signal (see the sandbox script's own comment) and is checked first;
+        # the rate-based checks below only escalate when they're frequent,
+        # not merely present.
+        #
+        # The two clearest, most sample-size-robust findings (low distinct-
+        # value ratio + the CONFIGURED long/short leg itself going empty)
+        # are hard FAILURES (appended to report.errors, this method returns
+        # False), not warnings -- unlike the "empty/degenerate" leniency
+        # above, this is not attributable to thin data coverage (it's
+        # sample-size independent by construction), so it belongs in the
+        # SAME technical-repair loop a syntax/schema failure triggers
+        # (RepairLoop feeds report.errors back to MetaCoder, which only
+        # rewrites compute_signal -- never the approved empirical formula,
+        # same posture as every other repairable finding here). The broader
+        # corroborating signals (any-group-empty, duplicate breakpoints)
+        # stay informational warnings, since they're less specific to which
+        # leg the config actually uses.
+        sampled = report.technical_metrics.get("leg_check_sampled_months") or 0
+        failed = False
+        median_ratio = report.technical_metrics.get("median_distinct_value_ratio")
+        low_card_frac = report.technical_metrics.get("low_cardinality_month_frac")
+        if sampled >= 3 and median_ratio is not None and low_card_frac is not None \
+                and median_ratio < 0.3 and low_card_frac > 0.5:
+            failed = True
+            report.errors.append(
+                f"compute_signal's signal has an unusually low distinct-value ratio "
+                f"(median {median_ratio:.2f}) and <= breakpoint_quantiles+2 distinct values in "
+                f"{low_card_frac:.0%} of {sampled} sampled months -- both sample-size-independent, "
+                "so this isn't validation-slice noise. A genuinely continuous characteristic "
+                "keeps near-unique values even with few names; this looks pre-bucketed instead "
+                "(e.g. an off-by-one/truncation error collapsing a rank into a handful of "
+                "discrete levels), which silently breaks the engine's own quantile-cut "
+                "portfolio formation. Rewrite compute_signal to return the continuous "
+                "characteristic (or its plain percentile rank) and let the engine's own "
+                "breakpoint_quantiles cut form the groups -- do not pre-bucket in the plugin."
+            )
+
+        empty_leg_frac = report.technical_metrics.get("empty_leg_month_frac")
+        if sampled >= 5 and empty_leg_frac is not None and empty_leg_frac > 0.3:
+            failed = True
+            report.errors.append(
+                f"compute_signal's own signal distribution leaves the CONFIGURED long/short "
+                f"leg empty in {empty_leg_frac:.0%} of {sampled} sampled months when "
+                "value-quantile-cut into breakpoint_quantiles groups (mirrors BacktestExecutor."
+                "assign_portfolios' own algorithm) -- this is exactly how a factor's return "
+                "series silently loses whole calendar months without ever raising an error. "
+                "Fix compute_signal so its signal supports forming breakpoint_quantiles clean "
+                "groups (a continuous characteristic, not a pre-bucketed one)."
+            )
+
+        if failed:
+            return False
+
+        empty_any_frac = report.technical_metrics.get("empty_any_group_month_frac")
+        if sampled >= 5 and empty_any_frac is not None and empty_any_frac > 0.3:
+            report.warnings.append(
+                f"compute_signal's signal leaves AT LEAST ONE of the breakpoint_quantiles "
+                f"groups empty (not necessarily the configured long/short leg) in "
+                f"{empty_any_frac:.0%} of {sampled} sampled months -- a broader corroborating "
+                "sign the signal doesn't actually support forming that many clean quantile "
+                "groups, even on months where the configured leg itself happens to survive."
+            )
+
+        degenerate_frac = report.technical_metrics.get("degenerate_breakpoint_month_frac")
+        if sampled >= 5 and degenerate_frac is not None and degenerate_frac > 0.2:
+            report.warnings.append(
+                f"compute_signal's signal produces duplicate quantile breakpoints (too few "
+                f"distinct values to cut into breakpoint_quantiles groups) in "
+                f"{degenerate_frac:.0%} of {sampled} sampled months -- the real engine silently "
+                "forms NO portfolios at all for a month like this (BacktestExecutor."
+                "assign_portfolios' own duplicate-breakpoint skip), which is how large "
+                "calendar gaps can vanish from the final return series without ever raising "
+                "an error."
+            )
+
         return True
 
     def _check_faithfulness(
@@ -407,6 +488,92 @@ def _main():
         "missing_columns": missing,
         "dtype": signal_dtype,
     }}
+
+    # Group-balance check: does this signal look like it can actually support
+    # breakpoint_quantiles clean groups, in a way that's robust to a SMALL
+    # validation slice (a thin sample legitimately produces an empty/merged
+    # bin here and there just from having few names that month -- that's
+    # sampling noise, not a defect, and must not be flagged as one).
+    #
+    # Primary signal: per-month DISTINCT-VALUE ratio (nunique / n_obs), which
+    # is sample-size INDEPENDENT -- a genuinely continuous characteristic
+    # (returns, ratios, ranks) produces near-nunique==n_obs even with a
+    # handful of names, while a plugin that pre-buckets its own signal into
+    # ~breakpoint_quantiles discrete levels (e.g. an off-by-one/truncation
+    # error collapsing what should be continuous into ~11 integer levels)
+    # shows a low ratio regardless of whether N is 50 or 6000 -- this is
+    # what actually caught the incident this check exists for.
+    # Secondary signal: mirrors BacktestExecutor.compute_breakpoints/
+    # assign_portfolios (signal.quantile(linspace(0,1,n+1)) value
+    # breakpoints, pd.cut into n groups, skip the whole cross-section on any
+    # duplicate breakpoint value) to see how often the configured long/short
+    # leg -- or ANY group -- comes back empty. Reported as a RATE across all
+    # sampled months, not flagged on any single occurrence, since one thin
+    # month having an empty/merged bin is expected noise, not a defect.
+    # Still compute_signal-output-only (no cohort/holding-period/exchcd-
+    # breakpoint machinery here) -- consistent with this sandbox never
+    # invoking the full engine.
+    config = getattr(mod, "CONFIG", {{}}) or {{}}
+    n_groups = int(config.get("breakpoint_quantiles", 10) or 10)
+    long_leg = config.get("long_leg", "high")
+    default_long_port = 1 if long_leg == "low" else n_groups
+    default_short_port = n_groups if long_leg == "low" else 1
+    long_ports = set(config.get("long_portfolios") or [default_long_port])
+    short_ports = set(config.get("short_portfolios") or [default_short_port])
+
+    distinct_ratios = []
+    low_cardinality_months = 0
+    empty_leg_months = 0
+    empty_any_group_months = 0
+    degenerate_months = 0
+    sampled_months = 0
+    if len(out) and n_groups > 1:
+        quantile_vals = [i / n_groups for i in range(n_groups + 1)]
+        for ym, g in out.groupby("yyyymm"):
+            vals = g["signal"].dropna()
+            if len(vals) < n_groups:
+                continue  # too few names that month to form n_groups at all
+            sampled_months += 1
+
+            ratio = vals.nunique() / len(vals)
+            distinct_ratios.append(ratio)
+            # A real continuous characteristic collapsing to roughly one
+            # distinct value per breakpoint_quantiles group (or fewer) is
+            # the structural signature this check targets -- independent of
+            # how many names happen to be in this month's sample.
+            if vals.nunique() <= n_groups + 2:
+                low_cardinality_months += 1
+
+            bins = vals.quantile(quantile_vals).tolist()
+            bins[0] = float("-inf")
+            bins[-1] = float("inf")
+            if len(set(bins)) != len(bins):
+                # Same skip condition as the real engine's assign_portfolios:
+                # duplicate breakpoints -> no portfolios formed AT ALL this
+                # month, for either leg.
+                degenerate_months += 1
+                continue
+            portfolio = pd.cut(vals, bins=bins, labels=range(1, n_groups + 1), include_lowest=True)
+            present = set(int(p) for p in portfolio.dropna().unique().tolist())
+            if len(present) < n_groups:
+                empty_any_group_months += 1
+            if not (long_ports & present) or not (short_ports & present):
+                empty_leg_months += 1
+
+    technical_metrics["median_distinct_value_ratio"] = (
+        float(pd.Series(distinct_ratios).median()) if distinct_ratios else None
+    )
+    technical_metrics["low_cardinality_month_frac"] = (
+        low_cardinality_months / sampled_months if sampled_months else None
+    )
+    technical_metrics["empty_leg_month_frac"] = empty_leg_months / sampled_months if sampled_months else None
+    technical_metrics["empty_any_group_month_frac"] = (
+        empty_any_group_months / sampled_months if sampled_months else None
+    )
+    technical_metrics["degenerate_breakpoint_month_frac"] = (
+        degenerate_months / sampled_months if sampled_months else None
+    )
+    technical_metrics["leg_check_sampled_months"] = sampled_months
 
     empty = len(out) == 0 or out["signal"].notna().sum() == 0
 

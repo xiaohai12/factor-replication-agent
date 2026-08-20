@@ -1,0 +1,101 @@
+\chapter{Country Coverage and Regional Classifications}
+\label{Appendix C:Countries}
+
+
+This appendix details the geographical scope and structural mapping of the data used in our analysis. It provides a comprehensive breakdown of the 44 countries sourced from the EXIOBASE3 and OECD Financial Accounts databases. For each country, the table indicates its broader regional grouping (Europe, North America, Asia-Pacific, or Emerging Markets) and its status as a Eurozone member state. Furthermore, it explicitly defines the composition of the ``Rest of the World'' ($RoW$) attribution base, marking exactly which countries are included when calculating foreign claims relative to the United States and the Euro area home regions.
+
+% [Insert the \begin{longtable} code here]
+\begingroup
+\footnotesize % Smaller font size (one step down from \small)
+\setlength{\tabcolsep}{3pt} % Tighter horizontal space between columns
+\renewcommand{\arraystretch}{0.8} % Tighter vertical space between rows
+
+% Column specs: 
+% 1. p{2.0cm} -> Region (wraps text, slightly narrower for smaller font)
+% 2. l        -> Country (left-aligned)
+% 3-7. c      -> Checkmark columns (centered)
+\begin{longtable}{>{\raggedright\arraybackslash}p{2.0cm} l c c c c c}
+\toprule
+\textbf{Region} & \textbf{Country} & \textbf{EXIOBASE3} & \textbf{OECD} & \textbf{Eurozone} & \textbf{RoW - US} & \textbf{RoW - Eurozone} \\
+\midrule[1pt]
+\endfirsthead
+
+% Header for subsequent pages (if the table breaks across pages)
+\toprule
+\textbf{Region} & \textbf{Country} & \textbf{EXIOBASE3} & \textbf{OECD} & \textbf{Eurozone} & \textbf{RoW - US} & \textbf{RoW - Eurozone} \\
+\midrule[1pt]
+\endhead
+
+% Footer for pages that break
+\midrule
+\endfoot
+
+% Footer for the very end of the table
+\bottomrule
+\endlastfoot
+
+& \textit{Total Count} & \textit{44} & \textit{42} & \textit{20} & \textit{36} & \textit{19} \\
+\midrule[1pt] % Thick line to start the data
+
+% --- EUROPE ---
+Europe & Austria & \checkmark & \checkmark & \checkmark & \checkmark & \\ \cmidrule(l){2-7}
+& Belgium & \checkmark & \checkmark & \checkmark & \checkmark & \\ \cmidrule(l){2-7}
+& Bulgaria & \checkmark & \checkmark & & \checkmark & \checkmark \\ \cmidrule(l){2-7}
+& Croatia & \checkmark & \checkmark & \checkmark & \checkmark & \\ \cmidrule(l){2-7}
+& Cyprus & \checkmark & & \checkmark & & \\ \cmidrule(l){2-7}
+& Czechia & \checkmark & \checkmark & & \checkmark & \checkmark \\ \cmidrule(l){2-7}
+& Denmark & \checkmark & \checkmark & & \checkmark & \checkmark \\ \cmidrule(l){2-7}
+& Estonia & \checkmark & \checkmark & \checkmark & \checkmark & \\ \cmidrule(l){2-7}
+& Finland & \checkmark & \checkmark & \checkmark & \checkmark & \\ \cmidrule(l){2-7}
+& France & \checkmark & \checkmark & \checkmark & \checkmark & \\ \cmidrule(l){2-7}
+& Germany & \checkmark & \checkmark & \checkmark & \checkmark & \\ \cmidrule(l){2-7}
+& Greece & \checkmark & \checkmark & \checkmark & \checkmark & \\ \cmidrule(l){2-7}
+& Hungary & \checkmark & \checkmark & & \checkmark & \checkmark \\ \cmidrule(l){2-7}
+& Ireland & \checkmark & \checkmark & \checkmark & \checkmark & \\ \cmidrule(l){2-7}
+& Italy & \checkmark & \checkmark & \checkmark & \checkmark & \\ \cmidrule(l){2-7}
+& Latvia & \checkmark & \checkmark & \checkmark & \checkmark & \\ \cmidrule(l){2-7}
+& Lithuania & \checkmark & \checkmark & \checkmark & \checkmark & \\ \cmidrule(l){2-7}
+& Luxembourg & \checkmark & \checkmark & \checkmark & \checkmark & \\ \cmidrule(l){2-7}
+& Malta & \checkmark & & \checkmark & & \\ \cmidrule(l){2-7}
+& Netherlands & \checkmark & \checkmark & \checkmark & \checkmark & \\ \cmidrule(l){2-7}
+& Norway & \checkmark & \checkmark & & \checkmark & \checkmark \\ \cmidrule(l){2-7}
+& Poland & \checkmark & \checkmark & & \checkmark & \checkmark \\ \cmidrule(l){2-7}
+& Portugal & \checkmark & \checkmark & \checkmark & \checkmark & \\ \cmidrule(l){2-7}
+& Romania & \checkmark & \checkmark & & \checkmark & \checkmark \\ \cmidrule(l){2-7}
+& Slovakia & \checkmark & \checkmark & \checkmark & \checkmark & \\ \cmidrule(l){2-7}
+& Slovenia & \checkmark & \checkmark & \checkmark & \checkmark & \\ \cmidrule(l){2-7}
+& Spain & \checkmark & \checkmark & \checkmark & \checkmark & \\ \cmidrule(l){2-7}
+& Sweden & \checkmark & \checkmark & & \checkmark & \checkmark \\ \cmidrule(l){2-7}
+& Switzerland & \checkmark & \checkmark & & \checkmark & \checkmark \\ \cmidrule(l){2-7}
+& United Kingdom & \checkmark & \checkmark & & \checkmark & \checkmark \\ \cmidrule(l){2-7}
+& Iceland & & \checkmark & & & \\
+\midrule[1pt] % THICK line separating regions
+
+% --- NORTH AMERICA ---
+North America & Canada & \checkmark & \checkmark & & \checkmark & \checkmark \\ \cmidrule(l){2-7}
+& United States & \checkmark & \checkmark & & & \checkmark \\
+\midrule[1pt] % THICK line separating regions
+
+% --- ASIA PACIFIC ---
+Asia-Pacific & Australia & \checkmark & & & & \\ \cmidrule(l){2-7}
+& South Korea & \checkmark & \checkmark & & \checkmark & \checkmark \\ \cmidrule(l){2-7}
+& Taiwan & \checkmark & & & & \\ \cmidrule(l){2-7}
+& Japan & \checkmark & \checkmark & & \checkmark & \checkmark \\ \cmidrule(l){2-7}
+& New Zealand & & \checkmark & & & \\
+\midrule[1pt] % THICK line separating regions
+
+% --- EMERGING MARKETS ---
+Emerging Markets & Brazil & \checkmark & \checkmark & & \checkmark & \checkmark \\ \cmidrule(l){2-7}
+& China & \checkmark & & & \checkmark & \checkmark \\ \cmidrule(l){2-7}
+& India & \checkmark & \checkmark & & \checkmark & \checkmark \\ \cmidrule(l){2-7}
+& Indonesia & \checkmark & & & & \\ \cmidrule(l){2-7}
+& Mexico & \checkmark & \checkmark & & \checkmark & \checkmark \\ \cmidrule(l){2-7}
+& Russia & \checkmark & \checkmark & & \checkmark & \checkmark \\ \cmidrule(l){2-7}
+& South Africa & \checkmark & & & & \\ \cmidrule(l){2-7}
+& Türkiye & \checkmark & \checkmark & & \checkmark & \checkmark \\ \cmidrule(l){2-7}
+& Chile & & \checkmark & & & \\ \cmidrule(l){2-7}
+& Colombia & & \checkmark & & & \\ \cmidrule(l){2-7}
+& Israel & & \checkmark & & & \\
+
+\end{longtable}
+\endgroup

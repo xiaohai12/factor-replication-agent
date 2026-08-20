@@ -76,8 +76,50 @@ export function getMethodSpecWorkflowState(sessionId: string): MethodSpecWorkflo
   }
 }
 
-export function setMethodSpecWorkflowState(sessionId: string, patch: MethodSpecWorkflowState): MethodSpecWorkflowState {
-  const next = { ...getMethodSpecWorkflowState(sessionId), ...patch }
-  localStorage.setItem(key(sessionId), JSON.stringify(next))
-  return next
+//: Frees space by dropping every OTHER session's cached workflow state
+//: (still recoverable from the backend session/methodspecs artifacts --
+//: this only loses this browser's local convenience cache for THOSE
+//: sessions, not the current one being worked on).
+function evictOtherSessions(exceptSessionId: string) {
+  const prefix = "methodspec-workflow:"
+  const except = key(exceptSessionId)
+  const toRemove: string[] = []
+  for (let i = 0; i < localStorage.length; i++) {
+    const k = localStorage.key(i)
+    if (k && k.startsWith(prefix) && k !== except) toRemove.push(k)
+  }
+  toRemove.forEach((k) => localStorage.removeItem(k))
+}
+
+//: Persists the FULL (already-merged) state object as-is -- no read-merge-
+//: write against whatever's currently on disk. Merging against disk here
+//: (the old `setMethodSpecWorkflowState` behavior) silently lost fields
+//: whenever a previous write in the same render/effect had already failed
+//: (e.g. quota exceeded): every subsequent patch would merge on top of the
+//: stale/empty disk copy instead of the latest in-memory state, so a
+//: successful Step1 extraction could still end up looking empty in the UI.
+//: Callers must pass the full merged state (see `MethodSpecWorkflowPanel`'s
+//: `patch`, which merges against its own in-memory `state` via a
+//: functional `setState` update, not a disk re-read).
+export function persistMethodSpecWorkflowState(sessionId: string, state: MethodSpecWorkflowState): void {
+  const serialized = JSON.stringify(state)
+  try {
+    localStorage.setItem(key(sessionId), serialized)
+  } catch {
+    // `paperText`/`rawSpec`/`history` can be large (a full paper's text is
+    // ~100-200KB) and every session's key was never evicted before, so
+    // localStorage's quota (~5-10MB/origin) can be exceeded across many
+    // past sessions. Uncaught, this throw would happen synchronously
+    // inside a React effect/mutation callback -> React unmounts the whole
+    // tree -> blank white screen with no error shown. Try freeing space by
+    // dropping every OTHER session's cache and retrying once before
+    // degrading to in-memory-only (state itself still updates via the
+    // caller's `setState` regardless of whether this persists).
+    try {
+      evictOtherSessions(sessionId)
+      localStorage.setItem(key(sessionId), serialized)
+    } catch (e2) {
+      console.warn(`Failed to persist methodspec workflow state for session ${sessionId} even after evicting other sessions' cache:`, e2)
+    }
+  }
 }

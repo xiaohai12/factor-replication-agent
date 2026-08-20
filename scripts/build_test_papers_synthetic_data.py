@@ -257,7 +257,7 @@ _FUNDA_ITEMS = ["at", "act", "che", "lct", "dlc", "dltt", "dp", "txp", "sale",
                 "dcpstk", "pstk", "seq", "prcc_f", "prcc_c"]
 
 
-def build_comp_funda(u: pd.DataFrame) -> pd.DataFrame:
+def build_compustat_fundamental_annual(u: pd.DataFrame) -> pd.DataFrame:
     rows = []
     for _, f in u.iterrows():
         # fiscal year end: mostly December, some other months
@@ -311,47 +311,6 @@ def build_comp_funda(u: pd.DataFrame) -> pd.DataFrame:
     df = pd.DataFrame(rows)
     # WRDS funda standard filter flags (all rows already "standard")
     df["indfmt"], df["consol"], df["popsrc"], df["datafmt"], df["curcd"] = \
-        "INDL", "C", "D", "STD", "USD"
-    return df
-
-
-def build_comp_fundq(u: pd.DataFrame) -> pd.DataFrame:
-    rows = []
-    for _, f in u.iterrows():
-        if rng.random() < 0.25:   # not every firm has quarterly coverage in sample
-            continue
-        atq = float(rng.uniform(50, 40_000))
-        for year in range(1990, 2015):
-            for q in range(1, 5):
-                atq *= (1 + rng.normal(0.015, 0.06))
-                atq = max(atq, 5.0)
-                saleq = atq * float(rng.uniform(0.1, 0.4))
-                eps = float(rng.normal(0.4, 0.6))
-                month = q * 3
-                rows.append({
-                    "gvkey": f["gvkey"],
-                    "datadate": pd.Timestamp(year=year, month=month, day=1) + pd.offsets.MonthEnd(0),
-                    "fyearq": year, "fqtr": q,
-                    "datacqtr": f"{year}Q{q}",
-                    "atq": round(atq, 3),
-                    "actq": round(atq * rng.uniform(0.2, 0.6), 3),
-                    "cheq": round(atq * rng.uniform(0.02, 0.2), 3),
-                    "lctq": round(atq * rng.uniform(0.1, 0.4), 3),
-                    "dlcq": round(atq * rng.uniform(0.0, 0.1), 3),
-                    "dlttq": round(atq * rng.uniform(0.0, 0.4), 3),
-                    "dpq": round(atq * rng.uniform(0.005, 0.03), 3),
-                    "epspxq": round(eps, 3),
-                    "epspiq": round(eps * rng.uniform(0.9, 1.1), 3),
-                    "ibq": round(saleq * rng.uniform(-0.05, 0.15), 3),
-                    "saleq": round(saleq, 3), "revtq": round(saleq, 3),
-                    "cogsq": round(saleq * rng.uniform(0.5, 0.8), 3),
-                    "rdq": pd.Timestamp(year=year, month=month, day=1)
-                             + pd.offsets.MonthEnd(0) + pd.Timedelta(days=int(rng.integers(25, 60))),
-                    "prccq": round(max(0.5, f["_p0"] * rng.uniform(0.5, 2.0)), 3),
-                    "cshoq": round(float(rng.uniform(5, 2000)), 3),
-                })
-    df = pd.DataFrame(rows)
-    df["indfmt"], df["consol"], df["popsrc"], df["datafmt"], df["curcdq"] = \
         "INDL", "C", "D", "STD", "USD"
     return df
 
@@ -600,8 +559,7 @@ def main() -> None:
         "crsp_msedelist":    build_crsp_msedelist(u, msf),
         "crsp_msedist":      build_crsp_msedist(u),
         "crsp_dsf":          build_crsp_dsf(u),
-        "comp_funda":        build_comp_funda(u),
-        "comp_fundq":        build_comp_fundq(u),
+        "compustat_fundamental_annual": build_compustat_fundamental_annual(u),
         "ccm_lnkhist":       build_ccm_lnkhist(u),
         "ibes_statsumu":     build_ibes_statsumu(u),
         "ibes_actu":         build_ibes_actu(u),

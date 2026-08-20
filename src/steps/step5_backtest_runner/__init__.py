@@ -38,6 +38,7 @@ from src.infra.models.plugin import PluginRecord
 from src.infra.models.run_record import RunMetrics, RunRecord
 from src.infra.provenance import collect_runtime_provenance
 from src.infra.hashing import snapshot_manifest_hash
+from src.infra.reference import external_reference_endpoints
 from src.steps.step3_codegen.registry import build_config
 from src.steps.step3_codegen.script_generator import generate_backtest_script, pick_signal_input_mode
 from src.steps.step7_replication_diff.bundle import build_evidence_bundle
@@ -47,7 +48,7 @@ from src.steps.step7_replication_diff.bundle import build_evidence_bundle
 # (derived / config_diff / gap_decomposition / evidence_keys) that the step-8
 # LLM diagnosis layer consumes. v1 files carried only paper_reported + tracks.
 # Bumped to 3 when the bundle gained spec_quality / menu_deviations /
-# bridge_comparison / publication_decay / robustness_summary -- the richer
+# publication_decay / robustness_summary -- the richer
 # reason-layer evidence for step8's diagnosis redesign (docs/tools-plus-llm-plan.md).
 COMPARISON_SCHEMA_VERSION = 3
 
@@ -69,15 +70,24 @@ def _spec_paper_reported(spec: ResolvedMethodSpec) -> dict:
     3 secondary typed metrics, D5) into the
     `{return_type, spreads, t_stats, main_spread, main_t_stat}` shape
     `write_comparison_summary`'s existing consumers
-    (`step7_replication_diff.bundle.build_evidence_bundle`) expect."""
+    (`step7_replication_diff.bundle.build_evidence_bundle`) expect.
+
+    Also carries `sample.reported_returns`' window -- the range the paper's
+    HEADLINE numbers actually cover (not `sample.formation`; see
+    `registry.build_config`'s same choice) -- so the three-term identity can
+    state which window its `paper_reported_spread` endpoint sits on instead
+    of leaving the mismatch undeclared."""
     rr = spec.paper.reported_results
     primary = next((m for m in rr.metrics if m.metric_id == rr.primary_metric_id), None)
+    reported_window = spec.paper.sample.reported_returns
     return {
         "return_type": primary.estimand.value if primary else "",
         "spreads": {m.metric_id: m.estimate for m in rr.metrics},
         "t_stats": {m.metric_id: m.statistic.value for m in rr.metrics if m.statistic},
         "main_spread": primary.estimate if primary else None,
         "main_t_stat": primary.statistic.value if primary and primary.statistic else None,
+        "sample_start_year": reported_window.start_year,
+        "sample_end_year": reported_window.end_year,
     }
 
 
@@ -101,7 +111,6 @@ class BacktestRunner:
         snapshot_id: str,
         config_overrides: dict | None,
         track_name: str | None = None,
-        precomputed_signal_path: str | None = None,
     ) -> dict:
         """Assemble the ONE complete standalone backtest script — no execution.
 
@@ -112,7 +121,7 @@ class BacktestRunner:
 
         Data is NOT auto-generated here: the registered snapshot's
         storage_path must already contain crsp_msf.parquet (and, in
-        'compustat' mode, comp_funda.parquet + ccm_lnkhist.parquet).
+        'compustat' mode, compustat_fundamental_annual.parquet + ccm_lnkhist.parquet).
 
         `track_name` (e.g. "original_method", "standardized_hxz",
         "ablation_breakpoint") disambiguates the output filenames when the
@@ -124,11 +133,6 @@ class BacktestRunner:
         collided). Omitting it preserves the original single-track filename
         for backward compatibility. See docs/decision-log.md for the gap
         this closes.
-
-        `precomputed_signal_path`, when given, is threaded straight through
-        to `generate_backtest_script` -- the generated script skips
-        `compute_signal()` and loads this parquet directly (a C&Z bridge
-        track; see `src.infra.reference.cz_bridge`).
 
         Returns a dict: script_text, script_path, output_csv, config.
         """
@@ -204,7 +208,6 @@ class BacktestRunner:
             liquidity_factors_data_dir=liquidity_factors_data_dir,
             signal_data_dir=str(storage_path),
             resolved_config=config,
-            precomputed_signal_path=precomputed_signal_path,
         )
         script_stem = f"{factor_id}__{track_name}" if track_name else factor_id
         script_path = scripts_dir / f"{script_stem}_backtest.py"
@@ -399,7 +402,18 @@ class BacktestRunner:
             "batch": batch_info or {},
         }
         payload.update(
-            build_evidence_bundle(paper_reported, tracks, diff_result, spec=spec, results_dir=results_dir)
+            build_evidence_bundle(
+                paper_reported,
+                tracks,
+                diff_result,
+                spec=spec,
+                results_dir=results_dir,
+                external_references=external_reference_endpoints(
+                    spec.resolution.cz_acronym,
+                    paper_reported.get("sample_start_year"),
+                    paper_reported.get("sample_end_year"),
+                ),
+            )
         )
         path = results_dir / "comparison.json"
         path.write_text(json.dumps(payload, indent=2, default=str))

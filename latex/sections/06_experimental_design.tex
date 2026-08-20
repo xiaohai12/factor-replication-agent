@@ -1,0 +1,81 @@
+\section{Experimental Design}
+\label{sec:design}
+
+\subsection{Track grid}
+
+For each factor, the frozen agent signal $\SA$ (\S\ref{sec:pipeline}) is
+executed under three configurations -- $\Cagent$, $\Ccz$, and $\Cstd$ --
+producing $\Aref$, $\Acz$, and $\Ahxz$ respectively; alongside these,
+$\CZ$ and $\HXZ$ are each team's own independently measured result, and
+$\Pref$ is the paper's own reported number. Figure~\ref{fig:track-grid}
+lays out all six reference points. Only the configuration varies across
+$\Aref$, $\Acz$, and $\Ahxz$ -- the code hash of $\SA$ is identical across
+all three by the freeze guarantee in \S\ref{sec:pipeline} -- so any
+difference among them is attributable to configuration alone, never to a
+silent change in the signal.
+
+\begin{figure}[htbp]
+  \centering
+  \fbox{\parbox{0.9\linewidth}{\centering \vspace{4cm} F2: signal $\times$ config experiment grid, six reference points ($\Aref$/$\Acz$/$\Ahxz$/$\CZ$/$\HXZ$/$\Pref$) \vspace{4cm}}}
+  \caption{The experiment grid. Only the configuration varies across tracks
+    for a fixed factor; the frozen agent signal $S_A$ is held constant
+    across $\Aref$, $\Acz$, and $\Ahxz$.}
+  \label{fig:track-grid}
+\end{figure}
+
+\subsection{RQ1 design: the paper-anchored three-term identity}
+
+$\Acz$ and $\Ahxz$ are constructed by taking the frozen $\SA$ and
+re-executing it with $\Ccz$ or $\Cstd$ substituted for $\Cagent$ --
+otherwise unchanged -- so that Equation~\eqref{eq:three-term}'s
+configuration term, $\Acz - \Aref$ (or $\Ahxz - \Aref$), is measured
+directly rather than inferred. The window/vintage residual term
+(\S\ref{sec:framework}) is computed by requesting $\HXZ$ from
+\texttt{hxz\_bridge.compute\_hxz\_reported\_both\_windows()} at the specific
+sample window that matches $\Aref$/$\Ahxz$'s coverage, isolating how much of
+the $\HXZ$-side gap would remain even if the two teams' data windows were
+aligned.
+
+\subsection{Field-level gap decomposition}
+\begin{equation}
+  \label{eq:gap-decomp}
+  \sum \text{main effects} + \sum \text{interaction effects} = (\Acz - \Aref)
+\end{equation}
+Where the configuration fields that differ between $\Ccz$ and $\Cagent$
+number five or fewer, a full factorial over those fields is run, and
+Equation~\eqref{eq:gap-decomp} holds exactly -- every main effect and every
+interaction term is directly measured, and the residual is exactly zero by
+construction, not by assumption. Where the field count exceeds what a full
+factorial can cover economically, a one-at-a-time (OAT) design is used
+instead, at the cost of not measuring interaction terms explicitly.
+
+\subsection{$t$-channel decomposition}
+\begin{equation}
+  \label{eq:t-channel}
+  \log t = \log \mu - \log \sigma + \tfrac{1}{2} \log n
+\end{equation}
+This is an identity, not a model: for any track's reported mean return
+$\mu$, return volatility $\sigma$, and sample size $n$, the three terms on
+the right sum exactly to $\log t$. Unlike the mean return in
+Equation~\eqref{eq:gap-decomp}, a $t$-statistic cannot be decomposed
+additively across configuration fields, because it is a ratio rather than a
+sum; Equation~\eqref{eq:t-channel} instead decomposes \emph{why} a $t$-statistic
+changed between two tracks -- via a shift in mean return, in volatility, or
+in sample size -- without requiring the mean-return decomposition's
+factorial design.
+
+\subsection{Identification levels and significance tiers}
+
+Every pairwise comparison between two tracks is assigned an identification
+level derived automatically from the resolved difference-set between their
+two configurations, never hand-labeled: \emph{controlled}, when exactly one
+configuration field differs; \emph{harmonized}, when the compared quantities
+have been transformed onto a common contract before comparison;
+\emph{observational}, when one side is an externally published number whose
+underlying signal and data vintage cannot be controlled; and
+\emph{unidentified}, when more than one field differs simultaneously.
+Significance is reported at three tiers -- $|t| \geq 1.96$, $2.78$, and
+$3.39$ -- matching the thresholds \citet{HouXueZhang2020} themselves use
+under increasingly conservative multiple-testing corrections, rather than
+a single conventional cutoff.
+

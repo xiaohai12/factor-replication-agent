@@ -50,7 +50,7 @@ class CrspLinkSpec:
     #: needs no link hop. The link table's own schema (its key/permno columns,
     #: validity window, and data-quality/primary filters) lives on the
     #: `LinkTableSpec`, not here — two sources sharing a link table (e.g.
-    #: comp_funda + comp_fundq both via "ccm") reference one shared spec.
+    #: any two Compustat-keyed sources via "ccm") reference one shared spec.
     link_table: Optional[str]
 
     #: The source-row date column used to pick the valid link row
@@ -93,7 +93,7 @@ class LinkTableSpec:
 # ---------------------------------------------------------------------------
 @dataclass
 class SourceSpec:
-    #: Registry key, e.g. "comp_funda" / "ibes_statsumu".
+    #: Registry key, e.g. "compustat_fundamental_annual" / "ibes_statsumu".
     name: str
     #: "signal" | "returns" (CRSP is registered as both — see module docstring).
     role: str
@@ -132,8 +132,9 @@ class SourceSpec:
     #: {physical_column: one-line WRDS definition}, e.g. {"at": "Total Assets
     #: (Compustat annual item AT) -- total balance sheet assets"}. Same
     #: purely-descriptive status as `description` above -- disambiguates
-    #: near-synonym columns (e.g. comp_funda's "sale" vs "revt") that a bare
-    #: column name or single concept alias can't distinguish on its own.
+    #: near-synonym columns (e.g. compustat_fundamental_annual's "sale" vs
+    #: "revt") that a bare column name or single concept alias can't
+    #: distinguish on its own.
     column_descriptions: dict[str, str] = field(default_factory=dict)
 
     # NOTE: `snapshot_table` and `frequency` are intentionally omitted until a
@@ -371,9 +372,30 @@ def get_returns_universe_by_layout(layout: str) -> "ReturnsUniverse":
 #: under the sources <- catalog <- __init__ layering).
 CIZ_EXCHCD_MAP: dict[str, int] = {"N": 1, "A": 2, "Q": 3}
 
+#: Every raw column in `CRSP_STOCK_MONTH.csv` (WRDS "new CIZ" monthly export)
+#: -- registered 2026-08-19 so `build_crsp_monthly_panel_ciz` carries all of
+#: them through (lowercased) alongside the derived permno/yyyymm/ret/me/
+#: exchcd/shrcd/siccd/dlret columns, not just the small subset the derived
+#: columns are computed from.
 CIZ_MONTHLY_USECOLS: list[str] = [
-    "PERMNO", "YYYYMM", "MthRet", "MthCap", "PrimaryExch", "SICCD",
-    "SecurityType", "SecuritySubType", "ShareType", "USIncFlg",
+    "PERMNO", "SecInfoStartDt", "SecInfoEndDt", "SecurityBegDt", "SecurityEndDt",
+    "SecurityHdrFlg", "HdrCUSIP", "HdrCUSIP9", "CUSIP", "CUSIP9",
+    "PrimaryExch", "ConditionalType", "ExchangeTier", "TradingStatusFlg", "SecurityNm",
+    "ShareClass", "USIncFlg", "IssuerType", "SecurityType", "SecuritySubType",
+    "ShareType", "SecurityActiveFlg", "DelActionType", "DelStatusType", "DelReasonType",
+    "DelPaymentType", "Ticker", "TradingSymbol", "PERMCO", "SICCD",
+    "NAICS", "ICBIndustry", "NASDCompno", "NASDIssuno", "IssuerNm",
+    "YYYYMM", "MthCalDt", "MthCompFlg", "MthCompSubFlg", "MthPrc",
+    "MthPrcFlg", "MthPrcDt", "MthDtFlg", "MthDelFlg", "MthCap",
+    "MthPrevPrc", "MthPrevPrcFlg", "MthPrevDt", "MthPrevDtFlg", "MthPrevCap",
+    "MthRet", "MthRetx", "MthRetFlg", "MthDisCnt", "MthVol",
+    "MthVolFlg", "MthPrcVol", "MthFacShrFlg", "MthPrcVolMissCnt", "ShrStartDt",
+    "ShrEndDt", "ShrOut", "ShrSource", "ShrFacType", "ShrAdrFlg",
+    "DisExDt", "DisSeqNbr", "DisOrdinaryFlg", "DisType", "DisFreqType",
+    "DisPaymentType", "DisDetailType", "DisTaxType", "DisOrigCurType", "DisDivAmt",
+    "DisFacPr", "DisFacShr", "DisDeclareDt", "DisRecordDt", "DisPayDt",
+    "DisPERMNO", "DisPERMCO", "vwretd", "vwretx", "ewretd",
+    "ewretx", "sprtrn",
 ]
 
 CIZ_DAILY_USECOLS: list[str] = [
@@ -417,7 +439,11 @@ def build_crsp_monthly_panel_ciz(
     """Assemble the standard CRSP monthly returns panel from a real WRDS "new
     CIZ" export.
 
-    Output contract: [permno, yyyymm, ret, me, exchcd, shrcd, siccd, dlret].
+    Output contract: [permno, yyyymm, ret, me, exchcd, shrcd, siccd, dlret,
+    *every other raw `CIZ_MONTHLY_USECOLS` column, lowercased and otherwise
+    untouched] -- the extra passthrough columns are additive (existing
+    consumers only ever check `REQUIRED_MONTHLY_COLS.issubset(df.columns)`,
+    never exact equality), so they're safe to carry through unconditionally.
 
     Args:
         data_dir: directory containing `monthly_file` (+ `delisting_file`).
@@ -431,17 +457,29 @@ def build_crsp_monthly_panel_ciz(
         usecols=CIZ_MONTHLY_USECOLS,
         dtype={"PERMNO": "int64", "YYYYMM": "int64"},
         nrows=nrows,
+        low_memory=False,
     )
-    monthly = monthly.rename(
-        columns={"PERMNO": "permno", "YYYYMM": "yyyymm", "MthRet": "ret", "MthCap": "me", "SICCD": "siccd"}
-    )
-    monthly["ret"] = pd.to_numeric(monthly["ret"], errors="coerce")
-    monthly["me"] = pd.to_numeric(monthly["me"], errors="coerce")
-    monthly["siccd"] = pd.to_numeric(monthly["siccd"], errors="coerce")
     monthly["exchcd"] = monthly["PrimaryExch"].map(CIZ_EXCHCD_MAP).fillna(0).astype(int)
     monthly["shrcd"] = _ciz_shrcd(
         monthly["SecurityType"], monthly["SecuritySubType"], monthly["ShareType"], monthly["USIncFlg"]
     )
+    renamed = {
+        "PERMNO": "permno", "YYYYMM": "yyyymm", "MthRet": "ret", "MthCap": "me",
+        "SICCD": "siccd", "MthPrc": "prc",
+    }
+    monthly = monthly.rename(columns=renamed)
+    monthly["ret"] = pd.to_numeric(monthly["ret"], errors="coerce")
+    monthly["me"] = pd.to_numeric(monthly["me"], errors="coerce")
+    monthly["siccd"] = pd.to_numeric(monthly["siccd"], errors="coerce")
+    monthly["prc"] = pd.to_numeric(monthly["prc"], errors="coerce")
+    # Passthrough copies (lowercased raw names) for every raw column NOT
+    # already covered by the derived permno/yyyymm/ret/me/siccd rename above
+    # (those would collide -- e.g. raw SICCD and derived "siccd" both
+    # lowercase to the same name).
+    for raw_col in CIZ_MONTHLY_USECOLS:
+        if raw_col in renamed:
+            continue
+        monthly[raw_col.lower()] = monthly[raw_col]
 
     delist_path = d / delisting_file
     if delist_path.exists():
@@ -457,7 +495,9 @@ def build_crsp_monthly_panel_ciz(
     else:
         monthly["dlret"] = float("nan")
 
-    out = monthly[["permno", "yyyymm", "ret", "me", "exchcd", "shrcd", "siccd", "dlret"]].copy()
+    out = monthly.drop(
+        columns=[c for c in CIZ_MONTHLY_USECOLS if c not in renamed]
+    ).copy()
     out["permno"] = out["permno"].astype(int)
     out["yyyymm"] = out["yyyymm"].astype(int)
     return out.reset_index(drop=True)
@@ -896,6 +936,27 @@ register(CrspSignalSource(SourceSpec(
     physical_columns={
         "permno", "yyyymm", "date", "ret", "me",
         "prc", "shrout", "shrcd", "exchcd", "siccd",
+        # Raw CIZ passthrough columns registered 2026-08-19 (see
+        # CIZ_MONTHLY_USECOLS / build_crsp_monthly_panel_ciz) -- most are
+        # left without a `column_descriptions` entry below (identifier/
+        # date/flag detail fields not commonly needed by a MethodSpec).
+        "secinfostartdt", "secinfoenddt", "securitybegdt", "securityenddt",
+        "securityhdrflg", "hdrcusip", "hdrcusip9", "cusip", "cusip9",
+        "primaryexch", "conditionaltype", "exchangetier", "tradingstatusflg", "securitynm",
+        "shareclass", "usincflg", "issuertype", "securitytype", "securitysubtype",
+        "sharetype", "securityactiveflg", "delactiontype", "delstatustype", "delreasontype",
+        "delpaymenttype", "ticker", "tradingsymbol", "permco", "naics",
+        "icbindustry", "nasdcompno", "nasdissuno", "issuernm", "mthcaldt",
+        "mthcompflg", "mthcompsubflg", "mthprcflg", "mthprcdt", "mthdtflg",
+        "mthdelflg", "mthprevprc", "mthprevprcflg", "mthprevdt", "mthprevdtflg",
+        "mthprevcap", "mthretx", "mthretflg", "mthdiscnt", "mthvol",
+        "mthvolflg", "mthprcvol", "mthfacshrflg", "mthprcvolmisscnt", "shrstartdt",
+        "shrenddt", "shrsource", "shrfactype", "shradrflg",
+        "disexdt", "disseqnbr", "disordinaryflg", "distype", "disfreqtype",
+        "dispaymenttype", "disdetailtype", "distaxtype", "disorigcurtype", "disdivamt",
+        "disfacpr", "disfacshr", "disdeclaredt", "disrecorddt", "dispaydt",
+        "dispermno", "dispermco", "vwretd", "vwretx", "ewretd",
+        "ewretx", "sprtrn",
     },
     concept_columns={
         "monthly_return": "ret", "ret": "ret", "monthly stock return": "ret",
@@ -910,6 +971,7 @@ register(CrspSignalSource(SourceSpec(
         "shrcd": "shrcd", "share code": "shrcd", "share_code": "shrcd",
         "shrout": "shrout", "shares outstanding": "shrout",
         "prc": "prc", "price": "prc", "closing price": "prc",
+        "ticker": "ticker", "cusip": "cusip", "monthly volume": "mthvol", "mthvol": "mthvol",
     },
     source_key="permno", observation_date=None, lag=0,
     crsp_link=CrspLinkSpec(native_key="permno", link_table=None),
@@ -929,17 +991,203 @@ register(CrspSignalSource(SourceSpec(
         "shrcd": "CRSP share code (10/11 = ordinary common shares; used to filter the eligible universe).",
         "exchcd": "CRSP listing exchange code (1=NYSE, 2=AMEX, 3=NASDAQ).",
         "siccd": "4-digit Standard Industrial Classification code (used for industry exclusions, e.g. financials/utilities).",
+        "cusip": "8-digit CUSIP security identifier.",
+        "ticker": "Ticker symbol.",
+        "permco": "CRSP permanent COMPANY identifier (groups multiple permnos under one firm).",
+        "naics": "North American Industry Classification System code.",
+        "primaryexch": "Raw CIZ primary-exchange letter code this row's derived `exchcd` is mapped from.",
+        "securitytype": "Raw CIZ security-type classification this row's derived `shrcd` is mapped from.",
+        "securitysubtype": "Raw CIZ security-subtype classification (e.g. COM/CEF/ETF).",
+        "sharetype": "Raw CIZ share-type code (e.g. \"AD\" = ADR).",
+        "usincflg": "US-incorporated flag (\"Y\"/\"N\"), used to derive `shrcd`.",
+        "mthvol": "Monthly trading volume (shares).",
+        "mthretx": "Monthly return excluding dividends/distributions.",
+        "mthcaldt": "Calendar date this monthly record's data as-of (month-end).",
+        "vwretd": "CRSP value-weighted market return, including distributions.",
+        "vwretx": "CRSP value-weighted market return, excluding distributions.",
+        "ewretd": "CRSP equal-weighted market return, including distributions.",
+        "ewretx": "CRSP equal-weighted market return, excluding distributions.",
+        "sprtrn": "S&P 500 index return.",
     },
 )))
 
+#: Full raw column list from `COMPUSTAT_FUNDAMENTALS_ANNUAL.csv` (WRDS
+#: Compustat North America Fundamentals Annual, all industry formats) --
+#: registering every raw name here makes it selectable by a MethodSpec even
+#: though most of them (utility/bank/insurance-specific, legacy, or
+#: options-detail items) have no `column_descriptions` entry below (left
+#: undescribed rather than guessed -- see that dict's own note).
+COMPUSTAT_FUNDAMENTAL_ANNUAL_PHYSICAL_COLUMNS: set[str] = {
+        "acchg", "acco", "accrt", "acctchg", "acctstd", "acdo",
+        "aco", "acodo", "acominc", "acox", "acoxar", "acqao",
+        "acqcshi", "acqgdwl", "acqic", "acqintan", "acqinvt", "acqlntal",
+        "acqmeth", "acqniintc", "acqppe", "acqsc", "act", "add1",
+        "add2", "add3", "add4", "addzip", "adjex_c", "adjex_f",
+        "adpac", "adrr", "aedi", "afudcc", "afudci", "ajex",
+        "ajp", "aldo", "am", "amc", "amdc", "amgw",
+        "ano", "ao", "aocidergl", "aociother", "aocipen", "aocisecgl",
+        "aodo", "aol2", "aoloch", "aox", "ap", "apalch",
+        "apb", "apc", "apdedate", "apofs", "aqa", "aqc",
+        "aqd", "aqeps", "aqi", "aqp", "aqpl1", "aqs",
+        "arb", "arc", "arce", "arced", "arceeps", "artfs",
+        "at", "au", "aul3", "auop", "auopic", "autxr",
+        "balr", "banlr", "bast", "bastr", "batr", "bcef",
+        "bclr", "bcltbl", "bcnlr", "bcrbl", "bct", "bctbl",
+        "bctr", "billexce", "bkvlps", "bltbl", "bspr", "busdesc",
+        "ca", "capr1", "capr2", "capr3", "caps", "capsft",
+        "capx", "capxv", "cb", "cbi", "cdpac", "cdvc",
+        "ceiexbill", "ceoso", "ceq", "ceql", "ceqt", "cfbd",
+        "cfere", "cfo", "cfoso", "cfpdo", "cga", "cgri",
+        "cgti", "cgui", "ch", "che", "chech", "chs",
+        "ci", "cibegni", "cicurr", "cidergl", "cik", "cimii",
+        "ciother", "cipen", "cisecgl", "citotal", "city", "cld2",
+        "cld3", "cld4", "cld5", "clfc", "clfx", "clg",
+        "clis", "cll", "cllc", "clo", "clrll", "clt",
+        "cmp", "cnltbl", "cogs", "compst", "conm", "conml",
+        "consol", "costat", "county", "cpcbl", "cpdoi", "cpnli",
+        "cppbl", "cprei", "crv", "crvnli", "cshfd", "cshi",
+        "csho", "cshpri", "cshr", "cshrc", "cshrp", "cshrso",
+        "cshrt", "cshrw", "cshtr_c", "cshtr_f", "cstk", "cstkcv",
+        "cstke", "curcd", "curncd", "currtr", "curuscn", "cusip",
+        "datadate", "datafmt", "dbi", "dc", "dclo", "dcom",
+        "dcpstk", "dcs", "dcvsr", "dcvsub", "dcvt", "dd",
+        "dd1", "dd2", "dd3", "dd4", "dd5", "depc",
+        "derac", "deralt", "derhedgl", "derlc", "derllt", "dfpac",
+        "dfs", "dfxa", "diladj", "dilavx", "dlc", "dlcch",
+        "dldte", "dlrsn", "dltis", "dlto", "dltp", "dltr",
+        "dltsub", "dltt", "dm", "dn", "do", "donr",
+        "dp", "dpacb", "dpacc", "dpacli", "dpacls", "dpacme",
+        "dpacnr", "dpaco", "dpacre", "dpact", "dpc", "dpdc",
+        "dpltb", "dpret", "dpsc", "dpstb", "dptb", "dptc",
+        "dptic", "dpvieb", "dpvio", "dpvir", "drc", "drci",
+        "drlt", "ds", "dt", "dtea", "dted", "dteeps",
+        "dtep", "dudd", "dv", "dvc", "dvdnp", "dvintf",
+        "dvp", "dvpa", "dvpd", "dvpdp", "dvpibb", "dvpsp_c",
+        "dvpsp_f", "dvpsx_c", "dvpsx_f", "dvrpiv", "dvrre", "dvsco",
+        "dvt", "dxd2", "dxd3", "dxd4", "dxd5", "ea",
+        "ebit", "ebitda", "eiea", "ein", "emol", "emp",
+        "epsfi", "epsfx", "epspi", "epspx", "esopct", "esopdlt",
+        "esopnr", "esopr", "esopt", "esub", "esubc", "excadj",
+        "exchg", "exre", "fatb", "fatc", "fatd", "fate",
+        "fatl", "fatn", "fato", "fatp", "fax", "fca",
+        "fdate", "fdfr", "fea", "fel", "ffo", "ffs",
+        "fiao", "fic", "finaco", "final", "finao", "fincf",
+        "finch", "findlc", "findlt", "finivst", "finlco", "finlto",
+        "finnp", "finrecc", "finreclt", "finrev", "finxint", "finxopr",
+        "fopo", "fopox", "fopt", "fsrco", "fsrct", "fuseo",
+        "fuset", "fyear", "fyr", "fyrc", "gbbl", "gdwl",
+        "gdwlam", "gdwlia", "gdwlid", "gdwlieps", "gdwlip", "geqrv",
+        "ggroup", "gind", "gla", "glcea", "glced", "glceeps",
+        "glcep", "gld", "gleps", "gliv", "glp", "govgr",
+        "govtown", "gp", "gphbl", "gplbl", "gpobl", "gprbl",
+        "gptbl", "gsector", "gsubind", "gvkey", "gwo", "hedgegl",
+        "iaeq", "iaeqci", "iaeqmi", "iafici", "iafxi", "iafxmi",
+        "iali", "ialoi", "ialti", "iamli", "iaoi", "iapli",
+        "iarei", "iasci", "iasmi", "iassi", "iasti", "iatci",
+        "iati", "iatmi", "iaui", "ib", "ibadj", "ibbl",
+        "ibc", "ibcom", "ibki", "ibmii", "icapt", "idbflag",
+        "idiis", "idilb", "idilc", "idis", "idist", "idit",
+        "idits", "iire", "incorp", "indfmt", "initb", "intan",
+        "intano", "intc", "intpn", "invch", "invfg", "invo",
+        "invofs", "invreh", "invrei", "invres", "invrm", "invt",
+        "invwip", "iobd", "ioi", "iore", "ip", "ipabl",
+        "ipc", "iphbl", "iplbl", "ipobl", "ipodate", "iptbl",
+        "ipti", "ipv", "irei", "irent", "irii", "irli",
+        "irnli", "irsi", "iseq", "iseqc", "iseqm", "isfi",
+        "isfxc", "isfxm", "isgr", "isgt", "isgu", "islg",
+        "islgc", "islgm", "islt", "ismod", "isng", "isngc",
+        "isngm", "isotc", "isoth", "isotm", "issc", "issm",
+        "issu", "ist", "istc", "istm", "isut", "itcb",
+        "itcc", "itci", "ivaco", "ivaeq", "ivao", "ivch",
+        "ivgod", "ivi", "ivncf", "ivpt", "ivst", "ivstch",
+        "lcabg", "lcacl", "lcacr", "lcag", "lcal", "lcalt",
+        "lcam", "lcao", "lcast", "lcat", "lco", "lcox",
+        "lcoxar", "lcoxdr", "lct", "lcuacu", "li", "lif",
+        "lifr", "lifrp", "lloml", "lloo", "llot", "llrci",
+        "llrcr", "llwoci", "llwocr", "lno", "lo", "loc",
+        "lol2", "loxdr", "lqpl1", "lrv", "ls", "lse",
+        "lst", "lt", "ltcm", "lul3", "mib", "mibn",
+        "mibt", "mii", "mkvalt", "mrc1", "mrc2", "mrc3",
+        "mrc4", "mrc5", "mrct", "mrcta", "msa", "msvrv",
+        "mtl", "naics", "naicsh", "nat", "nco", "nfsr",
+        "ni", "niadj", "nieci", "niint", "niintpfc", "niintpfp",
+        "niit", "nim", "nio", "nipfc", "nipfp", "nit",
+        "nits", "nopi", "nopio", "np", "npanl", "npaore",
+        "nparl", "npat", "nrtxt", "nrtxtd", "nrtxteps", "oancf",
+        "ob", "ogm", "oiadp", "oibdp", "opeps", "opili",
+        "opincar", "opini", "opioi", "opiri", "opiti", "oprepsx",
+        "optca", "optdr", "optex", "optexd", "optfvgr", "optgr",
+        "optlife", "optosby", "optosey", "optprcby", "optprcca", "optprcex",
+        "optprcey", "optprcgr", "optprcwa", "optrfr", "optvol", "palr",
+        "panlr", "patr", "pcl", "pclr", "pcnlr", "pctr",
+        "pdate", "pddur", "pdvc", "phone", "pi", "pidom",
+        "pifo", "pll", "pltbl", "pnca", "pncad", "pncaeps",
+        "pncia", "pncid", "pncieps", "pncip", "pncwia", "pncwid",
+        "pncwieps", "pncwip", "pnlbl", "pnli", "pnrsho", "pobl",
+        "ppcbl", "ppegt", "ppenb", "ppenc", "ppenli", "ppenls",
+        "ppenme", "ppennr", "ppeno", "ppent", "ppevbb", "ppeveb",
+        "ppevo", "ppevr", "pppabl", "ppphbl", "pppobl", "ppptbl",
+        "prc", "prca", "prcad", "prcaeps", "prcc_c", "prcc_f",
+        "prch_c", "prch_f", "prcl_c", "prcl_f", "prebl", "pri",
+        "prican", "prirow", "priusa", "prodv", "prsho", "prstkc",
+        "prstkcc", "prstkpc", "prvt", "pstk", "pstkc", "pstkl",
+        "pstkn", "pstkr", "pstkrv", "ptbl", "ptran", "pvcl",
+        "pvo", "pvon", "pvpl", "pvt", "pwoi", "radp",
+        "ragr", "rank", "rari", "rati", "rca", "rcd",
+        "rceps", "rcl", "rcp", "rdip", "rdipa", "rdipd",
+        "rdipeps", "rdp", "re", "rea", "reajo", "recch",
+        "recco", "recd", "rect", "recta", "rectr", "recub",
+        "ret", "reuna", "reunr", "revt", "ris", "rll",
+        "rlo", "rlp", "rlri", "rlt", "rmum", "rpag",
+        "rra", "rrd", "rreps", "rrp", "rstche", "rstchelt",
+        "rvbci", "rvbpi", "rvbti", "rvdo", "rvdt", "rveqt",
+        "rvlrv", "rvno", "rvnt", "rvri", "rvsi", "rvti",
+        "rvtxr", "rvupi", "rvutx", "saa", "sal", "sale",
+        "salepfc", "salepfp", "sbdc", "sc", "scf", "sco",
+        "scstkc", "secu", "seq", "seqo", "seta", "setd",
+        "seteps", "setp", "sic", "sich", "siv", "spce",
+        "spced", "spceeps", "spcindcd", "spcseccd", "spcsrc", "spi",
+        "spid", "spieps", "spioa", "spiop", "sppe", "sppiv",
+        "spstkc", "src", "sret", "srt", "ssnp", "sstk",
+        "stalt", "state", "stbo", "stio", "stkco", "stkcpa",
+        "stko", "tdc", "tdscd", "tdsce", "tdsg", "tdslg",
+        "tdsmm", "tdsng", "tdso", "tdss", "tdst", "teq",
+        "tf", "tfva", "tfvce", "tfvl", "tic", "tie",
+        "tii", "tlcf", "transa", "tsa", "tsafc", "tso",
+        "tstk", "tstkc", "tstkme", "tstkn", "tstkp", "txach",
+        "txbco", "txbcof", "txc", "txdb", "txdba", "txdbca",
+        "txdbcl", "txdc", "txdfed", "txdfo", "txdi", "txditc",
+        "txds", "txeqa", "txeqii", "txfed", "txfo", "txndb",
+        "txndba", "txndbl", "txndbr", "txo", "txp", "txpd",
+        "txr", "txs", "txt", "txtubadjust", "txtubbegin", "txtubend",
+        "txtubmax", "txtubmin", "txtubposdec", "txtubposinc", "txtubpospdec", "txtubpospinc",
+        "txtubsettle", "txtubsoflimit", "txtubtxtr", "txtubxintbs", "txtubxintis", "txva",
+        "txw", "uaoloch", "uaox", "uapt", "ucaps", "uccons",
+        "uceq", "ucustad", "udcopres", "udd", "udfcc", "udmb",
+        "udolt", "udpco", "udpfa", "udpl", "udvp", "ufretsd",
+        "ugi", "ui", "uinvt", "ulcm", "ulco", "uniami",
+        "unl", "unnp", "unnpl", "unopinc", "unwcc", "uois",
+        "uopi", "uopres", "upd", "updvp", "upmcstk", "upmpf",
+        "upmpfs", "upmsubp", "upstk", "upstkc", "upstksf", "urect",
+        "urectr", "urevub", "uspi", "ustdnc", "usubdvp", "usubpstk",
+        "utfdoc", "utfosc", "utme", "utxfed", "uwkcapc", "uxinst",
+        "uxintd", "vpac", "vpo", "wcap", "wcapc", "wcapch",
+        "wda", "wdd", "wdeps", "wdp", "weburl", "xacc",
+        "xad", "xago", "xagt", "xcom", "xcomi", "xdepl",
+        "xdp", "xdvre", "xeqo", "xi", "xido", "xidoc",
+        "xindb", "xindc", "xins", "xinst", "xint", "xintd",
+        "xintopt", "xivi", "xivre", "xlr", "xnbi", "xnf",
+        "xnins", "xnitb", "xobd", "xoi", "xopr", "xoprar",
+        "xoptd", "xopteps", "xore", "xpp", "xpr", "xrd",
+        "xrdp", "xrent", "xs", "xsga", "xstf", "xstfo",
+        "xstfws", "xt", "xuw", "xuwli", "xuwnli", "xuwoi",
+        "xuwrei", "xuwti",
+}
+
+
 register(SignalSource(SourceSpec(
-    name="comp_funda", role="signal", raw_file="COMPUSTAT_FUNDAMENTALS_ANNUAL.csv",
-    physical_columns={
-        "gvkey", "datadate", "at", "ceq", "sale", "ib",
-        "dltt", "act", "lct", "dp", "capx",
-        "txditc", "pstkl", "pstk", "cogs", "xint", "revt", "che", "dlc",
-        "xsga", "xrd", "rect", "invt", "xpp", "drc", "drlt", "ap", "xacc",
-    },
+    name="compustat_fundamental_annual", role="signal", raw_file="COMPUSTAT_FUNDAMENTALS_ANNUAL.csv",
+    physical_columns=COMPUSTAT_FUNDAMENTAL_ANNUAL_PHYSICAL_COLUMNS,
     concept_columns={
         "total_assets": "at", "at": "at", "compustat data item 6": "at",
         "data6": "at", "data item 6": "at",
@@ -967,6 +1215,9 @@ register(SignalSource(SourceSpec(
         "deferred_revenue_longterm": "drlt", "drlt": "drlt",
         "accounts_payable": "ap", "ap": "ap",
         "accrued_expenses": "xacc", "xacc": "xacc",
+        "operating_cash_flow": "oancf", "cash_flow_from_operations": "oancf", "oancf": "oancf",
+        "funds_from_operations": "fopt", "funds from operations": "fopt", "fopt": "fopt",
+        "total_liabilities": "lt", "total liabilities": "lt", "lt": "lt",
     },
     source_key="gvkey", observation_date="datadate", lag="accounting_lag_months",
     crsp_link=CrspLinkSpec(native_key="gvkey", link_table="ccm"),
@@ -1005,33 +1256,143 @@ register(SignalSource(SourceSpec(
         "drlt": "Deferred Revenue, Long-Term (item DRLT).",
         "ap": "Accounts Payable Trade (item AP).",
         "xacc": "Accrued Expenses (item XACC).",
-    },
-)))
-
-register(SignalSource(SourceSpec(
-    name="comp_fundq", role="signal", raw_file="COMPUSTAT_FUNDAMENTALS_QUATER.csv",
-    physical_columns={"gvkey", "datadate", "atq", "ceqq", "saleq", "ibq"},
-    concept_columns={
-        "total_assets_quarterly": "atq", "atq": "atq",
-        "common_equity_quarterly": "ceqq", "ceqq": "ceqq",
-        "sales_quarterly": "saleq", "saleq": "saleq",
-        "net_income_quarterly": "ibq", "ibq": "ibq",
-    },
-    source_key="gvkey", observation_date="datadate", lag="accounting_lag_months",
-    crsp_link=CrspLinkSpec(native_key="gvkey", link_table="ccm"),
-    raw_filters={"indfmt": "INDL"},
-    description=(
-        "Compustat Fundamentals Quarterly (industrial format, INDL) -- "
-        "quarterly firm-level balance sheet / income statement items, same "
-        "gvkey/CCM linkage as comp_funda but on a quarterly reporting cadence."
-    ),
-    column_descriptions={
-        "gvkey": "Compustat/CCM firm identifier (native key; linked to permno via 'ccm').",
-        "datadate": "Fiscal quarter-end date of this record.",
-        "atq": "Total Assets, quarterly (item ATQ).",
-        "ceqq": "Total Common/Ordinary Equity, quarterly (item CEQQ).",
-        "saleq": "Net Sales/Turnover, quarterly (item SALEQ).",
-        "ibq": "Income Before Extraordinary Items, quarterly (item IBQ).",
+        # Additional items registered 2026-08-19 (best-effort WRDS/Compustat
+        # Xpressfeed Annual definitions for the ~980-column raw file's
+        # commonly-used subset; the remaining ~800 obscure/legacy/
+        # industry-specific -- bank/utility/insurance -- items are in
+        # `COMPUSTAT_FUNDAMENTAL_ANNUAL_PHYSICAL_COLUMNS` but intentionally left undescribed
+        # rather than guessed).
+        "aco": "Current Assets - Other - Total.",
+        "ao": "Assets - Other - Total.",
+        "apalch": "Accounts Payable and Accrued Liabilities - Increase (Decrease) (Cash Flow statement).",
+        "aqc": "Acquisitions (Cash Flow statement).",
+        "bkvlps": "Book Value Per Share.",
+        "capr1": "Capitalization Rate 1 (industry-specific).",
+        "capxv": "Capital Expenditures - Property, Plant and Equipment Schedule V.",
+        "ceql": "Common Equity - Liquidation Value.",
+        "ceqt": "Common Equity - Tangible.",
+        "ch": "Cash.",
+        "chech": "Cash and Cash Equivalents - Increase (Decrease).",
+        "conm": "Company name.",
+        "consol": "Consolidation level indicator (C=consolidated).",
+        "costat": "Company status (Active/Inactive).",
+        "cshfd": "Common Shares Used to Calculate Fully Diluted EPS.",
+        "csho": "Common Shares Outstanding.",
+        "cshpri": "Common Shares Used to Calculate Primary EPS.",
+        "cshrc": "Common Shares Reserved for Conversion - Total.",
+        "cshrp": "Common Shares Reserved for Preferred/Preference.",
+        "cshrso": "Common Shares Reserved for Stock Options.",
+        "cshtr_c": "Common Shares Traded - Annual - Calendar.",
+        "cshtr_f": "Common Shares Traded - Annual - Fiscal.",
+        "curcd": "Reporting currency code.",
+        "cusip": "8-digit CUSIP security identifier.",
+        "datafmt": "Data format (STD=standardized).",
+        "dc": "Deferred Charges.",
+        "dd1": "Long-Term Debt Due in One Year.",
+        "dltis": "Long-Term Debt - Issuance.",
+        "dltp": "Long-Term Debt - Tied to Prime.",
+        "dltr": "Long-Term Debt - Reduction.",
+        "dltsub": "Long-Term Debt - Subordinated.",
+        "do": "Discontinued Operations.",
+        "dpc": "Depreciation and Amortization - Cash Flow statement version.",
+        "dv": "Cash Dividends (Total).",
+        "dvc": "Dividends Common/Ordinary.",
+        "dvp": "Dividends - Preferred/Preference.",
+        "dvt": "Dividends Total.",
+        "ebit": "Earnings Before Interest and Taxes.",
+        "ebitda": "Earnings Before Interest, Taxes, Depreciation and Amortization.",
+        "epsfi": "Earnings Per Share (Fully Diluted) Including Extraordinary Items.",
+        "epsfx": "Earnings Per Share (Fully Diluted) Excluding Extraordinary Items.",
+        "epspi": "Earnings Per Share (Basic) Including Extraordinary Items.",
+        "epspx": "Earnings Per Share (Basic) Excluding Extraordinary Items.",
+        "exchg": "Stock Exchange Code.",
+        "exre": "Exchange Rate Effect.",
+        "fatb": "Fixed Assets - Total (Beginning Balance).",
+        "fiao": "Financing Activities - Other.",
+        "fincf": "Financing Activities - Net Cash Flow.",
+        "fopt": "Funds From Operations - Total (item FOPT) -- pre-SFAS 95 funds-flow-statement measure (income + non-cash charges before working-capital changes); a coarser predecessor of oancf, used by e.g. Ohlson (1980) O-Score.",
+        "fyear": "Fiscal year.",
+        "fyr": "Fiscal year-end month.",
+        "gdwl": "Goodwill (net).",
+        "gp": "Gross Profit (Revenue minus Cost of Goods Sold).",
+        "ibadj": "Income Before Extraordinary Items - Adjusted for Common Stock Equivalents.",
+        "ibc": "Income Before Extraordinary Items - Cash Flow statement version.",
+        "ibcom": "Income Before Extraordinary Items - Available for Common.",
+        "icapt": "Invested Capital - Total.",
+        "indfmt": "Industry format (INDL=industrial, FS=financial services, UTIL=utility).",
+        "intan": "Intangible Assets - Total.",
+        "invch": "Inventory - Decrease (Increase) (Cash Flow statement).",
+        "itcb": "Investment Tax Credit (Balance Sheet).",
+        "ivaco": "Investing Activities - Other.",
+        "ivch": "Increase in Investments (Cash Flow statement).",
+        "ivncf": "Investing Activities - Net Cash Flow.",
+        "ivstch": "Short-Term Investments - Change (Cash Flow statement).",
+        "lco": "Current Liabilities - Other - Total.",
+        "lo": "Liabilities - Other - Total.",
+        "lt": "Total Liabilities.",
+        "mkvalt": "Market Value - Total (Fiscal Year End).",
+        "naics": "North American Industry Classification System code.",
+        "ni": "Net Income (Loss), total.",
+        "niadj": "Net Income Adjusted for Common Stock Equivalents.",
+        "nopi": "Nonoperating Income (Expense).",
+        "oancf": "Operating Activities - Net Cash Flow (cash flow from operations, indirect method total).",
+        "oiadp": "Operating Income After Depreciation.",
+        "oibdp": "Operating Income Before Depreciation.",
+        "pi": "Pretax Income.",
+        "ppegt": "Property, Plant and Equipment - Total (Gross).",
+        "ppent": "Property, Plant and Equipment - Total (Net).",
+        "prcc_c": "Price Close - Calendar Year.",
+        "prcc_f": "Price Close - Fiscal Year End.",
+        "prch_c": "Price High - Calendar Year.",
+        "prch_f": "Price High - Fiscal Year.",
+        "prcl_c": "Price Low - Calendar Year.",
+        "prcl_f": "Price Low - Fiscal Year.",
+        "prodv": "Production - Value (industry-specific).",
+        "prstkc": "Purchase of Common and Preferred Stock (share repurchases).",
+        "pstkc": "Preferred Stock - Convertible.",
+        "pstkn": "Preferred/Preference Stock - Nonredeemable.",
+        "pstkr": "Preferred Stock - Redeemable.",
+        "pstkrv": "Preferred Stock - Redemption Value.",
+        "re": "Retained Earnings.",
+        "recch": "Receivables - Decrease (Increase) (Cash Flow statement).",
+        "scstkc": "Common/Preferred Stock - Assumed under Purchase Method of Merger.",
+        "seq": "Stockholders Equity - Total (Parent).",
+        "seta": "Settlement (Litigation).",
+        "sic": "Standard Industrial Classification code (Compustat's own copy).",
+        "siv": "Sale of Investments.",
+        "spi": "Special Items.",
+        "sppe": "Sale of Property.",
+        "sstk": "Sale of Common and Preferred Stock.",
+        "tic": "Ticker symbol.",
+        "tstk": "Treasury Stock - Total (Dollar Amount).",
+        "tstkc": "Treasury Stock - Common (Number of Shares).",
+        "txach": "Income Taxes - Accrued - Increase (Decrease) (Cash Flow statement).",
+        "txdb": "Deferred Taxes (Balance Sheet).",
+        "txfed": "Income Taxes - Federal.",
+        "txfo": "Income Taxes - Foreign.",
+        "txs": "Income Taxes - State.",
+        "txt": "Income Taxes - Total.",
+        "wcap": "Working Capital (Balance Sheet).",
+        "wcapc": "Working Capital Change - Other (Cash Flow statement).",
+        "xi": "Extraordinary Items.",
+        "xido": "Extraordinary Items and Discontinued Operations.",
+        "xopr": "Operating Expenses - Total.",
+        "xrent": "Rental Expense.",
+        # Common factor-literature items registered 2026-08-19 (accruals
+        # cash-flow-statement approach, book-equity variants, GICS industry
+        # classification, dividend/tax anomalies) -- still a curated subset,
+        # not the full ~800 remaining undescribed columns (see note above).
+        "mib": "Minority Interest - Balance Sheet (used in some book-equity/Tobin's Q variants).",
+        "aoloch": "Assets and Liabilities - Other - Net Change (Cash Flow statement) -- an accruals component in the Hribar-Collins cash-flow-statement approach.",
+        "wcapch": "Working Capital Change - Total (Cash Flow statement) -- an accruals component, distinct from wcapc (\"other\").",
+        "txp": "Income Taxes Payable (Balance Sheet).",
+        "txdi": "Income Taxes - Deferred (Income Statement).",
+        "ivao": "Investment and Advances - Other (Balance Sheet) -- distinct from ivaco, the cash-flow-statement \"Investing Activities - Other\".",
+        "dvpsp_c": "Dividends Per Share - Ex Date - Calendar Year.",
+        "cstk": "Common Stock (par value, Balance Sheet) -- used in some book-equity construction variants.",
+        "lifr": "LIFO Reserve -- inventory-valuation adjustment used in some accounting-anomaly studies.",
+        "gsector": "GICS Sector code (10 sectors) -- an alternative to SIC-based industry classification.",
+        "gind": "GICS Industry code (more granular than gsector) -- an alternative to SIC-based industry classification.",
     },
 )))
 

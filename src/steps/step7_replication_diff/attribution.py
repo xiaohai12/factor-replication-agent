@@ -49,6 +49,18 @@ from scipy import stats
 _MAX_SWITCHES_FOR_SHAPLEY = 6
 
 
+def _in_sample_mean_return(metrics: dict[str, Any] | None) -> float | None:
+    """Prefer `by_sample_period.insamp.mean_monthly_return` (the paper's own
+    sample window) over the top-level `mean_return` (this engine's full
+    extended history, often decades past the paper's publication year) --
+    same preference `bundle.py`'s `_in_sample_metrics` already applies for
+    `vs_paper`/`ForestPlot`; falls back to the top-level value when
+    `by_sample_period` wasn't configured for this run."""
+    metrics = metrics or {}
+    insamp = (metrics.get("by_sample_period") or {}).get("insamp") or {}
+    return insamp.get("mean_monthly_return", metrics.get("mean_return"))
+
+
 def compute_shapley_effects(
     tracks: dict[str, dict],
     baseline_track: str = "original_method",
@@ -67,7 +79,7 @@ def compute_shapley_effects(
     baseline = tracks.get(baseline_track)
     if baseline is None:
         return {"available": False, "reason": f"baseline track {baseline_track!r} not found"}
-    baseline_mean = (baseline.get("metrics") or {}).get("mean_return")
+    baseline_mean = _in_sample_mean_return(baseline.get("metrics"))
     if baseline_mean is None:
         return {"available": False, "reason": f"baseline track {baseline_track!r} has no mean_return"}
 
@@ -78,7 +90,7 @@ def compute_shapley_effects(
         flipped = payload.get("switches_flipped") or {}
         if not flipped:
             continue
-        mean_return = (payload.get("metrics") or {}).get("mean_return")
+        mean_return = _in_sample_mean_return(payload.get("metrics"))
         if mean_return is None:
             continue
         key = frozenset(flipped.keys())

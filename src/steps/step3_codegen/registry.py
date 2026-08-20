@@ -672,7 +672,13 @@ def _build_config_from_resolved(resolved: ResolvedMethodSpec, overrides: dict | 
         config["sort_dims"] = [
             {
                 "column": "signal" if s.role == SortRole.TARGET else _resolved_column(resolution, s.concept_id),
-                "quantiles": s.group_count or 2,
+                # Target dim reuses config["breakpoint_quantiles"] (same
+                # value/fallback-to-10) rather than its own `or 2` fallback,
+                # so the two never disagree on the target's own bucket count
+                # (`long_portfolios`/`short_portfolios` are resolved against
+                # `breakpoint_quantiles` above, then executed against this
+                # list's "quantiles" -- see docs/decision-log.md 2026-08-19).
+                "quantiles": config["breakpoint_quantiles"] if s.role == SortRole.TARGET else (s.group_count or 2),
                 "source": ev(s.breakpoints.basis.value),
                 "mode": (mode_str := _track_sort_mode(f"sorts[{i}].mode", s.mode)),
                 "independent": mode_str == "independent",

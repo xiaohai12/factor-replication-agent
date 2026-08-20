@@ -2,7 +2,7 @@
 
 Writes:
 - data/synthetic_data/mvp_v1/crsp_msf.parquet     (returns panel + snapshot table)
-- data/synthetic_data/mvp_v1/comp_funda.parquet   (declarative signal source)
+- data/synthetic_data/mvp_v1/compustat_fundamental_annual.parquet   (declarative signal source)
 - data/synthetic_data/mvp_v1/ccm_lnkhist.parquet  (CCM link table, keyed on lpermno)
 - data/synthetic_data/local/msf.parquet           (dashboard/script CRSP input compatibility)
 
@@ -33,7 +33,7 @@ def main() -> None:
     crsp = build_crsp_msf()
     crsp.to_parquet(snapshot_dir / "crsp_msf.parquet", index=False)
     crsp.to_parquet(local_dir / "msf.parquet", index=False)
-    build_compustat_funda().to_parquet(snapshot_dir / "comp_funda.parquet", index=False)
+    build_compustat_funda().to_parquet(snapshot_dir / "compustat_fundamental_annual.parquet", index=False)
     build_ccm_link().rename(columns={"permno": "lpermno"}).to_parquet(
         snapshot_dir / "ccm_lnkhist.parquet", index=False
     )

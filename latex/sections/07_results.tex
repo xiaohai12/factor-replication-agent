@@ -1,0 +1,163 @@
+\section{Results}
+\label{sec:results}
+
+Results are organized along the divergence evidence each factor in
+\S\ref{sec:data} was selected to demonstrate, not alphabetically: an anchor
+case, a case where the two teams agree, two cases where they reach opposite
+verdicts, a case of divergence attributable to data vintage rather than
+method, and (tentatively) a case where both teams agree the factor fails.
+Cross-factor material -- the RQ2 autonomy results, the gap-decomposition
+summary, the flagship sensitivity-band figure, and the outcome
+classification -- is reported once, in a single table or figure spanning
+every factor, rather than repeated inside each per-factor subsection.
+
+\subsection{RQ2: agent autonomy and capability boundary (cross-factor)}
+
+Table~\ref{tab:autonomy} reports, for every factor, the fraction of
+high-impact MethodSpec fields the agent resolved without a human
+correction, the end-to-end completion rate (whether the pipeline reached an
+executable $\Aref$ with zero manual code edits), and where human correction
+concentrated -- split into purely technical corrections (a type mismatch, an
+out-of-menu value) versus corrections that supplied a genuine empirical
+judgment the paper itself left unstated. This second split matters for
+\S\ref{sec:discussion}: only the latter category threatens the leakage-proof
+boundary in \S\ref{sec:framework}, since a technical correction carries no
+information about how the underlying factor should be implemented.
+\input{tables/tab_autonomy_footprint}
+
+\subsection{Per-factor deep dives}
+
+\subsubsection{AssetGrowth (anchor case)}
+
+AssetGrowth \citep{CooperGulenSchill2008} is the already-run anchor
+case (13 tracks) and is used here to walk through how the paper-anchored
+three-term identity and the field-level gap decomposition are read before
+the remaining factors, each of which isolates a narrower piece of the same
+picture, are discussed more briefly.
+
+\subsubsection{GP: a rare case of agreement}
+
+Gross profitability \citep{NovyMarx2013} is one of the few factors in the
+sample where Hou-Xue-Zhang and Chen-Zimmermann's own reported numbers do
+not disagree in direction or in economic magnitude. Its role in this paper
+is as a control: if the paper-anchored decomposition (\S\ref{sec:framework})
+attributes GP's small residual gap to configuration noise rather than to a
+one-sided departure from the paper, that is itself evidence that the
+decomposition does not manufacture disagreement where none exists.
+
+\subsubsection{PS: a clean, opposite verdict}
+
+Piotroski's \citep{Piotroski2000} F-score is the case introduced in \S\ref{sec:intro}: \citet{HouXueZhang2020} report it fails under their standardized protocol,
+while Chen and Zimmermann, using the paper's own stated method, replicate it
+at $t=3.29$. This factor also carries a declared, disclosed deviation: the
+paper's original test restricts to the highest book-to-market quintile, a
+subset condition this engine's universe-filter machinery cannot express
+(\S\ref{sec:scope}), so the reported $\Aref$ is a full-sample F-score sort
+rather than the paper's high-BM-subset sort, marked
+\texttt{accepted\_unapplied} rather than silently approximated.
+
+\subsubsection{fgr5yrLag: divergence this framework cannot attribute}
+
+La Porta's \citep{LaPorta1996} long-term analyst growth-forecast factor is included
+specifically because its HXZ-versus-C\&Z divergence is not, on the
+available evidence, explainable by a portfolio-construction choice at all:
+it is consistent instead with the two teams having pulled IBES consensus
+forecast data at different vintages, a database that is itself revised
+retroactively. This is stated as a limitation of the present design, not
+downplayed: the paper-anchored identity in \S\ref{sec:framework} attributes
+gaps to signal, configuration, or agent residual, and has no term for "the
+underlying database changed between two pulls." fgr5yrLag is reported here
+precisely to make that gap in the framework visible rather than to resolve
+it (\S\ref{sec:discussion}).
+
+\subsubsection{OScore: severe divergence, a known engineering gap}
+
+Ohlson's \citep{Ohlson1980} O-score, as implemented by \citet{Dichev1998}, is a second case
+where Hou, Xue, and Zhang report failure and Chen and Zimmermann report
+success under the paper's own method -- more severe than PS's gap. Its
+signal is a straightforward logit combination of Compustat fields, so the
+divergence is unlikely to be a data-availability issue; what it does
+require, and what this engine does not yet support, is the paper's
+asymmetric long-low-70\%/short-high-10\% portfolio split, which cannot be
+expressed by an equal-quantile breakpoint menu (\S\ref{sec:scope}). Results
+reported for OScore in this section are therefore [TODO: state explicitly,
+once run, whether OScore's numbers reflect the paper's asymmetric split or
+an equal-decile approximation, and flag accordingly].
+
+\subsubsection{FailureProbability: both teams report failure (tentative)}
+
+% TODO (2026-08-19): inclusion of this factor is still undecided pending its
+% engineering cost -- see docs/paper-outline.md \S5.1 (mktrf as a signal
+% input, ltq/cheq quarterly fields, daily volatility aggregation). If
+% dropped, remove this subsection and its rows from every cross-factor
+% table/figure below and adjust the factor count throughout the paper.
+Campbell, Hilscher, and Szilagyi's \citep{CampbellHilscherSzilagyi2008} failure probability is the
+sample's second control case: both teams report that it fails to predict
+returns under their respective protocols. Together with GP, it anchors the
+sensitivity band in \S\ref{sec:sensitivity} at both ends -- a factor neither
+team's convention can rescue, and a factor neither team's convention can
+break.
+
+\subsection{Cross-factor gap decomposition: why divergence happens}
+
+Table~\ref{tab:gap-decomposition} places every factor's dominant
+gap-decomposition term side by side, answering directly whether the same
+configuration field drives disagreement across factors or whether the
+dominant cause is factor-specific. This table is itself the primary
+evidence for this paper's central claim -- that HXZ-versus-C\&Z divergence
+has attributable, field-level causes -- rather than a supporting appendix
+item.
+\input{tables/tab_gap_decomposition}
+\begin{figure}[htbp]
+  \centering
+  \fbox{\parbox{0.9\linewidth}{\centering \vspace{4cm} F3: per-config-field contribution tornado plot \vspace{4cm}}}
+  \caption{Field-level gap decomposition, all factors in the sample.}
+  \label{fig:tornado}
+\end{figure}
+
+\subsection{$t$-channel decomposition}
+
+Table~\ref{tab:t-channels} reports, for each factor and track pair, the
+three log-$t$ channels of Equation~\eqref{eq:t-channel} -- how much of a
+$t$-statistic change is attributable to the mean-return channel, the
+volatility channel, or the sample-size channel.
+\input{tables/tab_t_channels}
+
+\subsection{Sensitivity band vs.\ HXZ and paper point estimates (headline result)}
+\label{sec:sensitivity}
+
+Table~\ref{tab:sensitivity-band} and Figure~\ref{fig:tband} together report
+this paper's headline result: for each factor, the range of $t$-statistics
+reachable across the menu of configurations $\Aref$ admits, plotted against
+the paper's own reported $t$ and the $\HXZ$-standardized $t$. Where the
+paper's point falls outside this band, or the $\HXZ$ point falls inside it,
+the figure alone states the factor's conclusion without further argument.
+\input{tables/tab_sensitivity_band}
+\begin{figure}[htbp]
+  \centering
+  \fbox{\parbox{0.9\linewidth}{\centering \vspace{5cm} F4: per-factor $t$-stat disagreement band vs.\ paper/HXZ points (flagship figure) \vspace{5cm}}}
+  \caption{For each factor, the band spans the menu-reachable $t$-statistics;
+    markers show the paper's own reported $t$ and the HXZ-standardized $t$.}
+  \label{fig:tband}
+\end{figure}
+
+\subsection{Post-publication decay}
+\label{sec:postpub}
+
+The \texttt{insamp}/\texttt{between}/\texttt{postpub} split
+(\S\ref{sec:pipeline}) is applied to test whether a factor's spread decays
+after its publication date. [TODO: confirm per-factor sample coverage
+before reporting this split -- fgr5yrLag's IBES-based sample and any factor
+with a short overall window may not have enough post-publication months to
+support the \texttt{between}/\texttt{postpub} comparison; report the exact
+factor count used for this specific test explicitly if it differs from the
+count used elsewhere in this section, rather than omitting the affected
+factor silently.]
+
+\subsection{Cross-factor outcome classification}
+
+Table~\ref{tab:outcomes} closes the results section by classifying every
+factor's replication outcome, completing the connection back to
+\S\ref{sec:intro}'s contributions.
+\input{tables/tab_outcomes}
+

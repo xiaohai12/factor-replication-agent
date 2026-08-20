@@ -91,7 +91,15 @@ You must also check **cross-field consistency**: do the variables referenced
 in `signal.formula.steps[].expression` actually appear in `data.fields`/
 `signal.formula.inputs`? Do the three sample periods (`sample.data_coverage`
 / `sample.formation` / `sample.reported_returns`) make sense together? Does
-`portfolio.legs`' long/short direction match `signal.direction`?
+`portfolio.legs`' long/short direction match `signal.direction`? Does
+`reported_results.metrics[primary_metric_id].weighting` (when tagged) match
+`portfolio.weighting` -- if the paper reports both EW and VW headline
+spreads, `primary_metric_id` must point at the one matching
+`portfolio.weighting`, not whichever column happened to be extracted first.
+Is `timing.holding_period.value` actually in MONTHS -- a paper that says
+"held for 1 year" must be `12`, not `1` (a bare copy of the paper's own
+number when its stated unit isn't months is a common extraction mistake;
+fix it, don't just re-confirm the wrong number).
 
 For each `universe.filters[]` entry, also check `derivation` (a
 `FormulaSpec`, same shape as `signal.formula` -- see the extraction prompt's
@@ -111,7 +119,7 @@ against the `data_catalog` tool result (see § 0) -- the live listing of
 every registered data source, its columns, and each column's WRDS
 definition. If the extractor left these unset, or picked a source/column
 whose definition doesn't actually match what the paper says this field is
-(e.g. picked `comp_funda.at` for a field the paper describes as a
+(e.g. picked `compustat_fundamental_annual.at` for a field the paper describes as a
 goodwill-adjusted total-assets measure), correct it: either pick the
 catalog entry that actually matches, or set `source_table.value` to
 `"other"` with `unsupported_value` holding the paper's own description if

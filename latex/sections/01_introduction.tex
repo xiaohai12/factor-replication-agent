@@ -1,0 +1,94 @@
+\section{Introduction}
+\label{sec:intro}
+
+Consider \citet{Piotroski2000}'s F-score. \citet{HouXueZhang2020} report that
+under their standardized replication protocol -- value-weighted portfolios,
+NYSE breakpoints -- the signal they call $F$ fails to clear the conventional
+significance bar. \citet{ChenZimmermann2022}, implementing the same
+paper's own stated method rather than a uniform external protocol, replicate
+it with a $t$-statistic of 3.29 (against the paper's originally reported
+5.59), and classify it as a clear predictor. Same factor, same underlying
+economic idea, the same published text to work from -- and opposite
+verdicts, from two teams that are each careful, well-resourced, and working
+independently.
+
+This is not an isolated case, and it does not require picking a side. Across
+several hundred overlapping anomalies, \citet{HouXueZhang2020} report
+that 65.4\% fail to clear $|t| \geq 1.96$ under their uniform protocol, while
+\citet{ChenZimmermann2022} report that all but a handful of the same
+literature's characteristics replicate under each paper's own stated method.
+These two numbers are not answers to the same question -- one is a failure
+rate under an externally imposed protocol, the other is a failure rate under
+paper-specific implementation choices -- so it would be a mistake to read
+them as a simple contradiction. But that very fact is itself the point: the
+question "does this factor replicate?" does not have a single, protocol-free
+answer, because a published paper does not, in general, uniquely determine
+every choice its own replication requires.
+
+The right question is therefore not whether a factor replicates, but why two
+careful, independent teams can reach opposite verdicts on the same
+factor -- and whether that disagreement can be attributed to specific,
+falsifiable causes (a breakpoint convention, a weighting rule, a lag
+assumption) rather than treated as an unexplained clash of protocols.
+Answering it requires two things: a controlled execution engine that
+enumerates the menu of implementation choices a paper admits, so that gaps
+between two implementations can be decomposed field by field rather than
+reported as one opaque number; and an independent extraction of what the
+paper itself actually says, uncontaminated by prior exposure to either
+team's implementation, so that a given disagreement can be attributed to a
+specific side's departure from the text rather than merely to "different
+choices." This second requirement is where a controlled LLM agent enters --
+not as a labor-saving substitute for a human replicator, but as a
+leakage-proof, independently-arrived-at reading of the paper, one that can
+serve as a neutral referee between two existing, human-produced
+implementations.
+
+Applying this framework to six factors chosen specifically because
+Hou-Xue-Zhang and Chen-Zimmermann reach divergent, agreeing, or otherwise
+informative verdicts on them (\S\ref{sec:data}), we find [TODO: headline
+numbers once \S5.3's factors are run]. The remainder of this section states
+two research questions this design answers (\S\ref{sec:intro}.1), fixes the
+unit of evaluation (\S\ref{sec:intro}.2), and lists the paper's contributions
+(\S\ref{sec:intro}.3).
+
+\subsection{Two research questions}
+% RQ1: for a given factor, decompose the CZ-vs-paper and HXZ-vs-paper gaps
+%      into signal/environment, configuration, and agent-residual terms
+%      (the three-term identity, Ch.3/Ch.6).
+% RQ2: what is the agent's autonomy/capability boundary in producing \Aref
+%      itself (fraction of high-impact fields resolved without human
+%      correction, end-to-end completion rate, where human correction
+%      concentrates) -- an independent finding, not merely instrumental to RQ1.
+
+\subsection{Measurement unit convention}
+% State explicitly: the unit under evaluation is the AGENT SYSTEM (LLM +
+% tool interface + review gate + validator + sandbox + human confirmation
+% step), not a bare LLM. Human confirmation is a designed component of the
+% agent, not an external intervention -- so autonomy is measured as "where do
+% the agent's own designed checkpoints trigger", not "did the LLM misread".
+
+\subsection{Contributions}
+\begin{itemize}
+  \item \textbf{C1 (RQ1, empirical, main thread).} For each of six factors,
+    decompose the total gap between $\CZ$ (or $\HXZ$) and $\Pref$ into a
+    signal/environment term, a configuration term, and an agent-residual
+    term via three controlled counterfactual tracks
+    ($\Aref$, $\Acz$, $\Ahxz$) -- an exact identity, plus a window/vintage
+    mismatch residual (see Ch.3).
+  \item \textbf{C2 (RQ2, agent capability, independent finding).} Report the
+    agent's autonomy footprint and capability boundary across the same six
+    factors, as a free byproduct of running RQ1 -- no separate annotation
+    corpus required.
+  \item \textbf{C3 (methodological foundation for both).} A controlled,
+    leakage-proof, LLM-assisted-but-not-LLM-controlled replication pipeline;
+    every empirical number is deterministically reproducible with the LLM
+    switched off.
+\end{itemize}
+
+% Explicit, proactive disclosure (do not wait for a reviewer to find this):
+% tightening the leakage-proof boundary given that human confirmation is
+% part of the agent -- see docs/paper-outline.md Ch.1 "\ensuremath{\bigstar}
+% 防泄漏边界的收紧" for the exact three-part mitigation to state here.
+
+\subsection{Roadmap}
+% One paragraph outline of Ch.2--Ch.8.

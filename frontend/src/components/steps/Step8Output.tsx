@@ -5,8 +5,15 @@ import { cn } from "@/lib/utils"
 
 type RejectedClaim = { reason: string; claim: Record<string, unknown> }
 
+type Section = "reproduction" | "robustness" | "vs_cz" | "spec_quality" | "gap_split" | null
+
 type DiagnosisSummary = {
   comparison_line?: string | null
+  // docs/step7-8.md Part XVI: which of the 4 reader-facing sections this
+  // entry belongs to. `null`/missing on a pre-2026-08-18 persisted
+  // diagnosis.json -- falls back to a generic, unbadged rendering rather
+  // than crashing.
+  section?: Section
   overall_tag: string
   per_switch_summary: Record<string, string>
   joint_supported: boolean | null
@@ -19,52 +26,91 @@ type DiagnosisSummary = {
   headline: string
   details: string[]
   footnote: string
+  // docs/step7-8.md Part XVI: {short label: long explanation} for every
+  // setting mentioned by short name in `headline`/`details` -- rendered as
+  // hover-tooltip terms, not inlined into every sentence.
+  glossary?: Record<string, string>
 }
 
 type VsPaperSummary = {
+  section?: Section
   headline: string
   details: string[]
   footnote: string
+  glossary?: Record<string, string>
 }
 
-// docs/step7-8.md Part XI: `to_cz` is the project's core research question
-// (AGENTS.md -- inter-implementer agreement), always shown first; `to_hxz`
-// is supporting sensitivity context; the line-less ("Overall") card goes last.
-function summaryLinePriority(comparisonLine?: string | null): number {
-  if (comparisonLine === "to_cz") return 0
-  if (comparisonLine === "to_hxz") return 1
-  if (comparisonLine == null) return 3
-  return 2
+// docs/step7-8.md Part XVI: reading order is by READER QUESTION, not by
+// comparison target -- reproduction (did it replicate?) first, robustness
+// (is it stable?) second, vs C&Z (why do we disagree?) third, then the
+// gap split (where does another implementer's distance from the paper sit?);
+// the legacy claim-only overflow entry (pre-2026-08-18 batches, no section of
+// its own) goes last.
+function sectionPriority(section?: Section): number {
+  if (section === "robustness") return 0
+  if (section === "vs_cz") return 1
+  if (section === "gap_split") return 2
+  if (section == null) return 3
+  return 4
 }
 
-// Eyebrow label + left-border accent per comparison line, so the reader can
-// tell the core research question (to_cz) apart from supporting sensitivity
-// context (to_hxz) at a glance, without repeating the raw line id anywhere.
-function lineEyebrow(comparisonLine?: string | null): string {
-  if (comparisonLine === "to_cz") return "Core comparison · vs. C&Z"
-  if (comparisonLine === "to_hxz") return "Supporting context · vs. HXZ standardized"
-  return "Overall"
+// Eyebrow label + left-border accent per section, so the reader can tell the
+// project's core research question (vs_cz) apart from supporting robustness
+// evidence at a glance, without repeating a raw line id anywhere.
+function sectionEyebrow(section?: Section, comparisonLine?: string | null): string {
+  if (section === "vs_cz") return "Disagreement with C&Z"
+  if (section === "robustness") return "Robustness"
+  if (section === "spec_quality") return "How clearly did the paper specify the method"
+  if (section === "gap_split") return "Where the distance from the paper's own number sits"
+  if (comparisonLine) return `Comparison: ${comparisonLine.replaceAll("_", " ")}`
+  return "Other findings"
 }
 
-function lineAccentClass(comparisonLine?: string | null): string {
-  if (comparisonLine === "to_cz") return "border-l-primary"
-  if (comparisonLine === "to_hxz") return "border-l-amber-500"
+function sectionAccentClass(section?: Section): string {
+  if (section === "vs_cz") return "border-l-primary"
+  if (section === "robustness") return "border-l-amber-500"
+  if (section === "spec_quality") return "border-l-muted-foreground/40"
+  if (section === "gap_split") return "border-l-sky-500"
   return "border-l-border"
 }
 
 // Maps step7's `classify_overall` verdict tags to a color that reads as
-// good/neutral/bad at a glance, without a legend.
+// good/neutral/bad at a glance, without a legend. Falls back to a neutral
+// style for older persisted `close_replication`/`sign_agrees_magnitude_differs`/
+// `sign_mismatch` tags (pre-2026-08-18 diagnosis.json) and any unknown tag.
 function overallTagClass(tag: string): string {
-  if (tag === "close_replication") {
+  if (tag === "reproduced" || tag === "close_replication") {
     return "border-emerald-600/30 bg-emerald-500/10 text-emerald-700 dark:text-emerald-400"
   }
-  if (tag === "sign_mismatch") {
+  if (tag === "contradicted" || tag === "sign_mismatch") {
     return "border-destructive/30 bg-destructive/10 text-destructive"
   }
-  if (tag === "sign_agrees_magnitude_differs") {
+  if (tag === "not_reproduced" || tag === "sign_agrees_magnitude_differs") {
     return "border-amber-600/30 bg-amber-500/10 text-amber-700 dark:text-amber-400"
   }
   return ""
+}
+
+// Short inline mentions (e.g. "portfolio weighting") get their long,
+// zero-background explanation as a native hover tooltip here instead of
+// repeating it inline every time the setting is mentioned (docs/step7-8.md
+// Part XVI).
+function GlossaryTerms({ glossary }: { glossary?: Record<string, string> }) {
+  const entries = Object.entries(glossary ?? {})
+  if (entries.length === 0) return null
+  return (
+    <p className="text-xs text-muted-foreground">
+      <span className="mr-1">Terms:</span>
+      {entries.map(([term, definition], i) => (
+        <span key={term}>
+          <span title={definition} className="cursor-help underline decoration-dotted">
+            {term}
+          </span>
+          {i < entries.length - 1 ? ", " : ""}
+        </span>
+      ))}
+    </p>
+  )
 }
 
 function SummaryCard({ summary }: { summary: DiagnosisSummary }) {
@@ -73,19 +119,14 @@ function SummaryCard({ summary }: { summary: DiagnosisSummary }) {
   const details = summary.details ?? []
   if (!summary.headline && details.length === 0) return null
   return (
-    <Card size="sm" className={cn("gap-2 border-l-4 shadow-none", lineAccentClass(summary.comparison_line))}>
+    <Card size="sm" className={cn("gap-2 border-l-4 shadow-none", sectionAccentClass(summary.section))}>
       <CardHeader className="gap-1.5">
-        <div className="flex items-center justify-between gap-2">
-          <p className="text-xs font-medium tracking-wide text-muted-foreground uppercase">
-            {lineEyebrow(summary.comparison_line)}
-          </p>
-          <Badge variant="outline" className={overallTagClass(summary.overall_tag)}>
-            {summary.overall_tag.replaceAll("_", " ")}
-          </Badge>
-        </div>
+        <p className="text-xs font-medium tracking-wide text-muted-foreground uppercase">
+          {sectionEyebrow(summary.section, summary.comparison_line)}
+        </p>
         {summary.headline && <CardTitle className="text-sm leading-snug font-semibold">{summary.headline}</CardTitle>}
       </CardHeader>
-      {(details.length > 0 || summary.footnote) && (
+      {(details.length > 0 || summary.footnote || summary.glossary) && (
         <CardContent className="flex flex-col gap-2">
           {details.length > 0 && (
             <ul className="flex flex-col gap-1 text-sm text-foreground/90">
@@ -97,6 +138,7 @@ function SummaryCard({ summary }: { summary: DiagnosisSummary }) {
               ))}
             </ul>
           )}
+          <GlossaryTerms glossary={summary.glossary} />
           {summary.footnote && (
             <>
               {details.length > 0 && <Separator />}
@@ -109,18 +151,26 @@ function SummaryCard({ summary }: { summary: DiagnosisSummary }) {
   )
 }
 
-function VsPaperCard({ summary }: { summary: VsPaperSummary }) {
+// The "reproduction" section: baseline vs the paper's own reported result.
+// The ONLY place `overall_tag` is rendered as a badge -- it describes
+// exactly this comparison (docs/step7-8.md Part XVI), and showing it again
+// on the robustness/vs_cz cards previously made readers misread it as
+// "we disagree with C&Z" or "we disagree with HXZ", which it never meant.
+function ReproductionCard({ summary, overallTag }: { summary: VsPaperSummary; overallTag: string }) {
   if (!summary.headline) return null
   const details = summary.details ?? []
   return (
-    <Card size="sm" className="gap-2 border-l-4 border-l-muted-foreground/40 shadow-none">
+    <Card size="sm" className="gap-2 border-l-4 border-l-primary shadow-none">
       <CardHeader className="gap-1.5">
-        <p className="text-xs font-medium tracking-wide text-muted-foreground uppercase">
-          Vs. the paper's own reported result
-        </p>
+        <div className="flex items-center justify-between gap-2">
+          <p className="text-xs font-medium tracking-wide text-muted-foreground uppercase">Reproduction verdict</p>
+          <Badge variant="outline" className={overallTagClass(overallTag)}>
+            {overallTag.replaceAll("_", " ")}
+          </Badge>
+        </div>
         <CardTitle className="text-sm leading-snug font-semibold">{summary.headline}</CardTitle>
       </CardHeader>
-      {(details.length > 0 || summary.footnote) && (
+      {(details.length > 0 || summary.footnote || summary.glossary) && (
         <CardContent className="flex flex-col gap-2">
           {details.length > 0 && (
             <ul className="flex flex-col gap-1 text-sm text-foreground/90">
@@ -132,6 +182,7 @@ function VsPaperCard({ summary }: { summary: VsPaperSummary }) {
               ))}
             </ul>
           )}
+          <GlossaryTerms glossary={summary.glossary} />
           {summary.footnote && (
             <>
               {details.length > 0 && <Separator />}
@@ -144,39 +195,38 @@ function VsPaperCard({ summary }: { summary: VsPaperSummary }) {
   )
 }
 
-/** step8's diagnosis report (docs/step7-8.md Part XV §15.4): only the
- * deterministic Summary section (one card per comparison line, plus the
- * vs-paper card) is shown -- the old per-analysis_stage "Findings" claim
- * listing was dropped entirely, since `SummaryCard`/`VsPaperCard` are built
- * directly from the bundle (not from claims) and never depended on it for
- * content. `claims`/`rendered_sentence` are still returned by the API for
- * citation/audit, just not rendered here anymore; the rejected-claims audit
- * trail is kept since it serves a different purpose (validation
- * transparency, not a findings duplicate). */
+/** step8's diagnosis report (docs/step7-8.md Part XVI): 4 reader-facing
+ * sections in reading order -- reproduction, robustness, vs C&Z, spec
+ * quality -- each its own card, badge shown ONLY on the reproduction card.
+ * The old per-analysis_stage "Findings" claim listing stays dropped (Part
+ * XV §15.4): every card here is built directly from the bundle, never from
+ * claims. `claims`/`rendered_sentence` are still returned by the API for
+ * citation/audit, just not rendered here; the rejected-claims audit trail
+ * is kept since it serves a different purpose (validation transparency). */
 export function Step8Output({ diagnosis }: { diagnosis: Record<string, unknown> }) {
   const rejected = (diagnosis.rejected_claims as RejectedClaim[] | undefined) ?? []
   const summary = [...((diagnosis.summary as DiagnosisSummary[] | undefined) ?? [])].sort(
-    (a, b) => summaryLinePriority(a.comparison_line) - summaryLinePriority(b.comparison_line),
+    (a, b) => sectionPriority(a.section) - sectionPriority(b.section),
   )
   const vsPaperSummary = diagnosis.vs_paper_summary as VsPaperSummary | undefined
+  const specQualitySummary = diagnosis.spec_quality_summary as DiagnosisSummary | undefined
   const overallTag = String(diagnosis.overall_tag ?? "inconclusive")
 
   return (
     <div className="flex flex-col gap-4">
       <div className="flex flex-wrap items-center gap-2">
         <Badge variant="secondary">{String(diagnosis.status ?? "").replaceAll("_", " ")}</Badge>
-        <Badge variant="outline" className={overallTagClass(overallTag)}>
-          overall: {overallTag.replaceAll("_", " ")}
-        </Badge>
       </div>
 
       <div className="flex flex-col gap-2">
-        {summary.length === 0 ? (
+        {vsPaperSummary && <ReproductionCard summary={vsPaperSummary} overallTag={overallTag} />}
+        {summary.map((s, i) => (
+          <SummaryCard key={i} summary={s} />
+        ))}
+        {specQualitySummary && <SummaryCard summary={specQualitySummary} />}
+        {!vsPaperSummary?.headline && summary.length === 0 && !specQualitySummary?.headline && (
           <p className="text-xs text-muted-foreground">No deterministic summary available.</p>
-        ) : (
-          summary.map((s, i) => <SummaryCard key={i} summary={s} />)
         )}
-        {vsPaperSummary && <VsPaperCard summary={vsPaperSummary} />}
       </div>
 
       {rejected.length > 0 && (

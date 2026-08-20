@@ -1,0 +1,19 @@
+% Scope and Assumptions summary (docs/paper-outline.md \S4, code-verified).
+\begin{table}[htbp]
+  \centering
+  \caption{Scope and assumptions: what this pipeline supports.}
+  \label{tab:scope}
+  \begin{tabular}{lll}
+    \toprule
+    Dimension & Supported & Not supported \\
+    \midrule
+    Market & US common equity (CRSP shrcd 10--12) & International, bonds, futures, crypto \\
+    Returns panel & CRSP monthly (CIZ) + delisting returns & Daily portfolio returns, intraday \\
+    Accounting data & Compustat annual (26 registered fields) & Fields not yet registered in \texttt{sources.py} \\
+    Analyst data & IBES annual EPS summary only & IBES actuals, quarterly, recommendations \\
+    Estimator & Portfolio sort only & Fama--MacBeth regression \\
+    Sorts & Univariate; independent bivariate & Sequential bivariate; within-group \\
+    Universe filters & Single-value categorical; numeric range (\texttt{between}/\texttt{not\_between}) & Derived-column filters; asymmetric quantile splits \\
+    \bottomrule
+  \end{tabular}
+\end{table}

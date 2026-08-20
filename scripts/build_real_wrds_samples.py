@@ -10,7 +10,7 @@ COMPUSTAT_FUNDAMENTALS_ANNUAL, IBES_CRSP_Link, plus IBES
 13F via the PERMNOs' own CRSP CUSIP column). This directory is the ONE
 place validation-purpose sample data lives.
 
-ALSO materializes `crsp_msf.parquet`/`comp_funda.parquet`/
+ALSO materializes `crsp_msf.parquet`/`compustat_fundamental_annual.parquet`/
 `ccm_lnkhist.parquet` directly in this same directory (no nested `local/`
 subfolder needed at all -- every real consumer checks for
 `<storage_path>/<name>.parquet` BEFORE any raw-CSV fallback), so a snapshot
@@ -218,7 +218,7 @@ def main() -> int:
 
 
 def materialize_parquet_snapshot() -> None:
-    """Materializes `crsp_msf.parquet` / `comp_funda.parquet` /
+    """Materializes `crsp_msf.parquet` / `compustat_fundamental_annual.parquet` /
     `ccm_lnkhist.parquet` directly under `VALIDATION_SAMPLE_DIR` -- the
     OFFICIALLY documented "frozen parquet snapshot" layout (see
     docs/architecture.md's "快照布局"), needing NO nested `local/` raw-CSV
@@ -243,7 +243,7 @@ def materialize_parquet_snapshot() -> None:
     panel.to_parquet(VALIDATION_SAMPLE_DIR / "crsp_msf.parquet", index=False)
     print(f"  wrote {len(panel):,} rows")
 
-    print("=== Materializing comp_funda.parquet ===")
+    print("=== Materializing compustat_fundamental_annual.parquet ===")
     # Kept in the SAME raw, gvkey-keyed shape a fresh CSV read would produce
     # (lower-cased columns, parsed datadate) -- `_load_generic_signal_frame`'s
     # parquet-first branch still calls `link_to_permno` on it afterward, so
@@ -253,7 +253,7 @@ def materialize_parquet_snapshot() -> None:
     )
     funda.columns = [c.lower() for c in funda.columns]
     funda["datadate"] = pd.to_datetime(funda["datadate"], format="%Y-%m-%d", errors="coerce")
-    funda.to_parquet(VALIDATION_SAMPLE_DIR / "comp_funda.parquet", index=False)
+    funda.to_parquet(VALIDATION_SAMPLE_DIR / "compustat_fundamental_annual.parquet", index=False)
     print(f"  wrote {len(funda):,} rows")
 
     print("=== Materializing ccm_lnkhist.parquet ===")

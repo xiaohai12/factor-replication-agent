@@ -61,9 +61,9 @@ def test_llm_fallback_accepts_a_valid_registered_pick():
     dd = DataDictionary()
     # A field the deterministic matcher can't resolve via exact/substring rules.
     fields = [{"field": "unrecognized_paper_term", "concept": "firm's total balance sheet size"}]
-    llm = FakeLLM({"unrecognized_paper_term": {"source": "comp_funda", "column": "at"}})
+    llm = FakeLLM({"unrecognized_paper_term": {"source": "compustat_fundamental_annual", "column": "at"}})
     result = dd.normalize_fields_with_llm(fields, llm_client=llm)
-    assert result["unrecognized_paper_term"] == {"source": "comp_funda", "column": "at"}
+    assert result["unrecognized_paper_term"] == {"source": "compustat_fundamental_annual", "column": "at"}
     assert len(llm.calls) == 1
 
 
@@ -78,8 +78,8 @@ def test_llm_fallback_rejects_a_hallucinated_source():
 def test_llm_fallback_rejects_a_column_not_owned_by_the_named_source():
     dd = DataDictionary()
     fields = [{"field": "unrecognized_paper_term", "concept": "something obscure"}]
-    # "meanest" is a real column, but not on comp_funda -- must still be rejected.
-    llm = FakeLLM({"unrecognized_paper_term": {"source": "comp_funda", "column": "meanest"}})
+    # "meanest" is a real column, but not on compustat_fundamental_annual -- must still be rejected.
+    llm = FakeLLM({"unrecognized_paper_term": {"source": "compustat_fundamental_annual", "column": "meanest"}})
     result = dd.normalize_fields_with_llm(fields, llm_client=llm)
     assert "unrecognized_paper_term" not in result
 
@@ -106,7 +106,7 @@ def test_llm_fallback_omits_fields_the_llm_could_not_match():
         {"field": "another_unrecognized_term", "concept": "also obscure"},
     ]
     # LLM only confidently matches one of the two fields -- the other stays unresolved.
-    llm = FakeLLM({"unrecognized_paper_term": {"source": "comp_funda", "column": "ceq"}})
+    llm = FakeLLM({"unrecognized_paper_term": {"source": "compustat_fundamental_annual", "column": "ceq"}})
     result = dd.normalize_fields_with_llm(fields, llm_client=llm)
-    assert result["unrecognized_paper_term"] == {"source": "comp_funda", "column": "ceq"}
+    assert result["unrecognized_paper_term"] == {"source": "compustat_fundamental_annual", "column": "ceq"}
     assert "another_unrecognized_term" not in result

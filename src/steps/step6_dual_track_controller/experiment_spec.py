@@ -33,10 +33,12 @@ Design rules enforced here (see the plan's Decision 2 + Phase A2 section):
 NOT yet implemented (documented limitation, not silently assumed): a
 `baseline_ref`/`snapshot_ref` pointing at another EXPERIMENT's resolved
 config (chained baselines) -- every experiment here resolves independently
-from the reviewed MethodSpec plus its own `config_overrides`. `signal_input_ref`
-(C&Z bridge) and `snapshot_ref` (data-vintage) are recorded on the
-`ExperimentSpec` but this loader does not resolve or fetch them -- that's
-Phase B/C&D's job once the underlying reference data adapters exist.
+from the reviewed MethodSpec plus its own `config_overrides`. `snapshot_ref`
+(data-vintage) is recorded on the `ExperimentSpec` but this loader does not
+resolve or fetch it -- that's future work once the underlying reference
+data adapters exist. (A C&Z signal bridge track / `signal_input_ref` existed
+here previously but was removed 2026-08-18: it was never run outside tests;
+see CHANGELOG.)
 """
 
 from __future__ import annotations
@@ -71,7 +73,6 @@ class ExperimentSpec:
 
     name: str
     config_overrides: dict[str, Any] = field(default_factory=dict)
-    signal_input_ref: str | None = None
     snapshot_ref: str | None = None
     resolved_config: dict[str, Any] = field(default_factory=dict)
     resolved_diff: dict[str, dict[str, Any]] = field(default_factory=dict)
@@ -121,9 +122,7 @@ def _resolved_diff(baseline_config: dict, resolved_config: dict) -> dict[str, di
     }
 
 
-def _derive_family(diff: dict, signal_input_ref: str | None, snapshot_ref: str | None) -> str:
-    if signal_input_ref:
-        return "reference_bridge"
+def _derive_family(diff: dict, snapshot_ref: str | None) -> str:
     if snapshot_ref:
         return "data_vintage"
     stages = {stage_of(k) for k in diff}
@@ -132,20 +131,13 @@ def _derive_family(diff: dict, signal_input_ref: str | None, snapshot_ref: str |
     return "portfolio_ablation"
 
 
-def _derive_identification_level(
-    diff: dict, signal_input_ref: str | None = None, snapshot_ref: str | None = None
-) -> str:
-    # "Axes moved" = differing resolved-config keys PLUS the signal-source
-    # axis (`signal_input_ref`, e.g. a C&Z bridge track) and the data-vintage
-    # axis (`snapshot_ref`), not just a config-key count -- a bridge track
-    # that also changes a config key has moved 2 axes and must be
-    # `unidentified`, even though it's only 1 *config* key different
-    # (docs/step6.md §23.3: a bridge track that changes both axes used to
-    # never get an identification_level assigned at all). Exactly 1 axis
+def _derive_identification_level(diff: dict, snapshot_ref: str | None = None) -> str:
+    # "Axes moved" = differing resolved-config keys PLUS the data-vintage
+    # axis (`snapshot_ref`), not just a config-key count. Exactly 1 axis
     # moved -> controlled. 0 or >1 -> unidentified. A zero-diff, no-ref
     # experiment is rejected entirely before this is even called (see
     # load_experiment_matrix).
-    axes_moved = len(diff) + (1 if signal_input_ref else 0) + (1 if snapshot_ref else 0)
+    axes_moved = len(diff) + (1 if snapshot_ref else 0)
     return "controlled" if axes_moved == 1 else "unidentified"
 
 
@@ -154,7 +146,6 @@ def build_experiment_spec(
     spec: ResolvedMethodSpec,
     baseline_config: dict,
     config_overrides: dict[str, Any] | None = None,
-    signal_input_ref: str | None = None,
     snapshot_ref: str | None = None,
 ) -> ExperimentSpec:
     """Build one resolved `ExperimentSpec` -- the SAME derivation
@@ -180,12 +171,11 @@ def build_experiment_spec(
     return ExperimentSpec(
         name=name,
         config_overrides=overrides,
-        signal_input_ref=signal_input_ref,
         snapshot_ref=snapshot_ref,
         resolved_config=resolved_config,
         resolved_diff=diff,
-        family=_derive_family(diff, signal_input_ref, snapshot_ref),
-        identification_level=_derive_identification_level(diff, signal_input_ref, snapshot_ref),
+        family=_derive_family(diff, snapshot_ref),
+        identification_level=_derive_identification_level(diff, snapshot_ref),
     )
 
 
@@ -227,18 +217,17 @@ def load_experiment_matrix(path: str | Path, spec: ResolvedMethodSpec) -> Experi
         seen_names.add(name)
 
         overrides = entry.get("config_overrides") or {}
-        signal_input_ref = entry.get("signal_input_ref")
         snapshot_ref = entry.get("snapshot_ref")
         expected_diff = entry.get("expected_diff")
 
         try:
             exp_spec = build_experiment_spec(
-                name, spec, baseline_config, overrides, signal_input_ref, snapshot_ref
+                name, spec, baseline_config, overrides, snapshot_ref
             )
         except ConfigOverrideError as exc:
             raise ExperimentMatrixError(f"experiment {name!r}: {exc}") from exc
 
-        if not exp_spec.resolved_diff and not signal_input_ref and not snapshot_ref:
+        if not exp_spec.resolved_diff and not snapshot_ref:
             if entry.get("_from_sweep"):
                 # A declarative sweep grid naturally covers every combination
                 # of its keys' values, including the one that happens to
@@ -251,7 +240,7 @@ def load_experiment_matrix(path: str | Path, spec: ResolvedMethodSpec) -> Experi
                 continue
             raise ExperimentMatrixError(
                 f"experiment {name!r} is a no-op: resolved config is identical "
-                "to the baseline and it declares no signal_input_ref/snapshot_ref"
+                "to the baseline and it declares no snapshot_ref"
             )
 
         if expected_diff is not None:

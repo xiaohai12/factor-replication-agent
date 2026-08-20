@@ -433,7 +433,7 @@ class DataAvailability(BaseModel):
 class TimingSpec(BaseModel):
     formation_rule: SourcedValue[str]              # "每年 6 月末" / "每月末"
     rebalance_frequency: SourcedValue[TimeUnit]
-    holding_period: SourcedValue[int]              # 单位同 rebalance_frequency
+    holding_period: SourcedValue[int]              # 始终以月为单位 (2026-08-18 起, 之前是"单位同 rebalance_frequency" -- registry.py 从未做过换算，直接透传成 holding_period_months, 导致 "1年" 被错误提取成 1 而非 12)
     return_window: WindowSpec | None = None        # 持有期收益窗口
     data_availability: DataAvailability
 ```

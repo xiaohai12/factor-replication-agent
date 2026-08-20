@@ -59,7 +59,7 @@ from src.steps.step7_replication_diff.bundle import (
     SIGNIFICANCE_T_THRESHOLD,
     stage_of,
 )
-from src.steps.step8_diagnosis.summary import build_deterministic_summary, build_vs_paper_summary
+from src.steps.step8_diagnosis.summary import build_deterministic_summary, build_spec_quality_summary, build_vs_paper_summary
 
 
 _PROMPT_PATH = (
@@ -81,7 +81,11 @@ _SWITCH_FROM_CONTRIBUTION_KEY = re.compile(r"\.contributions\.([^.]+)$")
 # are nested one level by comparison line (`to_hxz`/`to_cz`) when more than one
 # line's tracks are present in the same batch -- this extracts that segment,
 # mirroring `_TRACK_FROM_*_KEY` above for `comparison_line` instead of `subject_track`.
-_LINE_FROM_NESTED_KEY = re.compile(r"^(?:shapley_attribution|paired_tests|joint_test)\.([^.]+)\.")
+# `three_term_identity` nests the same way, keyed by external reference
+# (`cz`/`hxz`) rather than by track line.
+_LINE_FROM_NESTED_KEY = re.compile(
+    r"^(?:shapley_attribution|paired_tests|joint_test|three_term_identity)\.([^.]+)\."
+)
 _SWITCH_FROM_SHAPLEY_KEY = re.compile(r"\.shapley_effects\.([^.]+)$")
 
 # Bounded rounds for the claim-rejection retry loop (docs/tools-plus-llm-plan.md
@@ -124,7 +128,7 @@ class ReplicationDiagnoser:
         `bundle` is the parsed `comparison.json` (schema v2+), which must
         already contain the deterministic `derived` / `config_diff` /
         `gap_decomposition` / `evidence_keys` sections (and, when present,
-        the newer `spec_quality`/`menu_deviations`/`bridge_comparison`/
+        the newer `spec_quality`/`menu_deviations`/
         `publication_decay`/`robustness_summary` sections -- see
         `src.steps.step7_replication_diff.bundle`).
 
@@ -193,6 +197,7 @@ class ReplicationDiagnoser:
         report.rejected_claims = rejected
         report.summary = build_deterministic_summary(accepted, bundle)
         report.vs_paper_summary = build_vs_paper_summary(bundle)
+        report.spec_quality_summary = build_spec_quality_summary(bundle)
         return report
 
     def _build_prompt(self, bundle: dict[str, Any], tool_results: list[ToolResult]) -> str:
@@ -285,10 +290,10 @@ CONFIG_DIFF_TOOL = _bundle_section_tool(
 GAP_DECOMPOSITION_TOOL = _bundle_section_tool(
     "gap_decomposition", "one-at-a-time (OAT) per-switch contribution decomposition", "harmonized evidence, non-additive, not guaranteed to sum"
 )
-BRIDGE_COMPARISON_TOOL = _bundle_section_tool(
-    "bridge_comparison",
-    "C&Z reference signal run through the identical downstream config, vs our own track's independent reproduction of the paper's sign",
-    "unavailable when no bridge track is registered for this factor -- never fabricate this evidence",
+GAP_CLOSURE_TOOL = _bundle_section_tool(
+    "gap_closure",
+    "to_cz total gap (baseline vs cz_actual_config spread) vs the sum of catalogued per-switch effects, plus the unexplained residual",
+    "harmonized (OAT) evidence, same non-additivity caveat as gap_decomposition; unavailable without both the baseline and cz_actual_config tracks",
 )
 PUBLICATION_DECAY_TOOL = _bundle_section_tool(
     "publication_decay",
@@ -314,6 +319,11 @@ JOINT_TEST_TOOL = _bundle_section_tool(
     "joint_test",
     "joint Wald test across all single-switch contrasts on one comparison line -- whether they collectively explain more than noise",
     "requires >=2 single-switch tracks with a loadable return series on that line",
+)
+THREE_TERM_IDENTITY_TOOL = _bundle_section_tool(
+    "three_term_identity",
+    "an external implementer's (C&Z / HXZ) distance from the PAPER's own reported spread, split into signal+environment, config, and agent-replication residual, nested by reference (cz/hxz)",
+    "an accounting split, not an experiment: the endpoints do not share a sample window (see window_basis.caveat) and the three terms carry different noise (see term_purity_notes); unavailable when the external reference or either track's spread is missing",
 )
 
 
@@ -360,12 +370,13 @@ STEP8_TOOLS: list[Tool[Step8ToolContext]] = [
     DERIVED_TOOL,
     CONFIG_DIFF_TOOL,
     GAP_DECOMPOSITION_TOOL,
-    BRIDGE_COMPARISON_TOOL,
+    GAP_CLOSURE_TOOL,
     PUBLICATION_DECAY_TOOL,
     ROBUSTNESS_SUMMARY_TOOL,
     SHAPLEY_ATTRIBUTION_TOOL,
     PAIRED_TESTS_TOOL,
     JOINT_TEST_TOOL,
+    THREE_TERM_IDENTITY_TOOL,
     FIELD_EVIDENCE_DETAIL_TOOL,
 ]
 
@@ -627,26 +638,6 @@ def _entailment_reason(
             return (
                 "evidence_limitation must cite an availability/reason key or a key whose "
                 "value is null (i.e. genuinely missing evidence), not an arbitrary result"
-            )
-
-    elif claim_type == "signal_reproducibility":
-        agreement = evidence_keys.get("bridge_comparison.signal_implementation_agreement")
-        own_track = evidence_keys.get("bridge_comparison.own_track")
-        bridge_track = evidence_keys.get("bridge_comparison.bridge_track")
-        subject = (raw or {}).get("subject_track")
-        if agreement is None or subject not in (own_track, bridge_track):
-            return (
-                "signal_reproducibility must cite bridge_comparison.signal_implementation_agreement "
-                "and name subject_track as either bridge_comparison.own_track or .bridge_track"
-            )
-        if subject == own_track:
-            expected = "reproduces" if agreement in ("both_reproduce", "only_own") else "diverges"
-        else:
-            expected = "reproduces" if agreement in ("both_reproduce", "only_bridge") else "diverges"
-        if relation != expected:
-            return (
-                f"relation {relation!r} contradicts signal_implementation_agreement={agreement!r} "
-                f"for subject_track={subject!r}"
             )
 
     elif claim_type == "publication_decay":

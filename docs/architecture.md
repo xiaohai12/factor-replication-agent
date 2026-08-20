@@ -229,7 +229,7 @@ Meta-Coder 还实现 `repair_plugin(plugin, errors)`，在 Future-Leak Scan 命�
     导出(`CRSP_STOCK_MONTH.csv` + `CRSP_DELISTING.csv`)组装月度收益骨架
     `[permno, yyyymm, ret, me, exchcd, shrcd, siccd, dlret]`;按 alias
     `us_equity_crsp` / layout tag `crsp_ciz` 寻址。
-  - `SignalSource`(声明式 `SourceSpec`):`comp_funda`/`comp_fundq`/`ibes_statsumu`
+  - `SignalSource`(声明式 `SourceSpec`):`compustat_fundamental_annual`/`ibes_statsumu`
     各一条声明;`crsp_msf` 是 `CrspSignalSource`(CRSP 的信号双角色)。
   - `LinkTableSpec` 注册表:`ccm`(gvkey→lpermno,含 linktype/linkprim 过滤 +
     linkprim=='P' tie-break)、`ibes_crsp_link`(ticker→permno)。
@@ -244,7 +244,7 @@ Meta-Coder 还实现 `repair_plugin(plugin, errors)`，在 Future-Leak Scan 命�
   冻结数据登记 + UI 选择器,与 DataSource 正交)。
 
 **快照布局**:一个 snapshot 目录含 `crsp_msf.parquet`(收益面板)+
-`comp_funda.parquet`(声明式信号源)+ `ccm_lnkhist.parquet`(CCM 链接表,键
+`compustat_fundamental_annual.parquet`(声明式信号源)+ `ccm_lnkhist.parquet`(CCM 链接表,键
 `lpermno`)。生成的回测脚本 compustat/multi_source 模式都经
 `assemble_signal_master_table_from_sources` 从该目录装配信号主表。
 

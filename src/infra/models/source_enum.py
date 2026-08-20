@@ -26,8 +26,8 @@ def _build_source_name_enum() -> type[Enum]:
     return Enum("SourceName", members, type=str)  # type: ignore[return-value]
 
 
-#: One member per currently-registered `DataSource` (e.g. `SourceName.COMP_FUNDA
-#: == "comp_funda"`), plus the `OTHER` escape hatch -- same pattern as
+#: One member per currently-registered `DataSource` (e.g. `SourceName.COMPUSTAT_FUNDAMENTAL_ANNUAL
+#: == "compustat_fundamental_annual"`), plus the `OTHER` escape hatch -- same pattern as
 #: `WeightingScheme`/`ConstructionType`. Regenerated fresh on every import, so
 #: it always reflects whatever sources are registered right now.
 SourceName = _build_source_name_enum()

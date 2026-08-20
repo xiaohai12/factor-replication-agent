@@ -279,11 +279,6 @@ export function Step6Output({
                         baseline
                       </Badge>
                     )}
-                    {run.is_bridge_track && (
-                      <Badge variant="secondary" className="ml-1">
-                        bridge
-                      </Badge>
-                    )}
                   </td>
                   <td className="py-1 pr-3">
                     <Badge variant={run.status === "success" ? "default" : "destructive"}>{run.status}</Badge>

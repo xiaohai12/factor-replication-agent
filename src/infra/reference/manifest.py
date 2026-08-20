@@ -13,4 +13,6 @@ from __future__ import annotations
 
 CZ_FACTOR_ACRONYM_MANIFEST: dict[str, str] = {
     "AssetGrowth": "AssetGrowth",
+    "GP": "GP",
+    "Mom6m": "Mom6m",
 }

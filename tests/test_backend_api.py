@@ -53,10 +53,10 @@ def test_data_catalog_endpoint_lists_registered_sources_and_universes():
         body = resp.json()
 
         assert "crsp_msf" in body["signal_sources"]
-        assert "comp_funda" in body["signal_sources"]
-        comp_funda = body["signal_sources"]["comp_funda"]
-        assert comp_funda["join"]["link"] == "ccm"
-        assert "at" in comp_funda["physical_columns"]
+        assert "compustat_fundamental_annual" in body["signal_sources"]
+        compustat_fundamental_annual = body["signal_sources"]["compustat_fundamental_annual"]
+        assert compustat_fundamental_annual["join"]["link"] == "ccm"
+        assert "at" in compustat_fundamental_annual["physical_columns"]
 
         assert "ccm" in body["link_tables"]
 

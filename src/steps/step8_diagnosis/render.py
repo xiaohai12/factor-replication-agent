@@ -29,6 +29,10 @@ _BANNER = (
 _LINE_LABELS = {
     "to_hxz": "vs. HXZ standardized config",
     "to_cz": "vs. C&Z actual config",
+    # `three_term_identity` nests by external reference rather than track line
+    # (bundle.THREE_TERM_HYBRID_TRACKS), so its two keys land here too.
+    "cz": "C&Z's own reported result",
+    "hxz": "HXZ's own published result",
 }
 
 #: docs/step7-8.md Part XV §15.4: the whole per-analysis_stage "## Findings"
@@ -78,10 +82,6 @@ _RELATION_TEMPLATES: dict[str, dict[str, str]] = {
     "evidence_limitation": {
         "unavailable": "The evidence needed to determine {subject} is not available.",
     },
-    "signal_reproducibility": {
-        "reproduces": "The {subject} track's signal reproduces the paper's headline sign.",
-        "diverges": "The {subject} track's signal diverges from the paper's headline sign.",
-    },
     "publication_decay": {
         "decayed": (
             "The {subject} track's spread is significant in-sample but not statistically "
@@ -128,6 +128,26 @@ _RELATION_TEMPLATES: dict[str, dict[str, str]] = {
             "Shapley attribution on this line lacks joint support."
         ),
     },
+    "three_term_gap_component": {
+        "larger": (
+            "In the split of {line}'s distance from the paper's own reported spread, the "
+            "{subject} component is the larger contributor (an exact accounting split, not a "
+            "controlled experiment: the endpoints do not share a sample window and the three "
+            "components carry different kinds of noise)."
+        ),
+        "smaller": (
+            "In the split of {line}'s distance from the paper's own reported spread, the "
+            "{subject} component is the smaller contributor (an exact accounting split, not a "
+            "controlled experiment: the endpoints do not share a sample window and the three "
+            "components carry different kinds of noise)."
+        ),
+        "similar": (
+            "In the split of {line}'s distance from the paper's own reported spread, the "
+            "{subject} component is comparable in size to the others (an exact accounting "
+            "split, not a controlled experiment: the endpoints do not share a sample window "
+            "and the three components carry different kinds of noise)."
+        ),
+    },
 }
 
 
@@ -144,6 +164,20 @@ def _per_switch_subject(claim: DiagnosisClaim) -> str:
             # paired_tests.<line>.per_switch.<switch>.t_stat
             return key.split(".per_switch.", 1)[1].split(".", 1)[0]
     return "this switch"
+
+
+def _three_term_subject(claim: DiagnosisClaim) -> str:
+    """Which of the three named components the claim is about --
+    `CLAIM_EVIDENCE_SUBSTRINGS` already forces a `terms.` key to be cited."""
+    labels = {
+        "signal_and_environment": "signal-and-environment",
+        "config": "configuration",
+        "agent_replication_residual": "agent-replication-residual",
+    }
+    for key in claim.evidence_keys:
+        if ".terms." in key:
+            return labels.get(key.rsplit(".", 1)[-1], "this")
+    return "this"
 
 
 def _line_label(comparison_line: str | None) -> str:
@@ -167,6 +201,8 @@ def deterministic_sentence(claim: DiagnosisClaim, evidence: dict[str, Any]) -> s
         subject = _switch_subject(claim, evidence)
     elif claim.claim_type == "switch_significance":
         subject = _per_switch_subject(claim)
+    elif claim.claim_type == "three_term_gap_component":
+        subject = _three_term_subject(claim)
     elif claim.claim_type == "evidence_limitation":
         subject = "the requested comparison"
     else:

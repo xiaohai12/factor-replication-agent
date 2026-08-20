@@ -21,12 +21,12 @@ legacy `ExperimentPlan` entry point) is now a THIN ADAPTER over
 `ablation_switches`/`factorial_switches` into resolved `ExperimentSpec`
 entries via the SAME `experiment_spec.build_experiment_spec` derivation the
 yaml path uses, so both entry points share one execution implementation
-(batch/plugin-freeze bookkeeping, `comparison.json` writing, bridge-track
-handling) instead of two divergent ones. `factorial_switches` (declared on
-`ExperimentPlan` since early on but never executed) is now implemented as a
-real full-factorial expansion (`_factorial_track_specs`). Complete evidence
-persistence and further external C&Z reference bridge factors (Phase B/C&D)
-remain future work.
+(batch/plugin-freeze bookkeeping, `comparison.json` writing) instead of two
+divergent ones. `factorial_switches` (declared on `ExperimentPlan` since
+early on but never executed) is now implemented as a real full-factorial
+expansion (`_factorial_track_specs`). Complete evidence persistence remains
+future work, as does a C&Z signal bridge track (removed 2026-08-18 -- it was
+never run; see CHANGELOG).
 """
 
 from __future__ import annotations
@@ -96,11 +96,22 @@ class _NoRepairMetaCoder:
 # `MultiTrackController._factorial_track_specs` (multi-switch cartesian
 # expansion) -- one mapping, not two, so a switch name always resolves to
 # the same config key in both places.
+#
+# Deliberately excludes `missing_action`: `apply_missing_policy` never reads
+# that config value (unconditional `dropna`, see its docstring), and every
+# track this pipeline produces resolves it to the same "drop" regardless of
+# the paper/C&Z/HXZ input (`STANDARD["missing_action"]` clamps anything else
+# to "drop"; `HXZ_STANDARD_CONFIG` omits the key entirely for the same
+# reason; `cz_profile_to_config_override` sets it to "drop" unconditionally).
+# So it can never actually surface in `_diff_switches`, and if it somehow
+# did, flipping it would be a phantom switch: a config value differs while
+# the executed code is byte-identical, which would make a Shapley/OAT
+# "zero contribution" for it unreadable as "this dimension doesn't matter"
+# vs "this dimension was never actually exercised". 2026-08-19.
 _ABLATION_SWITCH_TO_CONFIG_KEY: dict[str, str] = {
     "breakpoint": "breakpoint_source",
     "weighting": "weighting_rule",
     "lag": "accounting_lag_months",
-    "missing": "missing_action",
     "rebalance": "rebalance_frequency",
     # config key renamed from "universe" (a display-only string, never read
     # by the engine) to "universe_filters" (the real, enforced key) 2026-08-16.
@@ -245,7 +256,7 @@ class MultiTrackController:
         `experiment_spec.ExperimentMatrix` (`_plan_to_matrix`) so the legacy
         Python-constructed `ExperimentPlan` path and the declarative yaml
         path share ONE execution implementation (batch/plugin-freeze
-        bookkeeping, `comparison.json` writing, bridge-track handling) --
+        bookkeeping, `comparison.json` writing) --
         see docs/decision-log.md for why these were merged. `plan`'s
         `ablation_switches` and (newly-implemented; see docs/multi-config-
         evidence-plan.md's "don't leave two half-finished interfaces" note)
@@ -524,16 +535,10 @@ class MultiTrackController:
         declared exactly these experiments" is itself part of a run's
         reproducible identity.
 
-        An experiment with `signal_input_ref: "cz_bridge"` (optionally
-        `"cz_bridge:<factor_id>"` to reference a DIFFERENT registered
-        factor_id than this spec's own) is run as a real C&Z bridge track
-        via `_run_bridge_track` -- see `src.infra.reference.cz_bridge` for
-        which factors have a registered bridge. Any OTHER
-        `signal_input_ref` value, or a `snapshot_ref` (data-vintage tracks),
-        is recorded but SKIPPED with a log line -- no adapter exists yet for
-        those (still pending real external data work); running only the
-        config-override experiments here would otherwise silently
-        under-report what the matrix declared.
+        An experiment with a `snapshot_ref` (data-vintage tracks) is
+        recorded but SKIPPED with a log line -- no adapter exists for
+        those; running only the config-override experiments here would
+        otherwise silently under-report what the matrix declared.
         """
         batch_id = uuid.uuid4().hex[:12]
         track_overrides: dict[str, dict[str, Any]] = {}
@@ -548,34 +553,8 @@ class MultiTrackController:
         identification_by_track: dict[str, tuple[str, str]] = {}
         switches_by_track: dict[str, dict[str, Any]] = {}
         skipped: list[str] = []
-        bridge_runs: list[RunRecord] = []
 
         for exp in matrix.experiments:
-            if exp.signal_input_ref:
-                if exp.signal_input_ref == "cz_bridge" or exp.signal_input_ref.startswith("cz_bridge:"):
-                    cz_factor_id = (
-                        exp.signal_input_ref.split(":", 1)[1]
-                        if ":" in exp.signal_input_ref
-                        else _spec_factor_id(spec)
-                    )
-                    bridge_run = self._run_bridge_track(
-                        plugin, spec, snapshot_id, exp.name, cz_factor_id, exp.config_overrides
-                    )
-                    if bridge_run is None:
-                        skipped.append(exp.name)
-                        continue
-                    track_overrides[exp.name] = exp.config_overrides
-                    bridge_runs.append(bridge_run)
-                    # A bridge track moves the signal axis (and possibly a
-                    # config axis too, via exp.config_overrides) -- it must
-                    # get the same family/identification_level labeling as
-                    # any other track (docs/step6.md \u00a723.3: previously
-                    # skipped entirely, so a bridge track that ALSO changed
-                    # a config key was silently never flagged `unidentified`).
-                    identification_by_track[exp.name] = (exp.family, exp.identification_level)
-                else:
-                    skipped.append(exp.name)
-                continue
             if exp.snapshot_ref:
                 skipped.append(exp.name)
                 continue
@@ -587,7 +566,6 @@ class MultiTrackController:
         runs, effective_plugin, refreeze_attempts = self._run_tracks_with_freeze(
             plugin, spec, snapshot_id, track_specs
         )
-        runs.extend(bridge_runs)
         runs.extend(reused_runs)
         for run in runs:
             if run.track in identification_by_track:
@@ -625,18 +603,12 @@ class MultiTrackController:
         write (+ optional step-8 diagnosis). `plugin.code_hash` here is the
         frozen hash as it was BEFORE any track ran -- see `run_experiment`'s
         docstring for the full invalidation rationale.
-
-        Bridge tracks (`RunRecord.is_bridge_track=True`, see
-        `_run_bridge_track`) are EXCLUDED from the "every track ran
-        identical code" consistency check below -- a bridge track's whole
-        point is a different signal source under the same config, which is
-        never expected to share the agent plugin's `code_hash`.
         """
         frozen_plugin_hash = plugin.code_hash
 
         divergent_tracks = sorted(
             r.track for r in runs
-            if r.status == "success" and not r.is_bridge_track and r.code_hash != frozen_plugin_hash
+            if r.status == "success" and r.code_hash != frozen_plugin_hash
         )
         batch_invalidated = bool(divergent_tracks)
         batch_invalidation_reason = (
@@ -658,7 +630,6 @@ class MultiTrackController:
             r.track: {
                 "config": build_config(spec, track_overrides.get(r.track)),
                 "metrics": r.metrics.model_dump(),
-                "is_bridge_track": r.is_bridge_track,
                 "switches_flipped": r.switches_flipped,
             }
             for r in runs
@@ -697,79 +668,6 @@ class MultiTrackController:
         bundle = json.loads(comparison_path.read_text())
         report = self.diagnoser.diagnose(bundle)
         write_diagnosis(report, bundle, comparison_path.parent)
-
-    def _run_bridge_track(
-        self,
-        plugin: PluginRecord,
-        spec: ResolvedMethodSpec,
-        snapshot_id: str,
-        track_name: str,
-        cz_signal_factor_id: str,
-        config_overrides: dict[str, Any] | None = None,
-    ) -> RunRecord | None:
-        """Run a C&Z signal BRIDGE track (Phase C/D,
-        docs/multi-config-evidence-plan.md): `compute_cz_bridge_signal`'s
-        output for `cz_signal_factor_id`, fed into the SAME resolved config
-        as every other track, bypassing this factor's own `compute_signal()`
-        entirely (`BacktestRunner.build_script`'s `precomputed_signal_path`
-        param -> `script_generator`'s `PRECOMPUTED_SIGNAL_PATH` branch). This
-        isolates signal-implementation differences from portfolio-
-        construction differences -- the actual point of a "bridge"
-        experiment: same engine, same config, only the signal source
-        differs.
-
-        Returns `None` if no bridge is registered for `cz_signal_factor_id`
-        (see `src.infra.reference.cz_bridge.CZ_BRIDGE_SIGNALS`) -- callers
-        should skip the track / log a note when this happens, not treat it
-        as a failed run (a registration gap is not a runtime failure).
-
-        Does NOT go through the shared bounded `RepairLoop`: a bridge
-        track's entire content is an externally-supplied signal, not
-        agent-generated code, so there is nothing for
-        `MetaCoder.repair_plugin` to meaningfully fix here -- an execution
-        failure is reported as-is (`status="failed"`).
-
-        The returned `RunRecord` has `is_bridge_track=True` and a
-        descriptive (non-agent) `code_hash` -- see `RunRecord.
-        is_bridge_track`'s docstring for why it's excluded from
-        `_finalize_batch`'s "every track ran identical code" check.
-        """
-        from src.infra.reference.cz_bridge import compute_cz_bridge_signal
-
-        snapshot = self.runner.data_layer.snapshots.get_snapshot(snapshot_id)
-        if snapshot is None:
-            raise RuntimeError(f"Snapshot '{snapshot_id}' not registered on this DataLayer")
-        storage_path = Path(snapshot.storage_path)
-
-        cz_signal = compute_cz_bridge_signal(cz_signal_factor_id, storage_path)
-        if cz_signal is None:
-            return None
-
-        # Persist the bridge signal to a real file the generated script can
-        # load directly (see build_script's precomputed_signal_path param).
-        bridge_dir = self.runner.scripts_path / "results" / _spec_factor_id(spec)
-        bridge_dir.mkdir(parents=True, exist_ok=True)
-        bridge_signal_path = bridge_dir / f"{track_name}.cz_bridge_input.parquet"
-        cz_signal.to_parquet(bridge_signal_path, index=False)
-
-        built = self.runner.build_script(
-            plugin, spec, snapshot_id, config_overrides, track_name,
-            precomputed_signal_path=str(bridge_signal_path),
-        )
-        try:
-            result = self.runner.execute(built)
-        except RuntimeError as exc:
-            record = self.runner.make_failed_run_record(
-                spec, plugin, track_name, config_overrides, str(exc)
-            )
-        else:
-            record = self.runner.make_run_record(spec, plugin, track_name, result)
-            # NOT the agent plugin's code_hash -- this track's signal came
-            # from cz_signal_factor_id, not compute_signal(). See
-            # RunRecord.is_bridge_track's docstring.
-            record.code_hash = f"cz_bridge:{cz_signal_factor_id}"
-        record.is_bridge_track = True
-        return record
 
     def _copy_reused_baseline_run(self, run: RunRecord) -> RunRecord:
         """Deep-copies a reused baseline `RunRecord` under a NEW `run_id` --

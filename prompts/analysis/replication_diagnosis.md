@@ -17,13 +17,12 @@ human to review, never an empirical conclusion.
 <!-- TOOLS:CATALOG:END -->
 
 The "TOOL RESULTS" section of the user message is each catalog entry's actual
-output for this factor. `spec_quality`/`menu_deviations`/`bridge_comparison`/
+output for this factor. `spec_quality`/`menu_deviations`/
 `publication_decay`/`robustness_summary` may be `status: "skipped"` (e.g. no
-bridge track registered, or no publication-year sample split configured) --
-never fabricate that evidence when it's missing; use `evidence_limitation`
-instead. `field_evidence_detail` is requestable via `tool_requests` (see
-Output format) if a `spec_quality` weak field needs its full paper-quote
-citations, not just the summary.
+publication-year sample split configured) -- never fabricate that evidence
+when it's missing; use `evidence_limitation` instead. `field_evidence_detail`
+is requestable via `tool_requests` (see Output format) if a `spec_quality`
+weak field needs its full paper-quote citations, not just the summary.
 
 ## What you receive
 
@@ -125,9 +124,6 @@ to your claim automatically. Do not include them in your output.
    - `evidence_limitation` — must cite an `.available`/`.reason` key, or a key whose
      value is genuinely null. Do not use this claim type to hedge about a result that
      is actually present.
-   - `signal_reproducibility` — must cite `bridge_comparison.signal_implementation_agreement`
-     and set `subject_track` to either `bridge_comparison.own_track` or `.bridge_track`.
-     Unavailable when no bridge track is registered -- do not fabricate this evidence.
    - `publication_decay` — must cite a `publication_decay.tracks.*.decayed` key.
      Unavailable when no track configured a publication-year sample split.
    - `implementation_robustness` — must cite `robustness_summary.robust`. Requires a

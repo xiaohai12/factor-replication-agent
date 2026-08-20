@@ -48,6 +48,7 @@ from src.infra.models.method_spec import (
     TimingSpec,
     Unit,
     UniverseSpec,
+    WeightingScheme,
 )
 from src.steps.step2_reviewer.implementation_resolution import build_implementation_resolution
 from src.steps.step2_reviewer.review import high_impact_sourced_values, review_method_spec
@@ -99,7 +100,7 @@ def _base_spec(**portfolio_overrides) -> MethodSpec:
                 RequiredField(
                     concept_id="at", name_in_paper="total assets",
                     paper_source_hint="Compustat annual", roles=[FieldRole.SIGNAL_INPUT],
-                    source_table=SourcedValue(value=SourceName.COMP_FUNDA, status=EvidenceStatus.CLEAR),
+                    source_table=SourcedValue(value=SourceName.COMPUSTAT_FUNDAMENTAL_ANNUAL, status=EvidenceStatus.CLEAR),
                     source_column=SourcedValue(value="at", status=EvidenceStatus.CLEAR),
                 )
             ],
@@ -311,6 +312,26 @@ class TestEngineMenuUnconditionalFindings:
         assert len(matches) == 1
         assert matches[0].paper_value == 3
 
+    def test_primary_metric_weighting_mismatch_is_flagged(self):
+        paper = _base_spec()  # portfolio.weighting="vw"
+        paper.reported_results.metrics[0].weighting = WeightingScheme.EW
+        review = review_method_spec(paper)
+        matches = [f for f in review.findings if f.field_path == "reported_results.primary_metric_id"]
+        assert len(matches) == 1
+        assert matches[0].disposition == Disposition.NEEDS_HUMAN_CONFIRMATION
+        assert matches[0].paper_value == "ew"
+
+    def test_primary_metric_weighting_match_is_not_flagged(self):
+        paper = _base_spec()  # portfolio.weighting="vw"
+        paper.reported_results.metrics[0].weighting = WeightingScheme.VW
+        review = review_method_spec(paper)
+        assert not any(f.field_path == "reported_results.primary_metric_id" for f in review.findings)
+
+    def test_primary_metric_weighting_unset_is_not_flagged(self):
+        # _base_spec() leaves ReportedMetric.weighting unset (None) -- never guess.
+        review = review_method_spec(_base_spec())
+        assert not any(f.field_path == "reported_results.primary_metric_id" for f in review.findings)
+
 
 
 class TestResolutionBuilder:
@@ -357,10 +378,10 @@ class TestResolutionBuilder:
             RequiredField(
                 concept_id="book_equity", name_in_paper="xyz123", paper_source_hint="xyz123",
                 roles=[FieldRole.SIGNAL_INPUT],
-                source_table=SourcedValue(value=SourceName.COMP_FUNDA, status=EvidenceStatus.CLEAR),
+                source_table=SourcedValue(value=SourceName.COMPUSTAT_FUNDAMENTAL_ANNUAL, status=EvidenceStatus.CLEAR),
                 source_column=SourcedValue(value="ceq", status=EvidenceStatus.CLEAR),
             )
         )
         review = review_method_spec(paper)
         resolution = build_implementation_resolution(paper, review, data_dictionary=DataDictionary())
-        assert resolution.concept_mapping["book_equity"] == SourceColumn(source="comp_funda", column="ceq")
+        assert resolution.concept_mapping["book_equity"] == SourceColumn(source="compustat_fundamental_annual", column="ceq")

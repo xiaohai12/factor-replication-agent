@@ -11,7 +11,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 
-from src.infra.models.run_record import RunRecord
+from src.infra.models.run_record import RunMetrics, RunRecord
 
 
 @dataclass
@@ -30,6 +30,19 @@ class ReplicationDiffResult:
     # Diagnostics
     explained_fraction: float | None = None
     residual: float | None = None
+
+
+def _in_sample_t_stat(metrics: RunMetrics | None) -> float | None:
+    """Prefer `by_sample_period.insamp.t_stat` (the paper's own sample
+    window) over the top-level `t_stat` (this engine's full extended
+    history) -- same preference `step7_replication_diff.bundle`'s
+    `_in_sample_metrics`/`attribution._in_sample_mean_return` already
+    apply; falls back to the top-level value when `by_sample_period` wasn't
+    configured for this run."""
+    if metrics is None:
+        return None
+    insamp = (metrics.by_sample_period or {}).get("insamp") or {}
+    return insamp.get("t_stat", metrics.t_stat)
 
 
 class ReplicationDiff:
@@ -54,12 +67,8 @@ class ReplicationDiff:
 
         result = ReplicationDiffResult(
             factor_id=original.factor_id,
-            original_tstat=(
-                original.metrics.t_stat if original.metrics else None
-            ),
-            standardized_tstat=(
-                standardized.metrics.t_stat if standardized.metrics else None
-            ),
+            original_tstat=_in_sample_t_stat(original.metrics),
+            standardized_tstat=_in_sample_t_stat(standardized.metrics),
         )
 
         if result.original_tstat is not None and result.standardized_tstat is not None:
@@ -69,9 +78,10 @@ class ReplicationDiff:
         ablation_runs = [r for r in runs if r.track.startswith("ablation_")]
         for run in ablation_runs:
             switch_name = run.track.replace("ablation_", "")
-            if run.metrics and run.metrics.t_stat is not None and result.original_tstat is not None:
+            run_tstat = _in_sample_t_stat(run.metrics)
+            if run_tstat is not None and result.original_tstat is not None:
                 result.contributions[switch_name] = (
-                    result.original_tstat - run.metrics.t_stat
+                    result.original_tstat - run_tstat
                 )
 
         # Compute explained fraction

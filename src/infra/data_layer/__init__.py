@@ -157,20 +157,26 @@ class DataDictionary:
 
 def catalog_menu_text() -> str:
     """Render `catalog.DATA_CATALOG` as a human/LLM-readable "menu": every
-    registered source, its description, and every physical column it owns
-    with its description. Public (2026-08-13) -- also used by Step1's
-    extraction prompt (`src/steps/step1_extractor/extractor.py`'s
-    `CATALOG_MENU_TOOL`) to let the extraction LLM pick `RequiredField.
-    source_table`/`source_column`, not just `_llm_match_unresolved_fields`'s
-    resolve-stage fallback anymore."""
+    registered source, its description, and every DESCRIBED physical column
+    it owns (i.e. one with a `column_descriptions` entry) with its
+    description. Public (2026-08-13) -- also used by Step1's extraction
+    prompt (`src/steps/step1_extractor/extractor.py`'s `CATALOG_MENU_TOOL`)
+    to let the extraction LLM pick `RequiredField.source_table`/
+    `source_column`, not just `_llm_match_unresolved_fields`'s resolve-stage
+    fallback anymore.
+
+    Columns with no `column_descriptions` entry are OMITTED here (an
+    undescribed column is unguessable noise for LLM matching), but they
+    remain registered in `physical_columns` and pass hard-validation when a
+    human explicitly names one in a MethodSpec -- this menu only narrows what
+    the LLM is offered to guess from, not what's a legal reference."""
     lines: list[str] = []
     for name, entry in catalog.DATA_CATALOG.items():
         desc = entry.get("description", "")
         lines.append(f'- source "{name}"{f": {desc}" if desc else ""}')
         col_desc = entry.get("column_descriptions", {})
-        for col in sorted(entry.get("physical_columns", set())):
-            d = col_desc.get(col, "")
-            lines.append(f'    - column "{col}"{f": {d}" if d else ""}')
+        for col in sorted(col_desc):
+            lines.append(f'    - column "{col}": {col_desc[col]}')
     return "\n".join(lines)
 
 

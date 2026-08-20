@@ -31,7 +31,7 @@ PLUGIN_PATH = REPO_ROOT / "tests" / "fixtures" / "plugins" / "cooper_gulen_schil
 def _register_snapshot(pipe: Pipeline, snapshot_id: str, snapshot_dir: Path, funda: pd.DataFrame) -> None:
     snapshot_dir.mkdir(parents=True)
     build_crsp_msf().to_parquet(snapshot_dir / "crsp_msf.parquet", index=False)
-    funda.to_parquet(snapshot_dir / "comp_funda.parquet", index=False)
+    funda.to_parquet(snapshot_dir / "compustat_fundamental_annual.parquet", index=False)
     build_ccm_link().rename(columns={"permno": "lpermno"}).to_parquet(
         snapshot_dir / "ccm_lnkhist.parquet", index=False
     )

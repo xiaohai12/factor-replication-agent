@@ -13,10 +13,10 @@ this module.
 from __future__ import annotations
 
 import re
-from typing import Any
+from typing import Any, Iterable
 
 from src.infra.models.diagnosis import DiagnosisClaim, DiagnosisSummary
-from src.steps.step7_replication_diff.bundle import SIGNIFICANCE_T_THRESHOLD
+from src.steps.step7_replication_diff.bundle import OAT_INTERACTION_CAVEAT, SIGNIFICANCE_T_THRESHOLD
 
 _SWITCH_FROM_SHAPLEY_OR_PAIRED = re.compile(r"\.(?:shapley_effects|per_switch)\.([^.]+)(?:\.|$)")
 
@@ -58,11 +58,14 @@ CZ_HOUSE_CONVENTION_KEYS = frozenset(
 # rather than imported, to avoid step7/8 depending on step6 internals. This
 # set is stable (the same handful of ablation switches used throughout the
 # repo); update both places together if a new switch is ever added there.
+# `missing_action` is deliberately absent (2026-08-19): it can never actually
+# differ between any two tracks this pipeline produces (see step6's own
+# comment on `_ABLATION_SWITCH_TO_CONFIG_KEY`), so it is not a real
+# attribution switch.
 _CONFIG_KEY_TO_SWITCH_NAME = {
     "breakpoint_source": "breakpoint",
     "weighting_rule": "weighting",
     "accounting_lag_months": "lag",
-    "missing_action": "missing",
     "rebalance_frequency": "rebalance",
     "universe_filters": "universe",
 }
@@ -71,12 +74,16 @@ _SWITCH_NAME_TO_CONFIG_KEY = {v: k for k, v in _CONFIG_KEY_TO_SWITCH_NAME.items(
 # docs/step7-8.md Part XI (readability follow-up) + Part XIII (plain-language
 # follow-up): raw config-key/track-name identifiers must never appear in
 # reader-facing narrative text -- only in `evidence_keys` (meant for
-# citation, not prose). Phrasing is written for someone with no finance/
-# quant background: explain what the setting DOES and, where non-obvious,
-# WHY it exists, not just restate the technical name. Every key this module
-# can mention needs an entry here; `_readable_key` falls back to a generic
-# underscore->space humanization for anything not listed, so a new config
-# key never crashes, it just reads a little more mechanically until added.
+# citation, not prose). `CONFIG_KEY_LABELS` is the LONG, zero-background
+# explanation of what the setting does and, where non-obvious, why it
+# exists -- no longer inlined into every sentence (docs/step7-8.md Part
+# XVI: repeating a 20-33-word phrase every time a key is mentioned drowned
+# out the actual numbers); it is now glossary/tooltip content, surfaced via
+# each section's `glossary` field (`_glossary_for_keys`). Every key this
+# module can mention needs an entry here so the glossary has something to
+# show; a key missing from `_SHORT_KEY_LABELS` falls back to a generic
+# underscore->space humanization, so a new config key never crashes, it
+# just reads a little more mechanically until both are added.
 CONFIG_KEY_LABELS: dict[str, str] = {
     "weighting_rule": "whether bigger companies count for more in the portfolio, or every stock counts equally",
     "breakpoint_quantiles": "how many groups stocks are split into",
@@ -97,6 +104,25 @@ CONFIG_KEY_LABELS: dict[str, str] = {
     "formation_month": "which calendar month new portfolios are formed",
     "sample_start_year": "the first year of data used",
     "sample_end_year": "the last year of data used",
+}
+
+# Short, plain-language names used INLINE in prose -- the long
+# `CONFIG_KEY_LABELS` explanation for the same key is available as a
+# glossary/tooltip entry instead (`_glossary_for_keys`), not repeated every
+# time the setting is mentioned.
+_SHORT_KEY_LABELS: dict[str, str] = {
+    "weighting_rule": "portfolio weighting",
+    "breakpoint_quantiles": "number of portfolio groups",
+    "breakpoint_source": "breakpoint source",
+    "accounting_lag_months": "accounting lag",
+    "missing_action": "missing-data policy",
+    "formation_lag_months": "formation lag",
+    "universe_filters": "stock universe",
+    "rebalance_frequency": "rebalance frequency",
+    "holding_period_months": "holding period",
+    "formation_month": "formation month",
+    "sample_start_year": "sample start year",
+    "sample_end_year": "sample end year",
 }
 
 # Friendlier names for the fixed set of tracks this module ever mentions by
@@ -161,7 +187,22 @@ _CZ_HOUSE_UNIVERSE_DESCRIPTION = (
 
 
 def _readable_key(key: str) -> str:
-    return CONFIG_KEY_LABELS.get(key, key.replace("_", " "))
+    return _SHORT_KEY_LABELS.get(key, key.replace("_", " "))
+
+
+def _glossary_for_keys(keys: Iterable[str]) -> dict[str, str]:
+    """{short label: long explanation} for every key in `keys` that has a
+    `CONFIG_KEY_LABELS` entry -- the tooltip/glossary content for a
+    section's short inline mentions (`_readable_key`). Keys without a long
+    explanation are omitted rather than duplicating the short label as its
+    own definition.
+    """
+    glossary: dict[str, str] = {}
+    for key in keys:
+        long_text = CONFIG_KEY_LABELS.get(key)
+        if long_text:
+            glossary[_readable_key(key)] = long_text
+    return glossary
 
 
 def _readable_track(track: str) -> str:
@@ -353,28 +394,86 @@ def _format_paired_effect(switch_name: str, paired_tests_line: dict[str, Any]) -
     return f"{sign}{mean_diff:.5f}/month (t={t:.2f}), {sig}"
 
 
-def _build_cz_summary(bundle: dict[str, Any]) -> tuple[str, list[str], str]:
-    """docs/step7-8.md Part XII: `(headline, details, footnote)` for the
-    PRIMARY comparison -- the project's core research question (AGENTS.md)
+def _cz_level_and_gap_bullets(bundle: dict[str, Any]) -> list[str]:
+    """docs/step7-8.md Part XVI: the two bullets a plain config-diff walk
+    never gave -- the actual LEVEL on each side (not just per-setting
+    deltas), and whether the catalogued differences below actually add up
+    to the total gap. Reads `derived.tracks.*.vs_paper` (previously unused
+    by this module entirely) and the new `gap_closure.to_cz` (bundle.py).
+    Returns `[]` when either track's spread is unresolvable, rather than
+    printing a broken sentence.
+    """
+    derived = bundle.get("derived") or {}
+    baseline_track = derived.get("baseline_track")
+    tracks_derived = derived.get("tracks") or {}
+    baseline_vs_paper = (tracks_derived.get(baseline_track) or {}).get("vs_paper") or {}
+    cz_vs_paper = (tracks_derived.get(CZ_ACTUAL_CONFIG_TRACK) or {}).get("vs_paper") or {}
+    baseline_spread = baseline_vs_paper.get("track_spread")
+    baseline_t = baseline_vs_paper.get("track_raw_t_stat")
+    cz_spread = cz_vs_paper.get("track_spread")
+    cz_t = cz_vs_paper.get("track_raw_t_stat")
+    if None in (baseline_spread, baseline_t, cz_spread, cz_t):
+        return []
+
+    bullets = [
+        f"Our spread: {baseline_spread:+.5f}/month (t={baseline_t:.2f}). "
+        f"C&Z's: {cz_spread:+.5f}/month (t={cz_t:.2f}). "
+        f"Total difference: {baseline_spread - cz_spread:+.5f}/month."
+    ]
+
+    gap_closure = ((bundle.get("gap_closure") or {}).get("to_cz")) or {}
+    if gap_closure.get("available") and gap_closure.get("sum_of_switch_effects") is not None:
+        total_gap = gap_closure["total_gap"]
+        explained = gap_closure["explained_fraction"]
+        residual = gap_closure["residual"]
+        if explained is not None:
+            bullets.append(
+                f"The catalogued setting(s) below have a combined isolated effect of "
+                f"{gap_closure['sum_of_switch_effects']:+.5f}/month ({explained * 100:.0f}% of the "
+                f"total). The remaining {residual:+.5f}/month ({(1 - explained) * 100:.0f}%) is not "
+                f"produced by any of them -- {OAT_INTERACTION_CAVEAT}."
+            )
+        else:
+            bullets.append(
+                f"The catalogued setting(s) below have a combined isolated effect of "
+                f"{gap_closure['sum_of_switch_effects']:+.5f}/month; the total gap is "
+                f"{total_gap:+.5f}/month, so a residual of {residual:+.5f}/month is not produced "
+                f"by any of them -- {OAT_INTERACTION_CAVEAT}."
+            )
+    return bullets
+
+
+def _build_cz_summary(bundle: dict[str, Any]) -> tuple[str, list[str], str, dict[str, str]]:
+    """docs/step7-8.md Part XII: `(headline, details, footnote, glossary)` for
+    the PRIMARY comparison -- the project's core research question (AGENTS.md)
     is inter-implementer agreement between our agent and C&Z, not sensitivity
     to implementation choices in general. `headline` names the comparison
     target itself ("Compared with C&Z's independent replication...") so no
     separate "vs. C&Z" title is needed. One `details` entry per diverging
     config key, each with WHY it diverged (`_divergence_reason`) and its
-    effect size/significance; `footnote` carries joint-test availability.
+    effect size/significance; `footnote` carries joint-test availability;
+    `glossary` is the tooltip text for every setting mentioned by short name.
     """
     pairs = (bundle.get("config_diff") or {}).get("pairs") or {}
     cz_pair = pairs.get(CZ_ACTUAL_CONFIG_TRACK)
     if not cz_pair or not cz_pair.get("changed_keys"):
-        return "", [], ""
+        return "", [], "", {}
 
     spec_quality = bundle.get("spec_quality")
     paired_tests_line = (bundle.get("paired_tests") or {}).get("to_cz") or {}
     publication_decay = (bundle.get("publication_decay") or {}).get("tracks") or {}
     detail_map = cz_pair.get("details") or {}
-    changed_keys = cz_pair.get("changed_keys") or []
+    # Most informative first: by |t-stat| of the setting's own isolated
+    # effect, descending; a setting with no paired-test evidence at all
+    # (t unknown) sorts last rather than in its arbitrary config-key order.
+    def _abs_t(key: str) -> float:
+        switch_name = _CONFIG_KEY_TO_SWITCH_NAME.get(key, key)
+        entry = (paired_tests_line.get("per_switch") or {}).get(switch_name)
+        t = entry.get("t_stat") if entry and entry.get("available") is True else None
+        return abs(t) if t is not None else -1.0
+    changed_keys = sorted(cz_pair.get("changed_keys") or [], key=_abs_t, reverse=True)
 
-    details: list[str] = []
+    details: list[str] = _cz_level_and_gap_bullets(bundle)
     all_reasons: set[str] = set()
     for key in changed_keys:
         detail = detail_map.get(key) or {}
@@ -393,10 +492,15 @@ def _build_cz_summary(bundle: dict[str, Any]) -> tuple[str, list[str], str]:
             f"{_DIVERGENCE_REASON_TEXT[reason]}. Effect: {effect_text}."
         )
         # Cross-line callout: does the SAME choice, examined on the HXZ line,
-        # survive post-publication (docs/step7-8.md Part VII example 6)?
+        # survive post-publication (docs/step7-8.md Part VII example 6)? --
+        # only worth reporting when THIS switch's own effect is itself
+        # statistically significant; a decay/no-decay verdict on a noise-level
+        # effect (e.g. t=0.56) has nothing to say.
+        this_switch_t = (paired_tests_line.get("per_switch") or {}).get(switch_name, {}).get("t_stat")
+        this_switch_significant = this_switch_t is not None and abs(this_switch_t) >= SIGNIFICANCE_T_THRESHOLD
         hxz_track = f"factorial_{switch_name}"
         decay_entry = publication_decay.get(hxz_track)
-        if decay_entry is not None and decay_entry.get("decayed") is not None:
+        if this_switch_significant and decay_entry is not None and decay_entry.get("decayed") is not None:
             stability = "does NOT decay" if not decay_entry["decayed"] else "DOES decay"
             entry += (
                 f" On the standardized-HXZ comparison, this same setting's isolated effect "
@@ -441,18 +545,29 @@ def _build_cz_summary(bundle: dict[str, Any]) -> tuple[str, list[str], str]:
         if joint_test_line.get("available") is False
         else ""
     )
-    return headline, details, footnote
+    footnote = (
+        f"{footnote} " if footnote else ""
+    ) + (
+        "No C&Z signal bridge track was run for this factor, so any residual gap above cannot "
+        "be attributed between a difference in how the signal formula itself was read and a "
+        "difference in data or sample -- this report cannot separate the two."
+    )
+    glossary = _glossary_for_keys(changed_keys)
+    return headline, details, footnote, glossary
 
 
-def _build_sensitivity_summary(line: str, bundle: dict[str, Any]) -> tuple[str, list[str], str]:
-    """docs/step7-8.md Part XII: `(headline, details, footnote)` for the
-    SUPPORTING comparison (in practice, `to_hxz`) -- how sensitive the result
-    is to implementation choices in general, not why two implementers
-    disagreed (that question is `to_cz`-specific, `_build_cz_summary`).
+def _build_sensitivity_summary(line: str, bundle: dict[str, Any]) -> tuple[str, list[str], str, dict[str, str]]:
+    """docs/step7-8.md Part XII: `(headline, details, footnote, glossary)`
+    for a SUPPORTING comparison line (in practice, `to_hxz`) -- how
+    sensitive the result is to implementation choices in general, not why
+    two implementers disagreed (that question is `to_cz`-specific,
+    `_build_cz_summary`). Folded into the "robustness" section
+    (`_build_robustness_summary`) rather than shown as its own top-level
+    card.
     """
     shapley = (bundle.get("shapley_attribution") or {}).get(line) or {}
     if shapley.get("available") is not True:
-        return "", [], ""
+        return "", [], "", {}
     effects: dict[str, float] = shapley.get("shapley_effects") or {}
     total_gap = shapley.get("total_gap")
     paired_tests_line = (bundle.get("paired_tests") or {}).get(line) or {}
@@ -475,24 +590,232 @@ def _build_sensitivity_summary(line: str, bundle: dict[str, Any]) -> tuple[str, 
         f"differs by {magnitude}{confirm}."
     )
 
+    # Per-switch contribution SHARES are only reported when the joint test
+    # actually confirms the total change is more than noise -- a "158% of
+    # the change" figure is false precision when the change itself isn't
+    # statistically distinguishable from zero (docs/step7-8.md Part XVI).
+    show_shares = joint_significant
     details = []
     for key, effect in ordered:
-        pct = f"{(effect / total_gap) * 100:.0f}%" if total_gap else "n/a"
+        if show_shares and total_gap:
+            pct_text = f"accounts for {(effect / total_gap) * 100:.0f}% of the change"
+        else:
+            pct_text = "contribution share not shown (the total change is not statistically confirmed)"
         label = _readable_key(_SWITCH_NAME_TO_CONFIG_KEY.get(key, key))
-        details.append(f"{_sentence_case(label)}: accounts for {pct} of the change. Effect: {_format_paired_effect(key, paired_tests_line)}.")
+        details.append(f"{_sentence_case(label)}: {pct_text}. Effect: {_format_paired_effect(key, paired_tests_line)}.")
 
     footnote = "Used as sensitivity context, not itself the reproducibility question."
     if not joint_available:
         footnote += f" Joint test unavailable: {joint_test_line.get('reason', 'n/a')}."
-    return headline, details, footnote
+    glossary = _glossary_for_keys(_SWITCH_NAME_TO_CONFIG_KEY.get(k, k) for k in effects)
+    return headline, details, footnote, glossary
 
 
-def _dispatch_summary_parts(line: str | None, bundle: dict[str, Any]) -> tuple[str, list[str], str]:
+def _build_robustness_summary(bundle: dict[str, Any]) -> tuple[str, list[str], str, dict[str, str]]:
+    """docs/step7-8.md Part XVI: how STABLE the result is under reasonable
+    implementation variation in general -- NOT why two implementers
+    disagreed (that's `_build_cz_summary`'s job, the separate "vs_cz"
+    section). Folds together `robustness_summary` (ablation sign/
+    significance flips), the fully standardized HXZ protocol as one NAMED
+    case within this section (previously its own separate top-level card),
+    the baseline's own in-sample-vs-post-publication decay, and whether a
+    t-stat gap vs the standardized protocol is a mean-return story or a
+    volatility/sample-size one. Populated independently of whether the HXZ
+    factorial grid exists at all -- this section is never empty just
+    because no Shapley grid was run, as long as ANY of these has evidence.
+    """
+    headline_parts: list[str] = []
+    details: list[str] = []
+    footnotes: list[str] = []
+    glossary: dict[str, str] = {}
+
+    robustness = bundle.get("robustness_summary") or {}
+    if robustness.get("available"):
+        verdict = "the result is stable" if robustness.get("robust") else "the result is NOT fully stable"
+        headline_parts.append(
+            f"Across {robustness['n_ablation_tracks']} alternative implementation choice(s), "
+            f"{verdict}: {robustness['sign_flips']} sign flip(s), "
+            f"{robustness['significance_flips']} significance-threshold crossing(s) "
+            f"(t-stat range {robustness['t_stat_range']:.2f})."
+        )
+
+    hxz_headline, hxz_details, hxz_footnote, hxz_glossary = _build_sensitivity_summary("to_hxz", bundle)
+    if hxz_headline:
+        lead = hxz_headline[0].lower() + hxz_headline[1:]
+        details.append(f"Standardized HXZ protocol (a named case, not a competing replication): {lead}")
+        details.extend(hxz_details)
+        if hxz_footnote:
+            footnotes.append(hxz_footnote)
+        glossary.update(hxz_glossary)
+
+    derived = bundle.get("derived") or {}
+    baseline_track = derived.get("baseline_track")
+    decay = ((bundle.get("publication_decay") or {}).get("tracks") or {}).get(baseline_track)
+    if decay is not None and decay.get("decayed") is not None:
+        if not decay.get("insamp_significant"):
+            details.append(
+                "Post-publication decay is not identifiable here: our own replication was "
+                "already not statistically significant in-sample."
+            )
+        else:
+            verdict = "DOES decay after publication" if decay["decayed"] else "does NOT decay after publication"
+            details.append(
+                f"Our own replication {verdict} (in-sample t={decay['insamp_t_stat']:.2f}, "
+                f"post-publication t={decay['postpub_t_stat']:.2f})."
+            )
+
+    t_channel = ((bundle.get("t_channel_decomposition") or {}).get("tracks") or {}).get("standardized_hxz")
+    if t_channel is not None and not t_channel.get("degenerate") and t_channel.get("channels"):
+        channels = t_channel["channels"]
+        dominant = max(channels, key=lambda k: abs(channels[k]))
+        label = {
+            "mean_return": "the mean-return channel",
+            "volatility": "the volatility channel",
+            "sample_size": "the sample-size channel",
+        }.get(dominant, dominant)
+        details.append(
+            f"The t-stat gap vs the standardized HXZ protocol is driven mainly by {label}, "
+            "not the others -- so it is not simply an artefact of a misaligned sample window."
+        )
+
+    if not headline_parts and not details:
+        return "", [], "", {}
+
+    headline = " ".join(headline_parts) if headline_parts else "Sensitivity/stability evidence for this replication:"
+    footnote = " ".join(footnotes) if footnotes else "Used as sensitivity context, not itself the reproducibility question."
+    return headline, details, footnote, glossary
+
+
+def _dispatch_summary_parts(line: str | None, bundle: dict[str, Any]) -> tuple[str, list[str], str, dict[str, str]]:
     if line == "to_cz":
         return _build_cz_summary(bundle)
+    if line == "to_hxz":
+        return _build_robustness_summary(bundle)
     if line is not None:
         return _build_sensitivity_summary(line, bundle)
-    return "", [], ""
+    return "", [], "", {}
+
+
+#: Reader-facing name per `three_term_identity` reference key and per named
+#: component. The component labels deliberately avoid "cause"/"driver"
+#: wording -- this section is an accounting split, not an experiment.
+_THREE_TERM_REFERENCE_LABELS = {
+    "cz": "C&Z's own published result",
+    "hxz": "HXZ's own published result",
+}
+
+_THREE_TERM_COMPONENT_LABELS = {
+    "signal_and_environment": "how the signal itself was computed (plus data-vintage and engine differences)",
+    "config": "portfolio-construction settings alone",
+    "agent_replication_residual": "our own run's distance from the paper's number",
+}
+
+
+def build_three_term_summaries(bundle: dict[str, Any]) -> list[DiagnosisSummary]:
+    """docs/paper-outline.md C1, rendered for a reader: how far each external
+    implementer's published number sits from the PAPER's own reported number,
+    and how that distance splits between the signal, the settings, and our own
+    replication error.
+
+    Built straight from `bundle["three_term_identity"]` like every other
+    builder here -- no LLM involvement, and produced even when the LLM made
+    zero claims about it, so a section this project's core argument depends on
+    can never silently go missing.
+
+    An endpoint the bundle could not resolve is skipped entirely rather than
+    rendered as a zero gap.
+    """
+    sections = bundle.get("three_term_identity") or {}
+    summaries: list[DiagnosisSummary] = []
+    for reference, section in sorted(sections.items()):
+        if not section.get("available"):
+            continue
+        terms = section.get("terms") or {}
+        reference_label = _THREE_TERM_REFERENCE_LABELS.get(reference, reference)
+        largest = section.get("largest_term")
+
+        details = [
+            f"{_sentence_case(_THREE_TERM_COMPONENT_LABELS.get(name, name))}: {value:+.4f} per month"
+            for name, value in sorted(terms.items(), key=lambda kv: abs(kv[1]), reverse=True)
+        ]
+        if largest:
+            details.append(
+                f"The largest single component is {_THREE_TERM_COMPONENT_LABELS.get(largest, largest)}. "
+                "This is an exact arithmetic split of the total distance, not a controlled experiment: "
+                "it shows where the distance sits, not what caused it."
+            )
+        window = section.get("window_basis") or {}
+        sensitivity = window.get("window_sensitivity_spread")
+        if sensitivity is not None:
+            details.append(
+                f"Recomputing {reference_label} over its own paper's sample window instead of this "
+                f"paper's moves it by {sensitivity:+.4f} per month -- a measure of how much the "
+                "choice of sample window alone matters here."
+            )
+
+        summaries.append(
+            DiagnosisSummary(
+                comparison_line=reference,
+                section="gap_split",
+                overall_tag=(bundle.get("derived") or {}).get("overall_tag", "inconclusive"),
+                headline=(
+                    f"{reference_label} differs from the paper's own reported spread by "
+                    f"{section.get('total_gap', 0.0):+.4f} per month."
+                ),
+                details=details,
+                footnote=(
+                    "The three components are not equally clean: only the settings component holds the "
+                    "signal fixed on both sides. The first also absorbs data-vintage and engine "
+                    "differences, and the last is our own replication error rather than anything the "
+                    "paper left ambiguous. The four numbers being compared also do not share a common "
+                    "sample window or estimator."
+                ),
+            )
+        )
+    return summaries
+
+
+def build_spec_quality_summary(bundle: dict[str, Any]) -> DiagnosisSummary:
+    """docs/step7-8.md Part XVI: how clearly the paper specified its own
+    method -- one bullet per field `spec_quality.weak_fields` flagged,
+    quoting the review's OWN reason (not just a pass/fail boolean, which
+    gives a reader no way to judge whether the ambiguity call was
+    reasonable), plus any setting the paper required that the engine's menu
+    cannot express at all (`menu_deviations.unsupported_paper_fields`).
+    """
+    weak_fields = ((bundle.get("spec_quality") or {}).get("weak_fields")) or []
+    unsupported = ((bundle.get("menu_deviations") or {}).get("unsupported_paper_fields")) or []
+    if not weak_fields and not unsupported:
+        return DiagnosisSummary(section="spec_quality")
+
+    details: list[str] = []
+    for wf in weak_fields:
+        field_path = wf.get("field_path", "")
+        reason = wf.get("reason", "")
+        disposition = wf.get("disposition", "")
+        entry = f"{_sentence_case(_readable_key(field_path))}: {reason}"
+        if disposition:
+            entry += f" (resolved as: {disposition})"
+        details.append(entry + ".")
+    for u in unsupported:
+        field_path = u.get("field_path", "")
+        value = u.get("unsupported_value")
+        details.append(
+            f"{_sentence_case(_readable_key(field_path))}: the paper's stated value "
+            f"({value!r}) could not be expressed by the engine's fixed menu; clamped to "
+            "the menu default rather than code-generated."
+        )
+
+    headline = (
+        f"{len(weak_fields)} setting(s) were flagged as weakly specified by the paper, and "
+        f"{len(unsupported)} setting(s) the paper required fall outside the engine's menu."
+        if weak_fields or unsupported
+        else ""
+    )
+    glossary = _glossary_for_keys(
+        [wf.get("field_path", "") for wf in weak_fields] + [u.get("field_path", "") for u in unsupported]
+    )
+    return DiagnosisSummary(section="spec_quality", headline=headline, details=details, glossary=glossary)
 
 
 def build_vs_paper_summary(bundle: dict[str, Any]) -> "VsPaperSummary":
@@ -536,39 +859,83 @@ def build_vs_paper_summary(bundle: dict[str, Any]) -> "VsPaperSummary":
             "difference in how the paper's stated method was implemented -- this comparison "
             "cannot separate the two."
         )
-    return VsPaperSummary(headline=headline, details=details, footnote=footnote)
+    glossary = _glossary_for_keys(c["config_key"] for c in paper_silent)
+    return VsPaperSummary(headline=headline, details=details, footnote=footnote, glossary=glossary)
+
+
+def _deterministic_dominant_switch(bundle: dict[str, Any], line: str | None) -> str | None:
+    """The single largest-\\|t\\| switch on this comparison line, per the SAME
+    deterministic paired-test evidence `_build_cz_summary`/
+    `_build_sensitivity_summary` already rank their own bullets by -- used
+    only to flag when the LLM's `dominant_switches` pick disagrees with it,
+    never to restate it (that would just repeat the per-setting bullet)."""
+    if line is None:
+        return None
+    per_switch = ((bundle.get("paired_tests") or {}).get(line) or {}).get("per_switch") or {}
+    ranked = [
+        (switch, abs(entry["t_stat"]))
+        for switch, entry in per_switch.items()
+        if entry.get("available") is True and entry.get("t_stat") is not None
+    ]
+    if not ranked:
+        return None
+    return max(ranked, key=lambda kv: kv[1])[0]
 
 
 def _fold_claim_evidence_into_details(
     details: list[str],
-    per_switch_summary: dict[str, str],
-    joint_supported: bool | None,
+    bundle: dict[str, Any],
+    line: str | None,
     dominant_switches: list[str],
 ) -> list[str]:
-    """docs/step7-8.md Part XV: `per_switch_summary`/`joint_supported`/
-    `dominant_switches` are the LLM-claim-derived counterparts to the
-    bundle-derived `headline`/`details` (docs/step7-8.md Part XI) -- kept as
-    their own `DiagnosisSummary` fields for evidence_keys/citation, but no
-    longer rendered as their own separate UI section (user-requested: fold
-    into the same prose `details` list as extra evidence bullets instead of
-    a second, redundant-looking section).
+    """docs/step7-8.md Part XVI: `dominant_switches`/`per_switch_summary`/
+    `joint_supported` (LLM-claim-derived) are kept as their own
+    `DiagnosisSummary` fields for evidence_keys/citation, but are no longer
+    restated as prose here -- they only repeated numbers the deterministic
+    per-setting bullets (their own "Effect: ..." text) and the joint-test
+    headline/footnote already show, and the restatement's "LLM-reviewed"
+    phrasing implied the LLM was judging significance, which it never does
+    (AGENTS.md: the LLM never decides a number that enters a conclusion).
+    The only prose added here is a CONFLICT flag: if the LLM's own
+    dominant-driver pick disagrees with the single largest-\\|t\\| switch on
+    this line, that disagreement is worth a reader's attention; agreement
+    is not, since it would just repeat the per-setting bullet above it.
     """
-    extra: list[str] = []
-    if per_switch_summary:
-        parts = ", ".join(
-            f"{_readable_key(_SWITCH_NAME_TO_CONFIG_KEY.get(switch, switch))} ({relation.replace('_', ' ')})"
-            for switch, relation in per_switch_summary.items()
-        )
-        extra.append(f"LLM-reviewed per-setting significance: {parts}.")
-    if joint_supported is not None:
-        extra.append(
-            "LLM-reviewed joint-significance conclusion: "
-            f"{'supported' if joint_supported else 'not supported'} by the data."
-        )
-    if dominant_switches:
-        labels = ", ".join(_readable_key(_SWITCH_NAME_TO_CONFIG_KEY.get(s, s)) for s in dominant_switches)
-        extra.append(f"LLM flagged as dominant driver(s): {labels}.")
-    return details + extra if extra else details
+    if not dominant_switches:
+        return details
+    llm_pick = dominant_switches[0]
+    deterministic_pick = _deterministic_dominant_switch(bundle, line)
+    if deterministic_pick is None or llm_pick == deterministic_pick:
+        return details
+    llm_label = _readable_key(_SWITCH_NAME_TO_CONFIG_KEY.get(llm_pick, llm_pick))
+    det_label = _readable_key(_SWITCH_NAME_TO_CONFIG_KEY.get(deterministic_pick, deterministic_pick))
+    return details + [
+        f'Note: the LLM flagged "{llm_label}" as the dominant driver, which differs from the '
+        f'setting with the largest measured effect on this line ("{det_label}") -- worth a '
+        "second look."
+    ]
+
+
+def _section_for_line(line: str | None) -> str | None:
+    """docs/step7-8.md Part XVI: which of the reader-facing sections a
+    per-line `DiagnosisSummary` belongs to. `to_cz` is the project's core
+    research question (AGENTS.md); `to_hxz` and any other named line are
+    sensitivity/stability evidence, folded into the same "robustness"
+    bucket the frontend groups together. `None` (the legacy claim-only
+    overflow entry) has no section of its own -- it predates this grouping
+    and is not one of the sections.
+    """
+    if line == "to_cz":
+        return "vs_cz"
+    if line is not None:
+        return "robustness"
+    return None
+
+
+#: `three_term_identity` nests by external reference, not by track line, so
+#: these keys must never be treated as comparison lines by the per-line loop
+#: below -- they get their own `build_three_term_summaries` section instead.
+_THREE_TERM_REFERENCE_KEYS = frozenset(_THREE_TERM_REFERENCE_LABELS)
 
 
 def build_deterministic_summary(
@@ -581,7 +948,11 @@ def build_deterministic_summary(
     overall_tag = (bundle.get("derived") or {}).get("overall_tag", "inconclusive")
     shapley = bundle.get("shapley_attribution") or {}
 
-    lines = {c.comparison_line for c in claims if c.comparison_line}
+    lines = {
+        c.comparison_line
+        for c in claims
+        if c.comparison_line and c.comparison_line not in _THREE_TERM_REFERENCE_KEYS
+    }
     # Narratives are built straight from `bundle` (see module docstring), so
     # every line the bundle itself computed evidence for must get a summary
     # even when the LLM produced zero claims about it -- not just the lines
@@ -632,12 +1003,13 @@ def build_deterministic_summary(
         line_effects = ((shapley.get(line) or {}).get("shapley_effects") or {}) if line else {}
         dominant_switches.sort(key=lambda s: abs(line_effects.get(s, 0.0)), reverse=True)
 
-        headline, details, footnote = _dispatch_summary_parts(line, bundle)
-        details = _fold_claim_evidence_into_details(details, per_switch_summary, joint_supported, dominant_switches)
+        headline, details, footnote, glossary = _dispatch_summary_parts(line, bundle)
+        details = _fold_claim_evidence_into_details(details, bundle, line, dominant_switches)
 
         summaries.append(
             DiagnosisSummary(
                 comparison_line=line,
+                section=_section_for_line(line),
                 overall_tag=overall_tag,
                 per_switch_summary=per_switch_summary,
                 joint_supported=joint_supported,
@@ -645,7 +1017,8 @@ def build_deterministic_summary(
                 headline=headline,
                 details=details,
                 footnote=footnote,
+                glossary=glossary,
             )
         )
 
-    return summaries
+    return summaries + build_three_term_summaries(bundle)

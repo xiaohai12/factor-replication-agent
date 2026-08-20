@@ -13,11 +13,11 @@ t-stats were computed from. This module reads one such downloaded file
 mean return + Newey-West t-stat from it, restricted to a given in-sample
 window, using the SAME `_series_metrics` the engine's own backtests use.
 
-Only Asset Growth (`ia`) is wired up today, since that is the only HXZ
-testing-portfolio file placed under `data/hxz/return_ref/` so far. Extending
-to another factor means dropping its `portf_<acronym>_monthly_2025.csv` next
-to it and adding an entry to `HXZ_REPORTED_FACTORS` below -- not writing a
-new function.
+Asset Growth (`ia`) and Gross Profitability (`GP`, HXZ's `gpa` acronym) are
+wired up today, one HXZ testing-portfolio file per factor under
+`data/hxz/return_ref/`. Extending to another factor means dropping its
+`portf_<acronym>_monthly_2025.csv` next to them and adding an entry to
+`HXZ_REPORTED_FACTORS` below -- not writing a new function.
 """
 
 from __future__ import annotations
@@ -63,7 +63,37 @@ HXZ_REPORTED_FACTORS: dict[str, HxzReportedFactor] = {
         short_rank=10,
         label="HXZ (low I/A − high I/A)",
     ),
+    "GP": HxzReportedFactor(
+        csv_filename="portf_gpa_monthly_2025.csv",
+        rank_column="rank_GPA",
+        long_rank=10,
+        short_rank=1,
+        label="HXZ (high GP/A − low GP/A)",
+    ),
+    "Mom6m": HxzReportedFactor(
+        csv_filename="portf_r6_6_monthly_2025.csv",
+        rank_column="rank_R6_6",
+        long_rank=10,
+        short_rank=1,
+        label="HXZ (high R6_6 − low R6_6)",
+    ),
 }
+
+
+def _manual_hxz_fallback(
+    acronym: str, sample_start_year: int | None, sample_end_year: int | None
+) -> dict[str, float | int | str | None] | None:
+    fallback = MANUAL_HXZ_REPORTED_FALLBACK.get(acronym)
+    if fallback is None:
+        return None
+    return {
+        "mean_return": fallback["mean_return"],
+        "t_stat": fallback["t_stat"],
+        "n_months": None,
+        "start_year": sample_start_year,
+        "end_year": sample_end_year,
+        "label": fallback["label"],
+    }
 
 
 def _load_decile_returns(csv_path: Path, rank_column: str) -> pd.DataFrame:
@@ -73,6 +103,16 @@ def _load_decile_returns(csv_path: Path, rank_column: str) -> pd.DataFrame:
     if missing:
         raise ValueError(f"{csv_path} is missing expected column(s): {sorted(missing)}")
     return df
+
+
+# Manual paper-reported fallback for a factor with no HXZ testing-portfolio
+# CSV under `data/hxz/return_ref/` -- filled in from the paper's own stated
+# HXZ-protocol result, one factor at a time, never guessed. Used by
+# `compute_hxz_reported` only when no CSV-derived number is available, so a
+# real recomputed CSV number always wins over this fallback.
+MANUAL_HXZ_REPORTED_FALLBACK: dict[str, dict[str, float | str]] = {
+    "PS": {"mean_return": 0.0029, "t_stat": 1.11, "label": "HXZ (paper-reported, no testing-portfolio CSV)"},
+}
 
 
 def compute_hxz_reported(
@@ -100,10 +140,10 @@ def compute_hxz_reported(
     """
     factor = HXZ_REPORTED_FACTORS.get(acronym)
     if factor is None:
-        return None
+        return _manual_hxz_fallback(acronym, sample_start_year, sample_end_year)
     csv_path = (return_ref_dir or _RETURN_REF_DIR) / factor.csv_filename
     if not csv_path.is_file():
-        return None
+        return _manual_hxz_fallback(acronym, sample_start_year, sample_end_year)
 
     df = _load_decile_returns(csv_path, factor.rank_column)
     if sample_start_year is not None:
@@ -151,7 +191,7 @@ def compute_hxz_reported_both_windows(
     `HXZ_PAPER_SAMPLE_START_YEAR`-`HXZ_PAPER_SAMPLE_END_YEAR`, regardless of
     what was passed in). Returns `None` if `acronym` isn't wired up.
     """
-    if HXZ_REPORTED_FACTORS.get(acronym) is None:
+    if HXZ_REPORTED_FACTORS.get(acronym) is None and acronym not in MANUAL_HXZ_REPORTED_FALLBACK:
         return None
     return {
         "original_insample": compute_hxz_reported(

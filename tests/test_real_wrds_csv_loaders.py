@@ -50,7 +50,7 @@ requires_link_tables = pytest.mark.skipif(
     or not (LOCAL_DIR / "IBES_CRSP_Link.csv").exists(),
     reason="real CCM/IBES-CRSP link CSVs not present",
 )
-requires_comp_funda = pytest.mark.skipif(
+requires_compustat_fundamental_annual = pytest.mark.skipif(
     not (LOCAL_DIR / "COMPUSTAT_FUNDAMENTALS_ANNUAL.csv").exists(),
     reason="real data/local/COMPUSTAT_FUNDAMENTALS_ANNUAL.csv not present",
 )
@@ -107,11 +107,11 @@ def test_raw_csv_link_tables_load_and_join():
     assert {"ticker", "permno", "sdate", "edate"}.issubset(links["ibes_crsp_link"].columns)
 
 
-@requires_comp_funda
+@requires_compustat_fundamental_annual
 @requires_link_tables
-def test_raw_csv_comp_funda_resolves_permno():
+def test_raw_csv_compustat_fundamental_annual_resolves_permno():
     links = _load_link_tables(DATA_DIR)
-    out = _load_source_frame(DATA_DIR, "comp_funda", ["at", "ceq"], 6, links)
+    out = _load_source_frame(DATA_DIR, "compustat_fundamental_annual", ["at", "ceq"], 6, links)
     assert out is not None
     assert {"permno", "time_avail_m", "at", "ceq"}.issubset(out.columns)
     assert len(out) > 0

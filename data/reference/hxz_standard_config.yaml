@@ -85,7 +85,7 @@ universe_filters:
 # own input already uses (`assemble_signal_master_table_from_sources`), so no
 # engine changes were needed for this.
 universe_filter_join_sources:
-  comp_funda: [ceq]
+  compustat_fundamental_annual: [ceq]
 
 # Correctly absent, not a gap: the paper explicitly does NOT impose a price
 # screen ("We do not impose such a screen. In particular, microcaps are

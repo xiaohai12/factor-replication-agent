@@ -1,0 +1,82 @@
+\section{Data and Factor Sample}
+\label{sec:data}
+
+\subsection{Data sources}
+
+Portfolio returns are constructed from the CRSP Monthly Stock File (the
+WRDS ``CIZ'' export), including delisting returns; accounting inputs come
+from Compustat Fundamentals Annual, linked to CRSP through the CCM link
+table with a point-in-time accounting lag
+(\texttt{accounting\_lag\_months}). Every signal source and link table used
+is registered in a single data-source registry (\S\ref{sec:pipeline}), so
+the exact fields, join keys, and lags behind any number in
+\S\ref{sec:results} are traceable to one place rather than to ad hoc code
+scattered across factor-specific scripts.
+
+Chen and Zimmermann's factor metadata (\texttt{SignalDoc.csv}) plays a
+strictly circumscribed role: it supplies $\CZ$ (each factor's reported
+spread and $t$-statistic under C\&Z's own implementation) and the evidence
+used to select factors in \S\ref{sec:selection}, and nothing else -- it is
+never passed to the Step 1 extractor that produces $\Cagent$
+(\S\ref{sec:framework}). The HXZ-style standardized configuration $\Cstd$
+used to construct $\Ahxz$ is a single, versioned file
+(\texttt{data/hxz/hxz\_standard\_config.yaml}), applied identically across
+every factor rather than tuned per factor.
+
+\subsection{Scope and assumptions}
+\label{sec:scope}
+
+This paper's implementation menu (Appendix~\ref{app:config-menu}) is
+restricted along several dimensions that are worth stating positively
+rather than apologetically: restricting attention to US common equity,
+monthly portfolio returns, and CRSP--Compustat accounting fields, with
+portfolio construction limited to univariate and independent bivariate
+sorts estimated by portfolio sorting rather than cross-sectional
+regression, is precisely what makes $\ImplSpace{P}$
+(\S\ref{sec:framework}) something this paper can enumerate at all. A menu
+with no boundary would make every disagreement unattributable, since there
+would be no fixed list of candidate causes to attribute it to.
+\input{tables/tab_scope_assumptions}
+
+That said, the finite menu introduces a two-sided bias that must be stated
+without qualification. It \emph{understates} underdetermination, because a
+reasonable implementation choice that falls outside the menu can never
+enter the disagreement band -- the band in \S\ref{sec:framework} is a lower
+bound, not an unbiased estimate, for exactly this reason. It simultaneously
+risks \emph{overstating} underdetermination, because a single extraction
+draw conflates genuine paper ambiguity with ordinary language-model sampling
+noise; only a repeated-draw study (\S\ref{sec:discussion}, left to future
+work) could separate the two. Both directions of this bias are revisited
+where they bear on a specific result in \S\ref{sec:results}.
+
+\subsection{Factor selection criteria}
+\label{sec:selection}
+
+Three constraints follow mechanically from \S\ref{sec:scope} and are
+non-negotiable: a factor's headline result must be a portfolio-sort
+long-short spread and $t$-statistic, not a Fama--MacBeth coefficient, since
+the engine implements only the former; its signal must be computable from
+CRSP monthly data and Compustat annual fields alone; and its universe
+filters must not require a derived column (e.g., years since a firm's first
+Compustat observation) or an asymmetric, non-equal-quantile split, neither
+of which this engine's universe-filter machinery supports.
+
+Within that feasible set, factors were then selected for the specific,
+verified divergence evidence they carry between Hou-Xue-Zhang and Chen and
+Zimmermann -- not merely for being underdetermined by their own paper in
+isolation. Candidates were drawn from a systematic cross-check against both
+teams' own reported verdicts (rather than inferred solely from C\&Z's
+\texttt{Notes} field), covering cases where the two teams agree, disagree in
+either direction, or disagree for a reason attributable to data vintage
+rather than methodology.
+
+\subsection{The factor sample}
+
+% TODO (2026-08-19): roster still open -- confirmed: AssetGrowth (already
+% run, 13 tracks), GP, PS, fgr5yrLag, OScore; FailureProbability's inclusion
+% is undecided pending its engineering cost (mktrf as a signal input,
+% quarterly fields). Leverage was excluded (Test in OP = mv reg, no
+% portfolio-sort spread to compare against). Update this subsection and
+% tab_factor_roster.tex together once the count is locked.
+\input{tables/tab_factor_roster}
+

@@ -23,8 +23,7 @@ from src.infra.data_layer import catalog
 # The historical literals, frozen here as the golden reference.
 _HISTORICAL_SIGNAL_SOURCES = {
     "crsp_msf":      {"key": "permno", "link": None,                "date": None,       "lag": 0},
-    "comp_funda":    {"key": "gvkey",  "link": "ccm",               "date": "datadate", "lag": "accounting_lag_months"},
-    "comp_fundq":    {"key": "gvkey",  "link": "ccm",               "date": "datadate", "lag": "accounting_lag_months"},
+    "compustat_fundamental_annual": {"key": "gvkey",  "link": "ccm",               "date": "datadate", "lag": "accounting_lag_months"},
     "ibes_statsumu": {"key": "ticker", "link": "ibes_crsp_link",    "date": "statpers", "lag": 0},
     "tr_13f":        {"key": "permno", "link": None,                "date": "yyyymm",   "lag": 2},
 }
@@ -56,8 +55,8 @@ def test_source_of_column_known_and_unknown():
     assert catalog.source_of_column("me") == "crsp_msf"
     assert catalog.source_of_column("exchcd") == "crsp_msf"
     # Compustat-owned columns
-    assert catalog.source_of_column("at") == "comp_funda"
-    assert catalog.source_of_column("ceq") == "comp_funda"
+    assert catalog.source_of_column("at") == "compustat_fundamental_annual"
+    assert catalog.source_of_column("ceq") == "compustat_fundamental_annual"
     # Other registered sources
     assert catalog.source_of_column("meanest") == "ibes_statsumu"
     assert catalog.source_of_column("instown_perc") == "tr_13f"
@@ -69,11 +68,11 @@ def test_source_of_column_known_and_unknown():
 
 
 def test_resolve_concept():
-    assert catalog.resolve_concept("total_assets") == ("comp_funda", "at")
+    assert catalog.resolve_concept("total_assets") == ("compustat_fundamental_annual", "at")
     assert catalog.resolve_concept("monthly_return") == ("crsp_msf", "ret")
     assert catalog.resolve_concept("analyst_forecast_mean") == ("ibes_statsumu", "meanest")
     # physical column resolves directly
-    assert catalog.resolve_concept("at") == ("comp_funda", "at")
+    assert catalog.resolve_concept("at") == ("compustat_fundamental_annual", "at")
     # unknown -> (None, None)
     assert catalog.resolve_concept("no_such_concept") == (None, None)
 

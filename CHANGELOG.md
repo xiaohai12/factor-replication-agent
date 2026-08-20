@@ -2,6 +2,765 @@
 
 ## [Unreleased]
 
+### latex: adapted thesis presentation to the supplied master's template (2026-08-20)
+
+Reformatted the existing `latex/` document as an Overleaf-compatible KOMA-
+Script thesis: A4 page geometry with binding offset, Palatino typography,
+chapter-style divisions, a ruled title page, running headers, Roman-numbered
+front matter, and lists of tables and figures. The adaptation is confined to
+`main.tex`, `preamble.tex`, and build documentation; thesis section/table text,
+bibliography data, citations, equations, and figure placeholders are unchanged.
+
+### data_layer: registered `fopt`/`lt` concept aliases + `fopt` description (2026-08-19)
+
+`compustat_fundamental_annual`'s `fopt` (Funds From Operations - Total) and
+`lt` (Total Liabilities) physical columns were selectable but had no
+`concept_columns` aliases, so a paper phrase like "funds from operations"/
+"total liabilities" (e.g. Ohlson 1980 O-Score) couldn't auto-resolve at
+Step1 extraction -- only a bare literal `fopt`/`lt` token would match. Added
+aliases (`funds_from_operations`/`funds from operations`/`fopt` -> `fopt`;
+`total_liabilities`/`total liabilities`/`lt` -> `lt`) and a
+`column_descriptions` entry for `fopt` (`lt` already had one).
+
+### step3_codegen: target sort's `sort_dims` quantiles no longer disagree with `breakpoint_quantiles` (2026-08-19)
+
+In a multi-sort (`len(sorts) >= 2`) MethodSpec whose target dimension left
+`group_count` unset, `config["breakpoint_quantiles"]` (used to resolve
+`long_portfolios`/`short_portfolios` bucket numbers) defaulted to 10 while
+the target's own `config["sort_dims"][i]["quantiles"]` (what the engine
+actually buckets into for a multi-dim sort) defaulted to 2 -- a real bucket-
+count mismatch that could leave a leg's selector pointing at a bucket that
+doesn't exist. `registry.py`'s `_build_config_from_resolved` now has the
+target dim's `sort_dims` entry reuse `config["breakpoint_quantiles"]`
+directly instead of its own separate `or 2` fallback, so the two paths
+always agree for the target dimension. Non-target (conditioning/control)
+dimensions are unaffected -- they still default to 2.
+
+### scripts: renamed `build_comp_funda` helper to `build_compustat_fundamental_annual` (2026-08-19)
+
+Follow-up cleanup: `scripts/build_test_papers_synthetic_data.py`'s synthetic
+Compustat annual builder function was still named `build_comp_funda` from
+before the source-name rename below; renamed to match the registered
+`compustat_fundamental_annual` source key it builds data for. No behavior
+change (name-only).
+
+### data_layer: renamed `comp_funda` source to `compustat_fundamental_annual`; removed `comp_fundq` (2026-08-19)
+
+Per user request, for readability: the Compustat annual `SourceSpec` registry
+key `comp_funda` is now `compustat_fundamental_annual` everywhere -- `sources.py`
+(registration, `COMPUSTAT_FUNDAMENTAL_ANNUAL_PHYSICAL_COLUMNS` constant),
+`source_enum.py`'s dynamically-generated `SourceName` enum (no code change
+needed there, just a comment), `data/reference/hxz_standard_config.yaml`'s
+`universe_filter_join_sources` key, the extractor/review-gate LLM prompts'
+example source name, `script_generator.py`'s `_BINARY_SIGNAL_SOURCES`,
+`app.py`/`backend/state.py`/`scripts/build_synthetic_data.py`/
+`scripts/build_real_wrds_samples.py`/`scripts/build_test_papers_synthetic_data.py`'s
+`comp_funda.parquet` snapshot filename (renamed the 3 real on-disk files:
+`data/synthetic_data/mvp_v1/`, `data/synthetic_data/test_papers_v1/`,
+`data/local/validation_sample/`), and every test file referencing the old
+string (`tests/test_data_sources.py`, `test_data_catalog.py`,
+`test_backend_api.py`, `test_registry_resolved_method_spec.py`,
+`test_script_generator_resolved_method_spec.py`,
+`test_signal_master_multisource.py`, `test_real_wrds_csv_loaders.py`,
+`test_meta_coder_resolved_method_spec.py`, `test_method_spec_contract.py`,
+`test_step2_reviewer*.py`, `test_llm_normalized_mapping.py`,
+`test_implementation_resolution_llm.py`, `test_accruals_e2e.py`,
+`test_mvp_e2e.py`, `test_execute_data_path_override.py`, `test_hashing.py`,
+`_spec_test_helpers.py`). Historical CHANGELOG entries and one
+`docs/cz-reference.md` decision-log-style narrative deliberately left
+referencing the old name (never rewrite history).
+
+Also fully removed `comp_fundq` (quarterly Compustat), requested separately
+in the same session: it was only ever registered with 4 fields
+(`atq`/`ceqq`/`saleq`/`ibq`) and its `build_comp_fundq` synthetic-data
+builder in `scripts/build_test_papers_synthetic_data.py` had become
+orphaned/dead code once the source was dropped from the registry --
+removed the registration, the golden `_HISTORICAL_SIGNAL_SOURCES` entry in
+`tests/test_data_catalog.py`, and the synthetic builder + its `tables` dict
+entry.
+
+Separately (earlier in the same 2026-08-19 session): registered ALL 980 raw
+columns from `COMPUSTAT_FUNDAMENTALS_ANNUAL.csv` (previously only 26) and
+all 87 raw columns from `CRSP_STOCK_MONTH.csv` (previously only 10) in
+`sources.py`'s `physical_columns`, with best-effort `column_descriptions`
+for the commonly-recognized subset (143 Compustat / 27 CRSP) -- the rest
+selectable but intentionally left undescribed rather than guessed. Also
+fixed a pre-existing latent gap where `crsp_msf`'s `prc` concept column was
+declared but never actually populated by the monthly CIZ loader (only the
+daily loader produced it) -- `build_crsp_monthly_panel_ciz` now renames
+`MthPrc`->`prc` and numeric-coerces it like `ret`/`me`/`siccd`.
+
+Verified via the full affected test surface (`test_data_sources.py`,
+`test_data_catalog.py`, `test_real_wrds_csv_loaders.py`,
+`test_backend_api.py`, and the broader resolved-MethodSpec/script-generator/
+step2-reviewer suites) -- all passing.
+
+### docs: replace the 6-factor thesis roster with an HXZ-vs-C&Z-verdict-driven list (2026-08-19)
+
+Per user request, replaced `docs/paper-outline.md` §5.3's 6-factor roster
+(`AssetGrowth`/`GP`/`PS`/`BrandInvest`/`OperProfRD`/`grcapx3y`) with a new
+candidate table derived from the user's own
+`data/test_papers/test_papers_data_sources.xlsx`, which selects factors by
+actual HXZ-vs-C&Z verdict divergence (agree / HXZ-fails-C&Z-succeeds / data-
+vintage divergence / both-fail) rather than only C&Z's `Notes` text. Verified
+each candidate against `data/CZ code/SignalDoc.csv` and the local raw CSVs:
+- `Leverage` (Bhandari 1988) is a **hard reject** -- `Test in OP = mv reg` and
+  empty `LS Quantile`, the same flaw that earlier ruled out `TotalAccruals`/
+  `OperProf` (no portfolio-sort spread to compare against, only a regression
+  coefficient).
+- `fgr5yrLag` (La Porta 1996) needs a new `ibes_ltg` source registration --
+  likely the same `IBES_UNADJUSTED_SUMMARY.csv` file with `MEASURE="LTG"`
+  instead of the existing `MEASURE="EPS"` filter (mechanical, but the actual
+  `MEASURE` value is unverified -- no file-content scan was done, only the
+  header). This factor's divergence type (pure data-vintage divergence, not
+  explainable by methodology) is flagged as a known blind spot of this
+  paper's framework -- valuable for Ch.8's honest-disclosure section.
+- `GP`'s xlsx numbers (0.30/2.38) don't match `SignalDoc.csv` (0.31/2.49) --
+  flagged for the user to reconcile the source before citing either.
+- `AssetGrowth` stays as the already-run anchor; the xlsx adds two further
+  published comparison numbers (HXZ's I/A annual version, C&Z's quarterly
+  `AssetGrowth_q`) that can enrich, not replace, the existing 13-track case.
+- `OScore`/`FailureProbability` carry forward their previously-documented
+  engineering caveats (asymmetric quantile split; `mktrf`-as-signal-input +
+  quarterly fields, respectively).
+
+Net: 7 candidates in, 1 hard-rejected, final count (6 vs. dropping
+`FailureProbability` for 5) still open with the user. Session memory
+(`/memories/session/plan.md`) updated with the full reconciliation, and
+flagged that `latex/tables/tab_factor_roster.tex` and other factor-count-
+dependent LaTeX content still reflect the now-superseded 6-factor list and
+need a follow-up pass once the roster is finalized.
+
+### step6/step8: removed `missing_action` as an ablation/factorial attribution switch (2026-08-19)
+
+`_ABLATION_SWITCH_TO_CONFIG_KEY`'s `"missing": "missing_action"` entry (and its
+mirror, step8's `_CONFIG_KEY_TO_SWITCH_NAME`) was structurally dead, not just
+currently unused: `apply_missing_policy` never reads the config value (see the
+2026-08-16 `HXZ_STANDARD_CONFIG` cleanup), and every track this pipeline builds
+resolves it to `"drop"` regardless of input (`STANDARD["missing_action"]` clamps
+anything else to `"drop"`; `HXZ_STANDARD_CONFIG` omits the key entirely;
+`cz_profile_to_config_override` sets it to `"drop"` unconditionally) -- so
+`missing_action` can never actually appear in `_diff_switches`'/`config_diff`'s
+output. Left in place, it was a latent trap: if some future caller ever forced
+it into `ExperimentPlan.ablation_switches`, the resulting track would show a
+differing config value while running byte-identical code (the value is
+ignored), making a Shapley/OAT "zero contribution" for it unreadable as "this
+dimension doesn't matter" vs "this dimension was never actually exercised".
+Removed from both switch maps rather than documented-and-kept.
+`CZ_HOUSE_CONVENTION_KEYS` (a different, still-accurate concept: which keys
+`cz_profile_to_config_override` sets unconditionally) is untouched.
+`tests/test_experiment_plan_matrix_merge.py`'s
+`test_auto_attribution_falls_back_to_oat_above_four_switches` updated from a
+hand-built 6-switch target to 5 (the real remaining switch count); asserts
+`len(specs) == 5` instead of 6.
+
+### step7 UI: the gap chart now renders for full-factorial batches too, from Shapley effects (2026-08-18)
+
+`GapWaterfallChart` only ever read `gap_decomposition.contributions`, which
+requires `ablation_*` (OAT) tracks. A full-factorial batch runs none, so
+`gap_decomposition.available` is `false` and `Step7Output` deliberately hid the
+chart entirely (`showGapWaterfall = gap.available === true ||
+!anyShapleyAvailable`) to avoid it reading as "attribution failed" -- leaving
+such a batch with no gap chart at all.
+
+The chart now falls back to `shapley_attribution.<line>.shapley_effects`, one
+panel per comparison line. This is not a degraded substitute: Shapley effects
+sum EXACTLY to the total gap (`shapley_sum_check`), unlike OAT contributions,
+so those panels carry no residual bar and say so, while the OAT path keeps its
+residual bar plus its non-additivity note. `showGapWaterfall` and its now-unused
+`gap` binding are gone -- the component picks its own source, and only reports
+"No gap decomposition available" when neither source exists.
+
+Verified in-browser against the real AssetGrowth batch (session
+`9bf048cba5604856b9d0c5dbe36fbed4`): both `to_cz` and `to_hxz` panels render.
+
+### docs: generate the thesis LaTeX skeleton under `latex/` (2026-08-18)
+
+Materialized the discussion in `docs/paper-outline.md` into an
+Overleaf-compilable skeleton: `main.tex` + `preamble.tex` (notation macros
+for $A$/$C_{cz}$/$C_{std}$/etc.) + 8 chapter files under `sections/` +
+6 appendix files (A-F) + 12 table placeholders under `tables/` (columns
+match real `comparison.json`/`.metrics.json` keys, each with a source
+comment) + seed `refs.bib` + `figures/` + `README.md`. Chapters follow the
+RQ1 (three-term paper-anchored decomposition) / RQ2 (agent autonomy)
+split and the six-factor roster (`AssetGrowth`, `GP`, `PS`, `BrandInvest`,
+`OperProfRD`, `grcapx3y`) finalized in `docs/paper-outline.md` §5.3. Ch.7 is
+organized by each factor's designed divergence axis, not alphabetically.
+No local TeX engine was available to compile-test; instead verified
+structurally (every `\input` target resolves, braces and
+`\begin`/`\end` environments balance across all `.tex` files) -- caught and
+fixed one real bug this way: table `\input` paths inside `sections/*.tex`
+were written as `../tables/...`, which is wrong (LaTeX resolves `\input`
+relative to `main.tex`'s directory, not the including file's), corrected to
+`tables/...`.
+
+### step7/step8: `three_term_identity` -- an external implementer's distance from the PAPER's own reported number, split into signal / config / agent-replication residual (2026-08-18)
+
+Implements docs/paper-outline.md's C1. Every existing gap section compares
+TRACK vs TRACK (`gap_decomposition` = ①→③, `gap_closure` = ①→②), so nothing was
+anchored on the paper's own reported spread and "which implementer is closer to
+the paper" was unanswerable. New section decomposes, per external reference:
+
+    X - P = (X - A_hybrid) + (A_hybrid - A) + (A - P)
+
+`P` = paper's reported spread, `A` = `original_method`, `A_hybrid` =
+`cz_actual_config`/`standardized_hxz` (agent signal under that implementer's
+config), `X` = that implementer's OWN measured result. The identity telescopes,
+so `residual` is 0 by construction and is emitted only as an arithmetic audit
+check, exactly like `gap_decomposition.residual`.
+
+- **New `src.infra.reference.external_reference_endpoints()`** resolves the two
+  external endpoints. This is the first consumer of C&Z's and HXZ's own measured
+  numbers as a comparison endpoint -- `CZReferenceProfile` and `hxz_bridge` both
+  already existed but neither was ever read by `build_evidence_bundle()`.
+  Window/basis provenance travels WITH each endpoint because the two sources
+  differ on it: C&Z's SignalDoc `Return`/`T-Stat` are static and window-locked
+  (`window_adjustable=False`), while `hxz_bridge` recomputes on any requested
+  window with this engine's own Newey-West metrics, so HXZ additionally reports
+  `window_sensitivity_spread` (paper's window minus HXZ's own 1967-2016 window)
+  -- the measurable part of the mismatch. An unresolvable endpoint returns `{}`,
+  never raises.
+- **New `bundle.build_three_term_identity()` / `build_three_term_identities()`**,
+  plus `STANDARDIZED_HXZ_TRACK` / `THREE_TERM_HYBRID_TRACKS`. Both endpoints
+  always get an entry; an unresolvable one is `available=False` with a reason, so
+  a missing external reference can never read as "the gap was zero".
+  `THREE_TERM_PURITY_NOTES` and `THREE_TERM_WINDOW_CAVEAT` ship inside the
+  section: the three terms carry different noise (only the config term holds the
+  signal fixed on both sides; the signal term also absorbs data-vintage/engine
+  differences; the residual term is the agent's own replication error, not paper
+  ambiguity) and the four endpoints share no sample window. Identification is
+  pinned at `observational` -- nothing here is a controlled contrast.
+- **`build_evidence_bundle()` gains `external_references=`** (optional, same
+  degrade-don't-raise contract as `spec`/`results_dir`).
+  `_spec_paper_reported()` now also carries `sample.reported_returns`'
+  start/end year -- the window the paper's HEADLINE numbers cover, matching
+  `registry.build_config`'s same `reported_returns`-over-`formation` choice --
+  so the section can state its `P` endpoint's window instead of leaving the
+  mismatch undeclared. `write_comparison_summary` resolves the endpoints from
+  `spec.resolution.cz_acronym`.
+- **step8: new `three_term_gap_component` claim type**, registered across
+  `REASON_LAYER_BY_CLAIM_TYPE` (config_sensitivity), `ANALYSIS_STAGE_BY_CLAIM_TYPE`
+  (`vs_paper`, since it too is paper-anchored), `CLAIM_RELATIONS`
+  (`larger`/`smaller`/`similar` only -- deliberately NOT `associated_change`, an
+  accounting split identifies no effect), `CLAIM_EVIDENCE_REQUIREMENTS`
+  (`three_term_identity.`), `CLAIM_EVIDENCE_SUBSTRINGS` (`terms.`, forcing the
+  claim onto a named component rather than the section's endpoints or window
+  metadata) and `IDENTIFICATION_BY_CLAIM_TYPE` (`observational`, no runtime
+  upgrade path). New `THREE_TERM_IDENTITY_TOOL`; `_LINE_FROM_NESTED_KEY` extended
+  so such a claim must name its reference. `DiagnosisClaim.comparison_line` /
+  `DiagnosisSummary.comparison_line` widened to `to_hxz|to_cz|cz|hxz` -- the new
+  section nests by external reference, not by track line, so `cz`/`hxz` are
+  distinct values rather than aliases. `render.py` gains its three deterministic
+  sentence templates (each restating the accounting-split caveat inline),
+  `_three_term_subject()`, and the two new `_LINE_LABELS`.
+- 13 new tests in `tests/test_replication_diagnosis.py`
+  (`TestThreeTermIdentity`, `TestThreeTermClaimValidation`), covering exact
+  telescoping, unavailable-not-zero for each missing endpoint, the
+  observational ceiling, evidence-whitelist rejection of a metadata-only
+  citation, rejection of a causal relation, and the rendered sentence.
+- **UI**: neither step7 nor step8 renders bundle sections generically, so the
+  new section would otherwise have been invisible. step7 gains
+  `ThreeTermIdentityPanel.tsx` -- deliberately a table, not a stacked bar or
+  waterfall: the three terms DO sum exactly here, but a stacked visual would
+  invite reading them as comparably-clean effects, so the purity note and the
+  window caveat render inline rather than behind a disclosure. step8 gains a
+  new `gap_split` section: `summary.build_three_term_summaries()` builds it
+  straight from the bundle (like every other builder there) so it appears even
+  when the LLM makes zero claims about it, `DiagnosisSummary.section` accepts
+  `"gap_split"`, and `Step8Output.tsx` gains its ordering/eyebrow/accent.
+  `_THREE_TERM_REFERENCE_KEYS` keeps `cz`/`hxz` out of the per-track-line loop
+  so a `comparison_line="cz"` claim can't also spawn a duplicate
+  robustness-bucketed summary. 7 further tests (`TestThreeTermSummary`).
+
+### docs/paper-outline.md: thesis argument restructured around two parallel RQs + a paper-anchored decomposition (2026-08-18)
+
+Discussion-only doc change, no code touched. Four revisions, in order:
+
+1. **Literature numbers verified against the actual PDFs** (`docs/*.pdf`, extracted
+   with pymupdf and checked line by line). A previously circulated second-hand
+   summary claiming "437 variables / 63% failed" was **fabricated** and is now
+   discarded. Verified replacements recorded in the new §0bis table: HXZ (2020)
+   = 452 anomalies, 65% fail |t|≥1.96 under NYSE breakpoints + VW, 82% under the
+   2.78 multiple-test hurdle, and 43.1% when switching to EW + NYSE-Amex-Nasdaq
+   breakpoints (HXZ's own quantification of the weighting dimension); C&Z =
+   319 characteristics, only 3 fail, reproduced-vs-hand-collected t-stat
+   regression slope 0.88 / R²=82%; JKP (2023) Figure 1's six bars
+   (35 → 55.6 → 61.3 → 82.4 → 75.6 → 82.4%), with its footnote 4 config-difference
+   checklist flagged as a cross-validation target for our own `config_diff`.
+2. **C1 re-anchored on the paper's own reported number `P`.** The old framing
+   compared `CZ` vs `HXZ` -- two third-party implementations with no anchor, so
+   "who is closer to the paper" was unanswerable. Now a three-term identity,
+   `CZ - P = (CZ - A_cz) + (A_cz - A) + (A - P)`, with the field-level
+   `gap_decomposition` explicitly scoped to splitting the *config* term
+   `(A_cz - A)`. Confirmed decision: a **fourth window/basis-mismatch residual
+   term** is carried explicitly (option a), because `CZReferenceProfile`'s
+   SignalDoc numbers have a fixed window while `hxz_bridge` can target the
+   paper's own window -- the identity stays exact and the extra term is itself
+   informative.
+3. **Contributions restructured from "one main line + two supports" to two
+   parallel research questions.** RQ1 (the C&Z/HXZ replication-disagreement
+   question) and RQ2 (agent capability) were both original motivations; RQ2 is
+   no longer written as a support prop for RQ1. C3 is demoted to the shared
+   credibility infrastructure both RQs rest on.
+4. **Evaluation unit fixed as the agent SYSTEM, not "the LLM".** Human
+   confirmation is a designed component of the agent, so C2's metrics changed
+   from "extraction fidelity vs a human-audited ground truth" (circular, and it
+   would have required a labeling corpus that doesn't exist) to an **autonomy
+   footprint**: share of high-impact fields completed autonomously vs
+   escalated, end-to-end zero-code-change completion, and where intervention
+   concentrates -- split into purely technical vs empirical-value interventions.
+   These are a free byproduct of running the 5 factors, since
+   `apply_value_patches` already records each confirmation into
+   `SourcedValue.evidence`. Consequently the leakage-boundary argument is
+   tightened and now stated up front: SignalDoc.csv never enters the pipeline
+   (hard), but the human confirmation step's independence rests on operator
+   discipline (soft).
+
+### step8: `CONFIG_KEY_LABELS` split into short inline names + a hover-tooltip glossary (2026-08-18)
+
+`_readable_key` previously inlined the FULL 20-33-word zero-background
+explanation (e.g. "whether bigger companies count for more in the
+portfolio, or every stock counts equally") every time a setting was
+mentioned -- in a card with 3+ per-setting bullets, this buried the actual
+numbers (t-stats, effect sizes) under repeated prose. Split into
+`_SHORT_KEY_LABELS` (used inline, e.g. "portfolio weighting") and the
+now-glossary-only `CONFIG_KEY_LABELS` (the long explanation, surfaced as a
+tooltip). New `_glossary_for_keys(keys) -> {short_label: long_explanation}`
+helper. `DiagnosisSummary`/`VsPaperSummary` gain a `glossary: dict[str,
+str] = {}` field, populated per section from the SAME keys that section's
+prose already mentions (`_build_cz_summary`'s changed config keys,
+`_build_sensitivity_summary`'s Shapley switches, `build_vs_paper_summary`'s
+paper-silent fields, `build_spec_quality_summary`'s weak/unsupported field
+paths). `_build_cz_summary`/`_build_sensitivity_summary`/
+`_build_robustness_summary`/`_dispatch_summary_parts` all extended from
+3-tuple `(headline, details, footnote)` to 4-tuple `(..., glossary)`
+returns. Frontend (`Step8Output.tsx`): new `GlossaryTerms` component renders
+each section's terms as a small "Terms: ..." line with a native `title`
+hover tooltip per term -- no new UI dependency. 4 existing test assertions
+updated to check the short label in prose + the long text in `.glossary`
+instead of the long text inline; `_build_robustness_summary`'s one direct
+test call updated for the new 4-tuple return.
+
+### step8: de-boilerplated the LLM-claim "LLM-reviewed"/"LLM flagged" restatement bullets (2026-08-18)
+
+`_fold_claim_evidence_into_details` previously always appended
+"LLM-reviewed per-setting significance: ...", "LLM-reviewed
+joint-significance conclusion: supported/not supported by the data.", and
+"LLM flagged as dominant driver(s): ..." bullets -- these only repeated
+numbers the deterministic per-setting bullets (their own "Effect: ..."
+text) and the joint-test headline/footnote already showed, and the
+"LLM-reviewed" phrasing implied the LLM was judging significance, which it
+never does (AGENTS.md: the LLM never decides a number that enters a
+conclusion). Replaced with a single CONFLICT-only check: new
+`_deterministic_dominant_switch(bundle, line)` finds the single largest-\|t\|
+switch on a comparison line from `paired_tests`; if the LLM's own
+`dominant_switches` pick disagrees with it, one "Note: the LLM flagged ...
+which differs from the setting with the largest measured effect ..." bullet
+is added -- agreement adds nothing, since it would just repeat the
+per-setting bullet above it. `per_switch_summary`/`joint_supported`/
+`dominant_switches` remain on `DiagnosisSummary` for evidence_keys/citation,
+just no longer restated as prose. 2 new tests
+(`test_llm_dominant_pick_agreeing_with_deterministic_ranking_adds_no_bullet`,
+`test_llm_dominant_pick_disagreeing_with_deterministic_ranking_adds_a_conflict_note`);
+1 existing markdown-render test updated to assert `"LLM-reviewed"` no
+longer appears at all.
+
+### step8: report restructured into 4 reader-facing sections, ordered by READER QUESTION not comparison target (2026-08-18)
+
+Previously three cards organized by comparison TARGET (vs. C&Z / vs. HXZ /
+vs. paper), each showing the SAME `overall_tag` badge -- readers misread it
+as "we disagree with C&Z" or "we disagree with HXZ" when it only ever meant
+"our result vs the paper's". Restructured into 4 sections ordered by what a
+reader actually wants to know first: **reproduction** (did it replicate the
+paper? -- the only place `overall_tag` renders as a badge now) ->
+**robustness** (is it stable? -- ablation `robustness_summary` + the
+standardized-HXZ protocol as one named case within this section, no longer
+its own top-level card + baseline `publication_decay` + which
+`t_channel_decomposition` channel drives any t-stat gap) -> **vs_cz**
+(why do we disagree with C&Z? -- now leads with the actual LEVEL on each
+side and the total gap via new `gap_closure`, not just per-setting deltas)
+-> **spec_quality** (new: how clearly did the paper specify its method? --
+one bullet per `spec_quality.weak_fields` entry quoting the review's OWN
+reason, plus `menu_deviations.unsupported_paper_fields`).
+
+- `DiagnosisSummary`/`VsPaperSummary` (`src/infra/models/diagnosis.py`) gain
+  a `section: Literal["reproduction","robustness","vs_cz","spec_quality"] |
+  None` field (optional, so a pre-2026-08-18 persisted `diagnosis.json`
+  still loads and renders, just ungrouped). New
+  `ReplicationDiagnosisReport.spec_quality_summary: DiagnosisSummary` field.
+- `summary.py`: `_build_sensitivity_summary` (was "to_hxz"'s whole card, now
+  folded into `_build_robustness_summary` as one named case within it) adds
+  a numeric guard -- per-switch contribution SHARES ("accounts for N% of
+  the change") are only shown when the joint test actually confirms the
+  total change is more than noise; otherwise "contribution share not shown
+  (not statistically confirmed)". New `_build_robustness_summary` populates
+  the robustness section independent of whether the HXZ factorial grid
+  exists at all (previously the whole card vanished with no grid, even
+  though `robustness_summary`/baseline `publication_decay` were unrelated
+  and often still available). New `build_spec_quality_summary`.
+  `_build_cz_summary` gains `_cz_level_and_gap_bullets` (level on each side
+  + total gap + `gap_closure`'s explained-fraction/residual, reading
+  `derived.tracks.*.vs_paper` for the first time), sorts per-setting
+  bullets by \|t-stat\| descending instead of arbitrary config-key order,
+  gates the cross-line HXZ-decay callout on the setting's OWN effect being
+  itself statistically significant (previously fired even at t=0.56), and
+  always states the no-bridge-track identification limit in its footnote.
+- Frontend (`Step8Output.tsx`): `ReproductionCard` (new, badge lives here
+  only) renders first; `sectionPriority`/`sectionEyebrow`/
+  `sectionAccentClass` replace the old `summaryLinePriority`/`lineEyebrow`/
+  `lineAccentClass` (grouped by `section`, not `comparison_line`); the
+  duplicate page-level `overall: ...` badge removed.
+- 3 tests updated (`TestSensitivitySummary`'s old
+  `test_unavailable_shapley_yields_no_headline` replaced with 2 tests: one
+  confirming robustness evidence still shows without the HXZ grid, one for
+  truly-nothing-available); new `TestSpecQualitySummary` (3 tests); new
+  `TestGapClosure`-adjacent bullets covered in `TestCzNarrative`; `diagnose()`
+  wiring test extended to assert all 4 `section` values.
+
+### step7: `gap_closure["to_cz"]` -- does the catalogued config diff to C&Z actually explain the gap? (2026-08-18)
+
+The C&Z summary previously only listed per-switch config differences and
+their isolated effects -- it never stated the TOTAL gap between our
+baseline and `cz_actual_config`, nor whether the listed differences add up
+to it. Added `bundle.build_gap_closure(derived, paired_tests)`:
+`total_gap` (baseline `track_spread` minus `cz_actual_config`'s, same basis
+`build_track_vs_paper` already resolved), `sum_of_switch_effects` (sum of
+every AVAILABLE `paired_tests["to_cz"].per_switch.*.mean_diff`), `residual`
+(`total_gap - sum_of_switch_effects`), and `explained_fraction`. Wired into
+`build_evidence_bundle` as `gap_closure.to_cz`, citable via `evidence_keys`,
+registered as a step8 tool (`GAP_CLOSURE_TOOL`). Harmonized (OAT) evidence
+like `gap_decomposition` -- not additive, order-dependent, no interactions
+identified -- so the residual is a lower bound on "unexplained", not a
+precise figure. Without a C&Z bridge track (removed below) this residual is
+the only evidence available for separating "explained by known settings"
+from "not explained by anything catalogued". 5 new tests
+(`TestGapClosure`, tests/test_replication_diagnosis.py).
+
+### step7: `classify_overall` verdict now axed on significance first, not sign alone (2026-08-18)
+
+The old 4-tag scheme (`close_replication`/`sign_agrees_magnitude_differs`/
+`sign_mismatch`/`inconclusive`) put ANY sign disagreement under
+`sign_mismatch`, whether or not either side's estimate was statistically
+distinguishable from zero -- conflating "we found nothing (noise)" with "we
+found a real, significant, opposite-sign effect", two very different
+findings for a reader deciding whether to trust the replication. New 4-tag
+scheme in `bundle.classify_overall`:
+
+- `reproduced` -- same sign, and either both sides significant, or (when
+  significance can't be assessed, e.g. an alpha-basis paper headline we
+  have no alpha t-stat for) sign alone agrees.
+- `not_reproduced` -- the paper's effect is significant but ours is not:
+  our sign carries no information and must never be read as "reversed".
+- `contradicted` -- both sides significant, opposite sign: a real,
+  reportable conflict, not noise.
+- `inconclusive` -- sign undeterminable, or neither side's significance
+  can be assessed and sign disagrees.
+
+A same-sign, both-significant pair with a magnitude ratio outside
+`CLOSE_REPLICATION_RATIO_BAND` is now still `reproduced` (the ratio is
+reported in the headline narrative, not folded into the badge) -- badge
+categories no longer double as a magnitude-closeness signal.
+`CLOSE_REPLICATION_RATIO_BAND` itself is unchanged and still used by the
+unrelated `magnitude_gap` claim-type validator in step8.
+
+Frontend `overallTagClass` (Step8Output.tsx) accepts both the new tags and
+the old persisted ones (`close_replication`/`sign_agrees_magnitude_differs`/
+`sign_mismatch`) so existing `diagnosis.json` files on disk keep rendering.
+`src/evaluation/diagnostics.py::step7_diagnostics` flags `contradicted`/
+`not_reproduced` instead of the removed `sign_mismatch`.
+
+### Removed: C&Z signal bridge track mechanism, never run outside tests (2026-08-18)
+
+The bridge track (`signal_input_ref: "cz_bridge[:factor_id]"`, `RunRecord.
+is_bridge_track`, `src/infra/reference/cz_bridge.py`'s 3 hand-ported C&Z
+signals, step6's `_run_bridge_track`, step7's `build_bridge_comparison`,
+step8's `signal_reproducibility` claim type) was fully implemented but never
+triggered by any default matrix, backend router, or frontend UI -- only by
+tests. Deleted entirely rather than left dormant:
+
+- `src/infra/reference/cz_bridge.py` removed.
+- step6: `_run_bridge_track`, the `signal_input_ref` matrix-loading branch,
+  and the bridge exclusion from `_finalize_batch`'s code-hash consistency
+  check removed. `ExperimentSpec.signal_input_ref` field removed (`snapshot_ref`
+  / data-vintage handling untouched).
+- `RunRecord.is_bridge_track` field removed.
+- step7 `bundle.py`: `build_bridge_comparison` and the `bridge_comparison`
+  bundle section removed.
+- step8: `signal_reproducibility` claim type, its `signal_fidelity` reason
+  layer, its tool-catalog entry, its validator branch, and its render
+  template removed. `ReasonLayer` is now `config_sensitivity`/
+  `temporal_pattern` only.
+- step3 `script_generator.py` / step5 `BacktestRunner.build_script`: the
+  bridge-only `precomputed_signal_path`/`PRECOMPUTED_SIGNAL_PATH` parameter
+  and template branch removed (no other caller existed).
+- Frontend: `is_bridge_track` badges removed from Step5Output/Step6Output,
+  the field dropped from `lib/evidence.ts`'s `RunRecord` type, and the
+  bridge mention removed from `SessionDetailPage`'s evidence glossary.
+- Tests deleted: `test_cz_bridge.py`, `test_bridge_track_e2e.py`,
+  `test_bridge_track_wiring.py`, `test_script_generator_bridge_mode.py`;
+  bridge-specific cases removed from `test_experiment_matrix.py`,
+  `test_run_from_matrix.py`, `test_replication_diagnosis.py`,
+  `test_attribution.py`, `test_experiment_plan_matrix_merge.py`.
+- `RunRecord` has no `extra="forbid"` (pydantic default `ignore`), so
+  existing `runs/evidence/` records carrying a persisted `is_bridge_track`
+  key still load fine.
+
+A real C&Z bridge track (isolating signal-formula differences from
+convention differences) remains valuable future work, just not implemented
+-- see `docs/step7-8.md`/`docs/cz-reference.md` for the still-relevant
+identification-gap discussion.
+
+### step7: Shapley attribution + OAT gap decomposition now prefer in-sample metrics (2026-08-18)
+
+`attribution.py::compute_shapley_effects` and `__init__.py::ReplicationDiff.
+diff_ablation` read `metrics.mean_return`/`metrics.t_stat` directly -- this
+engine's FULL extended-history metrics, not the paper's own sample window.
+Inconsistent with `ForestPlot`/`vs_paper` (`bundle.py`'s
+`_in_sample_metrics`) and `PairedTestsTable`/`JointTestBanner`
+(`_load_insample_series`), both already in-sample, in the exact same Step7
+panel. Added `attribution._in_sample_mean_return`/`__init__._in_sample_t_stat`
+helpers (prefer `metrics.by_sample_period.insamp.{mean_monthly_return,t_stat}`,
+fall back to the top-level value when `by_sample_period` wasn't configured
+for that run -- same preference `bundle.py`/`Step6Output.tsx` already
+apply). 4 new tests added (`tests/test_attribution.py`,
+`tests/test_replication_diagnosis.py`) locking in the in-sample preference
+and the full-history fallback; 143 tests pass.
+
+### step7: remove ConfigDiffHeatmap (unused in practice); fix TrackMetricsChart/TrackScatterChart to use in-sample metrics (2026-08-18)
+
+**Removed** `ConfigDiffHeatmap`/`StageLegend` entirely from
+`frontend/src/components/AttributionPanel.tsx` and its usage in
+`Step7Output.tsx` (per user: the visualization form -- color legend +
+click-to-reveal -- cost more to understand than the plain `config_diff`
+data was worth; never proved useful in practice). `configDiff.pairs`/
+`baseline_track` are still read (for baseline-track resolution and the
+existing "compare against baseline" track checklist), only the heatmap
+render is gone.
+
+**Found and fixed while investigating**: `TrackMetricsChart`/
+`TrackScatterChart` (the "mean_return vs t_stat -- is the difference real,
+or noise?" panel) read `bundle.tracks[*].metrics` directly -- this engine's
+FULL extended-history metrics (often decades past the paper's publication
+year), NOT the paper's own sample window. Inconsistent with the
+`ForestPlot` right above it on the same page (reads `derived.tracks[*].
+vs_paper`, already in-sample-preferred via `bundle.py`'s
+`_in_sample_metrics`) and with `Step6Output.tsx`'s own `displayMetrics()`
+helper, which already does this same in-sample preference per run. Added
+the same "prefer `metrics.by_sample_period.insamp` over the top-level
+metrics key-by-key" merge in `Step7Output.tsx` before passing tracks to
+either chart. `npx tsc --noEmit` / `npx oxlint` clean; verified live that
+the heatmap section is gone and the scatter-chart section still renders.
+
+### docs: thesis outline discussion draft (2026-08-18)
+
+Added `docs/paper-outline.md` -- a Chinese-language discussion draft for the
+master's thesis structure (English body). Locks the agreed premises (8
+chapters, 3-5 factors, Q2 bridge track deferred to future work) and argues
+for reframing the Introduction away from the "replication crisis" opening
+toward **underdetermination**: the HXZ-vs-C&Z divergence is not an error by
+either team but direct evidence that a paper does not uniquely determine its
+own implementation. Under that frame the LLM is not a labor-saving tool but a
+*controlled independent second implementer* operating under a leakage-proof
+boundary. Also enumerates the table/figure inventory mapped to real
+`comparison.json` / `.metrics.json` keys, factor-selection criteria, and open
+items. No code change; the LaTeX skeleton under `paper/` is not yet generated.
+
+Follow-up (same day): added §4 "Scope and Assumptions", verified against the
+code rather than assumed -- registered data sources (`src/infra/data_layer/
+sources.py`), the exact allowed-value config menu and clamping behavior
+(`src/steps/step3_codegen/registry.py`), monthly-only portfolio returns,
+portfolio-construction support matrix, and universe-filter gaps. Two items
+that materially constrain the paper and were previously implicit: the
+estimator menu contains only `portfolio_sort` (**no Fama-MacBeth**, so factors
+whose headline result is a cross-sectional regression cannot be used), and
+`data/snapshots/` is empty with no hardcoded date range, so the WRDS vintage
+and sample period must be documented manually. Also frames the fixed menu as
+an enabling assumption (it is what makes the implementation space enumerable)
+and records the **two-sided bias**: the finite menu understates
+underdetermination while single-draw LLM extraction overstates it.
+
+Follow-up 2 (same day): added §5.1 -- a verification of five user-proposed
+factors against `data/CZ code/SignalDoc.csv`. Two are hard rejects because
+C&Z records `Test in OP = mv reg` (Richardson et al. 2005 `TotalAccruals`,
+Fama-French `OperProf` -- which C&Z also attributes to FF 2006, not FF 2015),
+and the engine has no Fama-MacBeth estimator; the other three are blocked by
+unimplemented features (Piotroski `PS` needs a book-to-market quintile
+condition = derived-column filter / within-group sort; `OScore` needs SIC
+range exclusion plus an asymmetric long-70%/short-10% split; `FailureProbability`
+needs `ltq`/`cheq` quarterly columns, `mktrf` as a *signal* input, and a daily
+volatility path). Also records the strategic point that four of the five are
+multi-input composite scores, which stress signal-formula extraction (Q2,
+deferred to future work) rather than portfolio-configuration disagreement
+(Q1/Q3, the main thread). Adds an engine-compatibility screen of SignalDoc
+(23 of 331 signals pass) and a designed 4-factor slate contrasting
+EW/no-NYSE-breakpoint factors against an already-VW+NYSE control, plus a
+warning that using HXZ's published `portf_*.csv` returns would downgrade the
+identification level to `observational`.
+
+Follow-up 3 (same day): **self-correction** -- an earlier claim in this same
+discussion that SIC-range universe filters (e.g. exclude SIC 6000-6999) were
+unimplemented was WRONG. `BacktestExecutor._apply_filter_op`
+(`src/infra/backtest_engine/__init__.py`) already implements `FilterOp.between`
+/ `not_between` via `series.between(lo, hi)`, and CRSP's `siccd` is a plain
+`int64` column with no encoding issues (verified against the local raw CSV).
+So SIC-range exclusion needs zero engine changes -- only a correctly authored
+`UniverseFilterSpec` (`op="not_between", value=[6000, 6999]`). This unblocks
+both `GP` (Novy-Marx 2013) and `OperProfRD` (Ball et al. 2016), whose only
+prior objection was the (nonexistent) SIC-filter gap. Re-verified all
+Compustat field requirements directly against `src/infra/data_layer/
+sources.py`'s registered `comp_funda` columns AND the raw local
+`COMPUSTAT_FUNDAMENTALS_ANNUAL.csv` header (not assumed) for six
+ambiguity-documented candidates (`OPLeverage`, `GP`, `OperProfRD`,
+`PctTotAcc`, `OScore`, `PS`); found `PctTotAcc`/`PS`/`OScore` need new column
+registrations (`ni`, `prstkcc`, `sstk`, `dvt`, `oancf`, `fincf`, `ivncf`,
+`txt`) that ARE present in the raw file (mechanical, low-risk) but not yet in
+`sources.py`'s `physical_columns`. `OScore` additionally needs an
+asymmetric-quantile split (long low 70% / short high 10%) that
+`breakpoint_quantiles` cannot express -- the one remaining candidate that
+would touch core sort logic. Recommends `GP` as the single-factor thesis
+choice (zero engine/field changes, and C&Z's own notes document a direct
+paper-vs-best-implementation contradiction on breakpoint choice), with
+`OPLeverage` as a zero-effort fallback and `OScore` as a documented
+alternative if the asymmetric-split engine work is worth it.
+
+### frontend: ConfigDiffHeatmap -- add a visible color legend + click-to-reveal detail (2026-08-18)
+
+User couldn't tell what the heatmap's colors meant (no on-screen legend --
+the stage->color mapping only existed in this source file's comments) and
+the native `title` attribute hover tooltip was unreliable (browser-
+dependent delay, easy to miss, doesn't work on touch). Added a `StageLegend`
+row above the table (color swatch + plain-language label per pipeline
+stage: signal input / portfolio / universe / sample / estimator /
+unclassified) and made each cell clickable: clicking pins a persistent
+`track · key (stage): baseline_value → track_value` line below the table
+(kept the `title` attribute too, for browsers where hover does work).
+Verified live: clicking a purple cell in a real session's heatmap now shows
+`standardized_hxz · breakpoint_source (portfolio ...): full_sample → nyse`.
+`npx tsc --noEmit` / `npx oxlint` clean.
+
+### step2: three fixes from user discussion -- holding_period unit, editable high-impact fields, dropdown dedup (2026-08-18)
+
+1. **`timing.holding_period` is now explicitly documented as ALWAYS in
+   months** (`src/infra/models/method_spec.py` docstring +
+   `docs/methodspec-v2-plan.md`), regardless of `rebalance_frequency`'s
+   unit. Root cause found via a real session: the paper said "held for 1
+   year", the extractor wrote `holding_period.value=1` (matching the OLD,
+   now-removed "same unit as rebalance_frequency" convention), and
+   `registry.build_config` passes it straight through as
+   `holding_period_months` with no conversion -- so the backtest held
+   positions for 1 MONTH instead of 12, which also explains far fewer
+   `N months`/skewed alpha-t-stats than expected. Fixed the convention at
+   the extraction side (`prompts/extractor/method_spec_extractor.md` new
+   §1.4b: always convert to months) and the review side
+   (`prompts/review_gate/llm_review.md`'s cross-field-consistency check)
+   rather than changing `registry.py`, since `registry.py` already treats
+   the value as months everywhere else. Does NOT retroactively fix any
+   already-extracted spec on disk with the old convention -- re-run Step2
+   review/resolve for those.
+2. **Every high-impact field is now human-editable in Step2**, not just
+   `needs_human_confirmation` ones -- `canPatch` in
+   `frontend/src/pages/SessionDetailPage.tsx` no longer gates on
+   `disposition`, only excludes `missing_mapping` findings (which need a
+   `data.fields` fix + re-extract, not a value patch). Lets a human
+   override a field the paper stated clearly (e.g. `portfolio.weighting`)
+   without first forcing its evidence status down to trigger a block.
+3. **Deduplicated the value-correction dropdown's "other" option**: enum
+   fields (e.g. `weighting`) already list their own `other` member via
+   `allowed_values`; the separate hardcoded "Other (type my own)" free-text
+   escape hatch is now only added when `allowedValues` doesn't already
+   include `"other"` (still useful for non-exhaustive suggestion lists like
+   `source_column`).
+
+`npx tsc --noEmit` / `npx oxlint` clean; verified live by injecting a real
+`.resolved.json` into `localStorage` and confirming `portfolio.weighting`
+(disposition `auto_approve`) is now editable with a deduped
+`["vw", "ew", "other"]` dropdown.
+
+### frontend: Step2's resolved-spec panel rendered blank -- shape mismatch, not a persistence bug (2026-08-18)
+
+`GET /api/methodspecs/resolved/{factor_id}` (and `resolveMutation`'s
+`sessionApi.getResolvedMethodSpec`) returns a `ResolvedMethodSpec` wrapper
+(`{paper: MethodSpec, review: MethodReview, resolution: ...}` -- see
+`backend/routers/methodspecs.py`'s `resolve()`), which was being passed
+directly as `spec` to `MethodSpecBoard` in
+`frontend/src/pages/SessionDetailPage.tsx`. `MethodSpecBoard` renders a
+FLAT `MethodSpec` (reads `spec.signal`/`spec.portfolio`/`spec.reported_
+results`/etc. at the top level) -- none of those exist on the wrapper, so
+every section silently rendered empty instead of crashing. Fixed by
+passing `state.resolved.paper` (the actual `MethodSpec`) to
+`MethodSpecBoard` instead of the wrapper; the wrapper itself is still
+correctly used as-is for `body.spec` in the step3/4/5 request-template
+auto-fill (those backend endpoints validate `ResolvedMethodSpec`, not a
+flat spec, via `backend/spec_parsing.py`'s `parse_spec`) -- only the
+display call site was wrong. Verified live by injecting a real persisted
+`.resolved.json` artifact into `localStorage` and confirming the board
+now renders the Signal/Formula/factor_id sections instead of blank.
+`npx tsc --noEmit` / `npx oxlint` clean.
+
+### frontend: fix Step1/Step2 output silently disappearing after a localStorage quota failure (2026-08-18 follow-up)
+
+Root-caused why output still didn't show even after the previous
+try/catch fix (confirmed live: `QuotaExceededError` from the browser
+console). `setMethodSpecWorkflowState`'s old "read current disk state,
+merge patch, write" pattern meant that once a write started failing
+(quota exceeded), every SUBSEQUENT `patch()` call re-read the same stale/
+empty disk copy as its merge base -- so the second of two back-to-back
+`patch()` calls in the Step1 extraction-completion effect
+(`MethodSpecWorkflowPanel` in `frontend/src/pages/SessionDetailPage.tsx`)
+wiped out the `rawSpec`/`paperText` the first call had just set, even
+though nothing crashed. Fixed properly: `patch()` now merges against its
+own in-memory `state` via a functional `setState` update (independent of
+whether persistence succeeds), and persistence is a separate one-shot
+`persistMethodSpecWorkflowState(sessionId, fullState)` in
+`frontend/src/lib/methodSpecStore.ts` (no more disk-read-merge). Also
+added automatic eviction: on a quota failure, it now drops every OTHER
+session's cached workflow state (still fully recoverable from the backend
+session/methodspecs artifacts) and retries once before giving up and
+logging a warning. `npx tsc --noEmit` and `npx oxlint` on both files clean.
+
+### frontend: fix white-screen crash after Step1 extraction + add a top-level ErrorBoundary (2026-08-18)
+
+Root-caused a "blank page after importing a paper" report: `setMethodSpecWorkflowState`
+(`frontend/src/lib/methodSpecStore.ts`) called `localStorage.setItem` with no
+error handling, while its own `getMethodSpecWorkflowState` already guarded
+`localStorage.getItem` with try/catch -- an inconsistency. Every session's
+workflow state (raw spec, full paper text ~100-200KB, review rounds) is
+persisted under its own never-evicted key, so this key can eventually exceed
+the browser's per-origin localStorage quota; `setItem` then throws
+synchronously inside a React effect/mutation callback (right after Step1's
+extraction job completes, in `MethodSpecWorkflowPanel`'s `patch()` calls),
+and with no error boundary anywhere in the app, React unmounted the entire
+tree to a blank page. Fixed both sides: `setMethodSpecWorkflowState` now
+catches the write failure (logs a warning, state still updates in-memory for
+this render, just isn't persisted) instead of throwing; added
+`frontend/src/components/ErrorBoundary.tsx` wrapping every top-level route
+in `App.tsx` as a last-line-of-defense so any other uncaught render error
+shows a message + "Try again" instead of an unexplained blank screen.
+`npx tsc --noEmit` and `npx oxlint` on the changed files both clean.
+
+### step2/step1: catch `reported_results.primary_metric_id` pointing at a different weighting than `portfolio.weighting` (2026-08-18)
+
+`ReportedMetric` (`src/infra/models/method_spec.py`) gains an optional
+`weighting: WeightingScheme | None` field (ew/vw, `None` = paper doesn't
+distinguish or extractor couldn't tell -- never guessed). New
+`review.py::_primary_metric_weighting_finding` fires a `kind="inconsistent"`
+/ `NEEDS_HUMAN_CONFIRMATION` finding when the primary metric's tagged
+weighting disagrees with `portfolio.weighting` -- otherwise Step7's
+`build_track_vs_paper` silently compares our vw (or ew) backtest track
+against the paper's OTHER weighting column, producing a fake replication
+gap. Extractor prompt (`prompts/extractor/method_spec_extractor.md` §1.8)
+now instructs tagging `weighting` per metric and capturing BOTH EW/VW
+headline variants when the paper reports both, rather than discarding one;
+`prompts/review_gate/llm_review.md`'s cross-field-consistency section
+mentions the same check. Tests added to `tests/test_step2_reviewer.py`
+(mismatch flagged, match not flagged, unset never guessed).
+
+### step2: bump `MAX_REVIEW_ROUNDS` from 3 to 4 (2026-08-18)
+
+`src/steps/step2_reviewer/spec_build.py`'s bounded review loop now allows
+one extra validate+LLM-review round before giving up (max 4 full-paper-text
+LLM calls instead of 3). No other loop-exit logic changed.
+
 ### frontend: restyle Step8Output for visual clarity, no behavior/data change (2026-08-18)
 
 Pure UI polish on `frontend/src/components/steps/Step8Output.tsx` (no schema

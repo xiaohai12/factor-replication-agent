@@ -1,0 +1,4686 @@
+ 
+Accrual Reliability, Earnings Persistence and Stock Prices* 
+ 
+Scott A. Richardsona, Richard G. Sloanb,+, Mark T. Solimanc and Irem Tunaa 
+ 
+aThe Wharton School, University of Pennsylvania, Philadelphia, PA 19104 
+bUniversity of Michigan Business School, Ann Arbor, MI 48109 
+cGraduate School of Business, Stanford University, Stanford, CA  94305 
+ 
+First Version: July 2001 
+This version: January 2004 
+ 
+Abstract 
+This paper extends the work of Sloan (1996) by linking accrual reliability to earnings 
+persistence.  We construct a model showing that less reliable accruals lead to lower earnings 
+persistence.  We then develop a comprehensive balance sheet categorization of accruals and rate 
+each category according to the reliability of the underlying accruals.  Empirical tests generally 
+confirm that less reliable categories of accruals lead to lower earnings persistence and that 
+investors do not fully anticipate the lower earnings persistence, leading to significant security 
+mispricing.  We conclude that there are significant costs associated with the recognition of 
+unreliable information in financial statements. 
+ 
+Keywords: Accruals; Reliability; Earnings persistence, Capital markets; Market efficiency. 
+JEL classification: M4 
+ 
+ 
++Corresponding Author
+                                                          
+*We would like to thank Mary Barth, Bill Beaver, Patricia Dechow, Paul Healy, Ron Kahn, S.P. Kothari, Katherine 
+Schipper, Stephen Taylor, Ross Watts (the editor), the referee and workshop participants at the AAANZ 2002 
+Annual Meetings, Barclays Global Investors, Chicago Quantitative Alliance 2003 Conference, University of 
+Colorado, University of Illinois, Institute for Quantitative Research in Finance 2003 Conference, Massachusetts 
+Institute of Technology, Prudential Securities 2002 Quantitative Conference, Stanford University, University of 
+Technology Sydney and University of Utah for their comments and suggestions.  Earlier versions of this paper were 
+titled “Information in Accruals about the Quality of Earnings”. 
+
+ 
+1
+1. 
+Introduction 
+This paper investigates the relation between accrual reliability and earnings 
+persistence.  The paper builds on the work of Sloan (1996), who shows that the accrual 
+component of earnings is less persistent than the cash flow component of earnings and 
+attributes this difference to the greater subjectivity of accruals.  We draw a natural link 
+between Sloan’s notion of subjectivity and the well-known accounting concept of 
+reliability.  We formally model the implications of reliability for earnings persistence, 
+with our model predicting that less reliable accruals result in lower earnings persistence.  
+Our empirical tests employ a comprehensive categorization of accounting accruals in 
+which each accrual category is rated according to its reliability.  Consistent with the 
+predictions of our model, the empirical tests generally confirm that less reliable accruals 
+lead to lower earnings persistence. 
+Our paper makes three significant contributions to the existing literature.  First, 
+we directly link reliability to empirically observable properties of accounting numbers.  
+Reliability, along with relevance, is considered to be one of the two primary qualities that 
+make accounting information useful for decision-making.1  While a large body of 
+research examines the value relevance of accounting numbers, there is relatively little 
+research on reliability.  One consequence of the emphasis on relevance has been calls for 
+the recognition of more relevant and less reliable information in accounting numbers 
+(e.g., Lev and Sougiannis, 1996).  However, as recently articulated by Watts (2003), 
+allowing less verifiable and hence less reliable estimates into accounting numbers can 
+                                                          
+1 For example, see Figure 1 in Statement of Financial Accounting Concepts 2, “Qualitative Characteristics 
+of Accounting Information” (Financial Accounting Standards Board, 2002). 
+
+ 
+2
+seriously compromise their usefulness.  Our research highlights the crucial trade-off 
+between relevance and reliability.  The recognition of less reliable information in 
+accounting numbers introduces measurement error that reduces earnings’ persistence.  
+Moreover, our stock price tests indicate that investors do not fully anticipate the lower 
+persistence of less reliable earnings, leading to significant security mispricing. 
+A second major contribution of our work is to provide a comprehensive definition 
+and categorization of accruals.  Following Healy (1985), a large body of research has 
+employed a narrow definition of accruals that focuses on current operating accruals.  
+Long-term operating accruals, such as capitalized software development costs and 
+capitalized expenditures on plant and equipment, are ignored under Healy’s definition.  
+Ignoring such accruals results in noisy measures of both accruals and cash flows (because 
+cash flows are typically computed as the difference between earnings and accruals).  Our 
+evidence indicates that many of the accruals that are omitted from Healy’s definition are 
+of low reliability, suggesting that accruals-based research should incorporate these 
+omitted accruals. 
+Along similar lines, our analysis also provides a reinterpretation of the results in 
+Fairfield, Whisenant and Yohn (2003a).  Fairfield et al. show that Sloan’s (1996) accrual 
+results extend to growth in long-term net operating assets.  Based on this evidence, they 
+conclude that Sloan’s findings are not unique to accruals, but are a special case of a more 
+general growth anomaly.  In contrast, we point out that long-term operating assets and 
+liabilities are also accounting accruals and we show that the effect of these accruals on 
+earnings persistence is related to their reliability.  As such, the results documented by 
+
+ 
+3
+Fairfield et al. can be interpreted as a natural extension of Sloan’s accrual anomaly rather 
+than a more general growth anomaly.2 
+The third major contribution of our work is to corroborate and extend Sloan’s 
+findings regarding the mispricing of the accrual component of earnings.  Sloan shows that 
+investors act as if they do not anticipate the lower persistence of the accrual component 
+of earnings, resulting in significant security mispricing.  We corroborate and extend 
+Sloan’s results in two ways.  First, we develop a more comprehensive definition of 
+accruals than Sloan and show that it is associated with even greater mispricing.  Second, 
+we show that both the persistence of earnings and the extent of the associated mispricing 
+are directly related to the reliability of the underlying accruals. 
+The remainder of the paper is organized as follows.  The next section develops 
+our research design.  Section 3 describes our data, section 4 presents our results and 
+section 5 concludes. 
+ 
+2. 
+Research Design 
+Our research design builds on Sloan (1996), who argues that the key difference 
+between the accrual and cash flow components of earnings is that the accrual component 
+involves a greater degree of subjectivity.  The accrual component of earnings typically 
+incorporates estimates of future cash flows, deferrals of past cash flows, allocations and 
+valuations, all of which involve higher subjectivity than simply measuring periodic cash 
+                                                          
+2 Fairfield et al. argue that their more general growth anomaly is likely attributable to conservative 
+accounting or diminishing returns to scale rather than features of accruals, such as their susceptibility to 
+manipulation.  In related research (Richardson et al., 2004), we show that Fairfield et al.’s results cannot be 
+explained by conservative accounting or diminishing returns to scale, but present evidence that they are 
+consistent with accrual manipulation. 
+
+ 
+4
+flows.  This leads Sloan to reason that when the accrual component of earnings is 
+unusually high or low, earnings will be less persistent. 
+We begin in section 2.1 by formalizing Sloan’s intuition and linking it to the 
+accounting construct of reliability.  Section 2.2 reconsiders the standard definition of 
+accruals and proposes a new and more comprehensive definition.  Finally, section 2.3 
+provides our categorization of accruals and our assessment of the relative reliability of 
+each accrual category. 
+ 
+2.1 
+A Model of Accrual Reliability and Earnings Persistence 
+Sloan argues that the key factor driving the different properties of the accrual and 
+cash flow components of earnings is the greater subjectivity involved in the estimation of 
+accruals.  Accountants more typically refer to the degree of subjectivity involved in an 
+accounting measurement in terms of the verifiability of that measurement.  For example, 
+the Financial Accounting Standard Board’s (FASB) Statements of Financial Accounting 
+Concepts (SFAC) defines verifiability as: 
+ 
+“The ability through consensus among measurers to ensure that information 
+represents what it purports to represent or that the chosen method of measurement 
+has been used without error or bias.” [SFAC 2, Glossary of Terms] 
+ 
+Verifiability, along with representational faithfulness, provides the basis for the key 
+accounting quality of reliability, defined by the FASB as: 
+ 
+“The quality of information that assures that information is reasonably free from 
+error and bias and faithfully represents what it purports to represent.” [SFAC 2, 
+Glossary of Terms] 
+
+ 
+5
+Accrual accounting can provide more relevant information to investors.  
+However, it can also introduce error and bias, resulting in less reliable information.  
+Maximizing the usefulness of accrual accounting information therefore involves a trade-
+off between relevance and reliability (see SFAC 2, paragraph 42).  A large body of 
+accounting literature has evaluated accounting information on the basis of the relevance 
+criterion (see Holthausen and Watts, 2001).  However, relatively little attention has been 
+given to evaluating accounting information on the basis of the reliability criterion.  Given 
+the one-sided nature of research in this area, it is perhaps not surprising that some 
+researchers and regulators have called for more value-relevant and less verifiable 
+estimates to be incorporated into accounting numbers (see Watts, 2003 for examples).  
+However, as articulated by Watts (2003), researchers and regulators who propose the 
+recognition of unverifiable estimates in financial reports should consider the costs 
+generated by their proposals.  We examine one such cost.  Following Sloan (1996), we 
+examine the implications of accrual reliability for the persistence of earnings. 
+We model the impact of accrual reliability on the persistence of earnings using 
+standard errors-in-variables analysis.  The primary role of earnings is to measure the 
+periodic financial performance of an enterprise (see SFAC 1, paragraph 43).  We denote 
+the underlying periodic performance of the enterprise as E*.  It is well established that 
+competitive forces result in the dissipation of economic rents, and that this is expected to 
+result in the mean reversion of financial performance (e.g., Palepu, Healy and Bernard, 
+2000).  Thus, even in the absence of reliability issues, we expect financial performance 
+
+ 
+6
+(deflated by an appropriate measure of invested capital) to follow a mean reverting 
+process:3 
+ 
+E*
+t+1 = γ E*
+t  + εt+1 
+(1) 
+where 0<γ<1 and greater competition implies lower values of γ. 
+We can make the definition of underlying ‘economic’ earnings, E*, more concrete 
+by considering the special case in which the cash consequences of a business’s 
+transactions and events all occur during a single performance measurement interval.  
+Such a situation would arise when the operating and investing cycles of the business are 
+very short.  In this case, the net cash receipts of the business provide a completely reliable 
+representation of periodic performance.  Denoting the net cash receipts as C, this special 
+case therefore results in: 
+ 
+E* = C 
+(2) 
+Next, we introduce the more realistic situation in which the actual cash receipts 
+and disbursements occur in different periods from the underlying transactions and events 
+that generate them.  In this case E* does not necessarily equal C and accounting accruals 
+are introduced in order to provide a better measure of periodic performance than periodic 
+net cash receipts.  Accrual accounting involves the accrual and deferral of past, current 
+and anticipated future cash receipts and disbursements.  However, earnings measured 
+using accrual accounting are not expected to perfectly coincide with E* for two reasons.  
+First, accruals and deferrals relating to future economic benefits that cannot be measured 
+with sufficient reliability are disallowed under GAAP (e.g., immediate expensing of 
+                                                          
+3 For expositional ease, our model reverts E* toward a mean of zero.  The analysis is easily adapted to non-
+zero mean by redefining E* as the deviation from the long-run mean performance.  Our empirical analysis 
+allows for a non-zero mean through the inclusion of an intercept in the regression. 
+
+ 
+7
+R&D costs).  This results in an omitted variable problem that is not explored in this 
+paper.4  Second, many accruals required by GAAP measure the future economic benefits 
+of current period events and transactions with error. It is the latter scenario that serves as 
+the focus of this paper. 
+As an example of this second situation, consider the recognition of sales revenue.  
+If cash sales are made for $100 (with no returns allowed and no after sales service), then 
+it is straightforward to book $100 of revenue in current period earnings.  But if the sales 
+are credit sales for $110, of which $100 ultimately ends up being collected as cash in the 
+next period, uncertainty exists about the amount to record in current period earnings.  An 
+aggressive manager could book sales of $110, representing an error of +10 in current 
+period accruals and earnings.  Conversely, a conservative manager could book sales of 
+$90, representing an error of –10 in current period accruals and earnings.  This results in 
+an errors-in-variables problem in accruals, because observed accruals are noisy measures 
+of the future benefits or obligations that they represent.  Note that while we characterize 
+the errors as resulting from aggressive and conservative accounting respectively, we do 
+not mean to imply that all errors result from intentional earnings management.  They 
+could also result from the neutral application of GAAP (e.g., a one-off gain from a LIFO 
+                                                          
+4 The omission of a relevant variable results in biased coefficient estimates on the included variables when 
+the omitted variable is correlated with the included variables.  However, we have no reason to believe that 
+any omitted accruals would differentially bias the cash flow and included accrual components of earnings.  
+Penman and Zhang (2002) provide evidence of predictable changes in earnings and stock returns associated 
+with omitted accruals for research and development and advertising expenditures.  In order to verify the 
+robustness of our results with respect to these omitted accruals, we reconstructed the omitted accruals 
+following Penman and Zhang’s procedures (the ‘C’ score) and included them in our earnings and stock 
+return regressions.  Their inclusion had no significant impact on our results. 
+
+ 
+8
+inventory liquidation) and unintentional errors (e.g., overestimating the creditworthiness 
+of a new customer, or overestimating the value of work-in-process inventory).5 
+To develop the errors in variables representation of this problem, we first define 
+A* as the unobservable ‘perfect foresight’ accrual that would result in an earnings 
+performance measure equal to E*. 
+ 
+A* = E* - C 
+(3) 
+Referring back to the example above, A* represents the $100 amount that is ultimately 
+collected on the credit sales.  We next define observed accruals as the sum of A* and an 
+error term, e, that is assumed to be uncorrelated with C and A*:6 
+ 
+A = A* + e 
+(4) 
+In the example above, e would be +10 for the aggressive manager and –10 for the 
+conservative manager.  The ‘true’ earnings persistence relation can be written in terms of 
+unobservable ‘perfect foresight’ earnings, observable cash flows and the unobservable 
+‘perfect-foresight’ accruals as:7 
+                                                          
+5 Following Watts (2003), the application of conservative accounting should lead to larger errors for 
+accruals resulting in losses, because conservatism imposes a lower verifiability threshold for the 
+recognition losses versus profits.  On the other hand, opportunistic managers with limited tenures and 
+limited liability have incentives to introduce errors that result in profits.  We do not attempt to discriminate 
+between the relative importances of these different sources of errors in this paper. 
+6 The assumption that e is uncorrelated with C and A* is required to make the analysis tractable.  While this 
+assumption represents a logical starting point, one can think of arguments as to why e may be correlated 
+with C and A*.  For example, the argument that managers try to smooth earnings would suggest a negative 
+correlation between e and both C and A*.  On the other hand, the argument that managers take big baths 
+during periods of poor performance would suggest a positive correlation between e and both C and A*.  
+Given the ambiguity concerning the potential sign of the correlation and the intractability of trying to 
+incorporate it into our analysis, we generate predictions under the simple assumption of no correlation and 
+investigate how well the resulting predictions describe the data. 
+7 Our model focuses exclusively on the impact of errors in accruals on the relative persistence of the cash 
+flow and accrual components of earnings.  We therefore assume that if accruals could be measured without 
+error, the persistence coefficients on the cash flow and accrual components of earnings would be identical.  
+However, it is likely that the persistence coefficients on the cash flow and accrual components of earnings 
+will differ for other reasons.  Indeed, in editorial correspondence Ross Watts indicates that both he and S.P. 
+Kothari independently came to that conclusion by extending the algebraic model developed in Dechow, 
+Kothari and Watts (1998).  Thus, we caution that our research invokes the standard ceteris paribus 
+
+ 
+9
+ 
+E*
+t+1 = γ C 
+t + γ A*
+t + εt+1 
+(5) 
+If we replace E* and A* with their observable counterparts, E and A, we have the classic 
+errors-in-variables model for two explanatory variables where one is measured with 
+error: 
+ 
+Et+1 = γ Ct + γ At + ωt+1 
+(6) 
+where ωt+1 = εt+1 + et+1 - γ et. 
+Because ωt+1 is correlated with At through the mutual inclusion of et, the estimated 
+coefficients on C (γC) and A (γA) will provide biased estimates of γ.8  Griliches and 
+Ringstad (1971) show that the biases are given by:9 
+ 
+ 
+A
+C,
+2
+A
+1
+var(A)
+var(e)
+-
+ 
+ 
+γ)
+(γ
+ρ
+γ
+−
+=
+−
+ 
+(7) 
+ 
+ 
+γ)
+(γ
+- 
+ 
+γ)
+(γ
+A
+C,
+C
+−
+=
+−
+A
+ρ
+ 
+(8) 
+where var(e) and var(A) denote the variance of e and A respectively and ρC,A denotes the 
+correlation between C and A.  Equation (7) indicates that γA is biased downward towards 
+zero, with the bias increasing in var(e)/var(A), the proportion of the total variation in 
+observed accruals (A) that is attributable to measurement error (e). 
+                                                                                                                                                                             
+assumption and focuses only on developing and testing predictions relating to the impact of accrual 
+reliability on earnings persistence. 
+8 An additional source of bias is introduced if errors in accruals reverse in the next period.  These reversals 
+induce a negative correlation between et and et+1, which will exaggerate the biases described below, but do 
+not affect their directions or relative magnitudes. 
+9 This derivation is based on the assumption that the cash flow component of earnings is measured without 
+error.  If both cash flows and accruals are measured with error, the biases in the coefficients will depend on 
+the variance-covariance matrix of the errors (see Klepper and Leamer, 1984).  We conducted simulations 
+confirming that if one variable is measured with significantly greater error than the other, the downward 
+bias continues to be much greater in the estimated coefficient on the variable with the greater error (our 
+main simulations use an error variance ratio of 5 to 1).  Thus, as a practical matter, the predictions of our 
+model simply require that accruals are measured with significantly greater error than cash flows. 
+
+ 
+10
+In terms of our earlier example, var(e)/var(A) is increasing in the range of 
+plausible values that the error can take.  More unreliable accruals lead to greater potential 
+errors, resulting in an increase in var(e).  We can modify our original example to make 
+the accruals more unreliable by assuming that we make credit sales of $110 of which $90 
+ultimately ends up being collected as cash in the next period.  Further assume that an 
+aggressive manager could book sales of $110, representing an error of +20 in current 
+period accruals and earnings, while a conservative manager could book sales of $70, 
+representing an error of –20 in current period accruals and earnings.  As the range of 
+possible errors increases, var(e)/var(A) will increase.  The point is that the more 
+uncertainty there is about the amount of cash that will ultimately be collected, the greater 
+the range of possible accruals that can be plausibly booked.  Var(e)/Var(A) therefore 
+provides a natural measure of the reliability of accruals, with a higher value representing 
+lower reliability. 
+Equation (7) indicates that the bias in γA is also increasing in the strength of the 
+correlation between cash flows and accruals.  We know from previous research (see 
+Dechow, 1994) that this correlation is around –0.6 for annual data, exaggerating the 
+downward bias by over 50%.  The bias in γC is a function of the correlation between 
+observed accruals and cash flows and the bias in γA.  Using the historical average annual 
+correlation between accruals and cash flows of around –0.6, γC will also have a 
+downward bias, but it will only be 60% as large as the downward bias in γA. 
+The above analysis generates two testable predictions for our empirical research: 
+
+ 
+11
+1. 
+Ceteris paribus, the magnitude of the downward bias in the persistence 
+coefficients will always be greater for the accrual component of earnings than for 
+the cash flow component of earnings (i.e., γA - γC < 0). 
+2. 
+Ceteris paribus, the downward bias in the persistence coefficients on the accrual 
+components of earnings relative to the cash flow component of earnings, (γA - γC), 
+is increasing in the proportion of the variation in accruals that is attributable to 
+measurement error.  This leads to the prediction that (γA - γC) will be more 
+negative for less reliable accruals. 
+ 
+2.2 
+Definition of Accruals 
+Sloan (1996) follows the convention in academic research of defining accruals as 
+the change in non-cash working capital less depreciation expense.  This convention can 
+be traced back at least as far as Healy (1985) and corresponds closely with the definition 
+of operating accruals used in the FASB’s Statement of Financial Accounting Standard 
+Number 95 “Statement of Cash Flows”.  However, this definition of accruals omits many 
+accruals and deferrals relating to non-current operating assets, non-current operating 
+liabilities, non-cash financial assets and financial liabilities. 
+To formally derive a comprehensive measure of accruals, we begin by noting that 
+in the absence of accrual accounting, the only asset or liability account appearing on the 
+balance sheet would be the cash asset account.  All other asset and liability accounts are 
+products of the accrual accounting process.  Net assets would therefore equal cash, and 
+through the balance sheet identity, owners’ equity would also equal cash: 
+Cash Basis Net Assets = Cash = Cash Basis Owners Equity 
+
+ 
+12
+Earnings under the cash basis of accounting, ‘cash earnings’, can then be derived through 
+the clean surplus relation as: 
+Cash Earningst = Change in Cash Basis Owners’ Equityt + Net Cash Distributions to Equityt 
+ 
+ = Change in Casht + Net Cash Distributions to Equityt 
+Net cash distributions to equity holders represents all cash payments from the firm to 
+equity holders (i.e., cash dividends plus stock repurchases less equity issuances).  This 
+expression tells us that cash earnings represent the net cash receipts of the firm, exclusive 
+of the effect of any cash distributions (receipts) to (from) equity holders. 
+Conventional accrual-based earnings can be defined through the usual definition 
+of net assets: 
+Accrual Earningst = Change in Owners’ Equityt + Net Cash Distributions to Equityt 
+ 
+= Change in Net Assetst + Net Cash Distributions to Equityt 
+= Change in Assetst – Change in Liabilitiest + Net Cash Distributions to Equityt 
+Accruals represent the difference between accrual earnings and cash earnings: 
+Accrualst = Accrual Earningst – Cash Earningst 
+ 
+= Change in Non-Cash Assetst – Change in Liabilitiest 
+Without accrual accounting, the only asset or liability is cash, and so accruals represent 
+the change in all non-cash assets less the change in all liabilities. 
+This comprehensive definition of accruals differs from the definition of accruals 
+used by Healy (1985), Sloan (1996) and others in several key respects.  First, this 
+definition incorporates accruals relating to non-current operating assets, such as capital 
+expenditures.  Healy’s definition ignores the origination of non-current operating asset 
+accruals and only incorporates the reversal of a subset of non-current operating asset 
+
+ 
+13
+accruals through subtraction of depreciation expense.  Second, our definition of accruals 
+incorporates accruals relating to non-current operating liabilities, such as post-retirement 
+benefit obligations.  Third, our definition of accruals incorporates accruals relating to 
+financial assets, such as long-term receivables.  Finally, our definition of accruals 
+incorporates financing accruals related to financial liabilities, such as long-term debt.  
+While the nature and potential reliability of these accruals are all quite different, they are 
+nevertheless all manifestations of the accrual accounting process.  By starting with a 
+comprehensive definition of accruals and then evaluating the reliability of different 
+categories of accruals, we seek to provide a comprehensive analysis of the information 
+content of accruals. 
+ 
+2.3 
+Categorization of Accruals 
+The balance sheet provides a systematic classification of accounting accruals 
+based on the nature of the underlying benefits or obligations that they represent.  Some 
+balance sheet categories, such as marketable securities and short-term debt, can generally 
+be measured with high reliability.  Other balance sheet classifications, such as accounts 
+receivable and intangible assets, are generally measured with lower reliability.  In this 
+section, we decompose accruals along broad balance sheet categories and use our 
+knowledge of the measurement issues underlying each accrual category to make 
+qualitative assessments concerning the relative reliability of each category.  These 
+assessments provide the basis for predictions concerning the relative magnitudes of the 
+persistence coefficients on each of the accrual categories. 
+
+ 
+14
+Our complete balance sheet decomposition is illustrated in table 1 and a summary 
+of our reliability assessments is provided in table 2.  Our initial balance sheet 
+decomposition is based on the nature of the underlying business activity that is 
+represented. We use three broad categories of business activities - current operating 
+activities, non-current operating activities and financing activities. We refer to the 
+resulting accrual categories as the change in non-cash working capital (∆WC), the change 
+in net non-current operating assets (∆NCO) and the change in net financial assets (∆FIN): 
+ 
+Accruals = ∆WC + ∆NCO + ∆FIN 
+(9) 
+∆WC represents the change in current operating assets, net of cash and short-term 
+investments, less the change in current operating liabilities, net of short-term debt.  These 
+accruals form the core of the traditional measure of accruals used by Sloan (1996).  We 
+generally agree with Sloan’s original assessment that considerable subjectivity is 
+involved in the measurement of this accrual category.  There are, however, significant 
+differences between the underlying asset and liability components, so we conduct an 
+extended accrual decomposition that further decomposes ∆WC into its underlying asset 
+(∆COA) and liability (∆COL) components: 
+ 
+∆WC = ∆COA - ∆COL 
+(10) 
+The major underlying assets driving ∆COA are trade accounts receivable and 
+inventory (see Thomas and Zhang, 2002).  Both of these categories are measured with 
+relatively low reliability.  Accounts receivable involves the subjective estimation of 
+uncollectible accounts.  Moreover, accounts receivable is the most common accrual 
+category that is used to manipulate earnings, primarily through techniques such as trade-
+loading and premature revenue recognition (see Dechow, Sloan and Sweeney, 1996).  
+
+ 
+15
+The measurement of inventory allows for a number of different cost flow assumptions 
+and involves subjective cost allocations.  For example, LIFO liquidations can artificially 
+distort reported income, and the allocation of fixed costs to inventory can lead to 
+distortions when production levels are unusually high or low.  Inventory accounting also 
+calls for subjective write-down decisions based on the estimated market value of 
+inventory. 
+The major liability driving ∆COL is accounts payable.  In contrast to receivables 
+and inventory, payables can generally be measured with a high degree of reliability.  
+Accounts payable are financial obligations to suppliers that are recorded at their face 
+value.  If a firm is to continue as a going concern, then it will typically have to pay its 
+suppliers in full.  The only common source of subjectivity that arises for payables is in 
+estimating discounts for prompt payment that may be offered by suppliers.  But since the 
+amount of any discounts can typically be verified with the suppliers, there is relatively 
+little room for error. 
+Our second major category of accruals is non-current operating accruals, ∆NCO.  
+This category is measured as the change in non-current assets, net of long-term non-
+equity investments and advances, less the change in non-current liabilities, net of long-
+term debt.  It contains accruals that have generally been ignored in previous research.  
+Nevertheless, as we will argue below, this category contains subjective and unreliable 
+accruals.  As with the working capital accruals, we further decompose ∆NCO into its 
+underlying asset (∆ΝCOA) and liability (∆NCOL) components: 
+ 
+∆NCO = ∆ΝCOA - ∆ΝCOL 
+(11) 
+
+ 
+16
+The major underlying components of ∆ΝCOA are property, plant and equipment 
+(PP&E) and intangibles.  Considerable uncertainty is involved in the estimation of these 
+accruals.  First, there is considerable subjectivity involved in the initial decision of which 
+costs to capitalize for both PP&E and recognizable internally generated intangibles (such 
+as capitalized software development costs).  For example, the well-publicized accounting 
+scandal at WorldCom involved billions of dollars of operating costs that were 
+aggressively capitalized as PP&E.  Second, there is considerable subjectivity involved in 
+selecting an amortization schedule for both PP&E and intangibles.  The 
+depreciation/amortization method, the useful life and the salvage value are all subjective 
+decisions that impact this accrual category.  Third, both PP&E and intangibles are subject 
+to periodic write-downs when they are determined to have been impaired.  The estimation 
+of the amount of these impairments involves great subjectivity.  For example, AOL Time 
+Warner wrote off over $50 billion in a single quarter in relation to goodwill acquired in 
+the merger of AOL and Time Warner.  Because such write-downs are typically made in 
+large discrete amounts, they inevitably introduce periodic distortions into earnings. 
+∆ΝCOL, the liability component of ∆ΝCO, is driven by a wide variety of 
+different liabilities.  Examples include long-term payables, deferred taxes and 
+postretirement benefits.  Some of these liabilities, such as long-term payables, can be 
+measured with a high degree of reliability.  Others, such as postretirement benefits, 
+involve many subjective estimates and so are measured with a low degree of reliability.  
+The mix of different liabilities in this category makes it difficult to assign an 
+unambiguous reliability ranking.  We rate the reliability of this category as medium, 
+reflecting the range of different liabilities with varying degrees of reliability. 
+
+ 
+17
+Our third and final major category of accruals is the change in net financial assets, 
+∆FIN.  ∆FIN is measured as the change in short-term investments and long-term 
+investments less the change in short-term debt, long-term debt and preferred stock.  
+Financial accruals have also been ignored in past accruals research.  However, as we will 
+argue below, these accruals can generally be measured with a high degree of reliability, 
+and in this respect are similar to cash.  In fact, some of these accruals are actually referred 
+to as ‘cash equivalents’ to reflect their close correspondence with cash.  There are some 
+subtle differences between the various financial assets and liabilities, and to highlight 
+these differences, we further decompose ∆FIN into its underlying short-term investment 
+(∆STI), long-term investment (∆LTI) and financial liability (∆FINL) components: 
+ 
+∆FIN = ∆STI + ∆LTI - ∆FINL 
+(12) 
+Short-term investments and financial liabilities can both be measured with a high 
+degree of reliability.  Short-term investments are comprised of securities with readily 
+observable market values that are expected to be converted into cash within a year.  
+Financial liabilities include debt, capitalized lease obligations and preferred stock, most 
+of which are financial obligations that are valued at the present value of the future cash 
+obligations owed by the firm, with the discount rate fixed at the issue date.  Firms are not 
+permitted to book an allowance for the anticipated non-payment of their own financial 
+obligations, so there is relatively little subjectivity involved in the measurement of these 
+liabilities.  We therefore expect the reliability of accruals related to short-term 
+investments and financial liabilities to be relatively high.  Reliability is, however, more of 
+an issue for long-term investments.  The long-term investments category incorporates a 
+variety of financial assets including long-term receivables and long-term investments in 
+
+ 
+18
+marketable securities.  Long-term receivables have at least as much potential for 
+measurement error as short-term receivables and have been at the heart of some of the 
+most celebrated cases of earnings manipulation.10  On the other hand, most long-term 
+investments in liquid marketable securities can be measured with a high degree of 
+reliability.  To reflect the mix of low and high reliability accruals included in ∆LTI, we 
+assign it an overall reliability rating of medium.11 
+Table 2 lists reliability assessments for both the initial and the extended balance 
+sheet decompositions.  The reliability assessments for the initial decomposition represent 
+a synthesis of the reliability assessments for the accrual categories from the extended 
+decomposition.  ∆WC is assigned a reliability rating of medium, because it combines the 
+low reliability accruals in ∆COA with the high reliability accruals in ∆COL.  ∆NCO 
+receives a low/medium reliability rating, as it combines the low reliability accruals in 
+∆ΝCOA with the medium reliability accruals in ∆COL.  Finally, ∆FIN receives a high 
+reliability rating, because it represents the combination of two high reliability categories 
+with a medium reliability category.  Our assessment of the relative reliabilities of the 
+accrual categories is crude and subjective.  Nevertheless, we have identified some clear 
+differences in the relative reliabilities of the measurements in the different accrual 
+categories that generate testable empirical predictions.  We predict that accruals in the 
+high reliability categories will have persistence coefficients similar to cash flows, while 
+                                                          
+10 In a well-publicized accounting scandal, Boston Chicken reported steadily growing earnings by 
+overstating its long-term notes receivable in the years from 1994 to 1996. 
+11 Ideally, we would like to decompose long-term investments further to distinguish between items such as 
+long-term receivables and investments in marketable securities. Unfortunately, Compustat groups these 
+items together in annual data item #32 and does not provide a finer decomposition. 
+
+ 
+19
+accruals in the medium and low reliability categories will have progressively lower 
+persistence coefficients. 
+ 
+3. 
+Data 
+Our empirical tests employ data from two sources.  Financial statement data are 
+obtained from the Compustat annual database and stock return data are obtained from the 
+CRSP daily stock returns files.  Our sample period covers all firm-years with available 
+data on Compustat and CRSP for the period 1962-2001.  We exclude all firm-year 
+observations with SIC codes in the range 6000-6999 (financial companies) because the 
+demarcation between operating and financing activities is not clear in these firms.  We 
+eliminate firm-year observations with insufficient data on Compustat to compute the 
+primary financial statement variables used in our tests.12  These criteria yield a final 
+sample size with non-missing financial statement and returns data of 108,617 firm-year 
+observations. 
+ 
+As discussed in section 2.3, our measure of total accruals, TACC, is defined as 
+follows: TACC = ∆WC+ ∆NCO + ∆FIN where: 
+(i) 
+∆WC, the change in net working capital is defined as WCt - WCt-1.  WC is 
+calculated as Current Operating Assets (COA) - Current Operating Liabilities 
+(COL), and COA = Current Assets (Compustat Item #4) - Cash and Short 
+Term Investments (STI) (Compustat Item #1), and COL=Current Liabilities 
+(Compustat Item #5) - Debt in Current Liabilities (Compustat Item #34). 
+ 
+                                                          
+12 Specifically, we require availability of Compustat data items 1, 4, 5, 6, 12 and 181 in both the current and 
+previous year and data item 178 in the current year in order to keep a firm-year in the sample.  If data items 
+9, 32, 34, 130 or 193 are missing, we set them equal to zero rather than eliminating the observation.  Each 
+of the latter data items represent a balance sheet item that may not be relevant for many companies (e.g., 
+preferred stock), so we set them to zero rather than needlessly discarding observations.  All results are 
+qualitatively similar if we instead estimate each regression using only observations with all data available 
+for that particular regression. 
+
+ 
+20
+(ii) 
+∆NCO, the change in net non-current operating assets is defined as NCOt - 
+NCOt-1. NCO is calculated as Non-Current Operating Assets (NCOA) - Non-
+Current Operating Liabilities (NCOL), and NCOA = Total Assets (Compustat 
+item #6) - Current Assets (Compustat Item #4) - Investments and Advances 
+(Compustat Item #32), and NCOL = Total Liabilities (Compustat Item #181) - 
+Current Liabilities (Compustat Item #5) – Long-Term Debt (Compustat Item 
+#9). 
+ 
+(iii) 
+∆FIN, the change in net financial assets is defined as FINt - FINt-1 and FIN = 
+Financial Assets (FINA) - Financial Liabilities (FINL).  FINA = Short Term 
+Investments (STI) (Compustat Item #193) + Long Term Investments (LTI) 
+(Compustat Item #32), and FINL= Long Term Debt (Compustat Item #9) + 
+Debt in Current Liabilities (Compustat Item #34) + Preferred Stock 
+(Compustat Item #130). 
+ 
+As in previous research, we deflate each of these components of earnings by average total 
+assets.13  For our analysis of the persistence of the various components of earnings, we 
+use return on assets (ROA).  ROA is calculated as operating income after depreciation 
+(Compustat Item #178) deflated by average total assets.14  In our regression analyses, 
+each component of earnings is winsorized at +1 and –1 in order to eliminate the influence 
+of extreme outliers.15 
+ 
+Our extended balance sheet decomposition further decomposes each of the three 
+accrual components defined above into their respective asset and liability components.  
+∆WC is decomposed into its current operating asset (∆COA) and current operating 
+liability (∆COL) components, as defined above.  ∆NCO is decomposed into its 
+noncurrent operating asset (∆NCOA) and noncurrent operating liability (∆NCOL) 
+                                                          
+13 Barth and Kallapur (1996) show that deflation can introduce biases into regression coefficients when the 
+deflator measures the true underlying scale variable with error.  Such biases may be present in our analysis.  
+However, we have no reason to believe that any such biases would differentially affect the cash flow and 
+accrual components of earnings.  
+14 Following Sloan (1996), we use a measure of income from continuing operations in our analysis of 
+earnings persistence as it is unaffected by explicitly identified non-recurring components of net income.  
+This increases the overall power of our persistence regressions.  However, inferences regarding the relative 
+persistence of the different components of earnings are qualitatively similar if we instead use bottom line 
+net income. 
+
+ 
+21
+components, as defined above.  Finally, ∆FIN is decomposed into its respective short-
+term investment (∆STI), long-term investment (∆LTI) and liability (∆FINL) components, 
+as defined above.  The balance sheet items and their associated accrual categorizations 
+are summarized in table 1. 
+Our stock return tests use data from the CRSP daily files.  Stock returns are 
+measured using compounded buy-hold size-adjusted returns, inclusive of dividends and 
+other distributions.  The size-adjusted return is calculated by deducting the value-
+weighted average return for all firms in the same size-matched decile, where size is 
+measured as the market capitalization at the beginning of the return cumulation period.  
+Returns are calculated for a twelve-month period beginning four months after the end of 
+the fiscal year.16  For firms that are delisted during our future return window, we 
+calculate the remaining return by first applying CRSP’s delisting return and then 
+reinvesting any remaining proceeds in the CRSP value-weighted market index.17  This 
+mitigates concerns with potential survivorship biases. 
+A potential shortcoming of our accrual measurement procedures is that they use 
+balance sheet data.  Hribar and Collins (2002) point out that the use of balance sheet data 
+can introduce errors into the measurement of accruals, particularly in the presence of 
+mergers and acquisitions.  Indeed, the empirical distributions of our accrual variables 
+contained a small number of extreme outliers, and inspection of some these outliers 
+                                                                                                                                                                             
+15 Inferences regarding the relative persistence and pricing of the different components of earnings are 
+qualitatively similar without winsorization.  The winsorized results, however, have lower standard errors. 
+16 This is standard in the literature, as firms generally file Form 10-K’s within four months after the end of 
+the fiscal year (see Alford et al. 1994). 
+17 Firms that are delisted for poor performance (delisting codes 500 and 520-584) frequently have missing 
+delisting returns (see Shumway 1997).  We control for this potential bias by applying delisting returns of –
+100% in such cases.  Our results are qualitatively similar if we make no such adjustment. 
+
+ 
+22
+indicates that they are attributable to measurement issues associated with the use of the 
+balance sheet approach. 
+We conduct three procedures to confirm the robustness of our results with respect 
+to potential measurement issues introduced by the balance sheet approach.  First, we 
+delete (as opposed to winsorize) firm-year observations from our regression analysis 
+when any one of the regression variables exceeds one in absolute value.  We do this in an 
+effort to remove outliers that may be attributable to measurement issues.  Our results are 
+similar for this reduced sample.  Second, we confirm the robustness of our total accrual 
+results using a measure of total accruals derived from data in the statement of cash flows 
+rather than data from the balance sheet.  Note in this respect that cash flow data is only 
+available from 1988, and while we can compute total accruals using statement of cash 
+flow data, we cannot compute many of our underlying accrual components without using 
+balance sheet data.  This alternative measure of accruals is computed as the difference 
+between income before extraordinary items (Compustat item 123) less total operating, 
+investing and financing cash flows (items 308, 311 and 313) plus sales of common stock 
+(item 108) less stock repurchases and dividends (items 115 and 127).  Results using this 
+cash flow-based measure of total accruals are qualitatively similar to the results obtained 
+using our balance sheet measure of total accruals.  Third, we also conducted our analyses 
+after removing firms experiencing an increase in reported goodwill.  This procedure is 
+expected to eliminate some observations involving significant mergers and acquisitions.18  
+Our results are again qualitatively similar for this sample. 
+ 
+                                                          
+18 Not all observations with mergers and acquisitions will be eliminated.  Mergers and acquisitions 
+accounted for using the pooling of interest method or involving the creation of new goodwill that is less 
+than or equal to the amortization of goodwill for the period will not be eliminated. 
+
+ 
+23
+4. 
+Results 
+We present our results in four sections.  Section 4.1 begins with descriptive 
+statistics for our accrual decompositions.  Section 4.2 presents tests of our predictions 
+concerning the relative magnitudes of the persistence coefficients on the accrual 
+components of earnings.  Section 4.3 provides additional analysis of certain issues 
+uncovered in section 4.2.  Finally, section 4.4 presents our stock return tests, providing 
+evidence on the extent to which investors appear to understand the relative magnitudes of 
+the persistence coefficients. 
+ 
+4.1 
+Descriptive Statistics 
+We begin by presenting univariate statistics and pair-wise correlations for our key 
+variables.  We organize these descriptive statistics around the accrual decompositions that 
+we use to motivate our empirical analysis.  Panel A of table 3 contains univariate 
+statistics for the initial accrual decomposition.  The mean value of TACC is 0.052, 
+indicating the average firm’s accruals are just over 5% of total assets.  Note that the 
+positive mean value for accruals documented here differs from the negative mean value 
+for accruals documented by Sloan (1996).  The key reason for this difference is that 
+Sloan’s definition of accruals includes the reversal of certain non-current operating asset 
+accruals (through the subtraction of depreciation and amortization expense), but does not 
+include the origination of these accruals.  Inspection of the working capital (∆WC), net 
+non-current operating asset (∆NCO) and financing (∆FIN) accruals indicates that ∆WC 
+and ∆NCO both have positive means, while ∆FIN has a negative mean.  These means 
+indicate that the average firm is growing its net operating assets and reducing its net 
+
+ 
+24
+financial assets (e.g., increasing debt) to finance this growth.  Focusing on the standard 
+deviations of the accrual components, we see that ∆WC has the lowest standard deviation 
+(0.108), followed by ∆NCO (0.151) and ∆FIN (0.181).  These standard deviations 
+suggest that ∆NCO and ∆FIN, the new accrual components examined in this paper, 
+account for a relatively large proportion of the variation in total accruals. 
+Panel B of table 3 reports the pair-wise correlations for the initial accrual 
+decomposition.  The correlations between the accrual components reveal important 
+regularities.  ∆WC and ∆NCO are positively correlated, indicating that firms tend to grow 
+their current and non-current operating activities in tandem.  In contrast, both ∆WC and 
+∆NCO are very strongly negatively correlated with ∆FIN.  The negative correlations 
+indicate that firms tend to finance growth in their net operating assets by using up 
+financial assets and/or generating financial liabilities.  What is clear from these 
+descriptive statistics is that the financing accruals (∆FIN) behave very differently from 
+the operating accruals (∆WC and ∆NCO). 
+Table 4 provides descriptive statistics for the extended accrual decomposition.  
+Recall that the major extension in this decomposition involves separating the accrual 
+components into their asset and liability subcomponents.  The standard deviations in 
+panel A indicate that most of the variation in ∆WC is attributable to ∆COA, most of the 
+variation in ∆NCO is attributable to ∆NCOA and most of the variation in ∆FIN is 
+attributable to ∆FINL.  Thus, variation in operating accruals tends to be dominated by the 
+assets, while variation in financing accruals tends to be dominated by the liabilities. 
+The correlations in panel B of table 4 shed more light on the relation between 
+operating assets and financing liabilities.  In interpreting these accruals, it is important to 
+
+ 
+25
+remember that the liability component of accruals is subtracted from the asset component 
+of accruals to arrive at net accruals.  Thus, a positive correlation between an asset and a 
+liability category indicates that they tend to have offsetting effects on total accruals.  Both 
+∆COA and ∆NCOA are strongly positively correlated with ∆FINL, indicating that 
+financing liabilities provide an important source of funding for growth in operating 
+assets.  ∆COA and ∆NCOA are also strongly positively correlated with ∆COL and 
+∆ΝCOL, indicating that operating liabilities provide an additional source of funding for 
+growth in operating assets.  Another noteworthy set of correlations is that both ∆COL and 
+∆NCOL are positively correlated with TACC.  The direct effect of increases in ∆COL 
+and ∆NCOL is to reduce TACC, so one might have expected a negative correlation 
+between these two liability components and TACC.  There is, however, a straightforward 
+explanation for the observed positive correlations.  As mentioned above, the asset and 
+liability components of operating accruals are strongly positively correlated.  For 
+example, the Pearson (Spearman) correlation between ∆COA and ∆COL is 0.583 (0.560).  
+Firms that are growing their operations tend to increase both their operating assets and 
+their operating liabilities.  However, firms typically require positive working capital, so 
+the increase in operating assets tends to be larger than the increase in operating liabilities.  
+Firm growth therefore results in an indirect positive relation between ∆COL and TACC.  
+We will see in the next section that the strong correlations between the operating asset 
+and operating liability components of accruals complicate the interpretation of our 
+multivariate regression results. 
+
+ 
+26
+4.2 
+Earnings Persistence Results 
+Table 5 presents our analysis of the persistence of the cash flow and accrual 
+components of earnings.  Section 2.1 generates two key predictions concerning these 
+persistence coefficients.  First, the accrual component of earnings is expected to be less 
+persistent than the cash flow component of earnings.  The cash component of earnings 
+performance is simply the difference between earnings performance itself and the accrual 
+component of earnings performance.  Accordingly, our first prediction can be tested 
+through the following regression: 
+ 
+ROAt+1 = γ0 + γ1(ROAt - TACCt) + γ2TACCt + υt+1 
+(13) 
+where γ1 measures the persistence of cash flows and γ2 measures the persistence of 
+accruals, and our first prediction is (γ2-γ1)<0.  In order to focus on the relative persistence 
+of accruals, we estimate a slightly modified version of (13) in which the cash flow 
+component of earnings performance is replaced by earnings performance itself: 
+ 
+ROAt+1 = ρ0 + ρ1ROAt + ρ2TACCt + υt+1 
+(14) 
+Note that this regression equation can be rewritten in terms of the persistence parameters 
+in equation (13) as: 
+ 
+ROAt+1 = γ0 + γ1(ROAt) + (γ2 - γ1)TACCt + υt+1 
+(15) 
+So ρ1=γ1 and ρ2=(γ2-γ1).  The advantage of estimating this modified version is that ρ2 
+provides a direct estimate of (γ2-γ1), so our first prediction is simply that ρ2<0. 
+Our second prediction is that (γ2-γ1) will be more negative for less reliable 
+accruals.  Recall that table 2 summarizes our assessments of the reliability of the various 
+accrual categories.  In order to test our second prediction, we must examine each of the 
+accrual categories individually.  We do this through a combination of univariate and 
+
+ 
+27
+multivariate regression analyses.  Our univariate regression analysis follows from 
+equation (14).  For example, to examine the persistence of the working capital component 
+of accruals, we estimate the following regression: 
+ 
+ROAt+1 = ρ0 + ρ1ROAt + ρ2∆WCt + υt+1 
+(16) 
+The analog to equations (13) and (15) are now: 
+ 
+ROAt+1 = γ0 + γ1(ROAt - ∆WCt) + γ2∆WCt + υt+1 
+(17) 
+ 
+ROAt+1 = γ0 + γ1(ROAt) + (γ2 - γ1) ∆WCt + υt+1 
+(18) 
+So ρ1 measures the persistence of earnings exclusive of the working capital component of 
+accruals, and ρ2 measures the difference between the persistence of the working capital 
+component of accruals and the persistence of earnings exclusive of the working capital 
+component of accruals.  Note that the interpretation of the coefficients is subtly different 
+than in equation (13), because ρ1 no longer represents the persistence of cash flows, but 
+instead represents the persistence of earnings exclusive of the particular accrual 
+component that is included in the regression (∆WC in this case).  Since this accrual 
+component is a subset of total accruals, ρ1 now represents the combined persistence of 
+cash flows and all of the other accrual components.  Our second prediction is that ρ2 is 
+predicted to be more negative for less reliable accruals.  It is also possible that ρ2 may be 
+positive for more reliable accruals, the reason being that ρ1 represents the combined 
+persistence of cash flows and the other (potentially less reliable) accruals.19  The presence 
+of the less reliable accruals may drive γ1<γ2, in which case ρ2>0.  Nevertheless, ρ2 is 
+always predicted to be lower for less reliable accruals. 
+                                                          
+19 Recall from footnote 9 that when both components of earnings are measured with error, the downward 
+bias in the estimated coefficients tends to be greatest for the variable that is measured with the most error. 
+ 
+
+ 
+28
+The univariate regressions have some shortcomings.  First, they do not allow for 
+formal statistical tests of differences in the ρ2 estimates across accrual components.  
+Second, as described above, they do not allow us to directly benchmark the persistence of 
+the accrual components relative to cash flows.  To address these shortcomings, we also 
+estimate a multivariate version of equation (16) that simultaneously includes all 
+components of accruals: 
+ 
+ROAt+1 = ρ0 + ρ1ROAt + ρ2∆WCt + ρ3∆NCOt + ρ4∆FINt + υt+1 
+(19) 
+The analog to equations (17) and (18) are now: 
+ 
+ROAt+1 = γ0+γ1(ROAt-∆WCt-∆NCOt-∆FINt)+γ2∆WCt+γ3∆NCOt+γ4∆FINt+υt+1 (20) 
+ 
+ROAt+1 = γ0 + γ1(ROAt) + (γ2-γ1)∆WCt + (γ3-γ1)∆NCO t + (γ4-γ1)∆FIN t + υt+1 (21) 
+So ρ1 now measures the persistence of the cash flow component of earnings, while ρ2, ρ3 
+and ρ4 each measure the persistence of their respective accrual component relative to the 
+cash flow component.  F-tests allow for formal statistical tests of the equality of the 
+coefficients across the accrual components.  The key shortcoming of this multivariate 
+regression is that the errors-in-variables model developed in section 2.1 only applies to 
+the case of two variables.  We have now decomposed accruals into multiple variables, all 
+of which are potentially measured with error.  In the case of multiple variables measured 
+with error, the magnitude of the resulting biases will also depend on the correlations 
+between these variables (see Klepper and Leamer, 1984).  Recall from panel B of table 4 
+that several of the accrual components are highly correlated.  Thus, care must be taken in 
+interpreting the coefficients of these variables in the multivariate specification. 
+We conduct all of our regression analyses following the Fama and MacBeth 
+(1973) procedure of estimating annual cross-sectional regressions and reporting the time-
+
+ 
+29
+series averages of the resulting regression coefficients.  Panel A of table 5 reports 
+regression results for TACC, the total accrual component of earnings.  The first 
+regression model is a simple earnings autoregression and provides a benchmark for the 
+subsequent regressions.  Consistent with Sloan (1996), earnings is slowly mean reverting 
+with a persistence coefficient of about 0.77.  The second regression estimates the model 
+in equation (14).  Consistent with our first prediction, ρ2 is negative (-0.082) and 
+statistically significant (t=-16.13), indicating that the accrual component of earnings is 
+less persistent than the cash flow component of earnings.  This result corroborates 
+Sloan’s original result using our comprehensive definition of accruals.20 
+Panel B of table 5 reports results of estimating equation (16) for each of the 
+components of our initial accrual decomposition.  Recall from table 2 that ∆WC and 
+∆NCO are assessed to have medium or low reliability and so are predicted to have 
+relatively low persistence coefficients, while ∆FIN is assessed to have high reliability and 
+hence a relatively high persistence coefficient.  The coefficients in each of the univariate 
+regressions are consistent with these predictions.  The coefficient on ∆WC is negative 
+and highly statistically significant (-0.116 with a t-statistic of –15.05), the coefficient on 
+∆NCO is also negative and statistically significant (-0.047 with a t-statistic of –12.39) 
+and the coefficient on ∆FIN is close to zero (0.015 with a t-statistic of 2.86). 
+                                                          
+20 Fairfield Whisenant and Yohn (2003b) show that the lower persistence of accruals relative to cash flows 
+is primarily attributable to growth in the investment base that is not matched by growth in income.  In other 
+words, firms with high operating accruals are firms that are growing their operating investments, but earn a 
+lower average return on their increased operating investments, leading to lower persistence in earnings 
+performance.  To investigate the importance of this issue for our results, we replicated all of the results in 
+table 5 using the Fairfield, Whisenant and Yohn approach of measuring our dependent variable as next 
+year’s income deflated by last year’s average total assets.  Our results are surprisingly robust with respect 
+to this procedure.  For example, our total accruals variable continues to have a significantly negative 
+coefficient and the operating asset accruals variables continue to have the most negative coefficients. 
+
+ 
+30
+The final row of panel B of table 5 reports results for the multivariate 
+specification in equation (19).  Consistent with our predictions, the multivariate 
+regression analysis basically maintains the same relative ranking of accrual persistence 
+coefficients as the univariate regressions.  Untabulated F-tests confirm that the 
+coefficients on ∆WC and ∆NCO are significantly different from the coefficient on ∆FIN.  
+The multivariate regressions, however, differ from the univariate regressions in a couple 
+of significant respects.  First, the coefficients on all of the accrual components are 
+somewhat lower than in the univariate specifications.  Second, the coefficient on ∆FIN is 
+negative and statistically significant.  As described earlier, there is a natural explanation 
+for these differences.  In the univariate regressions, the omitted accrual components are 
+implicitly grouped with cash flows and the lower persistence of these accrual components 
+causes ρ1 to be lower.  The multivariate specification allows ρ1 to represent the 
+coefficient on the pure cash flow component of earnings, causing ρ1 to increase and the 
+coefficients on each of the less reliable accrual components to correspondingly decrease. 
+Panel C of table 5 presents results for the extended accrual decomposition.  Recall 
+from table 2 that the asset components of the operating accruals are assessed to be the 
+least reliable, so we predict that the coefficients on the operating asset components of 
+accruals will be the most negative.  The results from the univariate regressions confirm 
+these predictions.  The persistence coefficients on ∆COA and ∆ΝCOA are the two most 
+negative and the most statistically significant coefficients.  However, inconsistent with 
+our assessment that ∆COL is more reliable than ∆ΝCOL, we find that ∆COL has the 
+more negative coefficient.  One possible explanation for this result is that the accruals in 
+∆ΝCOL consist of accruals relating to deferred taxes and retirement obligations that can 
+
+ 
+31
+take many periods to reverse.  This  possibility is examined in more detail in the next 
+subsection. 
+Our extended decomposition of financing accruals is a three-way decomposition 
+into short-term investing accruals (∆STI), long-term investing accruals (∆LTI) and 
+financial liability accruals (∆FINL).  Recall from table 2 that we assess both ∆STI and 
+∆FINL to be of high reliability and hence have similar persistence to cash flows.  In 
+contrast, we assess ∆LTI to have only medium reliability and hence have a significantly 
+lower coefficient than cash flows.  The results are generally consistent with these 
+predictions.  The coefficient on ∆LTI is significantly negative (-0.045, t=-4.11) and the 
+lowest of the coefficients on the three financing components.  In contrast, the coefficient 
+on ∆STI is much closer to zero (0.036, t=1.05), while the coefficient on ∆FINL is 
+significantly positive (0.023, t=3.83).  The significantly positive coefficient on ∆FINL 
+may seem somewhat surprising, but remember that in the univariate specification, ρ1 
+represents the combined persistence of all components of earnings other than the included 
+accrual component.  These components include the relatively unreliable operating asset 
+accruals, which will cause ρ1 to be lower and the coefficient on ∆FINL to be higher. 
+The final regression in panel C of table 5 is the multivariate regression for the 
+extended accrual decomposition.  Since this regression includes all accrual components, 
+ρ1 represents the persistence of the pure cash flow component of earnings.  Consequently, 
+the coefficient of 0.801 is higher than in any of the preceding univariate regressions.  The 
+coefficients in the multivariate regression confirm several of our key predictions.  The 
+coefficients on ∆COA, ∆NCOA and ∆LTI continue to be significantly negative, 
+consistent with their low to medium reliability assessments.  Also, the highest coefficient 
+
+ 
+32
+is reported on ∆STI, an accrual component we assess to have high reliability.  However, 
+both ∆COL, ∆NCOL have relatively high persistence coefficients in the univariate 
+regressions, but have much lower persistence coefficients in the multivariate regression.  
+We provide an explanation for the discrepancy in these persistence coefficients between 
+the univariate and multivariate regressions in the next subsection. 
+4.3 
+Additional Tests on Earnings Persistence 
+The earnings persistence results in subsection 4.2 raise two issues that are worthy 
+of additional examination.  First, it is possible that the persistence coefficients on non-
+current operating accruals are sensitive to the horizon over which earnings persistence is 
+measured.  Second, it appears that there are important interactions between operating 
+asset and operating liability accruals that cause dramatic shifts in the persistence 
+coefficients on the operating liability accruals between the univariate and multivariate 
+regression specifications.  This subsection addresses each of these issues in turn. 
+The regressions in table 5 examine earnings persistence over consecutive annual 
+intervals.  It is possible that some accrual errors take several years to reverse, particularly 
+in the case of accruals relating to non-current assets and liabilities.  To investigate the 
+sensitivity of the results with respect to longer-term persistence, table 6 replicates the 
+regression analysis in table 5 measuring the dependent variable as earnings performance 
+averaged from 2 through 5 years ahead (denoted FROA).  As expected, the use of long-
+term earnings leads to a reduction in the persistence coefficients on ROA.  There is 
+modest evidence that the persistence coefficients on the long-term accruals fall relative to 
+the current accruals.  For example, in the univariate regressions in panel C, the coefficient 
+on ∆ΝCOL switches from being larger than the coefficient on ∆COL in table 5 to being 
+
+ 
+33
+smaller than the coefficient on ∆COL in table 6.  This is consistent with lower reliability 
+of ∆ΝCOL manifesting itself over longer horizons due to the long-term nature of the 
+underlying accruals. 
+The results in tables 5 and 6 provide consistent evidence concerning the lower 
+earnings persistence associated with operating asset accruals.  The results for operating 
+liability accruals, however, are mixed.  In particular, recall from panel C of table 5 that 
+both ∆COL and ∆NCOL have relatively high persistence coefficients in the univariate 
+regressions, but relatively low persistence coefficients in the multivariate regressions.  
+From a statistical perspective, these results arise because of the strong correlations 
+between the operating liability accruals and the other accrual components.  In particular, 
+panel B of table 4 indicates that both ∆COL and ∆NCOL are highly positively correlated 
+with both ∆COA and ∆NCOA.  Table 7 conducts additional tests that provide insights 
+into the economic rationale behind these statistics. 
+The reason that operating liability accruals tend to be positively correlated with 
+operating assets accruals is straightforward.  As a business grows, its operating asset and 
+liability accounts tend to grow in tandem.  For example, a business that adds new 
+productive capacity will typically have increases in both inventories and accounts 
+payable, as it is buys more inputs and produces more outputs.  For this reason, operating 
+liability accruals will tend to proxy for operating asset accruals (and vice versa) in the 
+univariate regressions.  In contrast, the multivariate regressions control for variation in 
+operating asset accruals.  This means that the persistence coefficients on operating 
+liability accruals represent the marginal effect of financing operating assets using 
+operating liabilities as opposed to other sources of financing.  In particular, the 
+
+ 
+34
+significantly negative coefficients on the operating liability accruals tell us that growth in 
+operating assets that is financed using operating liabilities is associated with relatively 
+higher earnings persistence.21  The results in panel A of table 7 provide direct evidence in 
+support of this explanation. 
+Panel A of table 7 examines the persistence of operating asset accruals according 
+to the manner in which the accruals are financed. Using the balance sheet identity and our 
+earlier terminology, we can decompose operating asset accruals (∆OA) into its financing 
+sources as follows: 
+ 
+∆OA = ∆OL + ∆FINL + ∆EQUITY - ∆FA 
+(22) 
+ 
+where ∆OA is the change in operating assets (∆COA+∆NCOA), ∆OL is the change in 
+operating liabilities (∆COL+∆NCOL), ∆FINL is the change in debt (including preferred 
+stock), ∆EQUITY is the change in common equity and ∆FA is the change in financial 
+assets (including cash).  The first regression in table 7 confirms our earlier results that 
+operating asset accruals are associated with lower earnings persistence.  The next 
+regression indicates that the lower earnings persistence is entirely attributable to 
+operating asset accruals that are financed by debt, financial assets or equity.  When 
+operating liabilities are used to finance increases in operating assets, earnings persistence 
+is actually higher, as indicated by the significantly positive coefficient on ∆OL.  In 
+contrast, when debt, equity or financial assets are used to finance increases in operating 
+assets, persistence is lower, as indicated by the significantly negative coefficients on 
+these sources of financing.  Nissim and Penman (2003) provide related evidence.  They 
+                                                          
+21 Note that changes in operating liabilities enter the regressions with a negative sign (because increases in 
+operating liabilities represent decreases in accruals).  The significantly negative coefficients on changes in 
+operating liabilities in the multivariate regressions therefore indicate that larger increases in operating 
+liabilities lead to higher earnings persistence. 
+
+ 
+35
+find that leverage arising from operating liabilities is associated with higher future 
+profitability than leverage arising from debt. 
+The economic intuition behind these results can be illustrated via example.  
+Consider two companies, each reporting high operating asset accruals in the form of large 
+increases in inventory.  In one company, the inventory increase results from slowing 
+sales, and the company is forced to issue new debt in order to finance the inventory glut 
+(because inventory trade payables become due before the inventory is sold).  In the other 
+company, the increase represents new inventory that is being acquired in response to a 
+surge in demand, and the company is able to finance the increase using trade credit 
+(because the inventory is being sold before the associated trade payable becomes due).  
+The former company is experiencing problems that are likely to result in reductions in 
+future profitability, while the latter company is experiencing healthy growth that is likely 
+to lead to increases in future profitability.  A second and complementary economic force 
+that is also likely to be at work is that trade creditors are in a unique position to 
+continuously verify the quality of the operating assets that are available to satisfy their 
+claims.  Unlike other sources of financing, trade credit tends to be short term in nature 
+and granted by suppliers who have unique insights into the financial health of the 
+business operations.  As a result, operating asset accruals that are financed by operating 
+liabilities are expected to be more persistent than operating asset accruals that are 
+financed by debt or equity. 
+Panel B of table 7 provides additional evidence supporting the above 
+interpretation of the interaction between operating assets and operating liabilities.  To 
+construct this table, we conduct independent quintile sorts of our sample on ∆OA (the 
+
+ 
+36
+sum of ∆COA and ∆NCOA) and ∆OL (the sum of ∆COL and ∆NCOL).  The numbers in 
+parentheses represent the number of observations in each cell.  The positive correlation 
+between ∆OA and ∆OL leads the observations to be concentrated down the main 
+diagonal.  There are, however, many observations in the other cells, providing us with the 
+opportunity to examine how ∆OA and ∆OL interact to inform about earnings persistence. 
+The statistic reported in each cell of panel B of table 7 is the mean change in next 
+period’s earnings performance (∆ROAt+1) for observations in that cell.  Scanning down 
+each column reveals a negative association between future earnings changes and ∆OA, 
+consistent with the lower persistence and reliability of operating asset accruals.  But we 
+also see that the maximum spread in future profitability is observed between the ‘low 
+∆OA, high ∆OL’ cell and the ‘high ∆OA, low ∆OL’ cell.  The ‘low ∆OA, high ∆OL’ cell 
+has a mean future earnings change of 0.065, compared to an average change of 0.018 for 
+all low ∆OA cells.  Similarly, the ‘high ∆OA,  low ∆OL’ cell has a future earnings 
+change of -0.040 compared to an average change of -0.029 for all high ∆OA cells.  
+Focusing on cells where ∆OA and ∆OL move in opposite directions maximizes the 
+spread in future earnings changes.22  Firms where ∆OA is rising and ∆OL is falling 
+subsequently do most poorly, while firms where ∆OA is falling and ∆OL is rising 
+subsequently do the best.  To summarize, ∆OL provides important information about the 
+persistence of ∆OA, because higher operating liability accruals signal more reliable 
+operating asset accruals. 
+                                                          
+22 We conducted t-tests of differences in means between each possible combination of the 4 corner cells in 
+the 5x5 ∆OA/∆OL matrix, confirming that they are all significantly different from each other at 
+conventional levels.  For example, in the high ∆OA row the difference between low ∆OL (-0.040) and high 
+∆OL (-0.026) is statistically significant at the 5% level (two-tailed test). 
+
+ 
+37
+4.4 
+Stock Return Results 
+In this section, we investigate whether stock prices act as if investors anticipate 
+the implications of accrual reliability for earnings persistence.  If investors understand the 
+implications of accrual reliability for earnings persistence, then there should be no 
+relation between accruals and future abnormal stock returns.  However, if investors 
+naïvely fail to anticipate the lower persistence of the less reliable accrual components of 
+earnings, there will be a negative relation between these accrual components and future 
+abnormal stock returns.  For example, a firm with relatively high accruals this period is 
+expected to have relatively low earnings performance next period, but if investors naïvely 
+ignore the high accruals, they will be surprised by next period’s low earnings 
+performance, resulting in negative abnormal returns in the next period.  Thus, the naïve 
+investor hypothesis predicts a negative relation between accruals and future stock returns, 
+with the relation being stronger for less reliable accruals that result in lower earnings 
+persistence. 
+Our stock return tests are presented in table 8.  This table replicates the analysis in 
+table 5 after replacing the dependent variable with the next year’s annual size-adjusted 
+buy-hold stock return (measured starting four months after the fiscal year end).  Panel A 
+of table 8 reports the results of the basic regression of stock returns on earnings and the 
+accrual component of earnings.  As in previous research, we obtain a negative and 
+significant coefficient on accruals, which is consistent with the naïve investor hypothesis. 
+Panel B reports regression results for the initial balance sheet decomposition.  
+Consistent with the naïve investor hypothesis, the relative rankings of the coefficients on 
+the accrual components of earnings line up closely with their counterparts in table 5.  The 
+
+ 
+38
+coefficients on ∆WC and ∆ΝCO are consistently the most negative and are highly 
+statistically significant.   
+Panel C of table 8 reports regression results for the extended accrual 
+decomposition.  We again see a close correspondence between the relative rankings on 
+the accrual coefficients with those reported in panel C of table 5.  Most importantly, the 
+coefficients on ∆COA, ∆NCOA and ∆LTI are consistently the most negative and 
+significant.  These are the accruals that we judge to be the least reliable and which also 
+have the lowest persistence coefficients in table 5.  Overall, the results are consistent with 
+the naïve investor hypothesis.  Future stock returns are negatively related to accruals, and 
+the negative relation is stronger for less reliable accruals. 
+The results for operating liability accruals in panel C of table 8 display similar 
+properties to those from panel C of table 5.  In particular, the persistence coefficients on 
+∆COL and ∆ΝCOL fall sharply from the univariate regressions to the multivariate 
+regression.  Table 9 replicates the additional analysis of operating asset and liability 
+accruals in table 7, but focuses on next year’s stock returns instead of next year’s 
+earnings changes.  The stock return results in table 9 mirror the earnings results from 
+table 7.  Panel A shows that the negative relation between operating asset accruals and 
+future stock returns is not significant when these accruals are financed by operating 
+liabilities.  The negative relation is driven by the other sources of financing.  Panel B 
+shows that the predictable future stock returns are greatest when operating asset accruals 
+and operating liability accruals move in opposite directions.  Firms in the ‘low ∆OA, high 
+∆OL’ cell  have mean size adjusted returns of 10.2%.  Conversely, firms in the ‘high 
+
+ 
+39
+∆OA, low ∆OL’ cell have mean size adjusted returns of –9.4%.23  These results indicate 
+that investors do not use information in operating liability accruals about the persistence 
+operating asset accruals. 
+Table 10 provides evidence on the economic significance of our results, using the 
+common convention of reporting abnormal returns for ranked portfolios.  We rank 
+observations annually on each accrual component and use the ranks to group observations 
+into ten equal-sized portfolios (deciles).  We calculate size-adjusted annual returns for 
+each decile, with the return cumulation period starting 4 months after fiscal year-end.  We 
+also compute returns on a hedge portfolio consisting of a long position in the lowest 
+accrual decile and an equal-sized short position in the highest accrual decile, to provide a 
+summary measure of the economic magnitude of the mispricing for each accrual 
+component. 
+Panel A of table 10 reports the results for the initial accrual decomposition.  The 
+hedge portfolio return for total accruals is 13.3%.  The initial accrual decomposition 
+provides evidence on the source of these returns.  The ∆WC component has a hedge 
+portfolio return of 12.8%.  This component of accruals differs slightly from the accrual 
+definition used by Sloan (1996) in that it excludes depreciation.  The ∆NCO component 
+of accruals has a hedge portfolio return of 16.5%.  This component of accruals is largely 
+unexplored by previous research.  ∆NOA (the sum of ∆WC and ∆NCO) has the largest 
+hedge portfolio return of 18.0%.  By combining current and non-current operating 
+accruals, we obtain hedge portfolio returns that are larger than those obtained using each 
+                                                          
+23 We also conducted t-tests of differences in means for the 4 cells at the corners of this 5x5 ∆OA/∆OL 
+matrix.  All differences are significant at conventional levels, with the exception of the difference between 
+the ‘high ∆OA, low ∆OL’ cell (-0.094) and the ‘high ∆OA, high ∆OL’ cell (-0.075). 
+
+ 
+40
+component independently.  Finally, the hedge portfolio return for the ∆FIN component of 
+accruals is -8.2%.  While operating accruals are negatively associated with future stock 
+returns, financing accruals are positively associated with future stock returns.  This result 
+is explained by the negative correlation between ∆FIN and the operating accruals, as 
+reported in table 3 and discussed in section 4.1.  A sort on ∆FIN is essentially a noisy 
+reverse sort on ∆NOA, because ∆FIN is a primary source of financing for ∆NOA. 
+Panel B of table 10 reports the hedge portfolio returns for the extended 
+decomposition of accruals.  The strongest mispricing is in the operating asset components 
+of accruals, ∆COA and ∆NCOA, with hedge portfolio returns of 14.5% and 16.1% 
+respectively.  Decomposition of ∆FIN into ∆STI, ∆LTI and ∆FINL shows that the source 
+of negative hedge portfolio returns is ∆FINL, which is the financing component having 
+the strongest correlation with operating accruals.  ∆LTI is associated with a positive 
+hedge portfolio return of 5.2%, consistent with its lower persistence and reliability. 
+Overall, the results in table 10 confirm that our more comprehensive measure of 
+accruals is associated with even greater mispricing than has been documented in previous 
+accrual research such as Sloan (1996).  Moreover, the mispricing is driven by the accrual 
+components with the lowest reliability. 
+ 
+5. 
+Conclusion and Implications 
+Our comprehensive examination of accrual reliability, earnings persistence and 
+future stock returns generates several new insights.  First, we document important costs 
+of recognizing less verifiable and hence less reliable information in the accounting 
+system.  Less reliable accruals lead to lower earnings persistence and investors do not 
+
+ 
+41
+appear to fully anticipate this lower persistence, leading to significant security 
+mispricing.  Second, we provide a comprehensive definition and categorization of 
+accruals that incorporates many accruals that have been ignored by previous research.  
+Our results indicate that some of the accrual categories that have been ignored by 
+previous research have particularly low reliability.  Third, we show that the magnitude of 
+the security mispricing related to accruals is significantly greater than originally 
+documented by Sloan (1996).  For example, a simple decile sort on a combination of the 
+least reliable accrual categories produces annual hedge portfolio returns of 18%. 
+Our analysis has several implications for existing research.  First, it highlights the 
+crucial trade-off between relevance and reliability in accrual accounting.  We show that 
+less reliable accruals introduce costs in the form of lower earnings persistence and the 
+associated mispricing.  Our findings provide a natural counterpoint to research calling for 
+new categories of relevant but relatively unreliable information to be allowed under 
+GAAP (e.g., Lev and Sougiannis, 1996).  In particular, our results support Watts (2003) 
+argument that recent moves by the FASB to introduce even less verifiable information 
+into GAAP may prove extremely costly.24  We reiterate Watts’ conclusion that the case 
+for allowing less verifiable and hence less reliable categories of accruals must recognize 
+the problems that verifiability and reliability evolved to address. 
+The second key implication of our analysis is that accruals-based research should 
+consider broader definitions of accruals than the definition originally proposed by Healy 
+(1985).  Healy’s definition has become synonymous with accruals in the accounting 
+literature.  Yet we show that his definition excludes several economically significant 
+
+ 
+42
+categories of accruals with low reliability.  Non-current operating asset accruals (e.g., 
+capitalization of operating costs as long-term) are a good example.  Such accruals were at 
+the heart of the well-known accounting debacle at WorldCom.  We recommend that 
+researchers using accruals to measure earnings management consider broader measures 
+of accruals in order to maximize the power of their tests.  Our analysis also highlights the 
+differing degrees of reliability associated with different categories of accruals.  In this 
+respect our analysis is still quite crude, and further refinements should lead to additional 
+insights into accrual reliability and earnings persistence. 
+Finally, our findings corroborate claims concerning the importance of 
+distinguishing between earnings and ‘free cash flow’ in evaluating firm performance.25  
+The standard textbook definition of free cash flow adjusts earnings by adding back 
+depreciation and amortization and subtracting changes in working capital and capital 
+expenditures.  As such, these adjustments are substantially similar to the operating 
+accrual components that we develop in this paper.  Financing accruals are not typically 
+backed out in arriving at free cash flow.  Thus, the accruals that we find to be the least 
+reliable correspond closely to the adjustments that are made to earnings in arriving at free 
+cash flow.  Free cash flow represents a combination of actual cash flows plus the 
+relatively reliable financing accruals. 
+                                                                                                                                                                             
+24 The specific examples used by Watts are the FASB’s recent standards SFAS No. 141 and SFAS No. 142.  
+These standards require managers to estimate the future cash flows associated with the firm’s operating 
+assets and (under certain circumstances) recognize these estimates in the financial statements. 
+25 For an example, see ‘Cash is King’, Chapter 5 of Copeland et al. (2000). 
+
+ 
+43
+REFERENCES 
+ 
+Alford, A. W., J.J. Jones, and M. E. Zmijewski, 1994. Extensions and violations of the 
+statutory SEC Form 10-K filing requirements.  Journal of Accounting & Economics 17, 
+229-256. 
+ 
+Barth, M. E., and S. Kallapur, 1996. The Effects of Cross-Sectional Scale Differences on 
+Regression Results in Empirical Accounting Research.  Contemporary Accounting 
+Research 13, 527-567. 
+ 
+Copeland, T., T. Koller and J. Murrin. 2000. Valuation: Measuring and Managing the 
+Value of Companies. John Wiley & Sons, Inc., 3rd edition. 
+ 
+Dechow, P. M., 1994.  Accounting Earnings and Cash Flows as Measures of Firm 
+Performance: The Role of Accounting Accruals. Journal of Accounting and Economics 
+18, 3-42. 
+ 
+Dechow, P. M., S. P. Kothari and R. L. Watts, 1998.  The Relation Between Earnings and 
+Cash Flows.  Journal of Accounting and Economics, 25, 133-168. 
+ 
+Dechow, P. M., R. G. Sloan and A. Sweeney, 1996.  Causes and Consequences of 
+Earnings Manipulation: An analysis of Firms Subject to Enforcement Actions by the 
+SEC.  Contemporary Accounting Research 13, 1-36. 
+ 
+Fairfield, P. M., J. S. Whisenant and T. L. Yohn, 2003a.  Accrued Earnings and Growth: 
+Implications for Future Profitability and Market Mispricing.  Accounting Review 78, 
+353-371. 
+ 
+Fairfield, P. M., J. S. Whisenant and T. L. Yohn, 2003b.  The Differential Persistence of 
+Accruals and Cash Flows for Future Operating Income versus Future Profitability.  
+Review of Accounting Studies 8, 221-243.  
+ 
+Fama, E. F., and J. D. Macbeth, 1973.  Risk, return and equilibrium – empirical tests.  
+The Journal of Political Economy 81, 607-636. 
+ 
+Griliches, Z., and V. Ringstad, 1971.  Economies of Scales and the Form of the 
+Production Function.  North Holland. 
+ 
+Healy, P., 1985.  The Effect of Bonus Schemes on Accounting Decisions.  Journal of 
+Accounting and Economics 7, 85-107. 
+ 
+Holthausen, R. W., and R. L. Watts, 2001.  The Relevance of the Value Relevance 
+Literature for Financial Accounting Standard Setting.  Journal of Accounting and 
+Economics, 31, 3-75. 
+ 
+Hribar, P. and D. Collins, 2002.  Errors in Estimating Accruals: Implications for 
+
+ 
+44
+Empirical Research.  Journal of Accounting Research 40, 105-134. 
+ 
+Klepper, S., and E. E. Leamer, 1984.  Consistent Sets of Estimates for Regressions With 
+Errors in All Variables.  Econometrica 52, 163-183. 
+ 
+Lev, B., and T. Sougiannis, 1996.  The Capitalization, Amortization and Value Relevance 
+of R&D.  Journal of Accounting and Economics 21, 107-138. 
+ 
+Nissim, D., and S. H. Penman, 2003.  Financial Statement Analysis of Leverage and How 
+it Informs About Profitability and Price-to-Book Ratios.  Review of Accounting 
+Studies, 8, 531-560. 
+ 
+Palepu, K. G., P.M. Healy and V. L. Bernard, 2000.  Business Analysis and Valuation.  
+Southwestern College Publishing, 2nd edition. 
+ 
+Penman, S. H., and X. J. Zhang, 2002.  Accounting Conservatism, the Quality of 
+Earnings and Stock Returns. Accounting Review 77, 237-264. 
+ 
+Richardson, S. A., R. G. Sloan, M. T. Soliman and I Tuna, 2004.  The Implications of 
+Firm Growth and Accounting Distortions for Accruals and Profitability.  Working 
+paper, University of Michigan. 
+ 
+Shumway, T., 1997.  The Delisting Bias in CRSP Data.  Journal of Finance 52, 327-340. 
+ 
+Sloan, R. G., 1996.  Do Stock Prices Fully Reflect Information in Accruals and Cash 
+Flows about Future Earnings?  The Accounting Review 71, 289-315. 
+ 
+Thomas, J. K. and H. Zhang, 2002.  Inventory Changes and Future Returns.  Review of 
+Accounting Studies 7, 163-187. 
+ 
+Watts, R. L., 2003.  Conservatism in Accounting Part I: Explanations and Implications.  
+Accounting Horizons, 17, 207-221. 
+ 
+
+ 
+45
+Table 1 
+Illustration of Balance Sheet Categorization of Accruals. 
+ 
+Non-Cash Assets 
+Liabilities 
+ 
+Data 
+Item 
+Initial 
+Extended 
+ 
+Data 
+Item 
+Initial 
+Extended 
+Short Term 
+Investments 
+#193 
+∆FIN 
+∆STI 
+Debt in Current 
+Liabilities 
+#34 
+∆FIN 
+∆FINL 
+Receivables 
+#2 
+∆WC 
+∆COA 
+Accounts Payable 
+#70 
+∆WC 
+∆COL 
+Inventory 
+#3 
+∆WC 
+∆COA 
+Income Taxes 
+Payable 
+#71 
+∆WC 
+∆COL 
+Other Current 
+Assets 
+#68 
+∆WC 
+∆COA 
+Other Current 
+Liabilities 
+#72 
+∆WC 
+∆COL 
+Property, Plant and 
+Equipment, Net 
+#8 
+∆NCO 
+∆NCOA 
+Long Term Debt 
+#9 
+∆FIN 
+∆FINL 
+Investments – 
+Equity Method 
+#31 
+∆NCO 
+∆NCOA 
+Other Liabilities 
+#75 
+∆NCO 
+∆NCOL 
+Investments-Other 
+#32 
+∆FIN 
+∆LTI 
+Deferred Taxes 
+#35 
+∆NCO 
+∆NCOL 
+Intangibles 
+#33 
+∆NCO 
+∆NCOA 
+Minority Interest 
+#38 
+∆NCO 
+∆NCOL 
+Other Assets 
+#69 
+∆NCO 
+∆NCOA 
+Preferred Stock 
+#130 
+∆FIN 
+∆FINL 
+Data Item denotes the Compustat annual data item number.  Initial denotes the accrual component in which the item is 
+classified for our initial accrual decomposition.  Extended denotes the accrual component in which the item is classified for 
+our extended accrual decomposition. 
+ 
+∆WC is the change in working capital accruals, defined as WCt - WCt-1. Where WC = Current Operating Assets (COA) - 
+Current Operating Liabilities (COL) where COA=Current Assets (Compustat Item #4) - Cash and Short Term Investments 
+(STI) (Compustat Item #1). COL=Current Liabilities (Compustat Item #5) - Debt in Current Liabilities (Compustat Item 
+#34).  
+ 
+∆NCO is defined as NCOt - NCOt-1. Where NCO = Non-Current Operating Assets (NCOA) - Non-Current Operating 
+Liabilities (NCOL) where NCOA = Total Assets (Compustat item #6) - Current Assets (Compustat Item #4) - Investments 
+and Advances (Compustat Item #32).  NCOL = Total Liabilities (Compustat Item #181) - Current Liabilities (Compustat 
+Item #5) – Long-term debt (Compustat Item #9).  
+ 
+∆FIN is defined as FINt - FINt-1. Where FIN = Financial Assets (FINA) - Financial Liabilities (FINL).  FINA = Short Term 
+Investments (STI) (Compustat Item #193) + Long Term Investments (LTI) (Compustat Item #32).  FINL= Long term debt 
+(Compustat Item #9) + Debt in Current Liabilities (Compustat Item #34) + Preferred Stock (Compustat Item #130).  
+
+ 
+46
+Table 2 
+Summary of Reliability Assessments by Accrual Category. 
+ 
+Accrual 
+Category 
+Decomposition 
+Level 
+Reliability 
+Assessment 
+Summary of Reasoning Behind Reliability Assessment 
+∆COA 
+Extended 
+Low 
+Category is dominated by receivables and inventory.  Receivables require 
+the estimation of uncollectibles and are a common earnings management 
+tool (e.g., channel stuffing).  Inventory accruals entail various cost flow 
+assumptions/allocations and subjective write-downs. 
+∆COL 
+Extended 
+High 
+Category is dominated by payables, which represent financial obligations 
+of the firm that can be measured with a high degree of reliability. 
+∆WC 
+Initial 
+Medium 
+Combination of ∆COA (low reliability) and ∆COL (high reliability) 
+suggests medium reliability. 
+∆NCOA 
+Extended 
+Low 
+Category is dominated by PP&E and intangibles.  Both PP&E and 
+internally generated intangibles (e.g., capitalized software development 
+costs) involve subjective capitalization decisions.  Moreover, PP&E and 
+intangibles involve subjective amortization and write-down decisions. 
+∆NCOL 
+Extended 
+Medium 
+Category includes long-term payables, deferred taxes and postretirement 
+benefit obligations.  Best characterized as a mixture of accruals with 
+varying degrees of reliability, so classify as medium reliability. 
+∆NCO 
+Initial 
+Low/ 
+Medium 
+Combination of ∆NCOA (low reliability) and ∆NCOL (medium 
+reliability) suggests low/medium reliability. 
+∆STI 
+Extended 
+High 
+Represents marketable financial securities that are expected to be sold 
+within 12 months.  Market values of marketable financial securities can 
+be measured with a high degree of reliability. 
+∆LTI 
+Extended 
+Medium 
+Category includes long-term receivables and investments in marketable 
+securities that are expected be held for more than a year. Best 
+characterized as a mixture of accruals with varying degrees of reliability, 
+so classify as medium reliability. 
+∆FINL 
+Extended 
+High 
+Category contains interest-bearing financial obligations.  Typically 
+measured with a high degree of reliability using effective interest rate at 
+origination. 
+∆FIN 
+Initial 
+High 
+Combination of ∆STI (high reliability), ∆LTI (medium reliability) and 
+∆FINL (high reliability) suggests high reliability. 
+∆WC is the change in working capital accruals, defined as WCt - WCt-1. Where WC = Current Operating Assets (COA) - 
+Current Operating Liabilities (COL) where COA=Current Assets (Compustat Item #4) - Cash and Short Term Investments 
+(STI) (Compustat Item #1). COL=Current Liabilities (Compustat Item #5) - Debt in Current Liabilities (Compustat Item 
+#34).  
+
+ 
+47
+ 
+∆NCO is defined as NCOt - NCOt-1. Where NCO = Non-Current Operating Assets (NCOA) - Non-Current Operating 
+Liabilities (NCOL) where NCOA = Total Assets (Compustat item #6) - Current Assets (Compustat Item #4) - Investments 
+and Advances (Compustat Item #32).  NCOL = Total Liabilities (Compustat Item #181) - Current Liabilities (Compustat 
+Item #5) – Long-term debt (Compustat Item #9).  
+ 
+∆FIN is defined as FINt - FINt-1. Where FIN = Financial Assets (FINA) - Financial Liabilities (FINL).  FINA = Short Term 
+Investments (STI) (Compustat Item #193) + Long Term Investments (LTI) (Compustat Item #32).  FINL= Long term debt 
+(Compustat Item #9) + Debt in Current Liabilities (Compustat Item #34) + Preferred Stock (Compustat Item #130).  
+
+ 
+48
+TABLE 3 
+Descriptive Statistics and Correlations for the Initial Accrual Decomposition. 
+ 
+ 
+Panel A: Descriptive Statistics 
+ 
+Mean 
+Std. Dev. 
+25% 
+Median 
+75% 
+TACCt 
+0.052 
+0.181 
+-0.007 
+0.039 
+0.098 
+∆WCt 
+0.022 
+0.108 
+-0.020 
+0.015 
+0.063 
+∆NCOt 
+0.051 
+0.151 
+-0.009 
+0.025 
+0.082 
+∆FINt 
+-0.021 
+0.181 
+-0.080 
+-0.006 
+0.041 
+ROAt 
+0.070 
+0.175 
+0.032 
+0.093 
+0.151 
+ROAt+1 
+0.063 
+0.177 
+0.025 
+0.089 
+0.146 
+FROAt+2 
+0.078 
+0.130 
+0.040 
+0.091 
+0.140 
+RETt+1 
+0.010 
+0.715 
+-0.330 
+-0.078 
+0.199 
+ 
+The sample consists of 108,617 firm years from 1962 to 2001. 
+ 
+TACC is total accruals from the balance sheet approach.  It is calculated as ∆Working Capital (∆WC) + ∆Non-Current 
+Operating (∆NCO) + ∆Financial (∆FIN).  Total accruals and all of its components (described below) are deflated by 
+average total assets. 
+ 
+∆WC is defined as WCt - WCt-1. Where WC = Current Operating Assets (COA) - Current Operating Liabilities (COL) 
+where COA=Current Assets (Compustat Item #4) - Cash and Short Term Investments (STI) (Compustat Item #1). 
+COL=Current Liabilities (Compustat Item #5) - Debt in Current Liabilities (Compustat Item #34).  
+ 
+∆NCO is defined as NCOt - NCOt-1. Where NCO = Non-Current Operating Assets (NCOA) - Non-Current Operating 
+Liabilities (NCOL) where NCOA = Total Assets (Compustat item #6) - Current Assets (Compustat Item #4) - Investments 
+and Advances (Compustat Item #32).  NCOL = Total Liabilities (Compustat Item #181) - Current Liabilities (Compustat 
+Item #5) – Long-term debt (Compustat Item #9).  
+ 
+∆FIN is defined as FINt - FINt-1. Where FIN = Financial Assets (FINA) - Financial Liabilities (FINL).  FINA = Short Term 
+Investments (STI) (Compustat Item #193) + Long Term Investments (LTI) (Compustat Item #32).  FINL= Long term debt 
+(Compustat Item #9) + Debt in Current Liabilities (Compustat Item #34) + Preferred Stock (Compustat Item #130).  
+ 
+ROA is operating income after depreciation (Compustat Item #178) deflated by average total assets. 
+ 
+FROA is the average ROA over the next four years.  For example, FROAt+2 is the average ROA for years t+2 through t+5.  
+There are 72,475 observations for FROA. 
+ 
+RET is the annual buy-hold size-adjusted return.  The size-adjusted return is calculated by deducting the value-weighted 
+average return for all firms in the same size-matched decile, where size is measured as market capitalization at the 
+beginning of the return cumulation period.  The return cumulation period begins four months after the end of the fiscal year. 
+
+ 
+49
+ 
+Panel B: Correlation Matrix  - Pearson (above diagonal) and Spearman (below diagonal) (p-values shown in italics below 
+correlations) 
+ 
+TACCt 
+∆WCt 
+∆NCOt 
+∆FINt 
+ROAt 
+ROAt+1 
+FROAt+2 
+RETt+1 
+TACCt 
+-- 
+0.392 
+(0.0001) 
+0.423 
+(0.0001) 
+0.418 
+(0.0001) 
+0.250 
+(0.0001) 
+0.125 
+(0.0001) 
+0.072 
+(0.0001) 
+-0.058 
+(0.0001) 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+∆WCt 
+0.419 
+(0.0001) 
+-- 
+0.108 
+(0.0001) 
+-0.288 
+(0.0001) 
+0.224 
+(0.0001) 
+0.105 
+(0.0001) 
+0.059 
+(0.0001) 
+-0.046 
+(0.0001) 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+∆NCOt 
+0.416 
+(0.0001) 
+0.180 
+(0.0001) 
+-- 
+-0.475 
+(0.0001) 
+0.085 
+(0.0001) 
+0.024 
+(0.0001) 
+0.020 
+(0.0001) 
+-0.062 
+(0.0001) 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+∆FINt 
+0.226 
+(0.0001) 
+-0.354 
+(0.0001) 
+-0.470 
+(0.0001) 
+ 
+-- 
+0.043 
+(0.0001) 
+0.038 
+(0.0001) 
+0.014 
+(0.0003) 
+0.021 
+(0.0001) 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ROAt 
+0.437 
+(0.0001) 
+0.261 
+(0.0001) 
+0.215 
+(0.0001) 
+0.061 
+(0.0001) 
+-- 
+0.792 
+(0.0001) 
+0.613 
+(0.0001) 
+-0.003 
+(0.3098) 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ROAt+1 
+0.274 
+(0.0001) 
+0.140 
+(0.0001) 
+0.106 
+(0.0001) 
+0.081 
+(0.0001) 
+0.776 
+(0.0001) 
+-- 
+0.696 
+(0.0001) 
+0.138 
+(0.0001) 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+FROAt+2 
+0.164 
+(0.0001) 
+0.072 
+(0.0001) 
+0.071 
+(0.0001) 
+0.046 
+(0.0001) 
+0.566 
+(0.0001) 
+0.668 
+(0.0001) 
+-- 
+0.126 
+(0.0001) 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+RETt+1 
+-0.049 
+(0.0001) 
+-0.060 
+(0.0001) 
+-0.066 
+(0.0001) 
+0.052 
+(0.0001) 
+0.087 
+(0.0001) 
+0.301 
+(0.0001) 
+0.272 
+(0.0001) 
+-- 
+ 
+All variables are as defined in panel A. 
+ 
+ 
+
+ 
+50
+TABLE 4 
+Descriptive Statistics and Correlations for Extended Accrual Decomposition. 
+ 
+ 
+Panel A: Descriptive Statistics 
+ 
+Mean 
+Std. Dev. 
+25% 
+Median 
+75% 
+TACCt 
+0.052 
+0.181 
+-0.007 
+0.039 
+0.098 
+ 
+∆COAt 
+0.047 
+0.133 
+-0.006 
+0.031 
+0.094 
+∆COLt 
+0.025 
+0.084 
+-0.008 
+0.017 
+0.052 
+∆NCOAt 
+0.057 
+0.153 
+-0.006 
+0.029 
+0.089 
+∆NCOLt 
+0.006 
+0.047 
+0.000 
+0.002 
+0.011 
+∆FINAt 
+0.009 
+0.107 
+-0.003 
+0 
+0.007 
+∆FINLt 
+0.030 
+0.151 
+-0.021 
+0.001 
+0.066 
+∆STIt 
+0.006 
+0.096 
+0 
+0 
+0 
+∆LTIt 
+0.003 
+0.046 
+0 
+0 
+0 
+ROAt 
+0.070 
+0.175 
+0.032 
+0.093 
+0.151 
+ROAt+1 
+0.063 
+0.177 
+0.025 
+0.089 
+0.146 
+FROAt+2 
+0.078 
+0.130 
+0.040 
+0.091 
+0.140 
+RETt+1 
+0.010 
+0.715 
+-0.330 
+-0.078 
+0.199 
+ 
+The sample consists of 108,617 firm years from 1962 to 2001. 
+ 
+TACC is total accruals from the balance sheet approach.  It is calculated as ∆Working Capital (∆WC) + 
+∆Non-Current Operating (∆NCO) + ∆Financial (∆FIN).  This can be equivalently written as (∆COA - 
+∆COL) + (∆NCOA - ∆NCOL) + (∆FINA - ∆FINL).  Total accruals and all of its components (described 
+below) are deflated by average total assets. 
+ 
+∆COA is change in current operating assets defined as COAt - COAt-1.  Where COA = Current Assets 
+(Compustat Item #4) - Cash and Short Term Investments (STI) (Compustat Item #1).  
+ 
+∆COL is change in current operating liabilities defined as COLt - COLt-1.  Where COL=Current Liabilities 
+(Compustat Item #5) - Debt in Current Liabilities (Compustat Item #34).  
+ 
+∆NCOA is change in non-current operating assets defined as NCOAt - NCOAt-1.  Where NCOA = Total 
+Assets (Compustat item #6) - Current Assets (Compustat Item #4) –Investments and Advances (Compustat 
+Item #32).  
+ 
+∆NCOL is change in non-current operating liabilities defined as NCOLt - NCOLt-1.  Where NCOL = Total 
+Liabilities (Compustat Item #181) - Current Liabilities (Compustat Item #5) - Long-term debt (Compustat 
+Item #9).  
+ 
+∆FINA is change in financial assets defined as FINAt - FINAt-1.  Where FINAt = Short Term Investments 
+(STI) (Compustat Item #193) + Long Term Investments (LTI) (Compustat Item #32).   
+
+ 
+51
+ 
+∆FINL is change in financial liabilities defined as FINLt - FINLt-1.  Where FINL= Long term debt 
+(Compustat Item #9) + Debt in Current Liabilities (Compustat Item #34) + Preferred Stock (Compustat 
+Item #130).  
+ 
+∆STI is change in short term investments. 
+ 
+∆LTI is change in long-term investments. 
+ 
+ROA is operating income after depreciation (Compustat Item #178) deflated by average total assets. 
+ 
+FROA is the average ROA over the next four years.  For example, FROAt+2 is the average ROA for years 
+t+2 through t+5.   There are 72,475 observations for FROA. 
+ 
+RET is the annual buy-hold size-adjusted return.  The size-adjusted return is calculated by deducting the 
+value-weighted average return for all firms in the same size-matched decile, where size is measured as 
+market capitalization at the beginning of the return cumulation period.  The return cumulation period 
+begins four months after the end of the fiscal year. 
+
+ 
+52
+ 
+Panel B: Correlation Matrix  - Pearson (above diagonal) and Spearman (below diagonal) (p-values shown in italics 
+below correlations) 
+ 
+TACCt 
+∆COAt 
+∆COLt 
+∆NCOAt 
+∆NCOLt 
+∆FINAt 
+∆FINLt 
+ROAt 
+ROAt+1 
+FROAt+2 
+RETt+1 
+TACCt 
+-- 
+0.376 
+(0.0001) 
+0.090 
+(0.0001) 
+0.401 
+(0.0001) 
+-0.045 
+(0.0001) 
+0.481 
+(0.0001) 
+-0.175 
+(0.0001) 
+0.250 
+(0.0001) 
+0.125 
+(0.0001) 
+0.072 
+(0.0001) 
+-0.058 
+(0.0001) 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+∆COAt 
+0.441 
+(0.0001) 
+-- 
+0.583 
+(0.0001) 
+0.295 
+(0.0001) 
+0.084 
+(0.0001) 
+-0.009 
+(0.0001) 
+0.368 
+(0.0001) 
+0.222 
+(0.0001) 
+0.127 
+(0.0001) 
+0.068 
+(0.0001) 
+-0.055 
+(0.0001) 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+∆COLt 
+0.173 
+(0.0001) 
+0.560 
+(0.0001) 
+-- 
+0.304 
+(0.0001) 
+0.058 
+(0.0001) 
+0.082 
+(0.0001) 
+0.207 
+(0.0001) 
+0.061 
+(0.0001) 
+0.065 
+(0.0001) 
+0.033 
+(0.0001) 
+-0.028 
+(0.0001) 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+∆NCOAt 
+0.409 
+(0.0001) 
+0.362 
+(0.0001) 
+0.319 
+(0.0001) 
+-- 
+0.212 
+(0.0001) 
+-0.020 
+(0.0001) 
+0.545 
+(0.0001) 
+0.090 
+(0.0001) 
+0.029 
+(0.0001) 
+0.024 
+(0.0001) 
+-0.063 
+(0.0001) 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+∆NCOLt 
+0.102 
+(0.0001) 
+0.128 
+(0.0001) 
+0.094 
+(0.0001) 
+0.296 
+(0.0001) 
+-- 
+0.045 
+(0.0001) 
+0.029 
+(0.0001) 
+0.020 
+(0.0001) 
+0.017 
+(0.0001) 
+0.012 
+(0.0016) 
+-0.006 
+(0.0544) 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+∆FINAt 
+0.261 
+(0.0001) 
+-0.033 
+(0.0001) 
+0.068 
+(0.0001) 
+-0.039 
+(0.0001) 
+0.054 
+(0.0001) 
+-- 
+0.009 
+(0.0032) 
+0.050 
+(0.0001) 
+0.031 
+(0.0001) 
+0.003 
+(0.3752) 
+-0.022 
+(0.0001) 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+∆FINLt 
+-0.056 
+(0.0001) 
+0.372 
+(0.0001) 
+0.174 
+(0.0001) 
+0.504 
+(0.0001) 
+0.104 
+(0.0001) 
+-0.001 
+(0.8206) 
+-- 
+-0.008 
+(0.0069) 
+-0.018 
+(0.0001) 
+-0.012 
+(0.0010) 
+-0.040 
+(0.0001) 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ROAt 
+0.437 
+(0.0001) 
+0.325 
+(0.0001) 
+0.183 
+(0.0336) 
+0.239 
+(0.0001) 
+0.186 
+(0.0001) 
+0.100 
+(0.0001) 
+0.004 
+(0.1891) 
+-- 
+0.792 
+(0.0001) 
+0.613 
+(0.0000) 
+-0.003 
+(0.3098) 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ROAt+1 
+0.274 
+(0.0001) 
+0.205 
+(0.0001) 
+0.149 
+(0.0001) 
+0.123 
+(0.0001) 
+0.137 
+(0.0001) 
+0.070 
+(0.0001) 
+-0.038 
+(0.0001) 
+0.776 
+(0.0001) 
+-- 
+0.696 
+(0.0001) 
+0.138 
+(0.0001) 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+FROAt+2 
+0.164 
+(0.0001) 
+0.112 
+(0.0001) 
+0.082 
+(0.0001) 
+0.082 
+(0.0001) 
+0.090 
+(0.0001) 
+0.044 
+(0.0001) 
+-0.015 
+(0.0001) 
+0.566 
+(0.0001) 
+0.668 
+(0.0001) 
+-- 
+0.126 
+(0.0001) 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+RETt+1 
+-0.049 
+(0.0001) 
+-0.070 
+(0.0001) 
+-0.034 
+(0.0001) 
+-0.059 
+(0.0001) 
+0.032 
+(0.0001) 
+0.001 
+(0.7008) 
+-0.057 
+(0.0001) 
+0.087 
+(0.0001) 
+0.301 
+(0.0001) 
+0.272 
+(0.0001) 
+-- 
+All variables are as defined in panel A. 
+
+ 
+53
+TABLE 5 
+Time-Series Means and t-Statistics for Coefficients from Annual Cross-Sectional Regressions of Next 
+Year’s Accounting Rate of Return on This Year’s Accounting Rate of Return and This Year’s 
+Accruals.  The Sample Consists of 108,617 Firm-Year Observations from 1962-2001. 
+ 
+ 
+Panel A: OLS regressions for Total Accruals 
+ 
+ 
+ROAt+1 = ρ0 + ρ1 ROAt + ρ2TACCt + υt+1 
+ 
+Intercept 
+ROA 
+TACC 
+Adj. R2 
+ 
+ 
+ 
+ 
+ 
+Mean Coefficient  
+0.012 
+0.766 
+ 
+0.582 
+t-statistic 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+Mean Coefficient  
+0.014 
+0.796 
+-0.082 
+0.588 
+t-statistic 
+ 
+ 
+(-16.13) 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+Panel B: OLS regressions for the Initial Accrual Decomposition 
+ 
+ROAt+1 = ρ0 + ρ1 ROAt + ρ2∆WCt + ρ3∆NCOt + ρ4 ∆FINt + υt+1 
+ 
+Intercept 
+ROA 
+∆WC 
+∆NCO 
+∆FIN 
+Adj. R2 
+Predicted 
+Reliability 
+ 
+ 
+Medium 
+Low/ 
+Medium 
+High 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+Mean Coef. 
+0.013 
+0.784 
+-0.116 
+ 
+ 
+0.589 
+t-statistic 
+ 
+ 
+(-15.05) 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+Mean Coef. 
+0.014 
+0.772 
+ 
+-0.047 
+ 
+0.584 
+t-statistic 
+ 
+ 
+ 
+(-12.39) 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+Mean Coef. 
+0.013 
+0.764 
+ 
+ 
+0.015 
+0.583 
+t-statistic 
+ 
+ 
+ 
+ 
+(2.86) 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+Mean Coef. 
+0.015 
+0.802 
+-0.138 
+-0.074 
+-0.052 
+0.593 
+t-statistic 
+ 
+ 
+(-19.05) 
+(-11.18) 
+(-8.71) 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+Panel C: OLS regressions for the Extended Accrual Decomposition 
+ROAt+1 = ρ0 + ρ1ROAt + ρ2 ∆COAt - ρ3 ∆COLt + ρ4 ∆NCOAt - ρ5 ∆NCOLt + ρ6 ∆STIt + ρ7 ∆LTIt - ρ8 ∆ FINLt + υt+1 
+Intercept 
+ROA 
+∆COA 
+-∆COL 
+∆NCOA 
+-∆NCOL 
+∆STI 
+∆LTI 
+-∆FINL 
+Adj. R2 
+Predicted 
+Reliability 
+ 
+ 
+Low 
+High 
+Low 
+Medium 
+High 
+Medium 
+High 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+Mean Coef. 
+0.014 
+0.780 
+-0.064 
+ 
+ 
+ 
+ 
+ 
+ 
+0.586 
+t-statistic 
+ 
+ 
+(-12.08) 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+Mean Coef. 
+0.012 
+0.764 
+ 
+-0.035 
+ 
+ 
+ 
+ 
+ 
+0.583 
+t-statistic 
+ 
+ 
+ 
+(-4.74) 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+Mean Coef. 
+0.014 
+0.772 
+ 
+ 
+-0.047 
+ 
+ 
+ 
+ 
+0.584 
+t-statistic 
+ 
+ 
+ 
+ 
+(-12.63) 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+Mean Coef. 
+0.012 
+0.766 
+ 
+ 
+ 
+0.012 
+ 
+ 
+ 
+0.582 
+t-statistic 
+ 
+ 
+ 
+ 
+ 
+(0.96) 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+Mean Coef. 
+0.012 
+0.765 
+ 
+ 
+ 
+ 
+0.036 
+ 
+ 
+0.582 
+t-statistic 
+ 
+ 
+ 
+ 
+ 
+ 
+(1.05) 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+Mean Coef. 
+0.013 
+0.766 
+ 
+ 
+ 
+ 
+ 
+-0.045 
+ 
+0.583 
+t-statistic 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+(-4.11) 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+Mean Coef. 
+0.013 
+0.765 
+ 
+ 
+ 
+ 
+ 
+ 
+0.023 
+0.584 
+t-statistic 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+(3.83) 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+Mean Coef. 
+0.014 
+0.801 
+-0.137 
+-0.178 
+-0.084 
+-0.075 
+0.004 
+-0.084 
+-0.056 
+0.595 
+t-statistic 
+ 
+ 
+(-18.81) 
+(-18.13) 
+(-13.03) 
+(-6.48) 
+(0.10) 
+(-6.33) 
+(-8.17) 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+
+ 
+54
+ 
+The sample consists of 108,617 firm years from 1962 to 2001.  Regression results are based on 40 annual regression using 
+the Fama and MacBeth (1973) approach. 
+ 
+TACC is total accruals from the balance sheet approach.  It is calculated as ∆Working Capital (∆WC) + ∆Non-Current 
+Operating (∆NCO) + ∆Financial (∆FIN).  This can be equivalently written as (∆COA - ∆COL) + (∆NCOA - ∆NCOL) + 
+(∆FINA - ∆FINL).  Total accruals and all of its components (described below) are deflated by average total assets. 
+ 
+∆WC is defined as WCt - WCt-1. Where WC = Current Operating Assets (COA) - Current Operating Liabilities (COL) 
+where COA=Current Assets (Compustat Item #4) - Cash and Short Term Investments (STI) (Compustat Item #1). 
+COL=Current Liabilities (Compustat Item #5) - Debt in Current Liabilities (Compustat Item #34).  
+∆COA is change in current operating assets defined as COAt - COAt-1.   
+∆COL is change in current operating liabilities defined as COLt - COLt-1.   
+ 
+∆NCO is defined as NCOt - NCOt-1. Where NCO = Non-Current Operating Assets (NCOA) - Non-Current Operating 
+Liabilities (NCOL) where NCOA = Total Assets (Compustat item #6) - Current Assets (Compustat Item #4) - Investments 
+and Advances (Compustat Item #32).  NCOL = Total Liabilities (Compustat Item #181) - Current Liabilities (Compustat 
+Item #5) – Long-term debt (Compustat Item #9).  
+∆NCOA is change in non-current operating assets defined as NCOAt - NCOAt-1.   
+∆NCOL is change in non-current operating liabilities defined as NCOLt - NCOLt-1.   
+ 
+∆FIN is defined as FINt - FINt-1. Where FIN = Financial Assets (FINA) - Financial Liabilities (FINL).  FINA = Short Term 
+Investments (STI) (Compustat Item #193) + Long Term Investments (LTI) (Compustat Item #32).  FINL= Long term debt 
+(Compustat Item #9) + Debt in Current Liabilities (Compustat Item #34) + Preferred Stock (Compustat Item #130).  
+∆FINA is change in financial assets defined as FINAt - FINAt-1.   
+∆FINL is change in financial liabilities defined as FINLt - FINLt-1.   
+∆STI is change in short term investments. 
+∆LTI is change in long-term investments. 
+ 
+ROA is operating income after depreciation (Compustat Item #178) deflated by average total assets. 
+
+ 
+55
+ TABLE 6 
+Time-Series Means and t-Statistics for Coefficients from Annual Cross-Sectional Regressions of the 
+Average Future Accounting Rate of Return (FROA) on This Year’s Accounting Rate of Return and 
+This Year’s Accruals.  The Sample Consists of 72,475 Firm-Year Observations from 1962-2001. 
+ 
+ 
+Panel A: OLS Regressions for Total Accruals 
+ 
+FROAt+2 = ρ0 + ρ1 ROAt + ρ2TACC,t + υ t+2 
+ 
+Intercept 
+ROA 
+TACC 
+Adj. R2 
+ 
+ 
+ 
+ 
+ 
+Mean Coefficient  
+0.038 
+0.494 
+ 
+0.342 
+t-statistic 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+Mean Coefficient  
+0.039 
+0.539 
+-0.113 
+0.358 
+t-statistic 
+ 
+ 
+(-14.63) 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+Panel B: OLS regressions for the Initial Accrual Decomposition 
+ 
+FROAt+2 = ρ0 + ρ1 ROAt + ρ2∆WCt + ρ3∆NCOt + ρ4 ∆FINt + υ t+2 
+ 
+Intercept 
+ROA 
+∆WC 
+∆NCO 
+∆FIN 
+Adj. R2 
+Predicted 
+Reliability 
+ 
+ 
+Medium 
+Low/ 
+Medium 
+High 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+Mean Coef. 
+0.039 
+0.510 
+-0.093 
+ 
+ 
+0.350 
+t-statistic 
+ 
+ 
+(-11.02) 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+Mean Coef. 
+0.040 
+0.500 
+ 
+-0.050 
+ 
+0.346 
+t-statistic 
+ 
+ 
+ 
+(-7.83) 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+Mean Coef. 
+0.038 
+0.494 
+ 
+ 
+-0.006 
+0.343 
+t-statistic 
+ 
+ 
+ 
+ 
+(-1.07) 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+Mean Coef. 
+0.040 
+0.541 
+-0.139 
+-0.106 
+-0.093 
+0.361 
+t-statistic 
+ 
+ 
+(-15.17) 
+(-11.55) 
+(-12.98) 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+Panel C: OLS regressions for the Extended Accrual Decomposition 
+FROAt+2 = ρ0 + ρ1 ROAt + ρ2 ∆COAt - ρ3 ∆COLt + ρ4 ∆NCOAt - ρ5 ∆NCOLt + ρ6 ∆STIt + ρ7 ∆LTIt - ρ8 ∆ FINLt + υ t+2 
+Intercept 
+ROA 
+∆COA 
+-∆COL 
+∆NCOA   -∆NCOL 
+∆STI 
+∆LTI 
+-∆FINL 
+Adj. R2 
+Predicted 
+Reliability 
+ 
+ 
+Low 
+High 
+Low 
+Medium 
+High 
+Medium 
+High 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+Mean Coef. 
+0.040 
+0.516 
+-0.085 
+ 
+ 
+ 
+ 
+ 
+ 
+0.352 
+t-statistic 
+ 
+ 
+(-13.48) 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+Mean Coef. 
+0.039 
+0.501 
+ 
+0.057 
+ 
+ 
+ 
+ 
+ 
+0.345 
+t-statistic 
+ 
+ 
+ 
+(5.22) 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+Mean Coef. 
+0.040 
+0.501 
+ 
+ 
+-0.049 
+ 
+ 
+ 
+ 
+0.346 
+t-statistic 
+ 
+ 
+ 
+ 
+(-7.72) 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+Mean Coef. 
+0.038 
+0.500 
+ 
+ 
+ 
+0.029 
+ 
+ 
+ 
+0.343 
+t-statistic 
+ 
+ 
+ 
+ 
+ 
+(1.65) 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+Mean Coef. 
+0.038 
+0.495 
+ 
+ 
+ 
+ 
+0.015 
+ 
+ 
+0.344 
+t-statistic 
+ 
+ 
+ 
+ 
+ 
+ 
+(0.26) 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+Mean Coef. 
+0.038 
+0.494 
+ 
+ 
+ 
+ 
+ 
+-0.070 
+ 
+0.343 
+t-statistic 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+(-4.48) 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+Mean Coef. 
+0.039 
+0.494 
+ 
+ 
+ 
+ 
+ 
+ 
+0.013 
+0.343 
+t-statistic 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+(2.43) 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+Mean Coef. 
+0.040 
+0.547 
+-0.146 
+-0.093 
+-0.103 
+-0.088 
+-0.018 
+-0.131 
+-0.098 
+0.366 
+t-statistic 
+ 
+ 
+(-16.44) 
+(-7.00) 
+(-11.78) 
+(-5.11) 
+(-0.28) 
+(-8.31) 
+(-13.89) 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+
+ 
+56
+ 
+The sample consists of 72,475 firm years from 1962 to 2001.  Regression results are based on 40 annual regression using 
+the Fama and MacBeth (1973) approach. 
+ 
+TACC is total accruals from the balance sheet approach.  It is calculated as ∆Working Capital (∆WC) + ∆Non-Current 
+Operating (∆NCO) + ∆Financial (∆FIN).  This can be equivalently written as (∆COA - ∆COL) + (∆NCOA - ∆NCOL) + 
+(∆FINA - ∆FINL).  Total accruals and all of its components (described below) are deflated by average total assets. 
+ 
+∆WC is defined as WCt - WCt-1. Where WC = Current Operating Assets (COA) - Current Operating Liabilities (COL) 
+where COA=Current Assets (Compustat Item #4) - Cash and Short Term Investments (STI) (Compustat Item #1). 
+COL=Current Liabilities (Compustat Item #5) - Debt in Current Liabilities (Compustat Item #34).  
+∆COA is change in current operating assets defined as COAt - COAt-1.   
+∆COL is change in current operating liabilities defined as COLt - COLt-1.   
+ 
+∆NCO is defined as NCOt - NCOt-1. Where NCO = Non-Current Operating Assets (NCOA) - Non-Current Operating 
+Liabilities (NCOL) where NCOA = Total Assets (Compustat item #6) - Current Assets (Compustat Item #4) - Investments 
+and Advances (Compustat Item #32).  NCOL = Total Liabilities (Compustat Item #181) - Current Liabilities (Compustat 
+Item #5) – Long-term debt (Compustat Item #9).  
+∆NCOA is change in non-current operating assets defined as NCOAt - NCOAt-1.   
+∆NCOL is change in non-current operating liabilities defined as NCOLt - NCOLt-1.   
+ 
+∆FIN is defined as FINt - FINt-1. Where FIN = Financial Assets (FINA) - Financial Liabilities (FINL).  FINA = Short Term 
+Investments (STI) (Compustat Item #193) + Long Term Investments (LTI) (Compustat Item #32).  FINL= Long term debt 
+(Compustat Item #9) + Debt in Current Liabilities (Compustat Item #34) + Preferred Stock (Compustat Item #130).  
+∆FINA is change in financial assets defined as FINAt - FINAt-1.   
+∆FINL is change in financial liabilities defined as FINLt - FINLt-1.   
+∆STI is change in short term investments. 
+∆LTI is change in long-term investments. 
+ 
+ROA is operating income after depreciation (Compustat Item #178) deflated by average total assets. 
+ 
+FROA is the average ROA over the next four years.  For example, FROAt+2 is the average ROA for years t+2 through t+5.   
+
+ 
+57
+TABLE 7 
+Additional Tests Investigating How the Change in Operating Assets (∆OA) and the Change in 
+Operating Liabilities (∆OL) Relate to Next Year’s Accounting Rate of Return.  The Sample Consists 
+of 108,617 Firm-Year Observations from 1962-2001. 
+ 
+ 
+Panel A: Mean Coefficients and t-statistics from Annual Cross-Sectional Regressions Analyzing 
+a Financing Decomposition of ∆OA. 
+ 
+ROAt+1 = ρ0 + ρ1ROAt + ρ2 ∆OAt + υt+1 
+ 
+ROAt+1 = ρ0 + ρ1ROAt + ρ2 ∆OLt + ρ3∆FINLt - ρ4∆FAt + ρ5 ∆Equityt + υt+1 
+ 
+ 
+Intercept 
+ROA 
+∆OA 
+∆OL 
+∆FINL 
+-∆FA 
+∆Equity 
+Adj. R2 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+Mean Coef. 
+0.015 
+0.782 
+-0.044 
+ 
+ 
+ 
+ 
+0.586 
+t-statistic 
+ 
+ 
+(-14.93) 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+Mean Coef. 
+0.013 
+0.817 
+ 
+0.047 
+-0.039 
+-0.049 
+-0.106 
+0.595 
+t-statistic 
+ 
+ 
+ 
+(6.61) 
+(-7.84) 
+(-8.73) 
+(-12.22) 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+Panel B: Mean Future Change in the Accounting Rate of Return (∆ROAt+1) Partitioned by 
+Independent Quintile Sorts on ∆OA and ∆OL (Number of Observations in Parentheses). 
+ 
+ 
+∆OL 
+∆OA 
+Low 
+2 
+3 
+4 
+High 
+Total Avg. 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+0.010 
+0.015 
+0.023 
+0.032 
+0.065 
+0.018 
+Low 
+(10,991) 
+(4,809) 
+(2,709) 
+(1,837) 
+(1,364) 
+(21,710) 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+-0.011 
+-0.005 
+0.000 
+0.005 
+0.027 
+-0.001 
+2 
+(4,763) 
+(6,997) 
+(5,326) 
+(3,179) 
+(1,465) 
+(21,730) 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+-0.019 
+-0.011 
+-0.007 
+-0.003 
+0.008 
+-0.007 
+3 
+(2,807) 
+(5,132) 
+(6,337) 
+(5,142) 
+(2,313) 
+(21,731) 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+-0.037 
+-0.024 
+-0.017 
+-0.015 
+-0.006 
+-0.017 
+4 
+(2,009) 
+(3,282) 
+(4,927) 
+(6,580) 
+(4,931) 
+(21,729) 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+-0.040 
+-0.035 
+-0.030 
+-0.031 
+-0.026 
+-0.029 
+High 
+(1,140) 
+(1,510) 
+(2,431) 
+(4,992) 
+(11,644) 
+(21,717) 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+-0.006 
+-0.007 
+-0.006 
+-0.009 
+-0.009 
+ 
+Total 
+Average 
+(21,710) 
+(21,730) 
+(21,730) 
+(21,730) 
+(21,717) 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+∆OA is the change in operating assets, defined as ∆COA + ∆NCOA. 
+ 
+∆COA is change in current operating assets defined as COAt - COAt-1.  COA=Current Assets (Compustat Item #4) - Cash 
+and Short Term Investments (STI) (Compustat Item #1).  COA is deflated by average total assets. 
+ 
+∆NCOA is change in non-current operating assets defined as NCOAt - NCOAt-1.  NCOA = Total Assets (Compustat Item 
+#6) - Current Assets (Compustat Item #4) - Investments and Advances (Compustat Item #32). NCOA is deflated by average 
+total assets. 
+ 
+∆OL is the change in operating liabilities, defined as ∆COL + ∆NCOL. 
+ 
+
+ 
+58
+∆COL is change in current operating liabilities defined as COLt - COLt-1.  COL=Current Liabilities (Compustat Item #5) - 
+Debt in Current Liabilities (Compustat Item #34).  COL is deflated by average total assets. 
+ 
+∆NCOL is change in non-current operating liabilities defined as NCOLt - NCOLt-1.  NCOL = Total Liabilities (Compustat 
+Item #181) - Current Liabilities (Compustat Item #5) – Long-term debt (Compustat Item #9).  NCOL is deflated by average 
+total assets. 
+ 
+∆FINL is the change in financial liabilities (inclusive of preferred stock) defined as FINLt - FINLt-1.  FINL = Long-term 
+debt (Compustat Item #9) + Debt in Current Liabilities (Compustat Item #34) + Preferred Stock (Compustat Item #130).  
+FINL is deflated by average total assets. 
+ 
+∆FA is the change in financial assets defined as FAt - FAt-1.  FA = Cash and cash equivalents (Compustat Item #1) + 
+Investments and Advances (Compustat Item #32).  FA is deflated by average total assets. 
+ 
+∆Equity is the change in external equity financing defined as EQt - EQt-1.  EQ = Book value of common equity (Compustat 
+Item #60). EQ is deflated by average total assets. 
+ 
+∆ROAt+1 is the change in the accounting rate of return defined as ROAt+1 – ROAt, where ROA is operating income after 
+depreciation (Compustat Item #178) deflated by average total assets in year t+1. 
+
+ 
+59
+TABLE 8 
+Time-Series Means and t-Statistics for Coefficients from Annual Cross-Sectional Regressions of Next 
+Year’s Size Adjusted Stock Return on This Year’s Accruals.  The Sample Consists of 108,617 Firm-
+Year Observations for the Period 1962-2001. 
+ 
+ 
+Panel A: OLS regressions for Total Accruals 
+ 
+ 
+RETt+1 = ρ0 + ρ1 ROAt + ρ2TACCt + υt+1 
+ 
+Intercept 
+ROA 
+TACC 
+Adj. R2 
+ 
+ 
+ 
+ 
+ 
+Mean Coefficient  
+0.007 
+0.020 
+ 
+0.006 
+t-statistic 
+(0.86) 
+(0.36) 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+Mean Coefficient  
+0.013 
+0.083 
+-0.197 
+0.011 
+t-statistic 
+(1.52) 
+(1.47) 
+(-6.38) 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+Panel B: OLS regressions for the Initial Accrual Decomposition 
+ 
+RETt+1 = ρ0 + ρ1 ROAt + ρ2∆WCt + ρ3∆NCOt + ρ4 ∆FINt + υt+1 
+ 
+Intercept 
+ROA 
+∆WC 
+∆NCO 
+∆FIN 
+Adj. R2 
+Predicted 
+Reliability 
+ 
+ 
+Medium 
+Low/ 
+Medium 
+High 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+Mean Coef. 
+0.010 
+0.069 
+-0.309 
+ 
+ 
+0.011 
+t-statistic 
+(1.19) 
+(1.23) 
+(-8.72) 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+Mean Coef. 
+0.019 
+0.048 
+ 
+-0.268 
+ 
+0.012 
+t-statistic 
+(2.14) 
+(0.86) 
+ 
+(-8.76) 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+Mean Coef. 
+0.012 
+0.007 
+ 
+ 
+0.123 
+0.010 
+t-statistic 
+(1.40) 
+(0.12) 
+ 
+ 
+(5.85) 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+Mean Coef. 
+0.022 
+0.094 
+-0.300 
+-0.271 
+-0.054 
+0.016 
+t-statistic 
+(2.45) 
+(1.69) 
+(-7.54) 
+(-6.77) 
+(-1.94) 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+Panel C: OLS regressions for the Extended Accrual Decomposition 
+RETt+1 = ρ0 + ρ1 ROAt + ρ2 ∆COAt - ρ3 ∆COLt + ρ4 ∆NCOAt - ρ5 ∆NCOLt + ρ6 ∆STIt + ρ7 ∆LTIt - ρ8 ∆ FINLt + υt+1 
+Intercept 
+ROA 
+∆COA 
+-∆COL 
+∆NCOA 
+-∆NCOL 
+∆STI 
+∆LTI 
+-∆FINL 
+Adj. R2 
+Predicted 
+Reliability 
+ 
+ 
+Low 
+High 
+Low 
+Medium 
+High 
+Medium 
+High 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+Mean Coef. 
+0.016 
+0.085 
+-0.300 
+ 
+ 
+ 
+ 
+ 
+ 
+0.012 
+t-statistic 
+(1.74) 
+(1.55) 
+(-8.71) 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+Mean Coef. 
+0.012 
+0.031 
+ 
+0.213 
+ 
+ 
+ 
+ 
+ 
+0.008 
+t-statistic 
+(1.29) 
+(0.57) 
+ 
+(4.49) 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+Mean Coef. 
+0.021 
+0.049 
+ 
+ 
+-0.263 
+ 
+ 
+ 
+ 
+0.012 
+t-statistic 
+(2.30) 
+(0.88) 
+ 
+ 
+(-8.44) 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+Mean Coef. 
+0.008 
+0.021 
+ 
+ 
+ 
+0.053 
+ 
+ 
+ 
+0.007 
+t-statistic 
+(0.88) 
+(0.37) 
+ 
+ 
+ 
+(0.65) 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+Mean Coef. 
+0.008 
+0.016 
+ 
+ 
+ 
+ 
+0.054 
+ 
+ 
+0.007 
+t-statistic 
+(0.94) 
+(0.29) 
+ 
+ 
+ 
+ 
+(0.43) 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+Mean Coef. 
+0.008 
+0.021 
+ 
+ 
+ 
+ 
+ 
+-0.204 
+ 
+0.007 
+t-statistic 
+(0.92) 
+(0.38) 
+ 
+ 
+ 
+ 
+ 
+(-3.38) 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+Mean Coef. 
+0.014 
+0.015 
+ 
+ 
+ 
+ 
+ 
+ 
+0.206 
+0.010 
+t-statistic 
+(1.64) 
+(0.26) 
+ 
+ 
+ 
+ 
+ 
+ 
+(8.01) 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+Mean Coef. 
+0.024 
+0.106 
+-0.309 
+-0.200 
+-0.250 
+-0.233 
+0.026 
+-0.253 
+-0.027 
+0.018 
+t-statistic 
+(2.51) 
+(1.93) 
+(-7.70) 
+(-4.10) 
+(-6.42) 
+(-2.98) 
+(0.17) 
+(-4.18) 
+(-0.90) 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+
+ 
+60
+ 
+The sample consists of 108,617 firm years from 1962 to 2001.  Regression results are based on 40 annual regression using 
+the Fama and MacBeth (1973) approach. 
+ 
+TACC is total accruals from the balance sheet approach.  It is calculated as ∆Working Capital (∆WC) + ∆Non-Current 
+Operating (∆NCO) + ∆Financial (∆FIN).  This can be equivalently written as (∆COA - ∆COL) + (∆NCOA - ∆NCOL) + 
+(∆FINA - ∆FINL).  Total accruals and all of its components (described below) are deflated by average total assets. 
+ 
+∆WC is defined as WCt - WCt-1. Where WC = Current Operating Assets (COA) - Current Operating Liabilities (COL) 
+where COA=Current Assets (Compustat Item #4) - Cash and Short Term Investments (STI) (Compustat Item #1). 
+COL=Current Liabilities (Compustat Item #5) - Debt in Current Liabilities (Compustat Item #34).  
+∆COA is change in current operating assets defined as COAt - COAt-1.   
+∆COL is change in current operating liabilities defined as COLt - COLt-1.   
+ 
+∆NCO is defined as NCOt - NCOt-1. Where NCO = Non-Current Operating Assets (NCOA) - Non-Current Operating 
+Liabilities (NCOL) where NCOA = Total Assets (Compustat item #6) - Current Assets (Compustat Item #4) - Investments 
+and Advances (Compustat Item #32).  NCOL = Total Liabilities (Compustat Item #181) - Current Liabilities (Compustat 
+Item #5) – Long-term debt (Compustat Item #9).  
+∆NCOA is change in non-current operating assets defined as NCOAt - NCOAt-1.   
+∆NCOL is change in non-current operating liabilities defined as NCOLt - NCOLt-1.   
+ 
+∆FIN is defined as FINt - FINt-1. Where FIN = Financial Assets (FINA) - Financial Liabilities (FINL).  FINA = Short Term 
+Investments (STI) (Compustat Item #193) + Long Term Investments (LTI) (Compustat Item #32).  FINL= Long term debt 
+(Compustat Item #9) + Debt in Current Liabilities (Compustat Item #34) + Preferred Stock (Compustat Item #130).  
+∆FINA is change in financial assets defined as FINAt - FINAt-1.   
+∆FINL is change in financial liabilities defined as FINLt - FINLt-1.   
+∆STI is change in short term investments. 
+∆LTI is change in long-term investments. 
+ 
+ROA is operating income after depreciation (Compustat Item #178) deflated by average total assets. 
+ 
+RET is the annual buy-hold size-adjusted return.  The size-adjusted return is calculated by deducting the value-weighted 
+average return for all firms in the same size-matched decile, where size is measured as market capitalization at the 
+beginning of the return cumulation period.  The return cumulation period begins four months after the end of the fiscal year. 
+
+ 
+61
+TABLE 9 
+Additional Tests Investigating How the Change in Operating Assets (∆OA) and the Change in 
+Operating Liabilities (∆OL) Relate to Next Year’s Size Adjusted Annual Stock Returns (RETt+1).  The 
+Sample Consists of 108,617 Firm-Year Observations for the Period 1962-2001. 
+ 
+ 
+Panel A: Mean Coefficients and t-statistics from Annual Cross-Sectional Regressions Analyzing 
+a Financing Decomposition of ∆OA. 
+ 
+RETt+1 = ρ0 + ρ1ROAt + ρ2 ∆OAt + υt+1 
+ 
+RETt+1 = ρ0 + ρ1ROAt + ρ2 ∆OLt + ρ3∆FINLt - ρ4∆FAt + ρ5 ∆Equityt + υt+1 
+ 
+ 
+Intercept 
+ROA 
+∆OA 
+∆OL 
+∆FINL 
+-∆FA 
+∆Equity 
+Adj. R2 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+Mean Coef. 
+0.024 
+0.096 
+-0.228 
+ 
+ 
+ 
+ 
+0.014 
+t-statistic 
+ 
+ 
+(-11.12) 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+Mean Coef. 
+0.024 
+0.105 
+ 
+-0.034 
+-0.255 
+-0.179 
+-0.269 
+0.017 
+t-statistic 
+ 
+ 
+ 
+(-1.04) 
+(-9.76) 
+(-7.29) 
+(-6.25) 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+Panel B: Next Year’s Mean Size-Adjusted Annual Stock Return (RETt+1) Partitioned by 
+Independent Quintile Sorts on ∆OA and ∆OL (Number of Observations in Parentheses). 
+ 
+ 
+∆OL 
+∆OA 
+Low 
+2 
+3 
+4 
+High 
+Total Avg. 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+0.062 
+0.066 
+0.099 
+0.060 
+0.102 
+0.069 
+Low 
+(10,991) 
+(4,809) 
+(2,709) 
+(1,837) 
+(1,364) 
+(21,710) 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+0.026 
+0.022 
+0.041 
+0.081 
+0.092 
+0.041 
+2 
+(4,763) 
+(6,997) 
+(5,326) 
+(3,179) 
+(1,465) 
+(21,730) 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+-0.022 
+0.012 
+0.023 
+0.042 
+0.032 
+0.020 
+3 
+(2,807) 
+(5,132) 
+(6,337) 
+(5,142) 
+(2,313) 
+(21,731) 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+-0.062 
+-0.021 
+-0.016 
+-0.016 
+0.045 
+-0.008 
+4 
+(2,009) 
+(3,282) 
+(4,927) 
+(6,580) 
+(4,931) 
+(21,729) 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+-0.094 
+-0.093 
+-0.057 
+-0.066 
+-0.075 
+-0.073 
+High 
+(1,140) 
+(1,510) 
+(2,431) 
+(4,992) 
+(11,644) 
+(21,717) 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+0.023 
+0.015 
+0.019 
+0.007 
+-0.014 
+ 
+Total 
+Average 
+(21,710) 
+(21,730) 
+(21,730) 
+(21,730) 
+(21,717) 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+∆OA is the change in operating assets, defined as ∆COA + ∆NCOA. 
+ 
+∆COA is change in current operating assets defined as COAt - COAt-1.  COA=Current Assets (Compustat Item #4) - Cash 
+and Short Term Investments (STI) (Compustat Item #1).  COA is deflated by average total assets. 
+ 
+∆NCOA is change in non-current operating assets defined as NCOAt - NCOAt-1.  NCOA = Total Assets (Compustat Item 
+#6) - Current Assets (Compustat Item #4) - Investments and Advances (Compustat Item #32). NCOA is deflated by average 
+total assets. 
+ 
+∆OL is the change in operating liabilities, defined as ∆COL + ∆NCOL. 
+ 
+
+ 
+62
+∆COL is change in current operating liabilities defined as COLt - COLt-1.  COL=Current Liabilities (Compustat Item #5) - 
+Debt in Current Liabilities (Compustat Item #34).  COL is deflated by average total assets. 
+ 
+∆NCOL is change in non-current operating liabilities defined as NCOLt - NCOLt-1.  NCOL = Total Liabilities (Compustat 
+Item #181) - Current Liabilities (Compustat Item #5) – Long-term debt (Compustat Item #9).  NCOL is deflated by average 
+total assets. 
+ 
+∆FINL is the change in financial liabilities (inclusive of preferred stock) defined as FINLt - FINLt-1.  FINL = Long-term 
+debt (Compustat Item #9) + Debt in Current Liabilities (Compustat Item #34) + Preferred Stock (Compustat Item #130).  
+FINL is deflated by average total assets. 
+ 
+∆FA is the change in financial assets defined as FAt - FAt-1.  FA = Cash and cash equivalents (Compustat Item #1) + 
+Investments and Advances (Compustat Item #32).  FA is deflated by average total assets. 
+ 
+∆Equity is the change in external equity financing defined as EQt - EQt-1.  EQ = Book value of common equity (Compustat 
+Item #60). EQ is deflated by average total assets. 
+ 
+RET is the annual buy-hold size-adjusted return.  The size-adjusted return is calculated by deducting the value-weighted 
+average return for all firms in the same size-matched decile, where size is measured as market capitalization at the 
+beginning of the return cumulation period.  The return cumulation period begins four months after the end of the fiscal year. 
+ 
+
+ 
+63
+ 
+TABLE 10 
+Next Year’s Annual Mean Size-Adjusted Returns for Decile Portfolios Formed on Total Accruals and 
+its Components.  The Sample Covers 108,617 Firm-Year Observations for the Period 1962-2001. 
+ 
+ 
+Panel A: Portfolios constructed on Components of Initial Accrual Decomposition 
+Portfolio 
+TACC 
+∆WC 
+∆NCO 
+∆NOA 
+∆FIN 
+Rank 
+ 
+ 
+ 
+ 
+ 
+Low 
+0.066 
+0.060 
+0.073 
+0.080 
+-0.061 
+2 
+0.038 
+0.056 
+0.053 
+0.081 
+-0.013 
+3 
+0.029 
+0.033 
+0.043 
+0.044 
+0.003 
+4 
+0.028 
+0.020 
+0.042 
+0.030 
+0.016 
+5 
+0.016 
+0.014 
+0.017 
+0.030 
+0.014 
+6 
+0.015 
+0.024 
+0.009 
+0.019 
+0.025 
+7 
+0.012 
+0.004 
+-0.003 
+-0.008 
+0.022 
+8 
+-0.011 
+-0.010 
+-0.013 
+-0.032 
+0.034 
+9 
+-0.026 
+-0.032 
+-0.029 
+-0.045 
+0.038 
+High 
+-0.067 
+-0.068 
+-0.092 
+-0.100 
+0.021 
+ 
+ 
+ 
+ 
+ 
+ 
+Hedge 
+0.133 
+0.128 
+0.165 
+0.180 
+-0.082 
+t-statistic 
+10.25 
+10.56 
+14.26 
+14.91 
+-7.49 
+ 
+ 
+Panel B: Portfolios constructed on Components of Extended Accrual Decomposition 
+Portfolio 
+∆COA 
+-∆COL 
+∆NCOA 
+-∆NCOL 
+∆ STI 
+∆ LTI 
+-∆ FINL 
+Rank 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+Low 
+0.069 
+-0.027 
+0.070 
+-0.008 
+0.022 
+0.026 
+-0.076 
+2 
+0.061 
+0.001 
+0.054 
+-0.003 
+0.013 
+0.008 
+-0.024 
+3 
+0.029 
+0.001 
+0.049 
+0.019 
+0.005 
+0.015 
+-0.010 
+4 
+0.017 
+0.016 
+0.033 
+0.007 
+0.005 
+0.015 
+0.007 
+5 
+0.026 
+0.016 
+0.022 
+0.007 
+0.005 
+0.015 
+0.028 
+6 
+0.007 
+0.018 
+0.004 
+0.016 
+0.005 
+0.015 
+0.035 
+7 
+0.010 
+0.010 
+-0.001 
+0.033 
+0.005 
+0.015 
+0.032 
+8 
+-0.017 
+0.017 
+-0.009 
+0.007 
+0.005 
+0.015 
+0.038 
+9 
+-0.025 
+0.020 
+-0.029 
+0.019 
+0.016 
+0.002 
+0.044 
+High 
+-0.076 
+0.028 
+-0.091 
+0.003 
+0.015 
+-0.026 
+0.029 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+Hedge 
+0.145 
+-0.055 
+0.161 
+-0.011 
+0.007 
+0.052 
+-0.105 
+t-statistic 
+11.79 
+-4.64 
+14.02 
+-1.08 
+0.71 
+5.40 
+-10.09 
+ 
+Portfolios are formed based on total accruals and its components.  Firm-year observations are ranked annually and assigned 
+in equal numbers to decile portfolios based on the respective accrual component. 
+ 
+Hedge represents the net return generated by taking a long position in the ‘Low’ portfolio and an equal sized short position 
+in the ‘High’ portfolio.  T-statistic tests whether the hedge return is statistically different from zero. 
+ 
+TACC is total accruals from the balance sheet approach.  It is calculated as ∆Working Capital (∆WC) + ∆Non-Current 
+Operating (∆NCO) + ∆Financial (∆FIN).  This can be equivalently written as (∆COA - ∆COL) + (∆NCOA - ∆NCOL) + 
+(∆FINA - ∆FINL).  Total accruals and all of its components (described below) are deflated by average total assets. 
+ 
+
+ 
+64
+∆WC is defined as WCt - WCt-1. Where WC = Current Operating Assets (COA) - Current Operating Liabilities (COL) 
+where COA=Current Assets (Compustat Item #4) - Cash and Short Term Investments (STI) (Compustat Item #1). 
+COL=Current Liabilities (Compustat Item #5) - Debt in Current Liabilities (Compustat Item #34).  
+∆COA is change in current operating assets defined as COAt - COAt-1.   
+∆COL is change in current operating liabilities defined as COLt - COLt-1.   
+ 
+∆NCO is defined as NCOt - NCOt-1. Where NCO = Non-Current Operating Assets (NCOA) - Non-Current Operating 
+Liabilities (NCOL) where NCOA = Total Assets (Compustat item #6) - Current Assets (Compustat Item #4) - Investments 
+and Advances (Compustat Item #32).  NCOL = Total Liabilities (Compustat Item #181) - Current Liabilities (Compustat 
+Item #5) – Long-term debt (Compustat Item #9).  
+∆NCOA is change in non-current operating assets defined as NCOAt - NCOAt-1.   
+∆NCOL is change in non-current operating liabilities defined as NCOLt - NCOLt-1.   
+ 
+∆NOA is defined as the sum of ∆WC and ∆NCO. 
+ 
+∆FIN is defined as FINt - FINt-1. Where FIN = Financial Assets (FINA) - Financial Liabilities (FINL).  FINA = Short Term 
+Investments (STI) (Compustat Item #193) + Long Term Investments (LTI) (Compustat Item #32).  FINL= Long term debt 
+(Compustat Item #9) + Debt in Current Liabilities (Compustat Item #34) + Preferred Stock (Compustat Item #130).  
+∆FINA is change in financial assets defined as FINAt - FINAt-1.   
+∆FINL is change in financial liabilities defined as FINLt - FINLt-1.   
+∆STI is change in short term investments. 
+∆LTI is change in long-term investments. 
+ 
+The portfolio returns are equal-weighted mean annual buy-hold size-adjusted return.  The size-adjusted return is calculated 
+by deducting the value-weighted average return for all firms in the same size-matched decile, where size is measured as 
+market capitalization at the beginning of the return cumulation period.  The return cumulation period begins four months 
+after the end of the fiscal year. 

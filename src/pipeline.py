@@ -117,7 +117,7 @@ class Pipeline:
         (a durable, independently-runnable audit artifact — see
         src/steps/step3_codegen/script_generator.py). The registered
         snapshot's data files must already exist on disk (crsp_msf.parquet,
-        and for Compustat-based signals also comp_funda.parquet +
+        and for Compustat-based signals also compustat_fundamental_annual.parquet +
         ccm_lnkhist.parquet) — this method does not generate data.
 
         Args:
@@ -228,7 +228,7 @@ class Pipeline:
             storage_path = Path(snapshot.storage_path)
             if mode == "compustat":
                 # Same declarative loader the generated script uses
-                # (assemble_signal_master_table), reading comp_funda.parquet +
+                # (assemble_signal_master_table), reading compustat_fundamental_annual.parquet +
                 # ccm_lnkhist.parquet from the snapshot dir.
                 si = assemble_signal_master_table(spec, storage_path)
             elif mode == "crsp_only":

@@ -137,28 +137,3 @@ experiments:
         exp_run = next(r for r in runs if r.track == "ablation_weighting_ew")
         assert any("family='portfolio_ablation'" in log for log in exp_run.logs)
         assert any("identification_level='controlled'" in log for log in exp_run.logs)
-
-    def test_bridge_and_vintage_experiments_are_skipped_not_run(self, tmp_path):
-        path = _write_matrix(
-            tmp_path,
-            """
-factor_id: t
-experiments:
-  - name: bridge_cz_signal
-    signal_input_ref: "cz:Test"
-  - name: ablation_weighting_ew
-    config_overrides: {weighting_rule: ew}
-""",
-        )
-        matrix = load_experiment_matrix(path, _spec())
-        runner = FakeRunner()
-        controller = MultiTrackController(runner=runner, meta_coder=FakeMetaCoder(), sandbox=FakeSandbox())
-
-        runs = controller.run_from_matrix(_plugin(), _spec(), matrix, snapshot_id="snap1")
-
-        tracks = [r.track for r in runs]
-        assert "bridge_cz_signal" not in tracks
-        assert "ablation_weighting_ew" in tracks
-
-        batch_info = runner.comparison_calls[0]["batch_info"]
-        assert batch_info["skipped_experiments"] == ["bridge_cz_signal"]

@@ -7,7 +7,7 @@ don't delete resolved items, mark them done instead.
 
 **Real fix DONE (2026-08-13) for the common case: any universe filter
 resolved to a REAL, already-registered physical column** (e.g.
-`total_assets` -> `comp_funda.at`) is now genuinely supported, not just
+`total_assets` -> `compustat_fundamental_annual.at`) is now genuinely supported, not just
 `accepted_unapplied`-workaround-able. The generated script
 (`script_generator.join_universe_filter_sources`, called from `main()`
 before the engine runs) point-in-time joins any such column onto the
@@ -31,7 +31,7 @@ until the derived-column engineering below is built.
 
 **Real fix, deferred (derived-column case only):**
 
-1. `sources.py`: register a derived column on `comp_funda` -- for each
+1. `sources.py`: register a derived column on `compustat_fundamental_annual` -- for each
    `gvkey`, the earliest `datadate` across all its annual records
    (`first_datadate`, a groupby-min, not a raw per-row column) -- and expose
    it as a normal physical column/concept alias (e.g.

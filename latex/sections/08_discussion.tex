@@ -1,0 +1,108 @@
+\section{Discussion, Limitations and Conclusion}
+\label{sec:discussion}
+
+\subsection{Implications for the factor zoo debate}
+
+If, across this paper's sample, HXZ-versus-C\&Z divergence is systematically
+attributable via $\Aref$ to a specific side's departure from what the paper
+states -- rather than to the underlying factor being invalid -- then a
+non-trivial share of what the literature records as replication failure is
+better described as implementation disagreement misfiled as factor failure.
+The converse is equally informative: factors where the paper is silent on a
+field, yet $\Cagent$, $\Ccz$, and $\Cstd$ still land close together, are
+the cases where a lack of specificity in the original text turned out not
+to matter -- arguably the more genuinely robust anomalies, even though they
+are rarely singled out as such. Both readings are grounded directly in the
+outcome classification of \S\ref{sec:results}, not asserted independently
+of it.
+
+\subsection{Limitations}
+
+\subsubsection{Methodological}
+\begin{itemize}
+  \item \textbf{No within-agent dispersion study.} The variance of repeated
+    extraction ($K \geq 5$ draws per paper) is unmeasured -- threatens C1:
+    $\Acz - \Aref$ mixes LLM sampling noise with genuine paper ambiguity
+    (the "overstatement" side of the two-sided bias, \S\ref{sec:scope}).
+  \item \textbf{No Q2 bridge track.} The C\&Z reference signal has not been
+    run through this engine -- blocks (a) cross-validating the engine's
+    absolute output against C\&Z's own published AltPorts numbers, and
+    (b) further splitting $(\CZ - \Acz)$ into signal-difference vs.\
+    environment/vintage-difference; it is reported as one combined residual.
+  \item \textbf{Human-confirmation independence is operator discipline, not
+    a system-level guarantee.} SignalDoc.csv never enters the pipeline
+    programmatically (hard boundary), but the human doing manual
+    confirmation has necessarily seen C\&Z conventions -- a known, not fully
+    closeable, soft boundary (see Ch.1's proactive disclosure).
+  \item \textbf{The finite configuration menu understates underdetermination}
+    (the disagreement band is a lower bound, not an unbiased estimate).
+\end{itemize}
+
+\subsubsection{Data}
+\begin{itemize}
+  \item Single WRDS data vintage; sample coverage is not hardcoded anywhere
+    in the pipeline and must be documented manually
+    (Appendix~\ref{app:repro}).
+  \item Restricted to US common equity, monthly portfolio returns, CRSP +
+    Compustat annual accounting data (\S\ref{sec:scope}).
+\end{itemize}
+
+\subsubsection{Factor-specific}
+\begin{itemize}
+  \item \textbf{PS.} The BM-highest-quintile filter is unimplemented
+    (declared \texttt{accepted\_unapplied}); the reported F-score result is a
+    full-sample sort, not the paper's high-BM-subset sort -- the two numbers
+    are not directly comparable.
+  \item \textbf{fgr5yrLag.} Its inclusion is deliberate evidence of this
+    framework's own limits, not merely a caveat: the paper-anchored identity
+    (Equation~\eqref{eq:three-term}) has no term for a divergence caused by
+    two teams pulling a retroactively-revised database (IBES) at different
+    vintages, so this factor's gap is reported without a full attribution.
+  \item \textbf{OScore.} The paper's asymmetric long-70\%/short-10\% split
+    is not expressible by this engine's equal-quantile breakpoint menu
+    (\S\ref{sec:scope}); whatever approximation was used to report OScore's
+    numbers must be stated explicitly wherever they are cited
+    (\S\ref{sec:results}).
+  \item \textbf{Estimator restriction.} Only \texttt{portfolio\_sort} is
+    supported (no Fama--MacBeth) -- the factor selection itself excludes
+    papers whose headline result is a cross-sectional regression
+    coefficient, a form of selection bias that must be acknowledged: the set
+    of factors this framework \emph{can} study is a subset, not the
+    population.
+\end{itemize}
+
+\subsection{Future work}
+\begin{enumerate}
+  \item Within-agent dispersion study ($K \geq 5$ repeated extractions) --
+    highest priority, directly resolves the largest overstatement risk in
+    \S\ref{sec:discussion}.
+  \item Q2 bridge track (C\&Z signal through this engine) -- unlocks
+    signal/configuration separation and engine output calibration.
+  \item Scale to the full HXZ$\cap$C\&Z intersection ($n=141$,
+    \texttt{docs/step6.md} \S11) or the full SignalDoc population ($n=331$).
+  \item Shapley-value attribution -- generalizes the field-level gap
+    decomposition beyond the $\leq 5$-field regime where a full factorial is
+    tractable.
+  \item Extend engine capability (Fama--MacBeth estimator, derived-column
+    universe filters, asymmetric quantile splits) -- each addition reduces
+    the factor-selection bias above.
+\end{enumerate}
+
+\subsection{Conclusion}
+
+The question this paper set out to answer was not whether a given factor
+replicates, but why two careful, independent teams can reach opposite
+verdicts on the same published text, and whether that disagreement can be
+traced to specific, falsifiable causes. C1 answers this directly: the
+paper-anchored three-term identity, applied to a sample of factors chosen
+for their documented HXZ-versus-C\&Z divergence, attributes each factor's
+gap to a signal/environment term, a configuration term, and an agent
+residual, rather than reporting one opaque number. C2 shows that this
+attribution is obtainable as a byproduct of a controlled, leakage-proof
+agent pipeline whose own autonomy and capability boundary is measured, not
+assumed. C3 is what makes both trustworthy: every quantity behind C1 and
+C2 is reproducible with the language model switched off. Where this design
+still falls short -- most importantly, the absence of a within-agent
+dispersion study and of a signal-level bridge to C\&Z's own data -- is
+stated above as a specific, resolvable limitation, not folded into the
+headline claim.

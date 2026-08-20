@@ -1,0 +1,109 @@
+\section{Conceptual Framework}
+\label{sec:framework}
+
+This section formalizes the notation used throughout the paper and states
+two identities the empirical design in \S\ref{sec:design} is built to
+measure. It deliberately contains no implementation detail -- those are
+deferred to \S\ref{sec:pipeline} and Appendix~\ref{app:config-menu}.
+
+\subsection{Notation}
+
+For a given factor and its published paper $P$, six quantities recur:
+$\Pref$, the spread (and $t$-statistic) $P$ itself reports; $\Aref$, the
+result of running the agent's independently-extracted signal $\SA$ under
+the agent's own reading of $P$'s configuration, $\Cagent$ -- the
+paper-faithful baseline; $\Acz$ and $\Ahxz$, hybrid tracks that hold $\SA$
+fixed but swap in Chen and Zimmermann's actual configuration, $\Ccz$, or an
+HXZ-style standardized configuration, $\Cstd$, respectively; and $\CZ$ and
+$\HXZ$, each team's own independently measured result for the same factor
+(Chen and Zimmermann's own reported number, and Hou-Xue-Zhang's own reported
+number where one exists). A \emph{track} is one (signal, configuration)
+pair executed by the engine; a \emph{freeze} commits a signal or
+configuration to evidence so that later tracks can be compared against it
+without risk of silent drift (\S\ref{sec:pipeline}).
+
+\begin{definition}[Underdetermination]
+Given a paper $P$, let $\ImplSpace{P}$ denote the set of implementations it
+admits. If $\{\mathrm{verdict}(i) : i \in \ImplSpace{P}\}$ is not a
+singleton, the factor's replication verdict is underdetermined by $P$.
+\end{definition}
+
+\begin{definition}[Disagreement band]
+The subspace spanned by the difference set between $\Aref$ and $\CZ$ is used
+as an empirical \emph{lower-bound} estimate of $\ImplSpace{P}$ (a lower
+bound because the true disagreement space can only be wider).
+\end{definition}
+
+\subsection{The paper-anchored three-term identity}
+\begin{equation}
+  \label{eq:three-term}
+  \underbrace{\CZ - \Pref}_{\text{total gap}}
+  = \underbrace{(\CZ - \Acz)}_{\text{signal / environment difference}}
+  + \underbrace{(\Acz - \Aref)}_{\text{configuration difference}}
+  + \underbrace{(\Aref - \Pref)}_{\text{agent replication residual}}
+\end{equation}
+The $\HXZ$ side substitutes $\Ahxz$ for $\Acz$ symmetrically. Each term has
+a distinct, non-interchangeable meaning: the first isolates how much of the
+gap survives even when the configuration is held at C\&Z's own choices --
+attributable to differences between the agent's signal and C\&Z's signal,
+plus any residual data-vintage or engine effects that Q2 (\S\ref{sec:pipeline},
+future work) would need to separate further; the second isolates the
+configuration effect alone, with the signal held fixed at $\SA$; the third
+is the agent's own departure from the paper, holding neither signal nor
+configuration against an external party. Collapsing these into one number
+-- "the total gap" -- is exactly what existing replication studies do
+(\S\ref{sec:related}), and exactly what this identity is designed not to do.
+
+This identity only licenses the "who deviates from the paper" reading on
+fields $P$ \emph{explicitly states}; on fields $P$ is silent on, there is no
+ground truth to deviate from, and the analysis reverts to the
+disagreement-band framing above. Both readings coexist in this paper's
+results (\S\ref{sec:results}): a stated field is scored as an attributable
+deviation, a silent field is scored as a point in an underdetermined space.
+They are not alternative framings of the same evidence -- they are the
+correct framing for two disjoint kinds of configuration field.
+
+\subsection{Window and vintage mismatch}
+
+Equation~\eqref{eq:three-term}'s four endpoints are not measured on a common
+footing. $\Pref$ reflects the paper's own sample window and the
+computational conventions available at the time it was written. $\Aref$ and
+$\Acz$ are measured on this engine's data coverage using a Newey-West
+correction. $\CZ$ is read from Chen and Zimmermann's static reference
+profile (\S\ref{sec:data}), whose window is fixed and not re-specifiable.
+$\HXZ$, by contrast, is computed through a bridge that can be asked for a
+specific window and is deliberately aligned to this engine's Newey-West
+convention. In practice, then, Equation~\eqref{eq:three-term} is measured
+with an explicit fourth term for whichever endpoints' windows do not align,
+rather than silently absorbed into one of the three named terms. This is
+not a compromise forced by imperfect data: the window-mismatch term is
+itself informative, since it answers, on its own, how much of a reported
+gap is attributable to comparing two different sample periods rather than
+to any methodological choice at all.
+
+\subsection{The LLM-assisted, not LLM-controlled, principle}
+
+Everything in this framework depends on one constraint holding without
+exception: the language model is permitted to author the
+\texttt{compute\_signal} function and nothing else. Every quantity that
+enters $\Cagent$ -- weighting rule, breakpoint convention, sample window,
+holding period, estimator -- is drawn from a fixed menu enforced
+mechanically by \texttt{registry.build\_config} (\S\ref{sec:pipeline},
+Appendix~\ref{app:config-menu}); a value the paper appears to specify but
+that falls outside the menu is clamped to a documented default rather than
+passed through as the model's own choice. This is what makes $\Aref$ usable
+as a paper-faithful baseline rather than merely another model output: the
+model's influence is confined to one auditable artifact, and every
+downstream number in \S\ref{sec:results} is reproducible by re-running the
+deterministic engine against a frozen \texttt{compute\_signal} with the
+language model switched off entirely.
+
+The same discipline defines this paper's leakage-proof boundary. Chen and
+Zimmermann's own metadata (\texttt{SignalDoc.csv}) is used only for
+post-hoc evaluation -- to compute $\CZ$ and to select which factors exhibit
+informative HXZ-versus-C\&Z divergence (\S\ref{sec:data}) -- and is never
+passed to the extraction step that produces $\Cagent$. Section~\ref{sec:intro}
+already flags where this boundary is a system-level guarantee and where it
+instead depends on the discipline of a human reviewer; that distinction is
+restated in full in \S\ref{sec:discussion}.
+

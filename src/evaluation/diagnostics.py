@@ -143,8 +143,10 @@ def step7_diagnostics(bundle: dict) -> dict:
     overall_tag = derived.get("overall_tag", "inconclusive")
     gap = bundle.get("gap_decomposition") or {}
     flags = []
-    if overall_tag == "sign_mismatch":
-        flags.append("sign mismatch vs paper-reported result")
+    if overall_tag == "contradicted":
+        flags.append("contradicted vs paper-reported result (both significant, opposite sign)")
+    elif overall_tag == "not_reproduced":
+        flags.append("not reproduced: paper's effect is significant, ours is not")
     if not gap.get("available", True):
         flags.append("gap decomposition unavailable for this batch")
     return _diagnostics(

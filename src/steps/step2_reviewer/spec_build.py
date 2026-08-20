@@ -46,7 +46,7 @@ from src.infra.tooling import (
 )
 from src.steps.step2_reviewer.review import load_llm_review_system_prompt, review_method_spec
 
-MAX_REVIEW_ROUNDS = 3
+MAX_REVIEW_ROUNDS = 4
 
 _MISSING = object()  # sentinel: a path present on one side of a diff but not the other
 

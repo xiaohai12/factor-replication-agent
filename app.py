@@ -118,7 +118,7 @@ def _ensure_synthetic_data() -> bool:
     (tests/synthetic_data/asset_growth_synthetic_data.py). Returns True if the
     synthetic data is available (already present or just generated).
     """
-    if SYNTHETIC_MSF_PATH.exists() and (SYNTHETIC_SNAPSHOT_DIR / "comp_funda.parquet").exists():
+    if SYNTHETIC_MSF_PATH.exists() and (SYNTHETIC_SNAPSHOT_DIR / "compustat_fundamental_annual.parquet").exists():
         return True
     try:
         from tests.synthetic_data.asset_growth_synthetic_data import (
@@ -131,9 +131,12 @@ def _ensure_synthetic_data() -> bool:
         crsp = build_crsp_msf()
         crsp.to_parquet(SYNTHETIC_SNAPSHOT_DIR / "crsp_msf.parquet", index=False)
         crsp.to_parquet(SYNTHETIC_MSF_PATH, index=False)
-        # The declarative signal-master loader reads `comp_funda.parquet` +
-        # `ccm_lnkhist.parquet` (CCM keyed on `lpermno`).
-        build_compustat_funda().to_parquet(SYNTHETIC_SNAPSHOT_DIR / "comp_funda.parquet", index=False)
+        # The declarative signal-master loader reads
+        # `compustat_fundamental_annual.parquet` + `ccm_lnkhist.parquet` (CCM
+        # keyed on `lpermno`).
+        build_compustat_funda().to_parquet(
+            SYNTHETIC_SNAPSHOT_DIR / "compustat_fundamental_annual.parquet", index=False
+        )
         build_ccm_link().rename(columns={"permno": "lpermno"}).to_parquet(
             SYNTHETIC_SNAPSHOT_DIR / "ccm_lnkhist.parquet", index=False
         )

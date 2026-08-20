@@ -14,7 +14,6 @@ export interface RunRecord {
   data_snapshot_hash?: string
   config_hash?: string
   method_spec_hash?: string
-  is_bridge_track?: boolean
   switches_flipped?: Record<string, unknown> | null
   runtime_provenance?: Record<string, unknown>
   metrics?: Record<string, unknown>

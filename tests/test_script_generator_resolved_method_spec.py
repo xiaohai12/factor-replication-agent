@@ -20,7 +20,7 @@ class TestSignalInputSourcesFromResolved:
     def test_groups_signal_input_concepts_by_source(self):
         resolved = _resolved_spec()
         sources = signal_input_sources_from_resolved(resolved)
-        assert sources == {"comp_funda": ["at"]}
+        assert sources == {"compustat_fundamental_annual": ["at"]}
 
     def test_pick_signal_input_mode_compustat(self):
         resolved = _resolved_spec()
@@ -54,17 +54,17 @@ class TestGenerateBacktestScript:
 
 class TestUniverseFilterJoinInGeneratedScript:
     """A universe filter resolved to a real registered non-native column
-    (e.g. comp_funda.at) makes the generated script join it onto the
+    (e.g. compustat_fundamental_annual.at) makes the generated script join it onto the
     returns panel before the engine runs (2026-08-13)."""
 
     def test_script_calls_join_and_config_carries_join_sources(self):
         resolved = _resolved_spec()
         resolved.paper.universe.filters.append(FilterSpec(concept_id="total_assets", op=FilterOp.GTE, value=0))
-        resolved.resolution.concept_mapping["total_assets"] = SourceColumn(source="comp_funda", column="at")
+        resolved.resolution.concept_mapping["total_assets"] = SourceColumn(source="compustat_fundamental_annual", column="at")
         script = generate_backtest_script(
             resolved, plugin_code="def compute_signal(df):\n    return df\n",
         )
         assert "def join_universe_filter_sources(msf" in script
         assert "msf = join_universe_filter_sources(msf)" in script
-        assert '"universe_filter_join_sources": {\'comp_funda\': [\'at\']}' in script
+        assert '"universe_filter_join_sources": {\'compustat_fundamental_annual\': [\'at\']}' in script
         compile(script, "<generated>", "exec")

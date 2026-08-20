@@ -17,17 +17,20 @@ import json
 import pytest
 
 from src.infra.models.diagnosis import DiagnosisClaim, ReplicationDiagnosisReport
-from src.steps.step7_replication_diff import ReplicationDiffResult, safe_diff_ablation
+from src.infra.models.run_record import RunMetrics, RunRecord
+from src.steps.step7_replication_diff import ReplicationDiff, ReplicationDiffResult, safe_diff_ablation
 from src.steps.step7_replication_diff.bundle import (
     SIGNIFICANCE_T_THRESHOLD,
-    build_bridge_comparison,
     build_config_diff,
     build_evidence_bundle,
+    build_gap_closure,
     build_gap_decomposition,
     build_menu_deviations,
     build_publication_decay,
     build_robustness_summary,
     build_spec_quality,
+    build_three_term_identities,
+    build_three_term_identity,
     build_universe_description,
     build_t_channel_decomposition,
     build_track_vs_paper,
@@ -37,7 +40,14 @@ from src.steps.step7_replication_diff.bundle import (
 )
 from src.steps.step8_diagnosis import ReplicationDiagnoser, validate_claims
 from src.steps.step8_diagnosis.render import deterministic_sentence, render_markdown, report_to_jsonable
-from src.steps.step8_diagnosis.summary import build_deterministic_summary, build_vs_paper_summary
+from src.steps.step8_diagnosis.summary import (
+    build_deterministic_summary,
+    build_spec_quality_summary,
+    build_three_term_summaries,
+    build_vs_paper_summary,
+    _build_robustness_summary,
+    _fold_claim_evidence_into_details,
+)
 from tests._spec_test_helpers import minimal_resolved_spec
 
 
@@ -123,19 +133,58 @@ class TestTrackVsPaper:
 
 
 class TestClassifyOverall:
-    def test_sign_mismatch(self):
-        assert classify_overall({"sign_agrees": False}) == "sign_mismatch"
-
     def test_unknown_sign_is_inconclusive(self):
         assert classify_overall({"sign_agrees": None}) == "inconclusive"
 
-    def test_close_replication_requires_ratio_band_and_significance_agreement(self):
-        vs = {"sign_agrees": True, "abs_spread_ratio": 0.8, "significance_agrees": True}
-        assert classify_overall(vs) == "close_replication"
+    def test_both_significant_same_sign_is_reproduced(self):
+        vs = {
+            "sign_agrees": True, "t_stat_comparable": True,
+            "paper_significant": True, "track_significant": True,
+        }
+        assert classify_overall(vs) == "reproduced"
 
-    def test_same_sign_but_far_magnitude_is_not_close(self):
-        vs = {"sign_agrees": True, "abs_spread_ratio": 5.0, "significance_agrees": True}
-        assert classify_overall(vs) == "sign_agrees_magnitude_differs"
+    def test_both_significant_opposite_sign_is_contradicted(self):
+        vs = {
+            "sign_agrees": False, "t_stat_comparable": True,
+            "paper_significant": True, "track_significant": True,
+        }
+        assert classify_overall(vs) == "contradicted"
+
+    def test_paper_significant_ours_not_is_not_reproduced_regardless_of_sign(self):
+        vs = {
+            "sign_agrees": False, "t_stat_comparable": True,
+            "paper_significant": True, "track_significant": False,
+        }
+        assert classify_overall(vs) == "not_reproduced"
+        vs["sign_agrees"] = True
+        assert classify_overall(vs) == "not_reproduced"
+
+    def test_paper_insignificant_ours_significant_same_sign_is_reproduced(self):
+        vs = {
+            "sign_agrees": True, "t_stat_comparable": True,
+            "paper_significant": False, "track_significant": True,
+        }
+        assert classify_overall(vs) == "reproduced"
+
+    def test_paper_insignificant_ours_significant_opposite_sign_is_inconclusive(self):
+        vs = {
+            "sign_agrees": False, "t_stat_comparable": True,
+            "paper_significant": False, "track_significant": True,
+        }
+        assert classify_overall(vs) == "inconclusive"
+
+    def test_neither_significant_is_inconclusive(self):
+        vs = {
+            "sign_agrees": True, "t_stat_comparable": True,
+            "paper_significant": False, "track_significant": False,
+        }
+        assert classify_overall(vs) == "inconclusive"
+
+    def test_alpha_basis_t_stat_not_comparable_falls_back_to_sign_only(self):
+        vs = {"sign_agrees": True, "t_stat_comparable": False}
+        assert classify_overall(vs) == "reproduced"
+        vs["sign_agrees"] = False
+        assert classify_overall(vs) == "contradicted"
 
 
 class TestConfigDiff:
@@ -195,6 +244,39 @@ class TestGapDecomposition:
 class TestSafeDiffAblation:
     def test_returns_none_instead_of_raising_when_tracks_are_missing(self):
         assert safe_diff_ablation([]) is None
+
+
+class TestDiffAblationInSample:
+    """`diff_ablation` must prefer `metrics.by_sample_period.insamp.t_stat`
+    (the paper's own sample window) over the top-level `t_stat` (this
+    engine's full extended history) -- same preference `bundle.py`'s
+    `_in_sample_metrics`/`attribution._in_sample_mean_return` already apply."""
+
+    def _run(self, track: str, t_stat: float, insamp_t_stat: float | None = None) -> RunRecord:
+        metrics = RunMetrics(
+            t_stat=t_stat,
+            by_sample_period={"insamp": {"t_stat": insamp_t_stat}} if insamp_t_stat is not None else None,
+        )
+        return RunRecord(run_id=track, factor_id="t", plugin_id="p", track=track, metrics=metrics)
+
+    def test_prefers_in_sample_t_stat_over_full_history(self):
+        runs = [
+            self._run("original_method", t_stat=10.0, insamp_t_stat=2.0),
+            self._run("standardized_hxz", t_stat=8.0, insamp_t_stat=1.0),
+        ]
+        result = ReplicationDiff().diff_ablation(runs)
+        assert result.original_tstat == pytest.approx(2.0)
+        assert result.standardized_tstat == pytest.approx(1.0)
+        assert result.total_gap == pytest.approx(1.0)
+
+    def test_falls_back_to_full_history_when_no_in_sample_window(self):
+        runs = [
+            self._run("original_method", t_stat=10.0),
+            self._run("standardized_hxz", t_stat=8.0),
+        ]
+        result = ReplicationDiff().diff_ablation(runs)
+        assert result.original_tstat == pytest.approx(10.0)
+        assert result.standardized_tstat == pytest.approx(8.0)
 
 
 class TestTChannelDecomposition:
@@ -283,7 +365,7 @@ class TestEvidenceBundle:
         keys = bundle["evidence_keys"]
 
         assert bundle["derived"]["baseline_track"] == "original_method"
-        assert bundle["derived"]["overall_tag"] == "close_replication"
+        assert bundle["derived"]["overall_tag"] == "reproduced"
         assert keys["derived.tracks.original_method.vs_paper.sign_agrees"] is True
         assert keys["tracks.standardized_hxz.metrics.t_stat"] == 0.8
         assert keys["paper_reported.main_spread"] == -0.010
@@ -388,6 +470,311 @@ class TestShapleyAndSignificanceWiring:
         assert bundle["joint_test"]["to_hxz"]["available"] is False
 
 
+class TestGapClosure:
+    """docs/step7-8.md Part XII: does the sum of catalogued per-switch
+    effects to C&Z actually explain the total to_cz gap, or leave a
+    residual not produced by any of them?"""
+
+    def test_unavailable_without_cz_actual_config_track(self):
+        derived = {
+            "baseline_track": "original_method",
+            "tracks": {"original_method": {"vs_paper": {"track_spread": -0.008}}},
+        }
+        section = build_gap_closure(derived, {})
+        assert section["available"] is False
+        assert "cz_actual_config" in section["reason"]
+
+    def test_unavailable_without_a_resolvable_spread(self):
+        derived = {
+            "baseline_track": "original_method",
+            "tracks": {
+                "original_method": {"vs_paper": {"track_spread": None}},
+                "cz_actual_config": {"vs_paper": {"track_spread": 0.006}},
+            },
+        }
+        section = build_gap_closure(derived, {})
+        assert section["available"] is False
+
+    def test_total_gap_and_residual_computed_from_available_switch_effects(self):
+        derived = {
+            "baseline_track": "original_method",
+            "tracks": {
+                "original_method": {"vs_paper": {"track_spread": -0.0031}},
+                "cz_actual_config": {"vs_paper": {"track_spread": 0.0062}},
+            },
+        }
+        paired_tests = {
+            "to_cz": {
+                "per_switch": {
+                    "weighting": {"available": True, "mean_diff": -0.00764},
+                    "universe": {"available": True, "mean_diff": 0.00043},
+                    "lag": {"available": False, "reason": "no overlapping in-sample months"},
+                }
+            }
+        }
+        section = build_gap_closure(derived, paired_tests)
+        assert section["available"] is True
+        assert section["total_gap"] == pytest.approx(-0.0093)
+        assert section["sum_of_switch_effects"] == pytest.approx(-0.00721)
+        assert section["residual"] == pytest.approx(-0.0093 - -0.00721)
+        assert section["explained_fraction"] == pytest.approx(-0.00721 / -0.0093)
+        assert "lag" not in section["contributions"]
+        assert "interaction_caveat" in section
+
+    def test_no_switch_evidence_reports_gap_but_no_contributions(self):
+        derived = {
+            "baseline_track": "original_method",
+            "tracks": {
+                "original_method": {"vs_paper": {"track_spread": -0.003}},
+                "cz_actual_config": {"vs_paper": {"track_spread": 0.006}},
+            },
+        }
+        section = build_gap_closure(derived, {"to_cz": {"per_switch": {}}})
+        assert section["available"] is True
+        assert section["total_gap"] == pytest.approx(-0.009)
+        assert section["sum_of_switch_effects"] is None
+        assert section["residual"] is None
+        assert "no per-switch paired-test evidence" in section["reason"]
+
+    def test_wired_into_evidence_bundle_with_a_real_cz_track(self, tmp_path):
+        tracks = {
+            "original_method": {
+                "config": {},
+                "metrics": {"mean_return": -0.0031, "t_stat": -1.12, "n_months": 500},
+            },
+            "cz_actual_config": {
+                "config": {},
+                "metrics": {"mean_return": 0.0062, "t_stat": 2.41, "n_months": 500},
+            },
+            "cz_factorial_weighting": {
+                "config": {},
+                "metrics": {"mean_return": 0.00454, "t_stat": 1.5, "n_months": 500},
+                "switches_flipped": {"weighting": "ew"},
+            },
+        }
+        bundle = build_evidence_bundle(PAPER, tracks, results_dir=tmp_path)
+        gap_closure = bundle["gap_closure"]["to_cz"]
+        assert gap_closure["available"] is True
+        assert gap_closure["total_gap"] == pytest.approx(-0.0031 - 0.0062)
+        assert "gap_closure.to_cz.total_gap" in bundle["evidence_keys"]
+
+
+class TestThreeTermIdentity:
+    """docs/paper-outline.md C1: an EXTERNAL implementer's distance from the
+    paper's own reported spread, split into signal+environment, config, and
+    agent-replication residual."""
+
+    DERIVED = {
+        "baseline_track": "original_method",
+        "tracks": {
+            "original_method": {"vs_paper": {"track_spread": -0.008}},
+            "cz_actual_config": {"vs_paper": {"track_spread": -0.005}},
+        },
+    }
+    EXTERNAL = {
+        "spread": -0.004,
+        "t_stat": -2.1,
+        "sample_start_year": 1968,
+        "sample_end_year": 2002,
+        "window_adjustable": False,
+        "window_sensitivity_spread": None,
+        "source": "SignalDoc.csv",
+    }
+
+    def test_terms_telescope_exactly_to_the_total_gap(self):
+        section = build_three_term_identity(
+            self.DERIVED, PAPER, self.EXTERNAL, "cz_actual_config", "cz"
+        )
+        assert section["available"] is True
+        assert section["total_gap"] == pytest.approx(-0.004 - -0.010)
+        # external - hybrid, hybrid - baseline, baseline - paper
+        assert section["terms"]["signal_and_environment"] == pytest.approx(-0.004 - -0.005)
+        assert section["terms"]["config"] == pytest.approx(-0.005 - -0.008)
+        assert section["terms"]["agent_replication_residual"] == pytest.approx(-0.008 - -0.010)
+        # The identity telescopes, so the residual is zero by construction --
+        # it is emitted purely as an arithmetic audit check.
+        assert section["residual"] == pytest.approx(0.0, abs=1e-12)
+        assert section["terms_sum_check"] == pytest.approx(section["total_gap"])
+
+    def test_largest_term_is_by_absolute_size(self):
+        section = build_three_term_identity(
+            self.DERIVED, PAPER, self.EXTERNAL, "cz_actual_config", "cz"
+        )
+        assert section["largest_term"] == "config"
+
+    def test_purity_notes_and_window_caveat_travel_with_the_numbers(self):
+        section = build_three_term_identity(
+            self.DERIVED, PAPER, self.EXTERNAL, "cz_actual_config", "cz"
+        )
+        assert set(section["term_purity_notes"]) == set(section["terms"])
+        assert section["window_basis"]["external_window_adjustable"] is False
+        assert section["window_basis"]["paper_sample_start_year"] is None  # PAPER carries no window
+        assert "window/basis mismatch" in section["window_basis"]["caveat"]
+
+    def test_can_never_be_better_than_observational(self):
+        section = build_three_term_identity(
+            self.DERIVED, PAPER, self.EXTERNAL, "cz_actual_config", "cz"
+        )
+        assert section["identification_level"] == "observational"
+
+    def test_missing_external_reference_is_unavailable_not_zero(self):
+        section = build_three_term_identity(
+            self.DERIVED, PAPER, None, "cz_actual_config", "cz"
+        )
+        assert section["available"] is False
+        assert "external cz reference spread" in section["reason"]
+        assert "terms" not in section
+
+    def test_missing_hybrid_track_is_unavailable(self):
+        section = build_three_term_identity(
+            self.DERIVED, PAPER, self.EXTERNAL, "standardized_hxz", "hxz"
+        )
+        assert section["available"] is False
+        assert "standardized_hxz" in section["reason"]
+
+    def test_both_endpoints_always_present_even_when_unresolvable(self):
+        sections = build_three_term_identities(self.DERIVED, PAPER, {"cz": self.EXTERNAL})
+        assert set(sections) == {"cz", "hxz"}
+        assert sections["cz"]["available"] is True
+        assert sections["hxz"]["available"] is False
+
+    def test_wired_into_evidence_bundle_and_citable(self, tmp_path):
+        tracks = {
+            "original_method": {"config": {}, "metrics": {"mean_return": -0.008, "t_stat": -2.0, "n_months": 400}},
+            "cz_actual_config": {"config": {}, "metrics": {"mean_return": -0.005, "t_stat": -1.4, "n_months": 400}},
+        }
+        bundle = build_evidence_bundle(
+            PAPER, tracks, results_dir=tmp_path, external_references={"cz": self.EXTERNAL}
+        )
+        assert bundle["three_term_identity"]["cz"]["available"] is True
+        assert "three_term_identity.cz.terms.config" in bundle["evidence_keys"]
+        assert "three_term_identity.cz.total_gap" in bundle["evidence_keys"]
+
+    def test_absent_external_references_does_not_raise(self, tmp_path):
+        tracks = {
+            "original_method": {"config": {}, "metrics": {"mean_return": -0.008, "t_stat": -2.0, "n_months": 400}},
+        }
+        bundle = build_evidence_bundle(PAPER, tracks, results_dir=tmp_path)
+        assert bundle["three_term_identity"]["cz"]["available"] is False
+        assert bundle["three_term_identity"]["hxz"]["available"] is False
+
+
+class TestThreeTermClaimValidation:
+    """The step8 validator must accept a well-formed three_term_gap_component
+    claim and reject one that cites the section's metadata instead of a term."""
+
+    EVIDENCE_KEYS = {
+        "three_term_identity.cz.terms.config": 0.003,
+        "three_term_identity.cz.terms.signal_and_environment": 0.001,
+        "three_term_identity.cz.total_gap": 0.006,
+        "three_term_identity.cz.window_basis.external_window_adjustable": False,
+    }
+
+    def _claim(self, **overrides):
+        raw = {
+            "claim_type": "three_term_gap_component",
+            "relation": "larger",
+            "comparison_line": "cz",
+            "text": "the configuration component dominates",
+            "evidence_keys": ["three_term_identity.cz.terms.config"],
+        }
+        raw.update(overrides)
+        return raw
+
+    def test_accepts_a_term_citing_claim(self):
+        accepted, rejected = validate_claims([self._claim()], self.EVIDENCE_KEYS)
+        assert rejected == []
+        assert accepted[0].claim_type == "three_term_gap_component"
+        assert accepted[0].identification_level == "observational"
+
+    def test_rejects_a_claim_citing_only_the_section_metadata(self):
+        accepted, rejected = validate_claims(
+            [self._claim(evidence_keys=["three_term_identity.cz.window_basis.external_window_adjustable"])],
+            self.EVIDENCE_KEYS,
+        )
+        assert accepted == []
+        assert rejected
+
+    def test_rejects_a_causal_relation(self):
+        accepted, rejected = validate_claims(
+            [self._claim(relation="associated_change")], self.EVIDENCE_KEYS
+        )
+        assert accepted == []
+        assert rejected
+
+    def test_rendered_sentence_names_the_component_and_stays_non_causal(self):
+        accepted, _ = validate_claims([self._claim()], self.EVIDENCE_KEYS)
+        sentence = deterministic_sentence(accepted[0], self.EVIDENCE_KEYS)
+        assert "configuration" in sentence
+        assert "accounting split, not a controlled experiment" in sentence
+
+
+class TestThreeTermSummary:
+    """The reader-facing `gap_split` section is built from the bundle alone,
+    so it appears even when the LLM produced zero claims about it."""
+
+    BUNDLE = {
+        "derived": {"overall_tag": "reproduced"},
+        "three_term_identity": {
+            "cz": {
+                "available": True,
+                "total_gap": 0.006,
+                "terms": {
+                    "signal_and_environment": 0.001,
+                    "config": 0.003,
+                    "agent_replication_residual": 0.002,
+                },
+                "largest_term": "config",
+                "window_basis": {"window_sensitivity_spread": None},
+            },
+            "hxz": {"available": False, "reason": "no HXZ testing-portfolio CSV for this factor"},
+        },
+    }
+
+    def test_available_reference_gets_a_gap_split_section(self):
+        summaries = build_three_term_summaries(self.BUNDLE)
+        assert [s.comparison_line for s in summaries] == ["cz"]
+        assert summaries[0].section == "gap_split"
+        assert "C&Z" in summaries[0].headline
+
+    def test_details_are_ordered_by_absolute_size_and_name_the_largest(self):
+        details = build_three_term_summaries(self.BUNDLE)[0].details
+        assert details[0].startswith("Portfolio-construction settings")
+        assert "not a controlled experiment" in details[-1]
+
+    def test_footnote_states_the_terms_are_not_equally_clean(self):
+        footnote = build_three_term_summaries(self.BUNDLE)[0].footnote
+        assert "not equally clean" in footnote
+        assert "sample window" in footnote
+
+    def test_unavailable_reference_is_skipped_not_rendered_as_zero(self):
+        assert all(s.comparison_line != "hxz" for s in build_three_term_summaries(self.BUNDLE))
+
+    def test_window_sensitivity_is_reported_when_measurable(self):
+        bundle = json.loads(json.dumps(self.BUNDLE))
+        bundle["three_term_identity"]["cz"]["window_basis"]["window_sensitivity_spread"] = -0.0012
+        details = build_three_term_summaries(bundle)[0].details
+        assert any("sample window alone" in d for d in details)
+
+    def test_appended_by_build_deterministic_summary_without_any_claims(self):
+        summaries = build_deterministic_summary([], self.BUNDLE)
+        assert any(s.section == "gap_split" for s in summaries)
+
+    def test_reference_keys_never_become_a_track_comparison_line(self):
+        claim = DiagnosisClaim(
+            claim_type="three_term_gap_component",
+            relation="larger",
+            comparison_line="cz",
+            evidence_keys=["three_term_identity.cz.terms.config"],
+        )
+        summaries = build_deterministic_summary([claim], self.BUNDLE)
+        # exactly one "cz" summary -- the gap_split one, not a second
+        # robustness-bucketed line summary built by the per-line loop.
+        cz_summaries = [s for s in summaries if s.comparison_line == "cz"]
+        assert len(cz_summaries) == 1
+        assert cz_summaries[0].section == "gap_split"
+
+
 class TestSpecQuality:
     def test_no_spec_reports_unavailable(self):
         section = build_spec_quality(None)
@@ -467,40 +854,6 @@ class TestMenuDeviations:
                 {"config_key": "accounting_lag_months", "value": 6, "reason": "unspecified"}
             ]
         }
-
-
-class TestBridgeComparison:
-    def test_no_bridge_track_is_unavailable(self):
-        section = build_bridge_comparison(TRACKS, PAPER)
-        assert section["available"] is False
-        assert "no bridge track" in section["reason"]
-
-    def test_both_reproduce(self):
-        tracks = dict(TRACKS)
-        tracks["cz_bridge_x"] = {
-            "config": {},
-            "metrics": {"mean_return": -0.009, "t_stat": -4.5, "n_months": 870},
-            "is_bridge_track": True,
-        }
-        section = build_bridge_comparison(tracks, PAPER)
-        assert section["available"] is True
-        assert section["bridge_track"] == "cz_bridge_x"
-        assert section["own_track"] == "original_method"
-        assert section["bridge_reproduces_paper"] is True
-        assert section["own_reproduces_paper"] is True
-        assert section["signal_implementation_agreement"] == "both_reproduce"
-
-    def test_only_bridge_reproduces(self):
-        tracks = {
-            "original_method": TRACKS["standardized_hxz"],  # sign disagrees w/ paper
-            "cz_bridge_x": {
-                "config": {},
-                "metrics": {"mean_return": -0.009, "t_stat": -4.5, "n_months": 870},
-                "is_bridge_track": True,
-            },
-        }
-        section = build_bridge_comparison(tracks, PAPER)
-        assert section["signal_implementation_agreement"] == "only_bridge"
 
 
 class TestPublicationDecay:
@@ -891,8 +1244,8 @@ class TestReplicationDiagnoser:
         return bundle, llm, report
 
     def test_verdict_comes_from_the_bundle_not_the_llm(self):
-        _, _, report = self._diagnose({"claims": [], "overall_tag": "close_replication_LLM_SAYS"})
-        assert report.overall_tag == "close_replication"
+        _, _, report = self._diagnose({"claims": [], "overall_tag": "reproduced_LLM_SAYS"})
+        assert report.overall_tag == "reproduced"
         assert report.status == "llm_assisted_proposal"
 
     def test_prompt_carries_the_citable_key_whitelist(self):
@@ -933,7 +1286,7 @@ class TestReplicationDiagnoser:
 
 def _bundle_with_extras() -> dict:
     """`_bundle()` plus the newer reason-layer evidence sections (spec_quality/
-    menu_deviations/bridge_comparison/publication_decay/robustness_summary),
+    menu_deviations/publication_decay/robustness_summary),
     hand-built the way `build_evidence_bundle()` would actually produce them."""
     bundle = _bundle()
     bundle["spec_quality"] = {
@@ -943,14 +1296,6 @@ def _bundle_with_extras() -> dict:
         ],
     }
     bundle["menu_deviations"] = {"available": True, "unsupported_paper_fields": [], "clamped_by_track": {}}
-    bundle["bridge_comparison"] = {
-        "available": True,
-        "bridge_track": "cz_bridge_x",
-        "own_track": "original_method",
-        "bridge_reproduces_paper": True,
-        "own_reproduces_paper": True,
-        "signal_implementation_agreement": "both_reproduce",
-    }
     bundle["publication_decay"] = {
         "available": True,
         "tracks": {
@@ -967,7 +1312,6 @@ def _bundle_with_extras() -> dict:
     bundle["evidence_keys"].update(flatten({
         "spec_quality": bundle["spec_quality"],
         "menu_deviations": bundle["menu_deviations"],
-        "bridge_comparison": bundle["bridge_comparison"],
         "publication_decay": bundle["publication_decay"],
         "robustness_summary": bundle["robustness_summary"],
     }))
@@ -975,45 +1319,15 @@ def _bundle_with_extras() -> dict:
 
 
 class TestValidateClaimsNewTypes:
-    """docs/tools-plus-llm-plan.md §4.3's three new claim types:
-    signal_reproducibility (bridge track), publication_decay (McLean-Pontiff
-    style decay), implementation_robustness (OAT aggregate)."""
+    """docs/tools-plus-llm-plan.md §4.3's newer claim types:
+    publication_decay (McLean-Pontiff style decay), implementation_robustness
+    (OAT aggregate)."""
 
     def setup_method(self):
         self.evidence = _bundle_with_extras()["evidence_keys"]
 
     def _validate_one(self, claim: dict):
         return validate_claims([claim], self.evidence)
-
-    def test_signal_reproducibility_accepted_when_relation_matches_agreement(self):
-        accepted, rejected = self._validate_one({
-            "claim_type": "signal_reproducibility",
-            "relation": "reproduces",
-            "subject_track": "original_method",
-            "evidence_keys": ["bridge_comparison.signal_implementation_agreement"],
-        })
-        assert rejected == []
-        assert accepted[0].reason_layer == "signal_fidelity"
-
-    def test_signal_reproducibility_rejected_when_relation_contradicts(self):
-        accepted, rejected = self._validate_one({
-            "claim_type": "signal_reproducibility",
-            "relation": "diverges",
-            "subject_track": "original_method",
-            "evidence_keys": ["bridge_comparison.signal_implementation_agreement"],
-        })
-        assert accepted == []
-        assert "contradicts" in rejected[0].reason
-
-    def test_signal_reproducibility_requires_subject_track_be_bridge_or_own(self):
-        accepted, rejected = self._validate_one({
-            "claim_type": "signal_reproducibility",
-            "relation": "reproduces",
-            "subject_track": "standardized_hxz",
-            "evidence_keys": ["bridge_comparison.signal_implementation_agreement"],
-        })
-        assert accepted == []
-        assert "bridge_comparison" in rejected[0].reason
 
     def test_publication_decay_accepted_and_subject_track_auto_derived(self):
         accepted, rejected = self._validate_one({
@@ -1356,7 +1670,8 @@ class TestCzNarrative:
         # docs/step7-8.md Part XI readability follow-up: no raw config-key
         # identifiers in reader-facing text -- a human-readable label instead.
         assert "universe_filters" not in detail_text
-        assert "which stocks are allowed into consideration at all" in detail_text.lower()
+        assert "stock universe:" in detail_text.lower()
+        assert to_cz.glossary["stock universe"] == "which stocks are allowed into consideration at all"
         assert "excludes financial companies" in detail_text
         assert "listed on the nyse, amex, or nasdaq" in detail_text.lower()
         assert "cross-factor house" in detail_text
@@ -1367,10 +1682,22 @@ class TestCzNarrative:
         assert to_cz.headline
         assert "Compared with C&Z's independent replication" in to_cz.headline
 
-    def test_cross_line_callout_mentions_hxz_decay_status(self):
-        summaries = build_deterministic_summary([], self.bundle)
+    def test_cross_line_callout_mentions_hxz_decay_status_when_switch_is_significant(self):
+        # The decay callout only fires when the switch's OWN isolated effect
+        # is itself statistically significant -- a decay/no-decay verdict on
+        # a noise-level effect has nothing to say. `self.bundle`'s "universe"
+        # switch is insignificant (t=1.781) by design (see the next test), so
+        # bump it here just to exercise the callout.
+        bundle = _bundle_with_narrative_extras()
+        bundle["paired_tests"]["to_cz"]["per_switch"]["universe"]["t_stat"] = 3.2
+        summaries = build_deterministic_summary([], bundle)
         to_cz = next(s for s in summaries if s.comparison_line == "to_cz")
         assert "does NOT decay" in " ".join(to_cz.details)
+
+    def test_cross_line_callout_suppressed_when_switch_is_not_significant(self):
+        summaries = build_deterministic_summary([], self.bundle)
+        to_cz = next(s for s in summaries if s.comparison_line == "to_cz")
+        assert "does NOT decay" not in " ".join(to_cz.details)
 
     def test_headline_reflects_high_agreement_when_all_explained_and_insignificant(self):
         summaries = build_deterministic_summary([], self.bundle)
@@ -1430,31 +1757,55 @@ class TestCzNarrative:
 
 
 class TestSensitivitySummary:
-    """docs/step7-8.md Part XII: the SUPPORTING summary for non-to_cz lines."""
+    """docs/step7-8.md Part XVI: the "robustness" section -- folds the
+    ablation robustness_summary, the standardized-HXZ named case, baseline
+    publication decay, and the t-stat channel decomposition into ONE
+    section that's populated independently of whether the HXZ factorial
+    grid exists."""
 
     def test_dominant_choice_and_joint_gate_are_both_mentioned(self):
         bundle = _bundle_with_narrative_extras()
         summaries = build_deterministic_summary([], bundle)
         to_hxz = next(s for s in summaries if s.comparison_line == "to_hxz")
-        assert any("bigger companies count for more" in d.lower() for d in to_hxz.details)
-        assert "joint significance test" in to_hxz.headline.lower()
+        assert any("portfolio weighting" in d.lower() for d in to_hxz.details)
+        assert to_hxz.glossary["portfolio weighting"] == (
+            "whether bigger companies count for more in the portfolio, or every stock counts equally"
+        )
+        assert "joint significance test" in " ".join(to_hxz.details).lower()
         assert "sensitivity context, not itself the reproducibility question" in to_hxz.footnote
-        assert "Compared with the fully standardized HXZ protocol" in to_hxz.headline
+        assert "Standardized HXZ protocol (a named case" in " ".join(to_hxz.details)
+        assert to_hxz.section == "robustness"
 
-    def test_unavailable_shapley_yields_no_headline(self):
+    def test_unavailable_shapley_still_shows_robustness_evidence_when_available(self):
+        # `robustness_summary`/baseline `publication_decay` are populated by
+        # `_bundle_with_extras()` independently of the HXZ factorial grid --
+        # the robustness section must not vanish just because that grid
+        # doesn't exist for this batch.
         bundle = _bundle_with_narrative_extras()
         bundle["shapley_attribution"]["to_hxz"] = {"available": False, "reason": "no grid"}
         summaries = build_deterministic_summary([], bundle)
         to_hxz = next(s for s in summaries if s.comparison_line == "to_hxz")
-        assert to_hxz.headline == ""
-        assert to_hxz.details == []
+        assert to_hxz.headline != ""
+        assert "the result is stable" in to_hxz.headline
+        assert "Compared with the fully standardized HXZ protocol" not in " ".join(to_hxz.details)
 
-    def test_joint_test_not_significant_is_reflected_in_the_headline(self):
+    def test_nothing_available_at_all_yields_no_card(self):
+        bundle = _bundle_with_narrative_extras()
+        bundle["shapley_attribution"]["to_hxz"] = {"available": False, "reason": "no grid"}
+        bundle["robustness_summary"] = {"available": False, "reason": "n/a"}
+        bundle["publication_decay"]["tracks"] = {}
+        headline, details, footnote, glossary = _build_robustness_summary(bundle)
+        assert (headline, details, footnote, glossary) == ("", [], "", {})
+
+    def test_joint_test_not_significant_is_reflected_and_shares_suppressed(self):
         bundle = _bundle_with_narrative_extras()
         bundle["joint_test"]["to_hxz"]["p_value"] = 0.4  # flip to "measured, not significant"
         summaries = build_deterministic_summary([], bundle)
         to_hxz = next(s for s in summaries if s.comparison_line == "to_hxz")
-        assert "does not confirm this" in to_hxz.headline
+        detail_text = " ".join(to_hxz.details)
+        assert "does not confirm this" in detail_text
+        assert "contribution share not shown" in detail_text
+        assert "accounts for" not in detail_text
 
 
 class TestVsPaperSummary:
@@ -1464,7 +1815,8 @@ class TestVsPaperSummary:
         # docs/step7-8.md Part XI readability follow-up: readable label, not the
         # raw `accounting_lag_months` config-key identifier.
         assert "accounting_lag_months" not in " ".join(summary.details)
-        assert "how many months we wait after a company's fiscal year ends" in " ".join(summary.details)
+        assert "accounting lag" in " ".join(summary.details).lower()
+        assert summary.glossary["accounting lag"].startswith("how many months we wait")
         assert "cannot separate the two" in summary.footnote
         assert "Compared with the paper's own reported result" in summary.headline
 
@@ -1480,6 +1832,39 @@ class TestVsPaperSummary:
         bundle["derived"]["baseline_track"] = None
         summary = build_vs_paper_summary(bundle)
         assert summary.headline == ""
+
+
+class TestSpecQualitySummary:
+    """docs/step7-8.md Part XVI: the 4th section -- how clearly the paper
+    specified its own method, quoting the review's own reason per field."""
+
+    def test_weak_fields_are_quoted_with_their_own_reason(self):
+        bundle = _bundle_with_extras()
+        summary = build_spec_quality_summary(bundle)
+        assert summary.section == "spec_quality"
+        detail_text = " ".join(summary.details)
+        assert "evidence_status=unspecified" in detail_text
+        assert "needs_human_confirmation" in detail_text
+        assert "1 setting(s) were flagged as weakly specified" in summary.headline
+
+    def test_unsupported_paper_fields_are_listed(self):
+        bundle = _bundle_with_extras()
+        bundle["spec_quality"]["weak_fields"] = []
+        bundle["menu_deviations"]["unsupported_paper_fields"] = [
+            {"field_path": "portfolio.rebalance_frequency", "unsupported_value": "weekly"},
+        ]
+        summary = build_spec_quality_summary(bundle)
+        assert "weekly" in " ".join(summary.details)
+        assert "outside the engine's menu" in summary.headline
+
+    def test_nothing_flagged_yields_empty_summary(self):
+        bundle = _bundle_with_extras()
+        bundle["spec_quality"]["weak_fields"] = []
+        bundle["menu_deviations"]["unsupported_paper_fields"] = []
+        summary = build_spec_quality_summary(bundle)
+        assert summary.headline == ""
+        assert summary.details == []
+        assert summary.section == "spec_quality"
 
 
 class TestBuildDeterministicSummary:
@@ -1559,6 +1944,24 @@ class TestBuildDeterministicSummary:
         # so the headline still reads as joint-supported; see
         # TestSensitivitySummary for the bundle-driven "not confirmed" case.
 
+    def test_llm_dominant_pick_agreeing_with_deterministic_ranking_adds_no_bullet(self):
+        # `self.bundle`'s to_hxz line has only one switch ("weighting"), so
+        # it's trivially both the LLM's pick and the deterministic largest-|t|.
+        details = _fold_claim_evidence_into_details(["existing bullet"], self.bundle, "to_hxz", ["weighting"])
+        assert details == ["existing bullet"]
+
+    def test_llm_dominant_pick_disagreeing_with_deterministic_ranking_adds_a_conflict_note(self):
+        bundle = _bundle_with_attribution_extras()
+        # Add a second, larger-|t| switch so "weighting" is no longer the
+        # deterministic largest-|t| pick on the to_hxz line.
+        bundle["paired_tests"]["to_hxz"]["per_switch"]["lag"] = {
+            "available": True, "track": "factorial_lag", "mean_diff": 0.01, "t_stat": 5.0, "n_overlap_months": 400,
+        }
+        details = _fold_claim_evidence_into_details([], bundle, "to_hxz", ["weighting"])
+        assert len(details) == 1
+        assert "differs from the setting with the largest measured effect" in details[0]
+        assert "accounting_lag_months" not in details[0]  # raw config-key identifiers never in prose
+
     def test_joint_supported_is_none_not_false_when_not_tested(self):
         claims = self._claims([
             {
@@ -1606,6 +2009,13 @@ class TestDiagnoseWiresSummary:
         assert {s.comparison_line for s in report.summary} == {"to_hxz", "to_cz"}
         to_hxz = next(s for s in report.summary if s.comparison_line == "to_hxz")
         assert to_hxz.per_switch_summary == {"weighting": "significant"}
+        # docs/step7-8.md Part XVI: the 4 reader-facing sections are always
+        # populated on the report, independent of what the LLM claimed.
+        to_cz = next(s for s in report.summary if s.comparison_line == "to_cz")
+        assert to_cz.section == "vs_cz"
+        assert to_hxz.section == "robustness"
+        assert report.vs_paper_summary.section == "reproduction"
+        assert report.spec_quality_summary.section == "spec_quality"
 
 
 class _CyclingFakeLLM:
@@ -1735,7 +2145,7 @@ class TestRenderMarkdown:
         md = render_markdown(report, bundle)
 
         assert "llm-assisted proposal" in md.lower()
-        assert "`close_replication`" in md
+        assert "`reproduced`" in md
         # the deterministic table carries the actual numbers
         assert "-0.008" in md
         assert "870" in md
@@ -1828,8 +2238,12 @@ class TestRenderMarkdown:
         # listing was removed entirely -- per-switch/joint-gate claim evidence
         # is folded into the Summary section's own details bullets instead
         assert "## Findings" not in md
-        assert "LLM-reviewed per-setting significance: whether bigger companies count for more in the portfolio, or every stock counts equally (significant)." in md
-        assert "LLM-reviewed joint-significance conclusion: supported by the data." in md
+        # docs/step7-8.md Part XVI: the LLM's per-switch/joint-gate claims are
+        # no longer restated as prose (they duplicated the deterministic
+        # per-setting "Effect: ..." bullet and joint-test headline/footnote) --
+        # only a genuine LLM/deterministic dominant-driver DISAGREEMENT would
+        # add a bullet, and none exists in this fixture.
+        assert "LLM-reviewed" not in md
 
 
 class TestReportToJsonable:

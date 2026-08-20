@@ -82,6 +82,17 @@ in section 2 below: any field rendered there as `{"value": ..., "evidence":
 [...], "status": ...}` needs the full object, and any field rendered as a
 plain `0`/`0.0`/`""` does not.
 
+## 1.4b `timing.holding_period` is ALWAYS in months
+
+`timing.holding_period.value` must be the number of MONTHS positions are
+held, regardless of what unit the paper states it in -- convert before
+writing. "Held for 1 year" -> `12`, not `1`. "Rebalanced quarterly, held one
+quarter" -> `3`, not `1`. Do not just copy the paper's own number when its
+stated unit isn't months; the engine (`registry.build_config`) consumes
+this value directly as `holding_period_months` with no unit conversion of
+its own, so a wrong unit here silently produces a backtest that holds
+positions for the wrong length of time.
+
 ## 1.5 Formula steps, not one giant expression
 
 `signal.formula.steps` is an ORDERED list of `CalculationStep` objects, each
@@ -170,6 +181,15 @@ the full `{"kind": ..., "value": ...}` object (see 1.4a) -- never as a bare
 number; omit `statistic` entirely (leave it `null`) if the paper reports
 none of these three.
 
+Tag each metric's `weighting` (`ew`/`vw`) whenever the paper's table
+distinguishes them (e.g. separate EW/VW columns or panels) -- leave it
+`null` only when the paper genuinely doesn't say. **If the paper reports
+the headline spread under both EW and VW, capture BOTH as separate
+metrics** (don't discard one just because the other looks more prominent in
+the table) so `primary_metric_id` can be pointed at whichever one actually
+matches `portfolio.weighting` -- Step2 review checks this and will flag a
+mismatch.
+
 ## 1.8b Every `universe.filters[].concept_id` MUST have a matching `data.fields` entry
 
 A universe filter can only ever be executed if its `concept_id` resolves to
@@ -220,7 +240,7 @@ The `data_catalog` tool result (see § 0) lists every currently-registered
 data source and every physical column it owns, with a one-line WRDS
 definition for each column. For every `data.fields[]` entry:
 
-- Set `source_table.value` to the catalog source name (e.g. `"comp_funda"`)
+- Set `source_table.value` to the catalog source name (e.g. `"compustat_fundamental_annual"`)
   whose column best matches this concept, per the paper's own wording
   (`name_in_paper`/`paper_source_hint`) -- read the column's own definition
   in the catalog listing, don't just pattern-match on the column name.

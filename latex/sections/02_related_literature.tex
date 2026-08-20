@@ -1,0 +1,95 @@
+\section{Related Literature}
+\label{sec:related}
+
+\subsection{Factor replication: HXZ, C\&Z, and JKP}
+
+This paper joins a decade-long methodological debate about how to replicate
+the published cross-sectional return-predictability literature. \citet{HouXueZhang2020}
+rerun 452 anomalies under one uniform protocol -- NYSE
+breakpoints, value weighting -- and report that 65.4\% fail to clear
+$|t|\geq 1.96$; the failure rate falls to 43.1\% under an equal-weighted
+protocol with NYSE-Amex-NASDAQ breakpoints, a fact HXZ themselves use to
+argue that weighting and breakpoint conventions, not the underlying
+economics, drive much of the disagreement. Their contribution is an
+aggregate failure rate under a single, externally imposed protocol; it does
+not decompose any individual factor's gap into a signal component and a
+configuration component, nor does it compare against the paper's own
+originally reported number field by field.
+
+\citet{ChenZimmermann2022} take the opposite approach: for each of 319
+characteristics, they implement the paper's own stated method as closely as
+possible, and report that all but a handful replicate. Where their result
+disagrees with HXZ's, they make a manual, case-by-case judgment of whether
+the anomaly itself is invalid or whether the standardized protocol departs
+from what the paper actually specified. This is a substantive contribution,
+but it stops short of an actual counterfactual: C\&Z never run their own
+signal through HXZ's protocol, or vice versa, to isolate how much of the
+disagreement is attributable to the signal formula versus the portfolio
+configuration.
+
+\citet{JensenKellyPedersen2023} instead replace the entire protocol with
+a uniform Bayesian framework and report a sequence of six failure rates
+(35\% $\to$ 55.6\% $\to$ 61.3\% $\to$ 82.4\% $\to$ 75.6\% $\to$ 82.4\%) as
+successive methodological choices are changed one at a time -- comparable
+tercile/decile conventions, exclusion of originally-insignificant anomalies,
+CAPM-alpha rather than raw returns, and multiple-testing corrections. This
+is the closest existing work to a decomposition, but it decomposes the
+effect of \emph{replacing} the protocol, not the disagreement between two
+independently-arrived-at implementations of the \emph{same} protocol space.
+
+Table~\ref{tab:related-work} summarizes this positioning. What none of the
+three provides is a genuine counterfactual execution -- taking one signal
+and running it under another team's configuration, holding everything else
+fixed -- that would cleanly separate "the signal is measured differently"
+from "the portfolio is constructed differently." The $\Acz$/$\Ahxz$ hybrid
+tracks in this paper (\S\ref{sec:design}) are built to do exactly that.
+
+\input{tables/tab_related_work_positioning}
+
+A separate, older literature frames the same tension without proposing a
+decomposition: \citet{HarveyLiuZhu2016} and \citet{McLeanPontiff2016}
+both treat the multiplicity of possible implementation and testing choices
+as a source of noise to be corrected for (via higher significance
+thresholds or out-of-sample decay, respectively) rather than as an object of
+study in its own right. This paper's departure is to treat exactly that
+multiplicity -- the space of choices a paper's text leaves open -- as the
+primary object of measurement.
+
+\subsection{Researcher degrees of freedom and multiverse analysis}
+
+The idea that a single dataset admits many defensible analytical choices,
+and that the choice matters, is well established outside finance.
+Specification-curve analysis \citep{Simonsohn2020} and
+multiverse analysis \citep{Steegen2016} both enumerate the full space of
+reasonable choices a researcher \emph{could} make and report how the result
+varies across that space. The finance literature's own version of this
+concern is the p-hacking / multiple-testing critique of anomaly discovery.
+
+This paper's disagreement band is narrower by construction, and that is a
+deliberate design choice rather than a limitation to apologize for: rather
+than enumerate every choice a researcher could imaginably make, it is
+calibrated to the choices two real, independent, well-resourced
+implementers (the agent and Chen-Zimmermann) actually disagreed on. The
+resulting band is an empirically observed lower bound on the paper's true
+implementation space (\S\ref{sec:framework}), not an a priori enumeration of
+hypothetical alternatives -- it is anchored to what real disagreement looks
+like, not to what disagreement could in principle look like.
+
+\subsection{LLM agents for research automation}
+
+A growing literature uses large language models to automate parts of the
+empirical research pipeline, from literature extraction to code generation,
+and a parallel literature raises validity concerns about doing so --
+principally that an LLM's output can silently encode choices the model was
+never authorized, or expected, to make. This paper's design responds to that
+concern directly rather than by assertion: the LLM is only ever permitted to
+author the \texttt{compute\_signal} function (\S\ref{sec:pipeline}); it never
+sets an empirical parameter -- weighting, breakpoint convention, sample
+window, or estimator -- all of which are drawn from a fixed, human-auditable
+configuration menu. Every quantity reported in \S\ref{sec:results} is
+therefore reproducible with the LLM switched off, once a plugin has been
+frozen; the LLM's role is confined to producing an artifact whose downstream
+consequences are then measured by a deterministic engine, not to producing
+the empirical findings themselves.
+
+% estimator) -- those come from a fixed, human-auditable config menu.

@@ -36,20 +36,24 @@ ClaimType = Literal[
     "config_divergence",
     "gap_attribution",
     "evidence_limitation",
-    "signal_reproducibility",
     "publication_decay",
     "implementation_robustness",
     "gap_attribution_shapley",
     "switch_significance",
     "joint_attribution_support",
+    # docs/paper-outline.md C1: which of signal / config / agent-replication
+    # residual dominates an EXTERNAL implementer's distance from the paper's
+    # own reported number. The only claim type whose evidence involves an
+    # endpoint this engine did not itself run.
+    "three_term_gap_component",
 ]
 
-#: Which of the three reason layers (docs/tools-plus-llm-plan.md §4.3) a
+#: Which of the two reason layers (docs/tools-plus-llm-plan.md §4.3) a
 #: claim_type belongs to -- NOT LLM-authored, derived from claim_type alone.
 #: `temporal_pattern` (publication_decay) is deliberately its own layer: it's
 #: orthogonal to "did we replicate correctly", it's a property of the
 #: factor's own time series.
-ReasonLayer = Literal["config_sensitivity", "signal_fidelity", "temporal_pattern"]
+ReasonLayer = Literal["config_sensitivity", "temporal_pattern"]
 
 REASON_LAYER_BY_CLAIM_TYPE: dict[str, str] = {
     "sign_agreement": "config_sensitivity",
@@ -58,12 +62,12 @@ REASON_LAYER_BY_CLAIM_TYPE: dict[str, str] = {
     "config_divergence": "config_sensitivity",
     "gap_attribution": "config_sensitivity",
     "evidence_limitation": "config_sensitivity",
-    "signal_reproducibility": "signal_fidelity",
     "publication_decay": "temporal_pattern",
     "implementation_robustness": "config_sensitivity",
     "gap_attribution_shapley": "config_sensitivity",
     "switch_significance": "config_sensitivity",
     "joint_attribution_support": "config_sensitivity",
+    "three_term_gap_component": "config_sensitivity",
 }
 
 #: docs/step7-8.md Part IX (scheme B): a dependency-ordered narrative stage,
@@ -85,8 +89,10 @@ ANALYSIS_STAGE_BY_CLAIM_TYPE: dict[str, str] = {
     "magnitude_gap": "vs_paper",
     "significance": "vs_paper",
     "config_divergence": "vs_paper",
+    # Also anchored on the paper's own reported number, so it belongs with
+    # the other `vs_paper` claims rather than the per-switch chain.
+    "three_term_gap_component": "vs_paper",
     "publication_decay": "auxiliary",
-    "signal_reproducibility": "auxiliary",
     "implementation_robustness": "auxiliary",
     "evidence_limitation": "auxiliary",
 }
@@ -105,8 +111,6 @@ Relation = Literal[
     "differs",
     "associated_change",
     "unavailable",
-    "reproduces",
-    "diverges",
     "decayed",
     "stable",
     "robust",
@@ -142,12 +146,15 @@ CLAIM_RELATIONS: dict[str, tuple[str, ...]] = {
     "config_divergence": ("differs",),
     "gap_attribution": ("associated_change",),
     "evidence_limitation": ("unavailable",),
-    "signal_reproducibility": ("reproduces", "diverges"),
     "publication_decay": ("decayed", "stable"),
     "implementation_robustness": ("robust", "fragile"),
     "gap_attribution_shapley": ("associated_change",),
     "switch_significance": ("significant", "insignificant"),
     "joint_attribution_support": ("significant", "insignificant"),
+    # "larger"/"smaller" compare one term against the others; "similar" says
+    # no term dominates. Deliberately NOT `associated_change`: the identity is
+    # an accounting split, it does not identify an effect.
+    "three_term_gap_component": ("larger", "smaller", "similar"),
 }
 
 #: Every claim type must cite at least one key whose dotted path starts with
@@ -162,7 +169,6 @@ CLAIM_EVIDENCE_REQUIREMENTS: dict[str, tuple[str, ...]] = {
     "config_divergence": ("config_diff.",),
     "gap_attribution": ("gap_decomposition.contributions.",),
     "evidence_limitation": ("gap_decomposition.", "derived.tracks."),
-    "signal_reproducibility": ("bridge_comparison.",),
     "publication_decay": ("publication_decay.",),
     "implementation_robustness": ("robustness_summary.",),
     # docs/step7-8.md Part VIII: full-factorial Shapley attribution / per-switch
@@ -171,6 +177,7 @@ CLAIM_EVIDENCE_REQUIREMENTS: dict[str, tuple[str, ...]] = {
     "gap_attribution_shapley": ("shapley_attribution.",),
     "switch_significance": ("paired_tests.",),
     "joint_attribution_support": ("joint_test.",),
+    "three_term_gap_component": ("three_term_identity.",),
 }
 
 #: Additional per-claim-type substring requirement, checked against the same
@@ -180,12 +187,14 @@ CLAIM_EVIDENCE_SUBSTRINGS: dict[str, tuple[str, ...]] = {
     "sign_agreement": ("sign_agrees",),
     "magnitude_gap": ("spread",),
     "significance": ("significant",),
-    "signal_reproducibility": ("signal_implementation_agreement",),
     "publication_decay": ("decayed",),
     "implementation_robustness": ("robust",),
     "gap_attribution_shapley": ("shapley_effects",),
     "switch_significance": ("t_stat",),
     "joint_attribution_support": ("p_value",),
+    # Forces the claim onto one of the three named components rather than the
+    # section's endpoints or its window_basis metadata.
+    "three_term_gap_component": ("terms.",),
 }
 
 #: Identification level implied by each claim type's evidence. Attribution is
@@ -198,7 +207,6 @@ IDENTIFICATION_BY_CLAIM_TYPE: dict[str, str] = {
     "config_divergence": "observational",
     "gap_attribution": "harmonized",
     "evidence_limitation": "unidentified",
-    "signal_reproducibility": "observational",
     "publication_decay": "observational",
     "implementation_robustness": "harmonized",
     # Default before the runtime override in `_derive_claim_fields`, which reads
@@ -211,6 +219,10 @@ IDENTIFICATION_BY_CLAIM_TYPE: dict[str, str] = {
     # The Wald test only needs >=2 single-switch tracks, not the full grid
     # Shapley requires -- stays "harmonized", never "controlled".
     "joint_attribution_support": "harmonized",
+    # An accounting split across four endpoints, two of which this engine did
+    # not run and none of which share a sample window -- nothing here is a
+    # controlled contrast, so it can never rise above "observational".
+    "three_term_gap_component": "observational",
 }
 
 #: Deterministic map from identification level to reported strength. Replaces
@@ -249,7 +261,11 @@ class DiagnosisClaim(BaseModel):
     #: for claims citing the line-nested `shapley_attribution`/`paired_tests`/
     #: `joint_test` sections (docs/step7-8.md Part VI/VIII). `None` for claims
     #: that don't cite line-nested evidence. Derived, not LLM-authored.
-    comparison_line: Literal["to_hxz", "to_cz"] | None = None
+    #: `cz`/`hxz` are `three_term_identity`'s own nesting keys -- that section
+    #: nests by EXTERNAL REFERENCE (whose measured result is the endpoint),
+    #: not by track line, so they are deliberately distinct values rather
+    #: than aliases of `to_cz`/`to_hxz`.
+    comparison_line: Literal["to_hxz", "to_cz", "cz", "hxz"] | None = None
     #: Optional supporting prose. Must contain no digits -- the renderer emits
     #: the sentence and appends the cited values, so a number written here
     #: would be an unverifiable LLM figure.
@@ -301,7 +317,20 @@ class DiagnosisSummary(BaseModel):
 
     #: `None` when no line-scoped (per_switch/joint_gate) claim exists at all
     #: -- e.g. a batch with only vs_paper/auxiliary claims.
-    comparison_line: Literal["to_hxz", "to_cz"] | None = None
+    comparison_line: Literal["to_hxz", "to_cz", "cz", "hxz"] | None = None
+    #: Which of the reader-facing sections (docs/step7-8.md Part XVI) this
+    #: entry belongs to -- "vs_cz" for `comparison_line=="to_cz"`,
+    #: "robustness" for `comparison_line=="to_hxz"` (and any other named
+    #: line, folded into the same bucket), "spec_quality" for the dedicated
+    #: paper-clarity summary, "gap_split" for the three-term split of an
+    #: external implementer's distance from the paper's own number,
+    #: `None` for the legacy claim-only overflow bucket (a
+    #: `comparison_line=None` entry with no bundle-derived content
+    #: of its own). Frontend groups/orders/badges by THIS field, not
+    #: `comparison_line` -- keeps a pre-2026-08-18 persisted `diagnosis.json`
+    #: (section always `None`) rendering as a single undifferentiated list
+    #: rather than crashing.
+    section: Literal["reproduction", "robustness", "vs_cz", "spec_quality", "gap_split"] | None = None
     #: Copied from `bundle["derived"]["overall_tag"]`, never recomputed --
     #: this is a whole-factor verdict, not itself per-line.
     overall_tag: str = "inconclusive"
@@ -328,6 +357,11 @@ class DiagnosisSummary(BaseModel):
     #: De-emphasized technical caveat (e.g. joint-test availability/result),
     #: shown last and visually de-emphasized by the renderer/frontend.
     footnote: str = ""
+    #: {short label: long explanation} for every setting mentioned by SHORT
+    #: name in `headline`/`details` (docs/step7-8.md Part XVI) -- the long,
+    #: zero-background `CONFIG_KEY_LABELS` explanation is tooltip/glossary
+    #: content now, not inlined into every sentence.
+    glossary: dict[str, str] = Field(default_factory=dict)
 
 
 class VsPaperSummary(BaseModel):
@@ -335,12 +369,16 @@ class VsPaperSummary(BaseModel):
     reported number, same `headline`/`details`/`footnote` layout as
     `DiagnosisSummary` -- a small dedicated model rather than three loose
     fields on `ReplicationDiagnosisReport`, since this is one coherent unit
-    (report-level, not per-comparison-line).
+    (report-level, not per-comparison-line). Always section="reproduction"
+    (docs/step7-8.md Part XVI) -- this IS the reproduction section, not one
+    instance among several.
     """
 
+    section: Literal["reproduction"] = "reproduction"
     headline: str = ""
     details: list[str] = Field(default_factory=list)
     footnote: str = ""
+    glossary: dict[str, str] = Field(default_factory=dict)
 
 
 class ReplicationDiagnosisReport(BaseModel):
@@ -366,5 +404,12 @@ class ReplicationDiagnosisReport(BaseModel):
     #: Track-level (not per-line) summary comparing the baseline track
     #: against the paper's own reported number (docs/step7-8.md Part XII).
     #: Built by `summary.py::build_vs_paper_summary`, template-generated,
-    #: never LLM-authored.
+    #: never LLM-authored. This is the "reproduction" section (Part XVI).
     vs_paper_summary: VsPaperSummary = Field(default_factory=VsPaperSummary)
+    #: How clearly the paper specified its method -- one bullet per field
+    #: `spec_quality.weak_fields` flagged, quoting the review's own reason.
+    #: Built by `summary.py::build_spec_quality_summary`, `section=
+    #: "spec_quality"` always. Template-generated, never LLM-authored.
+    spec_quality_summary: DiagnosisSummary = Field(
+        default_factory=lambda: DiagnosisSummary(section="spec_quality")
+    )

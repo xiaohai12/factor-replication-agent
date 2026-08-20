@@ -160,7 +160,30 @@ def load_cz_reference_profile(
     if row is None:
         return None
 
-    return _profile_from_row(acronym, row)
+    return _apply_manual_return_fallback(_profile_from_row(acronym, row))
+
+
+# Manual paper-reported fallback for a factor where C&Z's own SignalDoc
+# carries NO long-short portfolio Return (only a regression coefficient --
+# e.g. Bhandari 1988 `Leverage`: `Test in OP = mv reg`, blank `LS Quantile`,
+# see CHANGELOG.md's Leverage hard-reject note) -- filled in from the
+# ORIGINAL paper's own stated result, one factor at a time, never guessed.
+# Applied only when SignalDoc's own `Return` is missing, so a real C&Z
+# number always wins over this fallback.
+MANUAL_PAPER_RETURN_FALLBACK: dict[str, dict[str, float]] = {
+    "Leverage": {"mean_return": 0.0036, "t_stat": 2.64},
+}
+
+
+def _apply_manual_return_fallback(profile: CZReferenceProfile) -> CZReferenceProfile:
+    if profile.mean_return is not None:
+        return profile
+    fallback = MANUAL_PAPER_RETURN_FALLBACK.get(profile.acronym)
+    if fallback is None:
+        return profile
+    profile.mean_return = fallback["mean_return"]
+    profile.t_stat = fallback["t_stat"]
+    return profile
 
 
 # Pinned, not `None`/"latest" -- a caller must get the SAME SignalDoc release
@@ -189,7 +212,7 @@ def fetch_cz_reference_profile_live(
     matches = df[df["Acronym"] == acronym]
     if matches.empty:
         return None
-    return _profile_from_row(acronym, matches.iloc[0].to_dict())
+    return _apply_manual_return_fallback(_profile_from_row(acronym, matches.iloc[0].to_dict()))
 
 
 # C&Z's own house-convention default (`01_PortfolioFunction.R:83-93`,
@@ -297,3 +320,97 @@ def cz_profile_to_config_override(profile: CZReferenceProfile) -> dict[str, Any]
     if profile.sample_end_year is not None:
         override["sample_end_year"] = profile.sample_end_year
     return override
+
+
+def external_reference_endpoints(
+    acronym: str | None,
+    paper_sample_start_year: int | None = None,
+    paper_sample_end_year: int | None = None,
+    signaldoc_path: str | Path | None = None,
+    return_ref_dir: Path | None = None,
+) -> dict[str, dict[str, Any]]:
+    """Resolve the two EXTERNAL replication endpoints (`CZ` and `HXZ` in
+    docs/paper-outline.md's notation) into the plain-dict shape
+    `bundle.build_three_term_identity` consumes.
+
+    These are the OTHER implementers' OWN measured results -- C&Z's signal
+    under C&Z's config, HXZ's signal under HXZ's config -- as opposed to
+    this engine's `cz_actual_config`/`standardized_hxz` tracks, which are
+    the AGENT's signal under those implementers' configs. Keeping them
+    separate is the whole point of the three-term decomposition: only with
+    both can the signal-side and config-side of a replication gap be told
+    apart.
+
+    Window/basis provenance travels WITH each endpoint rather than being
+    assumed, because the two sources differ on it (docs/paper-outline.md
+    Ch.3, option (a)):
+
+    - **C&Z** is metadata-only: `SignalDoc.csv`'s static `Return`/`T-Stat`
+      are fixed to C&Z's own sample window and were produced by C&Z's own R
+      engine, so `window_adjustable=False` and no window-sensitivity number
+      can be computed for it.
+    - **HXZ** is recomputed from their published testing-portfolio returns
+      by `hxz_bridge`, on whichever window is asked for and using this
+      engine's own Newey-West `_series_metrics`, so `window_adjustable=True`
+      and `window_sensitivity_spread` reports how much the endpoint moves
+      between the replicated paper's window and HXZ's own 1967-2016 window
+      -- the measurable part of the window/basis mismatch.
+
+    Returns `{}` for an endpoint that cannot be resolved (unknown acronym,
+    SignalDoc not downloaded, no HXZ testing-portfolio CSV for this factor)
+    rather than raising -- a missing external reference degrades the
+    three-term identity to "unavailable with a stated reason", it does not
+    fail the run.
+    """
+    if not acronym:
+        return {}
+
+    endpoints: dict[str, dict[str, Any]] = {}
+
+    profile = load_cz_reference_profile(acronym, signaldoc_path)
+    if profile is not None and profile.mean_return is not None:
+        endpoints["cz"] = {
+            "spread": profile.mean_return,
+            "t_stat": profile.t_stat,
+            "sample_start_year": profile.sample_start_year,
+            "sample_end_year": profile.sample_end_year,
+            "source": "SignalDoc.csv (C&Z's own reported Return/T-Stat)",
+            "window_adjustable": False,
+            "window_sensitivity_spread": None,
+        }
+
+    from src.infra.reference.hxz_bridge import (
+        HXZ_PAPER_SAMPLE_END_YEAR,
+        HXZ_PAPER_SAMPLE_START_YEAR,
+        compute_hxz_reported_both_windows,
+    )
+
+    hxz_windows = compute_hxz_reported_both_windows(
+        acronym, paper_sample_start_year, paper_sample_end_year, return_ref_dir
+    )
+    on_paper_window = (hxz_windows or {}).get("original_insample") or {}
+    on_hxz_window = (hxz_windows or {}).get("hxz_paper_sample") or {}
+    if on_paper_window.get("mean_return") is not None:
+        alt_spread = on_hxz_window.get("mean_return")
+        endpoints["hxz"] = {
+            "spread": on_paper_window["mean_return"],
+            "t_stat": on_paper_window.get("t_stat"),
+            "sample_start_year": on_paper_window.get("start_year"),
+            "sample_end_year": on_paper_window.get("end_year"),
+            "n_months": on_paper_window.get("n_months"),
+            "source": (
+                f"{on_paper_window.get('label')} testing-portfolio returns, recomputed on the "
+                "paper's own window with this engine's Newey-West metrics"
+            ),
+            "window_adjustable": True,
+            "window_sensitivity_spread": (
+                None if alt_spread is None else on_paper_window["mean_return"] - alt_spread
+            ),
+            "window_sensitivity_basis": {
+                "alt_spread": alt_spread,
+                "alt_start_year": HXZ_PAPER_SAMPLE_START_YEAR,
+                "alt_end_year": HXZ_PAPER_SAMPLE_END_YEAR,
+            },
+        }
+
+    return endpoints

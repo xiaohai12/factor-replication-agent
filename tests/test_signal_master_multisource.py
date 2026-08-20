@@ -35,7 +35,7 @@ def _read(name: str) -> pd.DataFrame:
 # --- Phase 2: link_to_permno() -------------------------------------------
 
 @pytest.mark.parametrize("source,table", [
-    ("comp_funda", "comp_funda"),
+    ("compustat_fundamental_annual", "compustat_fundamental_annual"),
     ("ibes_statsumu", "ibes_statsumu"),
 ])
 def test_link_to_permno_no_row_explosion(source, table):
@@ -66,7 +66,7 @@ def test_master_table_dispatches_on_resolved_method_spec():
     `ImplementationResolution.concept_mapping`."""
     from tests._spec_test_helpers import minimal_resolved_spec
 
-    spec = minimal_resolved_spec(concept_source="comp_funda", concept_column="at")
+    spec = minimal_resolved_spec(concept_source="compustat_fundamental_annual", concept_column="at")
     m = assemble_signal_master_table(spec, DATA_DIR)
     assert {"permno", "time_avail_m", "at"}.issubset(m.columns)
     assert len(m) > 0
@@ -99,7 +99,7 @@ def test_link_to_permno_drops_bad_linktype_and_prefers_primary():
         {"gvkey": "0001", "datadate": "2010-06-30", "at": 100.0},
         {"gvkey": "0002", "datadate": "2010-06-30", "at": 200.0},
     ])
-    out = link_to_permno(df, "comp_funda", {"ccm": ccm}, date_col="datadate")
+    out = link_to_permno(df, "compustat_fundamental_annual", {"ccm": ccm}, date_col="datadate")
 
     assert list(out["gvkey"]) == ["0002"]          # gvkey 0001 (bad linktype) dropped
     assert int(out.iloc[0]["permno"]) == 202        # primary link wins, not smallest permno

@@ -208,7 +208,6 @@ export function Step5Output({
         <span className="font-mono text-muted-foreground">run: {shortHash(run.run_id)}</span>
         <Badge variant="outline">track: {run.track}</Badge>
         <Badge variant={run.status === "success" ? "default" : "destructive"}>status: {run.status}</Badge>
-        {run.is_bridge_track && <Badge variant="secondary">bridge track</Badge>}
       </div>
 
       {seriesQuery.data && <ReturnChart data={seriesQuery.data} />}

@@ -342,6 +342,10 @@ class TimingSpec(BaseModel):
     #: structured `formation_month: int`, which this replaces.
     formation_month: SourcedValue[int] | None = None
     rebalance_frequency: SourcedValue[TimeUnit]
+    #: ALWAYS in months, regardless of `rebalance_frequency`'s unit (e.g. a
+    #: paper stating "held for 1 year" must be written as 12, not 1) --
+    #: `registry.build_config` passes this straight through as
+    #: `holding_period_months` with no unit conversion of its own.
     holding_period: SourcedValue[int]
     return_window: WindowSpec | None = None
     data_availability: DataAvailability
@@ -654,6 +658,13 @@ class ReportedMetric(BaseModel):
     label: str
     estimand: Estimand
     adjustment_model: AdjustmentModel
+    #: Which weighting the paper's own table column this number comes from
+    #: (ew/vw), so Step2 review can catch `primary_metric_id` pointing at a
+    #: number computed under a DIFFERENT weighting than `portfolio.weighting`
+    #: (Step7 would otherwise compare our track against the wrong column).
+    #: `None` = paper doesn't distinguish or the extractor couldn't tell --
+    #: never guess.
+    weighting: WeightingScheme | None = None
     estimate: float
     unit: Unit
     frequency: TimeUnit

@@ -38,7 +38,7 @@ class TestBuildImplementationResolutionWithLlm:
     def test_valid_llm_pick_is_recorded_as_llm_matched(self):
         paper = _paper_with_unresolvable_field()
         review = review_method_spec(paper)
-        llm = FakeLLM({"firm_beta_estimate": {"source": "comp_funda", "column": "at"}})
+        llm = FakeLLM({"firm_beta_estimate": {"source": "compustat_fundamental_annual", "column": "at"}})
         resolution = build_implementation_resolution(
             paper, review, data_dictionary=DataDictionary(), llm_client=llm
         )

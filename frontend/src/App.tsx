@@ -1,6 +1,7 @@
 import { BrowserRouter, Navigate, Route, Routes } from "react-router-dom"
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query"
 import { AppLayout } from "@/layout/AppLayout"
+import { ErrorBoundary } from "@/components/ErrorBoundary"
 import { LlmProvider } from "@/lib/llmContext"
 import { BacktestExperimentsPage } from "@/pages/BacktestExperimentsPage"
 import { TraceLogsPage } from "@/pages/TraceLogsPage"
@@ -21,14 +22,14 @@ function App() {
           <Routes>
             <Route element={<AppLayout />}>
               <Route index element={<Navigate to="/runs" replace />} />
-              <Route path="/extract" element={<ExtractorPage />} />
-              <Route path="/review" element={<ReviewResolvePage />} />
-              <Route path="/backtest" element={<BacktestExperimentsPage />} />
-              <Route path="/trace" element={<TraceLogsPage />} />
-              <Route path="/runs" element={<RunsPage />} />
-              <Route path="/runs/:sessionId/step/:step" element={<SessionDetailPage />} />
-              <Route path="/schema" element={<SchemaReferencePage />} />
-              <Route path="/data-catalog" element={<DataCatalogPage />} />
+              <Route path="/extract" element={<ErrorBoundary><ExtractorPage /></ErrorBoundary>} />
+              <Route path="/review" element={<ErrorBoundary><ReviewResolvePage /></ErrorBoundary>} />
+              <Route path="/backtest" element={<ErrorBoundary><BacktestExperimentsPage /></ErrorBoundary>} />
+              <Route path="/trace" element={<ErrorBoundary><TraceLogsPage /></ErrorBoundary>} />
+              <Route path="/runs" element={<ErrorBoundary><RunsPage /></ErrorBoundary>} />
+              <Route path="/runs/:sessionId/step/:step" element={<ErrorBoundary><SessionDetailPage /></ErrorBoundary>} />
+              <Route path="/schema" element={<ErrorBoundary><SchemaReferencePage /></ErrorBoundary>} />
+              <Route path="/data-catalog" element={<ErrorBoundary><DataCatalogPage /></ErrorBoundary>} />
             </Route>
           </Routes>
         </BrowserRouter>

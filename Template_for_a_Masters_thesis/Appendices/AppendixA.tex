@@ -1,0 +1,193 @@
+% 1. Manually inject "Appendices" into the Table of Contents right here
+\cleardoublepage
+\addcontentsline{toc}{chapter}{Appendices}
+
+
+% 3. Start your regular Appendix A chapter
+\chapter*{Appendices}
+\chapter{Structural Restrictions}
+\label{Appendix A: Structural Restrictions}
+
+% Your Appendix A content continues here...
+
+This appendix documents the structural restriction matrices $Z^{(k)}$ applied to each
+financial instrument $k$ in the construction of the FWTW matrix for the euro area.
+Each matrix is a binary $(0,1)$ mask, where 1 denotes an admissible entry and 0 a
+restricted one.
+
+Rows and columns follow the harmonized institutional-sector order used in the
+main analysis: monetary financial institutions, non-money market funds investment funds, insurance corporations, pension funds, other
+financial institutions, households, non-financial corporations, general
+government, and rest of the world.
+
+\begingroup
+\footnotesize
+\setlength{\arraycolsep}{2.4pt}
+\renewcommand{\arraystretch}{0.85}
+
+\newcommand{\zmat}[2]{%
+\begin{minipage}[t]{0.32\textwidth}
+\centering
+\textbf{\footnotesize #1}\\[2pt]
+\resizebox{0.82\linewidth}{!}{$
+\begin{bmatrix}
+#2
+\end{bmatrix}$}
+\end{minipage}
+}
+
+\begin{center}
+
+\zmat{Gold}{
+1&0&0&0&0&0&0&1&1\\
+0&0&0&0&0&0&0&0&0\\
+0&0&0&0&0&0&0&0&0\\
+0&0&0&0&0&0&0&0&0\\
+0&0&0&0&0&0&0&0&0\\
+0&0&0&0&0&0&0&0&0\\
+0&0&0&0&0&0&0&0&0\\
+0&0&0&0&0&0&0&0&0\\
+1&0&0&0&0&0&0&1&0
+}
+\hfill
+\zmat{Currency}{
+1&0&0&0&0&0&0&0&1\\
+1&0&0&0&0&0&0&0&1\\
+1&0&0&0&0&0&0&0&1\\
+1&0&0&0&0&0&0&0&1\\
+1&0&0&0&0&0&0&0&1\\
+1&0&0&0&0&0&0&0&1\\
+1&0&0&0&0&0&0&0&1\\
+1&0&0&0&0&0&0&0&1\\
+1&0&0&0&0&0&0&0&0
+}
+\hfill
+\zmat{Debt Instruments}{
+1&1&1&0&1&0&1&1&1\\
+1&1&1&1&1&0&1&1&1\\
+1&1&1&1&1&0&1&1&1\\
+1&1&1&0&1&0&1&1&1\\
+1&1&1&1&1&0&1&1&1\\
+1&1&1&0&1&0&1&1&1\\
+1&1&1&0&1&0&1&1&1\\
+1&1&1&0&1&0&1&1&1\\
+1&1&1&0&1&0&1&1&0
+}
+
+\vspace{10pt}
+
+\zmat{Listed Shares}{
+1&1&1&0&1&0&1&1&1\\
+1&1&1&0&1&0&1&1&1\\
+1&1&1&0&1&0&1&1&1\\
+1&1&1&0&1&0&1&1&1\\
+1&1&1&0&1&0&1&1&1\\
+1&1&1&0&1&0&1&1&1\\
+1&1&1&0&1&0&1&1&1\\
+1&1&1&0&1&0&1&1&1\\
+1&1&1&0&1&0&1&1&0
+}
+\hfill
+\zmat{Unlisted Shares}{
+1&0&1&0&1&0&1&0&1\\
+1&0&1&0&1&0&1&1&1\\
+1&0&1&0&1&0&1&0&1\\
+1&0&1&0&1&0&1&1&1\\
+1&1&1&1&1&0&1&1&1\\
+1&0&1&0&1&0&1&0&1\\
+1&0&1&0&1&0&1&1&1\\
+1&0&1&0&1&0&1&1&1\\
+1&0&1&0&1&0&1&1&0
+}
+\hfill
+\zmat{Other Equity}{
+1&0&1&0&1&0&1&0&1\\
+1&0&1&0&1&0&1&1&1\\
+1&0&1&0&1&0&1&0&1\\
+1&0&1&0&1&0&1&1&1\\
+1&1&1&1&1&0&1&1&1\\
+1&0&1&0&1&0&1&0&1\\
+1&0&1&0&1&1&1&1&1\\
+1&0&1&0&1&0&1&1&1\\
+1&0&1&0&1&0&1&1&0
+}
+
+\vspace{10pt}
+
+\zmat{Money Market Fund Shares}{
+1&0&0&0&0&0&0&0&1\\
+1&0&0&0&0&0&0&0&1\\
+1&0&0&0&0&0&0&0&1\\
+1&0&0&0&0&0&0&0&1\\
+1&0&0&0&0&0&0&0&1\\
+1&0&0&0&0&0&0&0&1\\
+1&0&0&0&0&0&0&0&1\\
+1&0&0&0&0&0&0&0&1\\
+1&0&0&0&0&0&0&0&0
+}
+\hfill
+\zmat{Mutual Fund Shares}{
+0&1&0&0&0&0&0&0&1\\
+0&1&0&0&0&0&0&0&1\\
+0&1&0&0&0&0&0&0&1\\
+0&1&0&0&0&0&0&0&1\\
+0&1&0&0&0&0&0&0&1\\
+0&1&0&0&0&0&0&0&1\\
+0&1&0&0&0&0&0&0&1\\
+0&1&0&0&0&0&0&0&1\\
+0&1&0&0&0&0&0&0&0
+}
+\hfill
+\zmat{Life Insurance}{
+0&0&0&0&0&0&0&0&0\\
+0&0&0&0&0&0&0&0&0\\
+0&0&0&0&0&0&0&0&0\\
+0&0&1&1&0&0&0&0&0\\
+0&0&0&0&0&0&0&0&0\\
+0&0&1&1&0&0&0&0&0\\
+0&0&1&1&0&0&0&0&0\\
+0&0&0&0&0&0&0&0&0\\
+0&0&0&0&0&0&0&0&0
+}
+
+\vspace{10pt}
+
+\zmat{Non-Life Insurance}{
+1&1&1&1&1&0&0&1&0\\
+1&1&1&1&1&0&0&1&0\\
+1&1&1&1&1&0&0&1&0\\
+1&1&1&1&1&0&0&1&0\\
+1&1&1&1&1&0&0&1&0\\
+1&1&1&1&1&0&0&1&0\\
+1&1&1&1&1&0&0&1&0\\
+1&1&1&1&1&0&0&1&0\\
+0&0&0&0&0&0&0&0&0
+}
+\hfill
+\zmat{Pension Schemes}{
+1&0&1&1&1&1&1&1&0\\
+0&0&0&0&0&0&0&0&0\\
+1&0&1&1&1&1&1&1&0\\
+1&0&1&1&1&1&1&1&0\\
+1&0&1&1&1&1&1&1&0\\
+1&0&1&1&1&1&1&1&0\\
+1&0&1&1&1&1&1&1&0\\
+1&0&1&1&1&1&1&1&0\\
+0&0&0&0&0&0&0&0&0
+}
+\hfill
+\zmat{Other}{
+1&1&1&1&1&1&1&1&1\\
+1&1&1&1&1&1&1&1&1\\
+1&1&1&1&1&1&1&1&1\\
+1&1&1&1&1&1&1&1&1\\
+1&1&1&1&1&1&1&1&1\\
+1&1&1&1&1&1&1&1&1\\
+1&1&1&1&1&1&1&1&1\\
+1&1&1&1&1&1&1&1&1\\
+1&1&1&1&1&1&1&1&0
+}
+
+\end{center}
+
+\endgroup

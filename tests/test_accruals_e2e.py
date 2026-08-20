@@ -46,7 +46,7 @@ def pipeline(tmp_path) -> Pipeline:
     snapshot_dir = data_path / "snapshots" / SNAPSHOT_ID
     snapshot_dir.mkdir(parents=True)
     crsp.to_parquet(snapshot_dir / "crsp_msf.parquet", index=False)
-    build_compustat_funda().to_parquet(snapshot_dir / "comp_funda.parquet", index=False)
+    build_compustat_funda().to_parquet(snapshot_dir / "compustat_fundamental_annual.parquet", index=False)
     build_ccm_link().rename(columns={"permno": "lpermno"}).to_parquet(
         snapshot_dir / "ccm_lnkhist.parquet", index=False
     )

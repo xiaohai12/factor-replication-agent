@@ -95,7 +95,7 @@ class TestSnapshotManifestHash:
     def test_changes_when_a_file_is_added(self, tmp_path):
         (tmp_path / "crsp_msf.parquet").write_bytes(b"x" * 100)
         h1 = snapshot_manifest_hash(tmp_path)
-        (tmp_path / "comp_funda.parquet").write_bytes(b"y" * 50)
+        (tmp_path / "compustat_fundamental_annual.parquet").write_bytes(b"y" * 50)
         h2 = snapshot_manifest_hash(tmp_path)
         assert h1 != h2
 

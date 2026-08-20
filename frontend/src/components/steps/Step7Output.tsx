@@ -3,7 +3,8 @@ import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { DiffView } from "@/components/DiffView"
 import { GapWaterfallChart } from "@/components/GapWaterfallChart"
-import { JointTestBanner, MeasuresExplainer, PairedTestsTable, ShapleyAttributionTable, TrackMetricsChart, TrackScatterChart, ForestPlot, ConfigDiffHeatmap } from "@/components/AttributionPanel"
+import { JointTestBanner, MeasuresExplainer, PairedTestsTable, ShapleyAttributionTable, TrackMetricsChart, TrackScatterChart, ForestPlot } from "@/components/AttributionPanel"
+import { ThreeTermIdentityPanel } from "@/components/ThreeTermIdentityPanel"
 import { cn } from "@/lib/utils"
 
 type ConfigDiffPair = {
@@ -45,7 +46,6 @@ function linesOf(x: Record<string, unknown> | undefined): [string, Record<string
  * factorial tracks doesn't dump every one on screen by default). */
 export function Step7Output({ bundle }: { bundle: Record<string, unknown> }) {
   const derived = (bundle.derived as Record<string, unknown>) ?? {}
-  const gap = (bundle.gap_decomposition as { available?: boolean }) ?? {}
   const shapleyLines = linesOf(bundle.shapley_attribution as Record<string, unknown> | undefined)
   const pairedLines = new Map(linesOf(bundle.paired_tests as Record<string, unknown> | undefined))
   const jointLines = new Map(linesOf(bundle.joint_test as Record<string, unknown> | undefined))
@@ -53,17 +53,36 @@ export function Step7Output({ bundle }: { bundle: Record<string, unknown> }) {
     (bundle.config_diff as { baseline_track?: string; pairs?: Record<string, ConfigDiffPair> }) ?? {}
   const tracks =
     (bundle.tracks as Record<string, { config?: Record<string, unknown>; metrics?: Record<string, unknown> }>) ?? {}
+  // Same "prefer the paper's own sample window over this engine's full
+  // extended history" convention Step6Output.tsx already applies per-run --
+  // TrackMetricsChart/TrackScatterChart previously read raw `tracks`
+  // (full-history metrics), inconsistent with ForestPlot right above them
+  // (which reads `derived.tracks[*].vs_paper`, already in-sample-preferred).
+  const inSampleTracks = Object.fromEntries(
+    Object.entries(tracks).map(([name, payload]) => {
+      const metrics = payload.metrics ?? {}
+      const insamp = (metrics.by_sample_period as Record<string, Record<string, unknown>> | undefined)?.insamp
+      return [
+        name,
+        {
+          ...payload,
+          metrics: insamp
+            ? {
+                ...metrics,
+                mean_return: insamp.mean_monthly_return ?? metrics.mean_return,
+                t_stat: insamp.t_stat ?? metrics.t_stat,
+                sharpe_ratio: insamp.sharpe_ratio ?? metrics.sharpe_ratio,
+                alpha_ff3: insamp.alpha_ff3 ?? metrics.alpha_ff3,
+                n_months: insamp.n_months ?? metrics.n_months,
+              }
+            : metrics,
+        },
+      ]
+    }),
+  )
   const baselineTrack = configDiff.baseline_track
   const baselineConfig = (baselineTrack && tracks[baselineTrack]?.config) || {}
   const allPairTrackNames = Object.keys(configDiff.pairs ?? {})
-
-  // `gap_decomposition` (OAT-only) and `shapley_attribution` (full-factorial
-  // only) are mutually exclusive per batch, section 2 of docs/step7-8.md --
-  // only show gap_decomposition's own empty state when Shapley ALSO has
-  // nothing across every line, so a normal full-factorial batch doesn't
-  // read as "attribution failed".
-  const anyShapleyAvailable = shapleyLines.some(([, result]) => result.available === true)
-  const showGapWaterfall = gap.available === true || !anyShapleyAvailable
 
   const [metricKey, setMetricKey] = useState<(typeof TRACK_METRIC_OPTIONS)[number]["key"]>("mean_return")
   const [onlyDiffering, setOnlyDiffering] = useState(true)
@@ -106,7 +125,13 @@ export function Step7Output({ bundle }: { bundle: Record<string, unknown> }) {
           baselineTrack={baselineTrack}
         />
       </div>
-      {showGapWaterfall && <GapWaterfallChart gapDecomposition={bundle.gap_decomposition as Record<string, unknown>} />}
+      <GapWaterfallChart
+        gapDecomposition={bundle.gap_decomposition as Record<string, unknown>}
+        shapleyAttribution={bundle.shapley_attribution as Parameters<typeof GapWaterfallChart>[0]["shapleyAttribution"]}
+      />
+      <ThreeTermIdentityPanel
+        threeTerm={bundle.three_term_identity as Parameters<typeof ThreeTermIdentityPanel>[0]["threeTerm"]}
+      />
       {shapleyLines.map(([line, shapley]) => (
         <div key={line} className="flex flex-col gap-2 rounded-md border border-border p-2">
           {LINE_LABELS[line] && <p className="text-xs font-medium">{LINE_LABELS[line]}</p>}
@@ -145,7 +170,7 @@ export function Step7Output({ bundle }: { bundle: Record<string, unknown> }) {
           </div>
           <div className="grid grid-cols-1 gap-3 lg:grid-cols-2">
             <TrackMetricsChart
-              tracks={tracks}
+              tracks={inSampleTracks}
               trackNames={[baselineTrack, ...visibleTrackNames.filter((t) => t !== baselineTrack)]}
               metricKey={metricKey}
               baselineTrack={baselineTrack}
@@ -153,17 +178,11 @@ export function Step7Output({ bundle }: { bundle: Record<string, unknown> }) {
             <div className="flex flex-col gap-1">
               <p className="text-xs text-muted-foreground">mean_return vs t_stat -- is the difference real, or noise?</p>
               <TrackScatterChart
-                tracks={tracks}
+                tracks={inSampleTracks}
                 trackNames={[baselineTrack, ...visibleTrackNames.filter((t) => t !== baselineTrack)]}
                 baselineTrack={baselineTrack}
               />
             </div>
-          </div>
-          <div className="flex flex-col gap-1">
-            <p className="text-xs text-muted-foreground">
-              Config diff heatmap -- track × changed key, colored by pipeline stage (docs/step7-8.md Q8)
-            </p>
-            <ConfigDiffHeatmap pairs={configDiff.pairs} />
           </div>
           <div className="flex flex-wrap items-center gap-x-3 gap-y-1 rounded-md border border-border p-2 text-xs">
             <span className="text-muted-foreground">Compare against {baselineTrack}:</span>

@@ -1,0 +1,17 @@
+% Positioning table vs. HXZ (2020) / C&Z (2021-2022) / JKP (2023).
+% See docs/paper-outline.md Ch.2 for the PDF-verified numbers (2026-08-18).
+\begin{table}[htbp]
+  \centering
+  \caption{Positioning relative to HXZ, C\&Z, and JKP.}
+  \label{tab:related-work}
+  \begin{tabular}{p{2.2cm}p{5.5cm}p{5.5cm}}
+    \toprule
+    Source & What it does & What is missing, and what this paper adds \\
+    \midrule
+    HXZ (2020) & 452 anomalies, uniform protocol (NYSE breakpoints + VW); 65\% fail at $|t|\ge 1.96$; 43.1\% under EW + NYSE-Amex-NASDAQ breakpoints & Only an aggregate failure rate; no per-factor field-level gap \\
+    C\&Z (2021/2022) & Manual case-by-case judgment of factor-invalid vs.\ method-deviates-from-paper; $\sim$100\% replication on 319 characteristics & Manual classification; never actually runs the C\&Z signal through the HXZ configuration as a counterfactual \\
+    JKP (2023) & Uniform Bayesian protocol rerun; Figure 1 six bars (35\%$\to$55.6\%$\to$61.3\%$\to$82.4\%$\to$75.6\%$\to$82.4\%) attributed to protocol choices & Flattens disagreement (replaces the protocol) rather than decomposing it \\
+    This paper & $A_{cz}$/$A_{hxz}$ hybrid tracks: genuine counterfactual execution & Cleanly splits each factor's total gap into signal- and configuration-difference components \\
+    \bottomrule
+  \end{tabular}
+\end{table}

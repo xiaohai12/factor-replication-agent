@@ -81,6 +81,22 @@ CLOSE_REPLICATION_RATIO_BAND = (0.5, 2.0)
 
 BASELINE_TRACK = "original_method"
 
+# docs/step7-8.md Part VI: the C&Z comparison line's config always lands on
+# this exact track name (mirrors step8_diagnosis.summary's own constant,
+# duplicated rather than imported to keep step7 independent of step8).
+CZ_ACTUAL_CONFIG_TRACK = "cz_actual_config"
+
+# The HXZ comparison line's counterpart to `CZ_ACTUAL_CONFIG_TRACK`: agent
+# signal under the HXZ standardized config (`A_hxz` in
+# docs/paper-outline.md's notation).
+STANDARDIZED_HXZ_TRACK = "standardized_hxz"
+
+# Which hybrid track pairs with which external reference endpoint in
+# `build_three_term_identity`. Both are "agent signal + that implementer's
+# config", so differencing an external endpoint against its hybrid track
+# holds the CONFIG fixed and isolates the signal-side difference.
+THREE_TERM_HYBRID_TRACKS = {"cz": CZ_ACTUAL_CONFIG_TRACK, "hxz": STANDARDIZED_HXZ_TRACK}
+
 # How strongly each evidence section identifies a configuration's effect.
 # A config diff only *observes* that two runs differ; a one-at-a-time ablation
 # measures a change with everything else held fixed, but OAT effects need not
@@ -239,20 +255,47 @@ def build_track_vs_paper(
 
 
 def classify_overall(vs_paper: dict[str, Any]) -> str:
-    """Deterministic replication verdict for the baseline track.
+    """Deterministic replication verdict for the baseline track, axed on
+    SIGNIFICANCE first and sign second -- NOT sign alone (the previous
+    scheme's `sign_mismatch` conflated "we found nothing" with "we found the
+    opposite effect", two very different findings for a reader).
 
     The LLM never sets this; it may only cite it.
+
+    - `reproduced` -- same sign; both sides significant, OR (when neither
+      t-stat is significant) they at least agree on direction and no
+      significant paper effect was contradicted.
+    - `not_reproduced` -- the paper found a significant effect but we did
+      not: our estimate is statistically indistinguishable from zero, so its
+      sign carries no information and must not be read as a "reversed"
+      result.
+    - `contradicted` -- both sides are significant and disagree in sign: a
+      real, reportable conflict between two significant estimates.
+    - `inconclusive` -- sign undeterminable (missing/zero spread), or
+      neither side's significance can be established and sign disagrees.
+
+    When the paper's headline is on an alpha basis and our own t-stat is not
+    alpha-comparable (`t_stat_comparable=False`), significance cannot be
+    assessed at all here -- the verdict falls back to sign alone:
+    `reproduced` when signs agree, `contradicted` when they don't.
     """
     sign_agrees = vs_paper.get("sign_agrees")
     if sign_agrees is None:
         return "inconclusive"
-    if not sign_agrees:
-        return "sign_mismatch"
-    ratio = vs_paper.get("abs_spread_ratio")
-    lo, hi = CLOSE_REPLICATION_RATIO_BAND
-    if ratio is not None and lo <= ratio <= hi and vs_paper.get("significance_agrees") is True:
-        return "close_replication"
-    return "sign_agrees_magnitude_differs"
+
+    paper_significant = vs_paper.get("paper_significant")
+    track_significant = vs_paper.get("track_significant")
+    if not vs_paper.get("t_stat_comparable") or paper_significant is None or track_significant is None:
+        return "reproduced" if sign_agrees else "contradicted"
+
+    if paper_significant and track_significant:
+        return "reproduced" if sign_agrees else "contradicted"
+    if paper_significant and not track_significant:
+        # Our estimate is noise -- a failure to detect, not a reversed sign.
+        return "not_reproduced"
+    if not paper_significant and track_significant:
+        return "reproduced" if sign_agrees else "inconclusive"
+    return "inconclusive"
 
 
 def build_config_diff(
@@ -419,54 +462,6 @@ def build_menu_deviations(
         "available": True,
         "unsupported_paper_fields": unsupported,
         "clamped_by_track": clamped_by_track,
-    }
-
-
-def build_bridge_comparison(
-    tracks: dict[str, dict], paper_reported: dict[str, Any]
-) -> dict[str, Any]:
-    """Evidence for a `signal_reproducibility` claim: pairs a bridge track
-    (the C&Z reference signal run through our identical downstream config,
-    `RunRecord.is_bridge_track`) with a companion track, and compares
-    whether each independently reproduces the paper's headline sign.
-    """
-    bridge_name = next((n for n, p in tracks.items() if p.get("is_bridge_track")), None)
-    if bridge_name is None:
-        return {
-            "available": False,
-            "identification_level": MISSING_IDENTIFICATION,
-            "reason": "no bridge track (cz_bridge) registered for this factor",
-        }
-    own_name = BASELINE_TRACK if BASELINE_TRACK in tracks else next(
-        (n for n in tracks if n != bridge_name), None
-    )
-    if own_name is None:
-        return {
-            "available": False,
-            "identification_level": MISSING_IDENTIFICATION,
-            "reason": "bridge track exists but no companion track to compare it against",
-        }
-    bridge_vs_paper = build_track_vs_paper(paper_reported, tracks[bridge_name].get("metrics") or {})
-    own_vs_paper = build_track_vs_paper(paper_reported, tracks[own_name].get("metrics") or {})
-    bridge_reproduces = bridge_vs_paper.get("sign_agrees")
-    own_reproduces = own_vs_paper.get("sign_agrees")
-    if bridge_reproduces is None or own_reproduces is None:
-        agreement = "unavailable"
-    elif bridge_reproduces and own_reproduces:
-        agreement = "both_reproduce"
-    elif bridge_reproduces and not own_reproduces:
-        agreement = "only_bridge"
-    elif own_reproduces and not bridge_reproduces:
-        agreement = "only_own"
-    else:
-        agreement = "neither"
-    return {
-        "available": True,
-        "bridge_track": bridge_name,
-        "own_track": own_name,
-        "bridge_reproduces_paper": bridge_reproduces,
-        "own_reproduces_paper": own_reproduces,
-        "signal_implementation_agreement": agreement,
     }
 
 
@@ -709,20 +704,242 @@ def build_shapley_and_significance(
     }
 
 
+def build_gap_closure(derived: dict[str, Any], paired_tests: dict[str, Any]) -> dict[str, Any]:
+    """Whether the catalogued config differences to C&Z actually EXPLAIN the
+    total to_cz gap, or leave a residual not produced by any of them --
+    since no C&Z bridge track exists to separate a signal-formula difference
+    from a convention difference directly (removed 2026-08-18, see
+    CHANGELOG), this residual is the only evidence available for "how much
+    of the gap is NOT explained by known settings".
+
+    `total_gap` = baseline's spread minus `cz_actual_config`'s spread (both
+    already `derived.tracks.*.vs_paper.track_spread`, so on the SAME basis
+    `build_track_vs_paper` chose for this paper). `sum_of_switch_effects` is
+    the sum of every AVAILABLE `paired_tests["to_cz"].per_switch.*.mean_diff`
+    -- one-at-a-time, harmonized evidence (`OAT_INTERACTION_CAVEAT` applies:
+    not additive, order-dependent, no interactions identified), so the
+    residual is only a lower bound on "unexplained", not a precise figure.
+    """
+    baseline_track = derived.get("baseline_track")
+    tracks_derived = derived.get("tracks") or {}
+    baseline_spread = ((tracks_derived.get(baseline_track) or {}).get("vs_paper") or {}).get("track_spread")
+    cz_spread = ((tracks_derived.get(CZ_ACTUAL_CONFIG_TRACK) or {}).get("vs_paper") or {}).get("track_spread")
+    if baseline_track is None or CZ_ACTUAL_CONFIG_TRACK not in tracks_derived or baseline_spread is None or cz_spread is None:
+        return {
+            "available": False,
+            "identification_level": MISSING_IDENTIFICATION,
+            "reason": "requires both the baseline track and the cz_actual_config track to have a resolvable spread",
+        }
+    total_gap = baseline_spread - cz_spread
+
+    per_switch = ((paired_tests.get("to_cz") or {}).get("per_switch")) or {}
+    contributions = {
+        switch: entry["mean_diff"]
+        for switch, entry in per_switch.items()
+        if entry.get("available") is True and entry.get("mean_diff") is not None
+    }
+    if not contributions:
+        return {
+            "available": True,
+            "identification_level": OAT_IDENTIFICATION,
+            "interaction_caveat": OAT_INTERACTION_CAVEAT,
+            "total_gap": total_gap,
+            "contributions": {},
+            "sum_of_switch_effects": None,
+            "residual": None,
+            "explained_fraction": None,
+            "reason": "no per-switch paired-test evidence available on the to_cz line",
+        }
+
+    sum_of_switch_effects = sum(contributions.values())
+    residual = total_gap - sum_of_switch_effects
+    explained_fraction = (sum_of_switch_effects / total_gap) if total_gap not in (None, 0.0) else None
+    return {
+        "available": True,
+        "identification_level": OAT_IDENTIFICATION,
+        "interaction_caveat": OAT_INTERACTION_CAVEAT,
+        "total_gap": total_gap,
+        "contributions": contributions,
+        "sum_of_switch_effects": sum_of_switch_effects,
+        "residual": residual,
+        "explained_fraction": explained_fraction,
+    }
+
+
+# Each three-term component answers a different question and carries a
+# DIFFERENT kind of noise -- reported alongside the numbers so no reader (or
+# step8 claim) can treat them as one homogeneous "error".
+THREE_TERM_PURITY_NOTES = {
+    "signal_and_environment": (
+        "config held fixed, so this isolates the signal-side difference -- but it also "
+        "absorbs data-vintage and engine differences between this project and the external "
+        "implementer, so it is a signal+environment residual, not a pure signal effect"
+    ),
+    "config": (
+        "signal held fixed (both sides run the agent's own signal), so this is the one "
+        "genuinely clean term: it is exactly the effect of adopting that implementer's "
+        "configuration, and is the term the field-level gap decomposition splits further"
+    ),
+    "agent_replication_residual": (
+        "how far the agent's paper-faithful run lands from the paper's own reported number; "
+        "this is the agent's replication error, NOT paper ambiguity, and it caps how much "
+        "of the other two terms can be read as a statement about the paper"
+    ),
+}
+
+THREE_TERM_WINDOW_CAVEAT = (
+    "the four endpoints are not on a common sample window or statistical basis: the paper's "
+    "number comes from its own sample and its own era's estimator, this engine's tracks use "
+    "its own data coverage with Newey-West standard errors, and each external endpoint "
+    "carries its own window (see window_basis) -- the identity still holds exactly by "
+    "construction, but the window/basis mismatch is absorbed into the signal_and_environment "
+    "term rather than being separately identified"
+)
+
+
+def build_three_term_identity(
+    derived: dict[str, Any],
+    paper_reported: dict[str, Any],
+    external_reference: dict[str, Any] | None,
+    hybrid_track: str,
+    reference_label: str,
+) -> dict[str, Any]:
+    """Decompose one external implementer's distance from the PAPER's own
+    reported number into signal, config, and agent-replication components
+    (docs/paper-outline.md C1):
+
+        X - P = (X - A_hybrid) + (A_hybrid - A) + (A - P)
+
+    where `P` is the paper's reported spread, `A` the agent's paper-faithful
+    baseline track, `A_hybrid` the agent's signal run under the external
+    implementer's config (`cz_actual_config` / `standardized_hxz`), and `X`
+    that implementer's OWN measured result.
+
+    The identity telescopes, so `residual` is zero by construction -- it is
+    emitted anyway as an arithmetic audit check, exactly like
+    `gap_decomposition.residual`. What is NOT free is interpretation: the
+    three terms have different noise content (`THREE_TERM_PURITY_NOTES`) and
+    the endpoints do not share a sample window (`THREE_TERM_WINDOW_CAVEAT`),
+    both of which travel with the numbers so step8 cannot quietly drop them.
+
+    Identification is `observational`: nothing here is a controlled
+    contrast between two runs of THIS engine except the config term, and
+    even that is a single pair rather than an ablation grid.
+    """
+    tracks_derived = derived.get("tracks") or {}
+    baseline_track = derived.get("baseline_track")
+    baseline_spread = ((tracks_derived.get(baseline_track) or {}).get("vs_paper") or {}).get("track_spread")
+    hybrid_spread = ((tracks_derived.get(hybrid_track) or {}).get("vs_paper") or {}).get("track_spread")
+    paper_spread = _as_float(paper_reported.get("main_spread"))
+    external_spread = _as_float((external_reference or {}).get("spread"))
+
+    missing = [
+        name
+        for name, value in (
+            ("paper_reported.main_spread", paper_spread),
+            (f"baseline track {baseline_track!r} spread", baseline_spread),
+            (f"hybrid track {hybrid_track!r} spread", hybrid_spread),
+            (f"external {reference_label} reference spread", external_spread),
+        )
+        if value is None
+    ]
+    if missing:
+        return {
+            "available": False,
+            "identification_level": MISSING_IDENTIFICATION,
+            "reference_label": reference_label,
+            "hybrid_track": hybrid_track,
+            "reason": f"three-term identity needs all four endpoints; missing: {', '.join(missing)}",
+        }
+
+    signal_and_environment = external_spread - hybrid_spread
+    config = hybrid_spread - baseline_spread
+    agent_replication_residual = baseline_spread - paper_spread
+    total_gap = external_spread - paper_spread
+    terms_sum = signal_and_environment + config + agent_replication_residual
+
+    return {
+        "available": True,
+        "identification_level": CONFIG_DIFF_IDENTIFICATION,
+        "reference_label": reference_label,
+        "hybrid_track": hybrid_track,
+        "endpoints": {
+            "paper_reported_spread": paper_spread,
+            "agent_baseline_spread": baseline_spread,
+            "agent_hybrid_spread": hybrid_spread,
+            "external_reference_spread": external_spread,
+            "baseline_track": baseline_track,
+        },
+        "total_gap": total_gap,
+        "terms": {
+            "signal_and_environment": signal_and_environment,
+            "config": config,
+            "agent_replication_residual": agent_replication_residual,
+        },
+        "terms_sum_check": terms_sum,
+        "residual": total_gap - terms_sum,
+        "largest_term": max(
+            ("signal_and_environment", "config", "agent_replication_residual"),
+            key=lambda name: abs(
+                {
+                    "signal_and_environment": signal_and_environment,
+                    "config": config,
+                    "agent_replication_residual": agent_replication_residual,
+                }[name]
+            ),
+        ),
+        "term_purity_notes": THREE_TERM_PURITY_NOTES,
+        "window_basis": {
+            "paper_sample_start_year": paper_reported.get("sample_start_year"),
+            "paper_sample_end_year": paper_reported.get("sample_end_year"),
+            "external_sample_start_year": (external_reference or {}).get("sample_start_year"),
+            "external_sample_end_year": (external_reference or {}).get("sample_end_year"),
+            "external_window_adjustable": (external_reference or {}).get("window_adjustable"),
+            "window_sensitivity_spread": (external_reference or {}).get("window_sensitivity_spread"),
+            "external_source": (external_reference or {}).get("source"),
+            "caveat": THREE_TERM_WINDOW_CAVEAT,
+        },
+    }
+
+
+def build_three_term_identities(
+    derived: dict[str, Any],
+    paper_reported: dict[str, Any],
+    external_references: dict[str, dict[str, Any]] | None,
+) -> dict[str, Any]:
+    """`build_three_term_identity` for every external endpoint that has a
+    hybrid track paired with it (`THREE_TERM_HYBRID_TRACKS`), keyed the same
+    way `shapley_attribution`/`paired_tests` key their comparison lines.
+
+    An endpoint absent from `external_references` still gets an entry, with
+    `available=False` and the reason -- an unresolvable external reference
+    must never read as "the gap was zero".
+    """
+    external_references = external_references or {}
+    return {
+        label: build_three_term_identity(
+            derived, paper_reported, external_references.get(label), hybrid_track, label
+        )
+        for label, hybrid_track in THREE_TERM_HYBRID_TRACKS.items()
+    }
+
+
 def build_evidence_bundle(
     paper_reported: dict[str, Any],
     tracks: dict[str, dict],
     diff_result: ReplicationDiffResult | None = None,
     spec: "ResolvedMethodSpec | None" = None,
     results_dir: "Path | None" = None,
+    external_references: dict[str, dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
     """Assemble the full deterministic evidence bundle.
 
     Returns the `derived` / `config_diff` / `gap_decomposition` sections plus
-    the newer `spec_quality` / `menu_deviations` / `bridge_comparison` /
+    the newer `spec_quality` / `menu_deviations` /
     `publication_decay` / `robustness_summary` / `shapley_attribution` /
-    `paired_tests` / `joint_test` sections, plus `evidence_keys`, the flat
-    whitelist of every citable scalar.
+    `paired_tests` / `joint_test` / `gap_closure` / `three_term_identity`
+    sections, plus `evidence_keys`, the flat whitelist of every citable
+    scalar.
 
     `spec`, when supplied, is the `ResolvedMethodSpec` this comparison was
     built from -- required for `spec_quality`/`menu_deviations` (both read
@@ -734,6 +951,13 @@ def build_evidence_bundle(
     `write_comparison_summary`, which already computes this path) --
     required for `paired_tests`/`joint_test` (docs/step7-8.md Part V);
     omitted, both report `available=False` rather than raising.
+
+    `external_references`, when supplied, holds the OTHER implementers' OWN
+    measured results keyed `"cz"`/`"hxz"` (built by
+    `src.infra.reference.external_reference_endpoints`) -- required for
+    `three_term_identity`, which is the only section that compares against
+    an endpoint this engine did not itself run; omitted, that section
+    reports `available=False` per endpoint rather than raising.
     """
     derived: dict[str, Any] = {"tracks": {}}
     for name, payload in tracks.items():
@@ -758,10 +982,11 @@ def build_evidence_bundle(
     spec_quality = build_spec_quality(spec)
     universe_description = build_universe_description(spec)
     menu_deviations = build_menu_deviations(spec, tracks)
-    bridge_comparison = build_bridge_comparison(tracks, paper_reported)
     publication_decay = build_publication_decay(tracks)
     robustness_summary = build_robustness_summary(tracks)
     shapley_and_significance = build_shapley_and_significance(tracks, results_dir, baseline)
+    gap_closure = {"to_cz": build_gap_closure(derived, shapley_and_significance["paired_tests"])}
+    three_term_identity = build_three_term_identities(derived, paper_reported, external_references)
 
     citable = {
         "paper_reported": paper_reported,
@@ -773,9 +998,10 @@ def build_evidence_bundle(
         "spec_quality": spec_quality,
         "universe_description": universe_description,
         "menu_deviations": menu_deviations,
-        "bridge_comparison": bridge_comparison,
         "publication_decay": publication_decay,
         "robustness_summary": robustness_summary,
+        "gap_closure": gap_closure,
+        "three_term_identity": three_term_identity,
         **shapley_and_significance,
     }
     return {
@@ -786,9 +1012,10 @@ def build_evidence_bundle(
         "spec_quality": spec_quality,
         "universe_description": universe_description,
         "menu_deviations": menu_deviations,
-        "bridge_comparison": bridge_comparison,
         "publication_decay": publication_decay,
         "robustness_summary": robustness_summary,
+        "gap_closure": gap_closure,
+        "three_term_identity": three_term_identity,
         **shapley_and_significance,
         "evidence_keys": flatten(citable),
     }

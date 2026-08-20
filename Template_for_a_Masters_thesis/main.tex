@@ -1,0 +1,312 @@
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+% Masters/Doctoral Thesis 
+% LaTeX Template
+% Version 2.5 (27/8/17)
+%
+% This template was downloaded from:
+% http://www.LaTeXTemplates.com
+%
+% Version 2.x major modifications by:
+% Vel (vel@latextemplates.com)
+%
+% This template is based on a template by:
+% Steve Gunn (http://users.ecs.soton.ac.uk/srg/softwaretools/document/templates/)
+% Sunil Patel (http://www.sunilpatel.co.uk/thesis-template/)
+%
+% Template license:
+% CC BY-NC-SA 3.0 (http://creativecommons.org/licenses/by-nc-sa/3.0/)
+%
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+%----------------------------------------------------------------------------------------
+%	PACKAGES AND OTHER DOCUMENT CONFIGURATIONS
+%----------------------------------------------------------------------------------------
+
+\documentclass[
+11pt, % The default document font size, options: 10pt, 11pt, 12pt
+oneside, % Two side (alternating margins) for binding by default, uncomment to switch to one side
+english, % ngerman for German
+singlespacing, % Single line spacing, alternatives: onehalfspacing or doublespacing
+%draft, % Uncomment to enable draft mode (no pictures, no links, overfull hboxes indicated)
+%nolistspacing, % If the document is onehalfspacing or doublespacing, uncomment this to set spacing in lists to single
+%liststotoc, % Uncomment to add the list of figures/tables/etc to the table of contents
+%toctotoc, % Uncomment to add the main table of contents to the table of contents
+%parskip, % Uncomment to add space between paragraphs
+%nohyperref, % Uncomment to not load the hyperref package
+headsepline, % Uncomment to get a line under the header
+%chapterinoneline, % Uncomment to place the chapter title next to the number on one line
+%consistentlayout, % Uncomment to change the layout of the declaration, abstract and acknowledgements pages to match the default layout
+]{MastersDoctoralThesis} % The class file specifying the document structure
+
+\usepackage[utf8]{inputenc} % Required for inputting international characters
+\usepackage[T1]{fontenc} % Output font encoding for international characters
+
+\usepackage{mathpazo} % Use the Palatino font by default
+
+\usepackage[backend=bibtex,style=authoryear,natbib=true,maxcitenames=2,mincitenames=1]{biblatex}
+
+\addbibresource{references.bib} % The filename of the bibliography
+
+\usepackage[autostyle=true]{csquotes} % Required to generate language-dependent quotes in the bibliography
+
+\usepackage{tikz}
+
+\usepackage{tabularx}
+\usepackage{booktabs}
+\usepackage{multirow}
+\usepackage{enumitem}
+\usepackage{soul}
+\usepackage{booktabs}
+\usepackage{array}
+\usepackage{amssymb}
+\usepackage{amsmath}
+\usepackage{multicol}
+\usepackage{graphicx}
+\usepackage{array}
+\usepackage[table]{xcolor}
+\usepackage{makecell}
+\usepackage{float}
+
+\usepackage{etoolbox}
+
+\makeatletter
+\patchcmd{\l@chapter}{\vskip 1.0em}{\vskip 0.3em}{}{}
+\makeatother
+
+% Align List of Figures and List of Tables entries with the left margin
+\makeatletter
+\renewcommand*\l@figure{\@dottedtocline{1}{0em}{3em}}
+\renewcommand*\l@table{\@dottedtocline{1}{0em}{3em}}
+\makeatother
+
+
+%----------------------------------------------------------------------------------------
+%	MARGIN SETTINGS
+%----------------------------------------------------------------------------------------
+
+\geometry{
+	paper=a4paper, % Change to letterpaper for US letter
+	inner=2.5cm, % Inner margin
+	outer=2.5cm, % Outer margin
+	bindingoffset=.5cm, % Binding offset
+	top=2.5cm, % Top margin
+	bottom=2.5cm, % Bottom margin
+	%showframe, % Uncomment to show how the type block is set on the page
+}
+
+%----------------------------------------------------------------------------------------
+%	THESIS INFORMATION
+%----------------------------------------------------------------------------------------
+
+\thesistitle[Environmental Footprints of Financial Systems: US and EA]{Environmental Footprints of Financial Systems: The United States and The Euro Area}
+\supervisor{Prof. Eric \textsc{Jondeau}} % Your supervisor's name, this is used in the title page, print it elsewhere with \supname
+\examiner{} % Your examiner's name, this is not currently used anywhere in the template, print it elsewhere with \examname
+\author{Hoai-Thuong \textsc{Phan}} % Your name, this is used in the title page and abstract, print it elsewhere with \authorname
+\addresses{} % Your address, this is not currently used anywhere in the template, print it elsewhere with \addressname
+
+\subject{} % Your subject area, this is not currently used anywhere in the template, print it elsewhere with \subjectname
+\keywords{ESG} % Keywords for your thesis, this is not currently used anywhere in the template, print it elsewhere with \keywordnames
+\university{{University of Lausanne}} % Your university's name and URL, this is used in the title page and abstract, print it elsewhere with \univname
+\department{\href{http://department.university.com}{Department or School Name}} % Your department's name and URL, this is used in the title page and abstract, print it elsewhere with \deptname
+\group{\href{http://researchgroup.university.com}{Research Group Name}} % Your research group's name and URL, this is used in the title page, print it elsewhere with \groupname
+\faculty{\href{http://faculty.university.com}{Faculty Name}} % Your faculty's name and URL, this is used in the title page and abstract, print it elsewhere with \facname
+
+\AtBeginDocument{
+\hypersetup{pdftitle=\ttitle} % Set the PDF's title to your title
+\hypersetup{pdfauthor=\authorname} % Set the PDF's author to your name
+\hypersetup{pdfkeywords=\keywordnames} % Set the PDF's keywords to your keywords
+}
+
+
+\makeatletter
+\setlength{\@fptop}{0pt} % Forces float pages to align to the top rather than center
+\setlength{\@fpbot}{0pt plus 1fil}
+\makeatother
+
+\begin{document}
+
+% \frontmatter % Commented out so page numbers don't switch to Roman numerals
+\pagestyle{scrheadings} % Enforces our new custom headers/footers
+
+%----------------------------------------------------------------------------------------
+%	TITLE PAGE
+%----------------------------------------------------------------------------------------
+
+\begin{titlepage}
+
+\begin{center}
+
+\vspace*{.06\textheight}
+{\scshape\LARGE \univname\par}\vspace{1.5cm} % University name
+\textsc{\Large Master's Thesis}\\[0.5cm] % Thesis type
+
+\HRule \\[0.4cm] % Horizontal line
+{\huge \bfseries \ttitle\par}\vspace{0.4cm} % Thesis title
+\HRule \\[1.5cm] % Horizontal line
+ 
+\begin{minipage}[t]{0.4\textwidth}
+\begin{flushleft} \large
+\emph{Author:}\\
+{\authorname} % Author name - remove the \href bracket to remove the link
+\end{flushleft}
+\end{minipage}
+\begin{minipage}[t]{0.4\textwidth}
+\begin{flushright} \large
+\emph{Supervisor:} \\
+{\supname} % Supervisor name - remove the \href bracket to remove the link  
+\end{flushright}
+\end{minipage}\\[1cm]
+
+
+% Absolute positioning to override margins
+\begin{tikzpicture}[remember picture,overlay]
+    \node[anchor=south east, xshift=-1.5cm, yshift=1.5cm] at (current page.south east) {
+        \includegraphics[scale=0.15]{Figures/UNIL-LOGOTYPE-BLUE-CMYK.eps}
+    };
+\end{tikzpicture}
+
+\end{center}
+\end{titlepage}
+
+%----------------------------------------------------------------------------------------
+%	ABSTRACT PAGE
+%----------------------------------------------------------------------------------------
+
+\clearpage
+\thispagestyle{empty} % Ensures the page is unnumbered per the guidelines
+
+\begin{center}
+    \LARGE \textbf{Abstract}
+\end{center}
+\vspace{1cm}
+
+This thesis applies a macroeconomic framework that combines national financial accounts with an environmentally extended multi-regional input-output (EE-MRIO) model to quantify the greenhouse gas (GHG) emissions and broader environmental pressures financed by the United States and the Euro area. Overall, financed emissions in both financial systems declined after peaking in 2008, but the results reveal a marked structural divergence. The US market-based financial system remains predominantly domestically oriented, with all financial groups contributing to the financing of domestic emitters. By contrast, the Euro area’s bank-based financial system exhibits a growing cross-border footprint, with foreign claims accounting for approximately 40\% of its total portfolio in 2022.
+
+Under the assumption that outbound funds are directed to both developed and emerging markets, the Euro area’s total financed emissions exceed those of the United States in recent years, reaching 4,082.38 MtCO$_2$e in 2022, compared with 3,761.45 MtCO$_2$e for the United States. This scale is close to the Euro area’s production- and consumption-based footprints, suggesting that financial exposures abroad represent a major channel through which the region’s environmental footprint extends beyond its borders. Beyond GHG emissions, the results also show that financial institutions in the Euro area are also associated with substantial land use, water consumption, and resource extraction outside the region. 
+
+
+
+\vspace{1.5cm}
+
+\noindent \textbf{Keywords:} ESG, National financial accounts, Financed emissions, Input-output analysis, Climate-related risks \\
+\textbf{JEL Classification:} G20, Q54, Q56, E44, C67
+
+\cleardoublepage
+
+
+
+
+
+%----------------------------------------------------------------------------------------
+%	ACKNOWLEDGEMENTS
+%----------------------------------------------------------------------------------------
+
+\begin{acknowledgements}
+\addchaptertocentry{\acknowledgementname} % Add the acknowledgements to the table of contents
+I would like to express my gratitude to Professor Eric Jondeau for his input and advice throughout the writing of this thesis, and also for his kind support during my  academic journey. 
+
+My master's journey is also dedicated to my parents for their strong belief in the value of education, to my sister for her unconditional support in whichever path I choose to take in life, and to my niece and nephew for their mere presence with cuteness.
+
+I am also thankful to friends I have encountered in Lausanne, who have broadened my horizons and enriched my perspectives in many ways: Angelique, Gabriele, Dimitar, Carlo, Ashley, Fredrik, and friends who are very far away yet have been always very dear to me: Andres, Tran, Hung, Giang-Tu, Y-Phan, Bich-Thao.
+
+And finally I thank myself for walking through difficulties with courage and for  holding on to a belief in the good things in life.
+\end{acknowledgements}
+
+%----------------------------------------------------------------------------------------
+%	LIST OF CONTENTS/FIGURES/TABLES PAGES
+%----------------------------------------------------------------------------------------
+
+\tableofcontents % Prints the main table of contents
+
+\begingroup
+\makeatletter
+\let\oldaddvspace\addvspace
+\renewcommand*\addvspace[1]{}
+\listoftables
+\listoffigures
+\let\addvspace\oldaddvspace
+\makeatother
+\endgroup
+%----------------------------------------------------------------------------------------
+%	ABBREVIATIONS
+%----------------------------------------------------------------------------------------
+
+
+\begin{abbreviations}{@{}ll@{}}
+
+\noindent
+
+BCBS    & Basel Committee on Banking Supervision \\
+CBA     & Consumption-based accounting\\
+DIS     & Discrepancy sector\\
+ECB     & European Central Bank\\
+ESA     & The European System of National Accounts \\
+ESRB    & European Systemic Risk Board \\
+EU      & European Union\\
+EZ      & Eurozone \\
+FWTW    & From-whom-to-whom\\
+GG      & General government\\
+GHG     & Greenhouse Gas\\
+HH      & Household and nonprofit organizations\\
+IMF     & International Monetary Fund\\
+IPFP    & Iterative Proportional Fitting Procedure\\
+IS      & Insurance Corporations\\
+MFI     & Monetary Financial Institutions\\
+MRIO    & Multi-regional Input-output model\\
+NFC     & Non-financial business\\
+NGFS    & Network for Greening the Financial System \\
+NM\_MFIF & Non-money Market Funds Investment Funds\\
+NPISH   & Non-profit institutions serving households\\
+OFI     & Other Financial Institutions\\
+PBA     & Production-based accounting\\
+PBC     & The People's Bank of China\\
+PCAF    & The Partnership for Carbon Accounting Financials\\
+PEN     & Pension Funds\\
+RoW     & Rest of the world\\
+SDR     & Special Drawing Right\\
+SNA     & System of National Accounts \\
+
+
+
+\end{abbreviations}
+
+
+%----------------------------------------------------------------------------------------
+%	THESIS CONTENT - CHAPTERS
+%----------------------------------------------------------------------------------------
+% \mainmatter % Commented out so the page count doesn't reset to 1
+\pagestyle{scrheadings} % Enforces our new custom headers/footers
+
+% Include the chapters of the thesis as separate files from the Chapters folder
+% Uncomment the lines as you write the chapters
+
+\include{Chapters/Chapter1}
+\include{Chapters/Chapter2} 
+\include{Chapters/Chapter3}
+\include{Chapters/Chapter4} 
+\include{Chapters/Chapter5}
+\include{Chapters/Chapter6} 
+\include{Chapters/Chapter7} 
+
+%----------------------------------------------------------------------------------------
+%	THESIS CONTENT - APPENDICES
+%----------------------------------------------------------------------------------------
+
+
+\appendix % Resets chapter counters to letters (A, B, C)
+
+% Include the appendices of the thesis as separate files from the Appendices folder
+\include{Appendices/AppendixA}
+\include{Appendices/AppendixB}
+\include{Appendices/AppendixC}
+\include{Appendices/AppendixD}
+\include{Appendices/AppendixE}
+%----------------------------------------------------------------------------------------
+%	BIBLIOGRAPHY
+%----------------------------------------------------------------------------------------
+
+\printbibliography
+
+%----------------------------------------------------------------------------------------
+
+\end{document}  

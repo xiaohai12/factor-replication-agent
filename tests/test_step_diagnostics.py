@@ -134,10 +134,15 @@ class TestStep7Diagnostics:
         assert "overall_tag" in result["counters"]
         assert result["readiness"] == "ready"
 
-    def test_sign_mismatch_is_flagged(self):
-        bundle = {"derived": {"overall_tag": "sign_mismatch"}, "gap_decomposition": {"available": True}}
+    def test_contradicted_is_flagged(self):
+        bundle = {"derived": {"overall_tag": "contradicted"}, "gap_decomposition": {"available": True}}
         result = diag.step7_diagnostics(bundle)
-        assert any("sign mismatch" in f for f in result["flags"])
+        assert any("contradicted" in f for f in result["flags"])
+
+    def test_not_reproduced_is_flagged(self):
+        bundle = {"derived": {"overall_tag": "not_reproduced"}, "gap_decomposition": {"available": True}}
+        result = diag.step7_diagnostics(bundle)
+        assert any("not reproduced" in f for f in result["flags"])
 
 
 class TestStep8Diagnostics:

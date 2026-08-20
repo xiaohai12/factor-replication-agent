@@ -245,6 +245,38 @@ def _sort_dimension_count_finding(paper: MethodSpec) -> Finding | None:
     )
 
 
+def _primary_metric_weighting_finding(paper: MethodSpec) -> Finding | None:
+    """`reported_results.primary_metric_id` drives what Step7 compares our
+    backtest track against (see `_spec_paper_reported` in
+    step5_backtest_runner); if that metric's own `weighting` disagrees with
+    `portfolio.weighting` (the weighting the engine will actually run),
+    Step7 silently compares our vw track against the paper's ew column (or
+    vice versa) -- a metadata mismatch, not a real replication gap. Only
+    fires when the metric actually carries a `weighting` tag (never guess
+    when the extractor/reviewer left it unset)."""
+    rr = paper.reported_results
+    primary = next((m for m in rr.metrics if m.metric_id == rr.primary_metric_id), None)
+    if primary is None or primary.weighting is None:
+        return None
+    if primary.weighting == paper.portfolio.weighting.value:
+        return None
+    return Finding(
+        field_path="reported_results.primary_metric_id",
+        kind="inconsistent",
+        reason=(
+            f"primary_metric_id={primary.metric_id!r} is tagged weighting="
+            f"{primary.weighting.value!r}, but portfolio.weighting="
+            f"{paper.portfolio.weighting.value!r} -- Step7 would compare the "
+            "backtest track against the wrong paper column. Point primary_metric_id "
+            "at the metric matching portfolio.weighting, or confirm the paper only "
+            "reports the other weighting (methodologically non-comparable)."
+        ),
+        empirical_impact="high",
+        disposition=Disposition.NEEDS_HUMAN_CONFIRMATION,
+        paper_value=primary.weighting.value,
+    )
+
+
 def _missing_mapping_findings(paper: MethodSpec) -> list[Finding]:
     """A universe filter concept_id that isn't ALSO declared as a data.fields
     entry can never resolve to a physical column: build_implementation_
@@ -351,6 +383,7 @@ def _compute_findings(
         _rebalance_frequency_capability_finding(paper),
         _lag_unit_capability_finding(paper),
         _sort_dimension_count_finding(paper),
+        _primary_metric_weighting_finding(paper),
     ):
         if capability_finding is not None:
             findings.append(capability_finding)

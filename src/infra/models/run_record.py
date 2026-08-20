@@ -85,17 +85,6 @@ class RunRecord(BaseModel):
     batch_invalidated: bool = Field(default=False)
     batch_invalidation_reason: str = Field(default="")
 
-    # True for a C&Z signal BRIDGE track (docs/multi-config-evidence-plan.md
-    # Phase C/D -- see src.infra.reference.cz_bridge): this track's signal
-    # came from an externally-supplied series, not this factor's own
-    # `compute_signal()`, so its `code_hash` is intentionally NOT the agent
-    # plugin's hash and must be excluded from the batch's "every track ran
-    # identical code" consistency check (`MultiTrackController._finalize_batch`)
-    # -- a bridge track's whole point is a DIFFERENT signal source under the
-    # SAME config, which is a different comparison axis entirely from
-    # config-only ablations.
-    is_bridge_track: bool = Field(default=False)
-
     # Which of the known attribution switches (docs/step7-8.md Part V, Q2)
     # this track flipped away from the `original_method` baseline, and what
     # value each took -- e.g. `{"weighting": "vw", "breakpoint": "nyse"}`.

@@ -19,7 +19,7 @@ self-contained; runtime provenance must therefore include the repository code.
 
 Similarly, Compustat-mode signal-input construction reuses the same declarative
 loader the pipeline uses — `src.infra.data_layer.assemble_signal_master_table_from_sources`
-(reads `comp_funda.parquet` + `ccm_lnkhist.parquet` and links gvkey->permno
+(reads `compustat_fundamental_annual.parquet` + `ccm_lnkhist.parquet` and links gvkey->permno
 point-in-time). The "compustat" and "multi_source" modes share this one
 loader; they differ only in how the RETURNS panel is loaded.
 """
@@ -35,7 +35,7 @@ from src.infra.models.method_spec import FieldRole, ResolvedMethodSpec
 # Sources the legacy binary crsp_only/compustat generated-script path handles.
 # Anything beyond these (IBES/OptionMetrics/13F/...) routes to the source-driven
 # "multi_source" mode (data_layer.assemble_signal_master_table_from_sources).
-_BINARY_SIGNAL_SOURCES = {"crsp_msf", "comp_funda"}
+_BINARY_SIGNAL_SOURCES = {"crsp_msf", "compustat_fundamental_annual"}
 
 
 def signal_input_sources_from_resolved(resolved: ResolvedMethodSpec) -> dict[str, list[str]]:
@@ -100,7 +100,6 @@ def generate_backtest_script(
     liquidity_factors_data_dir: str | None = None,
     signal_data_dir: str = "",
     resolved_config: dict[str, Any] | None = None,
-    precomputed_signal_path: str | None = None,
 ) -> str:
     """Generate a standalone backtest script from a ResolvedMethodSpec and plugin code.
 
@@ -135,7 +134,7 @@ def generate_backtest_script(
             populates (outer join on `yyyymm`), adding `alpha_liq` to the
             metrics dict whenever `ps_vwf` is present.
         signal_data_dir: Directory of raw WRDS-shaped source tables
-            (crsp_msf/comp_funda/ibes_*/optionm_*/... + link tables);
+            (crsp_msf/compustat_fundamental_annual/ibes_*/optionm_*/... + link tables);
             required for "multi_source" mode, ignored otherwise.
         resolved_config: If the caller already resolved the config via
             `codegen_registry.build_config(spec, config_overrides)` (e.g.
@@ -144,18 +143,6 @@ def generate_backtest_script(
             dict instead of resolving a second, independent copy -- avoids
             computing `build_config` twice per script (and, since an invalid/
             no-op override now warns, emitting the same warning twice).
-        precomputed_signal_path: If given, the generated script SKIPS calling
-            `compute_signal()` entirely and instead reads this parquet path
-            (`[permno, yyyymm, signal]`) directly as the signal fed into
-            `BacktestExecutor.run_with_config()`. Used for a C&Z signal
-            BRIDGE track (docs/multi-config-evidence-plan.md Phase C/D --
-            see `src.infra.reference.cz_bridge`): the SAME resolved config
-            runs against a DIFFERENT (externally supplied) signal, isolating
-            signal-implementation differences from portfolio-construction
-            differences. `plugin_code` is still embedded/exec'd for parity
-            with every other generated script (harmless -- its
-            `compute_signal` is simply never called), so the script stays
-            structurally identical either way.
 
     Returns:
         Complete Python script as a string.
@@ -214,7 +201,6 @@ def generate_backtest_script(
         plugin_code_literal=repr(plugin_code),
         ff_factors_path=ff_factors_path or "",
         liquidity_factors_data_dir=liquidity_factors_data_dir or "",
-        precomputed_signal_path=precomputed_signal_path or "",
     )
 
     return script
@@ -299,7 +285,6 @@ SIGNAL_INPUT_SOURCES = {signal_sources_map}  # multi_source only: {{source: [col
 OUTPUT_PATH = "{output_path}"
 FF_FACTORS_PATH = "{ff_factors_path}"  # optional; empty string if not supplied
 LIQUIDITY_FACTORS_DATA_DIR = "{liquidity_factors_data_dir}"  # optional; dir containing local/liquidity_factors.csv
-PRECOMPUTED_SIGNAL_PATH = "{precomputed_signal_path}"  # optional; when set, skip compute_signal() (C&Z bridge track)
 
 
 # ===========================================================================
@@ -432,29 +417,18 @@ def main():
     # when no universe filter needs a non-native column.
     msf = join_universe_filter_sources(msf)
 
-    if PRECOMPUTED_SIGNAL_PATH:
-        # C&Z bridge track (docs/multi-config-evidence-plan.md Phase C/D):
-        # the SAME resolved CONFIG below runs against a signal computed
-        # OUTSIDE this script (see src.infra.reference.cz_bridge) instead of
-        # this factor's own compute_signal() -- isolating signal-
-        # implementation differences from portfolio-construction
-        # differences. compute_signal() is never called in this branch.
-        print(f"Loading precomputed (bridge) signal from: {{PRECOMPUTED_SIGNAL_PATH}}")
-        signal = pd.read_parquet(PRECOMPUTED_SIGNAL_PATH)
-    else:
-        signal_input = build_signal_input(msf)
-        print("Computing signal...")
-        signal = compute_signal(signal_input)
+    signal_input = build_signal_input(msf)
+    print("Computing signal...")
+    signal = compute_signal(signal_input)
     print(f"  Signal: {{len(signal):,}} observations, {{signal['permno'].nunique():,}} unique firms")
     print(f"  Date range: {{signal['yyyymm'].min()}} - {{signal['yyyymm'].max()}}")
 
     # Persist the REALIZED signal series (docs/multi-config-evidence-plan.md
-    # Phase A1.1). Captured HERE -- compute_signal's own output (or the
-    # bridge signal, loaded as-is above), before any universe filter /
-    # breakpoint / portfolio step -- so a "controlled" post-signal config
-    # comparison (e.g. weighting_rule only) can assert this file is
-    # unchanged across tracks, and a "controlled" pre-signal comparison
-    # (e.g. accounting_lag_months) can confirm it DID change.
+    # Phase A1.1). Captured HERE -- compute_signal's own output, before any
+    # universe filter / breakpoint / portfolio step -- so a "controlled"
+    # post-signal config comparison (e.g. weighting_rule only) can assert
+    # this file is unchanged across tracks, and a "controlled" pre-signal
+    # comparison (e.g. accounting_lag_months) can confirm it DID change.
     signal_path = Path(OUTPUT_PATH).with_name(Path(OUTPUT_PATH).stem + ".signal.parquet")
     signal_path.parent.mkdir(parents=True, exist_ok=True)
     signal[["permno", "yyyymm", "signal"]].to_parquet(signal_path, index=False)

@@ -1,0 +1,89 @@
+\section{The Controlled Replication Pipeline}
+\label{sec:pipeline}
+
+Figure~\ref{fig:architecture} summarizes the eight-step pipeline that
+produces every quantity in \S\ref{sec:results}. Only two steps involve the
+language model at all -- extraction (Step 1) and signal-code generation
+(Step 3) -- and both are bounded, in the sense made precise below, so that
+no empirical parameter ever originates from the model itself.
+
+\begin{figure}[htbp]
+  \centering
+  \fbox{\parbox{0.9\linewidth}{\centering \vspace{4cm} F1: pipeline architecture diagram (TikZ or exported PDF) \vspace{4cm}}}
+  \caption{The eight-step controlled replication pipeline. The LLM appears
+    only in Step 1 (extraction) and Step 3 (\texttt{compute\_signal}
+    generation).}
+  \label{fig:architecture}
+\end{figure}
+
+\subsection{MethodSpec as the sole carrier of method}
+
+Step 1 extracts a structured \emph{MethodSpec} from the paper's text alone
+-- signal definition, universe, timing, and portfolio-construction fields,
+each tagged with the source sentence it was read from. No downstream step
+ever reads the paper directly; every later step's notion of "what the paper
+says" is mediated entirely through this one artifact, which makes the
+extraction auditable independently of everything that follows. Step 2 is a
+review gate: a human confirms or corrects any field the extractor flags as
+low-confidence or internally inconsistent, and the MethodSpec is marked
+\texttt{codegen\_ready} only once every required field has either direct
+textual support or an explicit human correction. This gate is also where
+the RQ2 measurements originate (\S\ref{sec:intro}): every human correction
+is recorded as an evidence entry on the field it touches, so the fraction of
+high-impact fields the agent resolved unassisted is a byproduct of running
+Step 2, not a separately constructed measurement.
+
+\subsection{Fixed configuration menu and clamping}
+
+Once a MethodSpec is codegen-ready, \texttt{registry.build\_config} turns it
+into an executable configuration by resolving every relevant field against
+a fixed menu of allowed values (weighting rule, breakpoint convention,
+rebalance frequency, holding period, universe filters, estimator; the full
+menu is reproduced in Appendix~\ref{app:config-menu}). A value the MethodSpec
+specifies that falls outside this menu is not passed through -- it is
+deterministically clamped to a documented default, and the clamp is logged
+in \texttt{config["defaults\_applied"]} rather than silently dropped. This
+is the mechanism that makes $\ImplSpace{P}$ (\S\ref{sec:framework})
+something one can actually enumerate: because the menu is finite and
+explicit, every configuration this paper ever runs is a labeled point in a
+known space, not an unbounded piece of hand-written logic.
+
+\subsection{Sandbox validation and repair-then-refreeze}
+
+Step 4 validates the generated \texttt{compute\_signal} plugin in a sandbox
+-- syntax and schema checks, plus a static scan for look-ahead leakage --
+before it is allowed to run against real data. If a technical repair to the
+plugin is needed mid-batch, the entire batch of tracks for that factor is
+re-executed under the repaired code with repair disabled
+(\texttt{max\_refreeze\_attempts} bounds how many times this can happen),
+so that no two tracks reported for the same factor are ever silently
+compared under different code. This guarantees that the frozen signal $\SA$
+underlying $\Aref$, $\Acz$, and $\Ahxz$ is, by construction, the exact same
+artifact across all three tracks -- the identity in
+Equation~\eqref{eq:three-term} would not otherwise hold exactly.
+
+\subsection{Evidence store and hashing}
+
+Every executed track is recorded as a \texttt{RunRecord}: its configuration
+hash, its plugin's code hash, and its resulting metrics, stored alongside
+both an artifact hash (of the physical output file) and a semantic hash (of
+its canonicalized content, invariant to representation details such as
+column order or float formatting). Step 7 assembles these records for a
+factor into a single evidence bundle -- the field-level configuration diff,
+the gap decomposition, and the identification level of each comparison
+(\S\ref{sec:design}) -- which is the only input the next step is permitted
+to read.
+
+\subsection{The Step 8 diagnosis layer}
+
+Step 8 is an optional, LLM-assisted explanation layer over an already-
+computed evidence bundle. It is deliberately not permitted to alter, or even
+see, any number the deterministic engine produced: each claim it drafts must
+cite one or more \texttt{evidence\_keys} already present in the bundle from
+Step 7, a validator rejects any claim that cites a key not present in the
+bundle or that contains a digit of its own, and every output is tagged
+\texttt{status: "llm\_assisted\_proposal"} rather than presented as a
+finding. This confines the language model, even in the one place it is
+permitted to comment on results, to drafting attribution language for
+numbers it did not compute and cannot alter.
+

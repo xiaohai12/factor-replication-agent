@@ -25,7 +25,7 @@ import { PROVIDER_MODELS, useLlm } from "@/lib/llmContext"
 import { cn } from "@/lib/utils"
 import {
   getMethodSpecWorkflowState,
-  setMethodSpecWorkflowState,
+  persistMethodSpecWorkflowState,
   type MethodSpecWorkflowState,
   type ReviewRound,
 } from "@/lib/methodSpecStore"
@@ -661,6 +661,10 @@ export function SessionDetailPage() {
                   )}
                   {step === 3 && (
                     <MethodSpecPicker
+                      // Default to THIS session's own Step2-resolved spec (if it has
+                      // one) instead of always making the user find it again in the
+                      // global resolved-specs list -- still overridable via the picker.
+                      defaultFactorId={(specState.resolved as { paper?: { factor_id?: string } } | undefined)?.paper?.factor_id}
                       onSpecPluginReady={(spec, plugin) => {
                         const current = JSON.parse(requestText)
                         setRequestText(JSON.stringify({ ...current, spec, plugin }, null, 2))
@@ -759,8 +763,8 @@ export function SessionDetailPage() {
                           desc: "one test across ALL single-switch contrasts at once, accounting for their correlation -- guards against reading a single switch's number as important without the switches collectively clearing significance.",
                         },
                         {
-                          name: "Bridge / decay / robustness",
-                          desc: "if a C&Z signal bridge track exists, whether it independently reproduces the paper's sign; plus publication-decay and cross-sample-period robustness summaries.",
+                          name: "Decay / robustness",
+                          desc: "publication-decay and cross-sample-period robustness summaries.",
                         },
                       ].map(({ name, desc }) => (
                         <div key={name} className="flex gap-2">
@@ -1035,9 +1039,18 @@ function MethodSpecWorkflowPanel({
   }, [])
 
   const patch = (p: MethodSpecWorkflowState) => {
-    const next = setMethodSpecWorkflowState(sessionId, p)
-    setState(next)
-    onStateChange(next)
+    // Merge against the latest PENDING in-memory state (functional update),
+    // not a localStorage re-read: two `patch()` calls issued back-to-back in
+    // the same effect (see the extract-completion effect below) would
+    // otherwise have the second call re-read a still-stale (or, if a prior
+    // write failed -- e.g. quota exceeded -- permanently empty) disk copy as
+    // its merge base, silently dropping whatever the first call just set.
+    setState((prev) => {
+      const next = { ...prev, ...p }
+      persistMethodSpecWorkflowState(sessionId, next)
+      onStateChange(next)
+      return next
+    })
   }
 
   const reviewLoopMutation = useMutation({
@@ -1327,7 +1340,14 @@ function MethodSpecWorkflowPanel({
     return (
       <div className="flex flex-col gap-4">
         <div className="flex flex-col gap-2 rounded-md border border-border p-3">
-          <p className="text-sm font-medium">Extract MethodSpec from paper</p>
+          <p className="text-sm font-medium">
+            Extract MethodSpec from paper
+            {targetName.trim() && (
+              <span className="ml-2 font-mono text-xs font-normal text-muted-foreground">
+                target_name: {targetName.trim()}
+              </span>
+            )}
+          </p>
           <label
             htmlFor="session-pdf-upload-input"
             className="flex cursor-pointer flex-col items-center justify-center gap-1 rounded-md border-2 border-dashed border-border p-4 text-center transition-colors hover:border-primary hover:bg-muted/50"
@@ -1346,7 +1366,11 @@ function MethodSpecWorkflowPanel({
             onChange={(e) => setFile(e.target.files?.[0] ?? null)}
             className="hidden"
           />
+          <label htmlFor="session-target-name-input" className="text-xs text-muted-foreground">
+            target_name (factor label for the extractor)
+          </label>
           <input
+            id="session-target-name-input"
             className="rounded-md border border-border bg-transparent px-2 py-1 text-xs"
             value={targetName}
             onChange={(e) => setTargetName(e.target.value)}
@@ -1523,7 +1547,16 @@ function MethodSpecWorkflowPanel({
             </div>
             {displayFindings.map((f, i) => {
               const fieldPath = String(f.field_path)
-              const canPatch = f.kind !== "missing_mapping" && f.disposition === "needs_human_confirmation"
+              // Every high-impact field is human-editable regardless of its
+              // evidence-driven disposition -- `auto_approve`/`auto_approve_
+              // with_flag` fields (clear paper evidence) previously showed
+              // only a read-only value, with no way to override a field the
+              // paper stated clearly but the human still wants to change
+              // (e.g. picking ew over the paper's own vw for a robustness
+              // run). `missing_mapping` findings still can't be patched this
+              // way -- they need a `data.fields`/`universe.filters` fix and
+              // a re-extract, not a value correction.
+              const canPatch = f.kind !== "missing_mapping"
               const info = schemaFieldInfo(fieldPath)
               const allowedValues = fieldPath.endsWith(".source_column") ? sourceColumnOptions(fieldPath) : info?.allowed_values ?? null
               const usingOther = useOtherValueFor[fieldPath] ?? false
@@ -1589,7 +1622,14 @@ function MethodSpecWorkflowPanel({
                                 {v}
                               </SelectItem>
                             ))}
-                            <SelectItem value="__other__">Other (type my own)</SelectItem>
+                            {/* Enum fields (e.g. weighting) already list their own "other"
+                                member above -- only add this free-text escape hatch for
+                                fields whose `allowedValues` is a non-exhaustive suggestion
+                                list (e.g. source_column), to avoid two overlapping "other"
+                                entries in the same dropdown. */}
+                            {!allowedValues.includes("other") && (
+                              <SelectItem value="__other__">Other (type my own)</SelectItem>
+                            )}
                           </SelectContent>
                         </Select>
                       ) : (
@@ -1637,9 +1677,10 @@ function MethodSpecWorkflowPanel({
               </Button>
             )}
             <p className="text-xs text-muted-foreground">
-              Only "needs_human_confirmation" findings can be corrected this way -- "missing_mapping" findings
-              can't (fix `data.fields`/`universe.filters` and re-extract instead). A value correction replaces
-              the extracted content itself (marks it "clear" and records your reason as evidence) and clears
+              Every high-impact field above can be corrected this way, regardless of its disposition --
+              "missing_mapping" findings are the only exception (fix `data.fields`/`universe.filters` and
+              re-extract instead). A value correction replaces the extracted content itself (marks it "clear"
+              and records your reason as evidence) and clears
               the current review -- re-run review afterward.
             </p>
           </div>
@@ -1819,7 +1860,12 @@ function MethodSpecWorkflowPanel({
                 Resolved MethodSpec — check the highlighted Portfolio (config) and Reported results sections
                 before moving on.
               </p>
-              <MethodSpecBoard spec={state.resolved} highlightConfigAndResults />
+              {/* `state.resolved` is a `ResolvedMethodSpec` (`{paper, review, resolution}`,
+                  see backend/routers/methodspecs.py's `resolve()`) -- `MethodSpecBoard`
+                  renders a flat `MethodSpec`, which is the `.paper` field here, not the
+                  wrapper itself (passing the wrapper renders every section blank since
+                  `spec.signal`/`spec.portfolio`/etc. don't exist at that level). */}
+              <MethodSpecBoard spec={(state.resolved as { paper?: Record<string, unknown> }).paper ?? state.resolved} highlightConfigAndResults />
               <Button size="sm" onClick={() => navigate(`/runs/${sessionId}/step/3`)}>
                 Use this spec — go to Step 3
               </Button>
@@ -1875,11 +1921,13 @@ function RequestFieldsSummary({ requestText }: { requestText: string }) {
  * generate a plugin for it on the spot via the existing `/api/codegen`
  * job, instead of hand-pasting both JSON blobs. */
 function MethodSpecPicker({
+  defaultFactorId,
   onSpecPluginReady,
 }: {
+  defaultFactorId?: string
   onSpecPluginReady: (spec: Record<string, unknown>, plugin: Record<string, unknown>) => void
 }) {
-  const [factorId, setFactorId] = useState<string | null>(null)
+  const [factorId, setFactorId] = useState<string | null>(() => defaultFactorId ?? null)
   const [jobId, setJobId] = useState<string | null>(null)
   const [pendingSpec, setPendingSpec] = useState<Record<string, unknown> | null>(null)
   const listQuery = useQuery({ queryKey: ["resolved-methodspecs"], queryFn: sessionApi.listResolvedMethodSpecs })
@@ -1907,6 +1955,12 @@ function MethodSpecPicker({
   return (
     <div className="flex flex-col gap-2 rounded-md border border-border p-2">
       <p className="text-xs font-medium">Load a resolved MethodSpec + generate a plugin</p>
+      {defaultFactorId && (
+        <p className="text-xs text-muted-foreground">
+          Pre-filled with this session's own Step2-resolved spec ({defaultFactorId}) -- change it below to load
+          a different one instead.
+        </p>
+      )}
       <div className="flex gap-2">
         <Select value={factorId ?? undefined} onValueChange={setFactorId}>
           <SelectTrigger className="w-64">

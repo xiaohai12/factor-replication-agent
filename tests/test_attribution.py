@@ -51,7 +51,7 @@ class TestSplitTracksByComparisonLine:
         tracks = {
             "original_method": {"metrics": {"mean_return": 0.01}},
             "cz_actual_config": {"switches_flipped": {}},  # no-op override, e.g. §25's degenerate case
-            "some_bridge_track": {"is_bridge_track": True},
+            "some_other_track": {},  # e.g. a track carrying no switches_flipped at all
         }
         lines = split_tracks_by_comparison_line(tracks)
         assert lines == {}
@@ -157,6 +157,39 @@ class TestComputeShapleyEffects:
         assert result["shapley_effects"]["breakpoint"] == pytest.approx(-0.001828108136475407)
         assert result["shapley_effects"]["universe"] == pytest.approx(0.0015782124950456152)
         assert sum(result["shapley_effects"].values()) == pytest.approx(result["total_gap"])
+
+    def test_prefers_in_sample_mean_return_over_full_history(self):
+        """`metrics.mean_return` is this engine's full extended history
+        (often decades past the paper's own sample window) -- when
+        `by_sample_period.insamp` is present, it must win, same preference
+        `bundle.py`'s `_in_sample_metrics` already applies elsewhere."""
+        tracks = {
+            "original_method": {
+                "metrics": {
+                    "mean_return": 0.10,
+                    "by_sample_period": {"insamp": {"mean_monthly_return": 0.01}},
+                },
+            },
+            "factorial_a": {
+                "metrics": {
+                    "mean_return": 0.20,
+                    "by_sample_period": {"insamp": {"mean_monthly_return": 0.03}},
+                },
+                "switches_flipped": {"a": "x"},
+            },
+        }
+        result = compute_shapley_effects(tracks)
+        assert result["available"] is True
+        assert result["total_gap"] == pytest.approx(0.02)  # 0.03 - 0.01, not 0.20 - 0.10
+
+    def test_falls_back_to_full_history_when_no_in_sample_window(self):
+        tracks = {
+            "original_method": {"metrics": {"mean_return": 0.10}},
+            "factorial_a": {"metrics": {"mean_return": 0.20}, "switches_flipped": {"a": "x"}},
+        }
+        result = compute_shapley_effects(tracks)
+        assert result["available"] is True
+        assert result["total_gap"] == pytest.approx(0.10)
 
 
 def _write_series(path, yyyymm_values, returns):
