@@ -27,6 +27,7 @@ dev = [
 # decisions.
 research = [
     "statsmodels==0.14.6",
+    "scipy>=1.11",
 ]
 # Post-hoc C&Z/Open Asset Pricing reference-data downloads. Kept separate
 # because this pulls WRDS/Polars dependencies that the core pipeline does not need.

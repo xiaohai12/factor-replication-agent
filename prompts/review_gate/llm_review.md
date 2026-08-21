@@ -102,6 +102,23 @@ unit, frequency, weighting, adjustment, and sample period; their selectors
 must be the actual low/high buckets of the stated sort, and the portfolio
 legs must implement that same spread. Do not calculate the difference in the
 review -- the deterministic pipeline does that.
+
+Does every `universe.filters[]` entry actually scope the SAME panel that
+`reported_results.metrics` was read from? This applies to whatever
+dimension the paper splits on -- exchange listing, firm size, industry,
+sub-period, share class, or anything else -- not any one field in
+particular. Papers frequently report the same signal under several parallel
+panels/tables that differ only in one such restriction; the extractor's most
+common mistake here is copying the paper's one broad "our sample includes
+..." sentence (which describes the union across every panel) as the filter,
+even when the numbers it actually recorded came from a narrower panel. If
+`reported_results.metrics[].evidence` cites a specific table/panel and any
+`universe.filters[]` entry's own citation names a different table, a
+different panel label, or the paper's generic combined-sample description
+instead of that panel's actual restriction, fix the filter's `value` (and
+its citation) to match the panel the numbers came from, and note the
+correction. When in doubt which panel a filter's citation supports, prefer
+re-reading the panel's own table/notes over the general Data section.
 Is `timing.holding_period.value` actually in MONTHS -- a paper that says
 "held for 1 year" must be `12`, not `1` (a bare copy of the paper's own
 number when its stated unit isn't months is a common extraction mistake;
@@ -137,10 +154,17 @@ share class, industry, size/price, listing-age, geography, and data-quality
 screens are illustrative categories only; do not infer a rule the paper does
 not state.
 
-For an explicit CRSP NYSE/AMEX/Nasdaq restriction, correct the filter to
+For an explicit CRSP NYSE/AMEX/Nasdaq restriction that matches the panel
+`reported_results.metrics` was actually taken from (see the panel-matching
+check above), correct the filter to
 `{"concept_id": "exchcd", "op": "in", "value": [1, 2, 3]}` and verify a
 matching `data.fields[]` entry maps `exchcd` to `crsp_msf.exchcd`
-(`1=NYSE`, `2=AMEX`, `3=NASDAQ`).
+(`1=NYSE`, `2=AMEX`, `3=NASDAQ`). Do NOT apply this correction blindly just
+because the paper's Data section mentions all three exchange names
+somewhere -- if the targeted panel is itself restricted to a subset (e.g. a
+"NYSE and AMEX only" table reported alongside a separate "NASDAQ only"
+table), the correct value is that subset's encoding (e.g. `[1, 2]` or
+`[3]`), not `[1, 2, 3]`.
 
 More generally, a filter only resolves the cited universe restriction when it
 has a corresponding `data.fields[]` entry whose source table and column are

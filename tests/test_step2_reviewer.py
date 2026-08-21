@@ -324,6 +324,74 @@ class TestUniverseEvidenceCoverage:
         assert finding.disposition == Disposition.NEEDS_HUMAN_CONFIRMATION
 
 
+class TestUniverseFilterPanelMismatch:
+    """`_universe_filter_panel_mismatch_findings` -- a filter's own cited
+    table must agree with the table `reported_results.metrics` was read
+    from. Deliberately field-agnostic: `_base_spec`'s primary metric always
+    cites "Table 3" (see `_base_spec`'s `reported_results`), regardless of
+    which concept_id the filter under test restricts.
+    """
+
+    def test_filter_cited_from_a_different_table_is_flagged(self):
+        paper = _base_spec()
+        paper.universe.filters = [
+            FilterSpec(
+                concept_id="at", op=FilterOp.GT, value=0,
+                evidence=[EvidenceCitation(table_ref=TableRef(table="Table 1", row="Sample"))],
+            )
+        ]
+
+        review = review_method_spec(paper)
+
+        finding = next(f for f in review.findings if f.field_path == "universe.filters[0].evidence" and f.kind == "inconsistent")
+        assert finding.disposition == Disposition.NEEDS_HUMAN_CONFIRMATION
+        assert "table 1" in finding.reason.lower()
+        assert "table 3" in finding.reason.lower()
+
+    def test_filter_cited_from_the_same_table_is_not_flagged(self):
+        paper = _base_spec()
+        paper.universe.filters = [
+            FilterSpec(
+                concept_id="at", op=FilterOp.GT, value=0,
+                evidence=[EvidenceCitation(table_ref=TableRef(table="Table 3", row="Sample"))],
+            )
+        ]
+
+        review = review_method_spec(paper)
+
+        assert not any(f.kind == "inconsistent" and f.field_path == "universe.filters[0].evidence" for f in review.findings)
+
+    def test_filter_cited_only_by_prose_is_not_flagged(self):
+        # A narrative (quote-only) universe citation is normal even for a
+        # single-panel paper -- this check has no way to tell that apart
+        # from a genuine mismatch, so it must not fire here.
+        paper = _base_spec()
+        paper.universe.filters = [
+            FilterSpec(
+                concept_id="at", op=FilterOp.GT, value=0,
+                evidence=[EvidenceCitation(quote="Eligible firms must meet the stated sample screen.")],
+            )
+        ]
+
+        review = review_method_spec(paper)
+
+        assert not any(f.kind == "inconsistent" and f.field_path == "universe.filters[0].evidence" for f in review.findings)
+
+    def test_accepted_unapplied_filter_is_not_flagged(self):
+        paper = _base_spec()
+        paper.universe.filters = [
+            FilterSpec(
+                concept_id="at", op=FilterOp.GT, value=0,
+                evidence=[EvidenceCitation(table_ref=TableRef(table="Table 1", row="Sample"))],
+                accepted_unapplied=True, unapplied_reason="not resolvable against the returns panel",
+            )
+        ]
+
+        review = review_method_spec(paper)
+
+        assert not any(f.kind == "inconsistent" and f.field_path == "universe.filters[0].evidence" for f in review.findings)
+
+
 class TestEngineMenuUnconditionalFindings:
     """docs/resolve-diagnostics-gaps.md problem 2: engine-menu fields
     classified `other` get an unconditional Finding regardless of

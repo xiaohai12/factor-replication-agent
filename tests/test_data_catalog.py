@@ -26,6 +26,9 @@ _HISTORICAL_SIGNAL_SOURCES = {
     "compustat_fundamental_annual": {"key": "gvkey",  "link": "ccm",               "date": "datadate", "lag": "accounting_lag_months"},
     "ibes_statsumu": {"key": "ticker", "link": "ibes_crsp_link",    "date": "statpers", "lag": 0},
     "tr_13f":        {"key": "permno", "link": None,                "date": "yyyymm",   "lag": 2},
+    # fred_gdp_deflator (2026-08-21): market-wide "time_only" macro source
+    # (no permno) -- see MacroSignalSource in sources.py.
+    "fred_gdp_deflator": {"key": "time_avail_m", "link": None, "date": None, "lag": 0},
 }
 
 _HISTORICAL_LINK_TABLES = {

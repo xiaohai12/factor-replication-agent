@@ -213,10 +213,25 @@ class BacktestExecutor:
             Dict with keys: metrics, return_series, config
         """
         self.config = config
+        # Plugin-generated signal code commonly does
+        # `series.replace([inf, -inf], pd.NA)` to drop infinities -- unlike
+        # `np.nan`, `pd.NA` is incompatible with a plain float64 column and
+        # silently upcasts it to `object` dtype (values stay numeric, only
+        # the dtype tag changes). An object-dtype "signal" column then blows
+        # up much later and further downstream, in `compute_breakpoints`'s
+        # `groupby().quantile()` (pandas refuses to quantile an object
+        # dtype), with a stack trace that gives no hint the real cause was
+        # this dtype coercion at signal ingestion. Normalize here, once, at
+        # the single shared entry point both `run()` and every generated
+        # script call.
+        if signal is not None and "signal" in signal.columns:
+            signal = signal.copy()
+            signal["signal"] = pd.to_numeric(signal["signal"], errors="coerce")
         self.signal = signal
         self.plugin = plugin
         self.factors = factors
         self.trace = []
+        self.apply_transforms()
 
         self.load_data(data)
         self.apply_delisting_returns()
@@ -246,6 +261,59 @@ class BacktestExecutor:
                 self.trace.append("compute_factor_alphas_by_sample_period")
 
         return {"metrics": self.metrics, "return_series": self.long_short, "config": self.config}
+
+    # ------------------------------------------------------------------
+    # apply_transforms — applied to self.signal right after it's set, before
+    # any other step reads it.
+    # ------------------------------------------------------------------
+
+    def apply_transforms(self, signal: pd.DataFrame | None = None, config: dict | None = None) -> pd.DataFrame:
+        """Apply `config["transforms"]` (`PortfolioSpec.transforms`, resolved
+        by `registry._build_config_from_resolved`) to the realized signal.
+
+        Currently the only transform the engine implements is
+        `{"kind": "winsorize", "stage": "after_signal", "bounds": [lo, hi]}`:
+        clip `signal["signal"]` at the `[lo, hi]` percentiles, computed
+        CROSS-SECTIONALLY PER CALENDAR MONTH (grouped by `yyyymm`) -- this
+        matches how a paper's decile portfolios are actually formed monthly,
+        not once over the whole panel. `registry._applied_transforms`
+        already filters `config["transforms"]` down to only
+        winsorize/after_signal entries -- anything else is recorded in
+        `config["unapplied_transforms"]` instead of reaching here, so this
+        method never needs to guard against an unsupported kind/stage: it
+        would rather do nothing than silently apply the wrong thing.
+
+        A no-op (byte-for-byte unchanged `signal`) when `config["transforms"]`
+        is empty/missing -- critical: every existing factor with no declared
+        transforms must be completely unaffected by this method's addition.
+        """
+        signal = self.signal if signal is None else signal
+        config = self.config if config is None else config
+        transforms = (config or {}).get("transforms") or []
+        if signal is None or signal.empty or not transforms:
+            self.signal = signal
+            self.trace.append("apply_transforms")
+            return signal
+
+        out = signal.copy()
+        for t in transforms:
+            if t.get("kind") != "winsorize" or t.get("stage") != "after_signal":
+                # `registry._applied_transforms` should never let one of
+                # these through -- but this method fails safe (does nothing)
+                # rather than silently applying an unsupported transform,
+                # matching this repo's fail-loud-not-silent convention.
+                continue
+            bounds = t.get("bounds")
+            if not bounds or len(bounds) != 2:
+                continue
+            lo, hi = bounds
+            out["signal"] = out.groupby("yyyymm")["signal"].transform(
+                lambda s, lo=lo, hi=hi: s.clip(s.quantile(lo), s.quantile(hi))
+            )
+
+        self.signal = out
+        self.trace.append("apply_transforms")
+        return out
 
     # ------------------------------------------------------------------
     # Step 1: load_data
@@ -567,6 +635,7 @@ class BacktestExecutor:
         config = self.config if config is None else config
 
         signal = self._resample_annual_signal_asof(signal, df, config)
+        signal = self._forward_fill_low_frequency_signal(signal, df, config)
         self._validate_annual_formation_month(signal, config)
         # Applied AFTER the above so paper-fidelity validation still checks
         # the MethodSpec's TRUE stated formation month; the lag then shifts
@@ -743,6 +812,76 @@ class BacktestExecutor:
         out["permno"] = out["permno"].astype(int)
         out["yyyymm"] = out["yyyymm"].astype(int)
         return out.sort_values(["permno", "yyyymm"]).reset_index(drop=True)
+
+    @staticmethod
+    def _forward_fill_low_frequency_signal(signal: pd.DataFrame, df: pd.DataFrame, config: dict) -> pd.DataFrame:
+        """Forward-fill a low-frequency (e.g. Compustat-annual-cadence)
+        signal onto EVERY month of a monthly rebalance calendar, via the
+        SAME asof/staleness-capped mechanism `join_universe_filter_sources`
+        (generated scripts) already uses for the identical "annual
+        Compustat column needs a monthly, staleness-capped presence"
+        problem: `asof_align_to_monthly` (`src/infra/data_layer/sources.py`).
+
+        Without this, an annual-cadence signal (one row per permno per
+        fiscal year) combined with `rebalance_frequency: "monthly"`
+        collapses to `hold=1` (see `_rebalance_step_months`) and the signal
+        effectively vanishes for ~11 of every 12 months -- each signal row
+        only ever expands into ONE held month (the one right after its own
+        formation month), regardless of `signal_max_staleness_months`.
+        Forward-filling it here, BEFORE the hold-window expansion below
+        runs, gives every calendar month its own row (that permno's most
+        recently available value, capped at
+        `config["signal_max_staleness_months"]`), so the existing
+        `hold=1`-per-row expansion now correctly means "one row -> one held
+        month" instead of "the annual row disappears for 11 months".
+
+        Gated to fire ONLY for `rebalance_frequency == "monthly"` +
+        `config["signal_cadence"] == "low_frequency"` (see
+        `src/steps/step3_codegen/registry.py`'s `_signal_cadence`) --
+        mutually exclusive with `_resample_annual_signal_asof` (fires only
+        for `rebalance_frequency == "annual"` + an explicit
+        `formation_month`), which handles a genuinely different case:
+        realigning an annual signal onto one specific annual calendar
+        month, not spreading it across every month. No-op (returns
+        `signal` unchanged) for every existing config that doesn't
+        explicitly declare `signal_cadence == "low_frequency"` -- in
+        particular every CRSP-only momentum/reversal-style config, whose
+        `signal_cadence` defaults to `"monthly"` -- so today's `hold=1`
+        monthly behavior for those stays byte-for-byte unchanged.
+        """
+        if str(config.get("rebalance_frequency", "unspecified")).lower() != "monthly":
+            return signal
+        if str(config.get("signal_cadence", "monthly")).lower() != "low_frequency":
+            return signal
+        if signal is None or signal.empty or "yyyymm" not in signal.columns:
+            return signal
+        if df is None or df.empty or "permno" not in df.columns or "yyyymm" not in df.columns:
+            return signal
+
+        max_stale = int(config.get("signal_max_staleness_months", 11))
+        if max_stale < 0:
+            raise ValueError("signal_max_staleness_months must be non-negative")
+
+        from src.infra.data_layer import asof_align_to_monthly
+
+        monthly_keys = df[["permno", "yyyymm"]].copy()
+        monthly_keys["permno"] = monthly_keys["permno"].astype(int)
+
+        annual_df = (
+            signal[["permno", "yyyymm", "signal"]]
+            .dropna(subset=["signal"])
+            .rename(columns={"yyyymm": "time_avail_m"})
+            .copy()
+        )
+        annual_df["permno"] = annual_df["permno"].astype(int)
+
+        aligned = asof_align_to_monthly(monthly_keys, annual_df, max_stale)
+        aligned = aligned.dropna(subset=["signal"])
+        if aligned.empty:
+            return signal.iloc[0:0].copy()
+        aligned["permno"] = aligned["permno"].astype(int)
+        aligned["yyyymm"] = aligned["yyyymm"].astype(int)
+        return aligned[["permno", "yyyymm", "signal"]].sort_values(["permno", "yyyymm"]).reset_index(drop=True)
 
     @staticmethod
     def _validate_annual_formation_month(signal: pd.DataFrame, config: dict) -> None:

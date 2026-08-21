@@ -1,0 +1,1013 @@
+* Corresponding author. Tel. #44 171 262 5050, Fax. #44 171 724 3317, e-mail:
+nnaik@lbs.ac.uk.
+Journal of Financial Markets 1 (1998) 203—219
+Liquidity and stock returns:
+An alternative test
+Vinay T. Datar!, Narayan Y. Naik",*, Robert Radcliﬀe#
+! Seattle University, Seattle, USA
+" London Business School, (IFA), Sussex Place, Regent Park, London NW1 4SA, UK
+# University of Florida, Gainesville, USA
+Abstract
+This paper provides an alternative test of Amihud and Mendelson’s (1986, Journal of
+Financial Economics, 8, 31—35) model using the turnover rate (number of shares traded
+as a fraction of the number of shares outstanding) as a proxy for liquidity. The evidence
+suggests that liquidity plays a signiﬁcant role in explaining the cross-sectional variation
+in stock returns. This eﬀect persists after controlling for the well known determinants of
+stock returns like the ﬁrm-size, book-to-market ratio and the ﬁrm beta. Unlike Eles-
+warapu and Reinganum (1993, Journal of Financial Economics, 34, 373—386), this paper
+ﬁnds that the liquidity eﬀect is not restricted to the month of January alone and is
+prevalent throughout the year. The evidence supports Amihud and Mendelson’s (1986)
+notion of liquidity premium and establishes its role in the overall cross section of stock
+returns. ( 1998 Elsevier Science B.V. All rights reserved.
+JEL classiﬁcation: G12
+1. Introduction
+It is generally accepted that liquidity, marketability or transactions
+costs are important attributes of assets which inﬂuence investors’ portfolio
+0304-405X/98/$19.00 ( 1998 Elsevier Science B.V. All rights reserved
+PII S 1 3 8 6 - 4 1 8 1 ( 9 7 ) 0 0 0 0 4 - 9
+
+1 See Demsetz (1968) and Bagehot (1971). Early researchers tried to capture transactions costs in
+terms of bid-ask spread and, as a result, focused on how market makers et the spread, what
+determines the spread, how diﬀerent market structures may aﬀect the spread and the eﬀect of spread
+on asset returns. See, for example, Demsetz (1968), Bagehot (1971), Tinic (1972), Tinic and West
+(1972), Benston and Hagerman (1974), Garman (1976), Branch and Freed (1977), Stoll (1978),
+Amihud and Mendelson (1980), Ho and Stoll (1981, 1983), Copeland and Galai (1983), Glosten and
+Milgrom (1985), Constantinides (1986), Marsh and Rock (1986), O’Hara and Oldﬁeld (1986), Easley
+and O’Hara (1987), Glosten and Harris (1988), Glosten (1989) and Chen and Kan (1989).
+2 See Grossman and Miller (1988) for impact of market structure on liquidity. Transactions costs
+are also inﬂuenced by market imperfections like information costs, trade induced volatility, adverse
+selection costs all of which seem to be higher for less frequently traded or illiquid stocks. See, for
+example, Merton (1987), Beneish and Gardner (1995), Bailey and Jagtiani (1994), Conrad et al.
+(1994), Campbell et al. (1993), Easley et al. (1996) and Brennan and Subrahmanyam (1996).
+decisions.1 Since investors care about expected holding period returns net of
+trading costs, less liquid (and more costly to trade) assets need to provide higher
+gross returns compared to more liquid assets. Amihud and Mendelson (1986),
+henceforth A&M, formalized this important link between market microstruc-
+ture and asset pricing. A&M showed that, in equilibrium, illiquid assets would
+be held by investors with longer investment horizons. As a result of this horizon
+clientele, they argued that the observed asset returns must be an increasing and
+concave function of the transactions costs.2 A&M used the quoted bid—ask
+spread as a measure of liquidity and tested the relationship between stock
+returns and liquidity during the period of 1961—1980. They found evidence
+consistent with the notion of liquidity premium.
+Subsequent empirical evidence in support of liquidity is somewhat mixed
+though. Eleswarapu and Reinganum (1993), henceforth E&R, examine the
+1961—1990 period using the same proxy for liquidity as A&M and ﬁnd that the
+association between the bid—ask spread and stock returns is mainly conﬁned to
+the month of January. In a recent study, Brennan and Subrahmanyam (1996),
+henceforth B&S, take an innovative approach and segregate the cost of transact-
+ing into a variable and a ﬁxed component. In contrast to the results of E&R,
+they do not ﬁnd any evidence of seasonality in liquidity premium. They ﬁnd
+weak evidence in favor of A&M’s model. In particular, B&S ﬁnd the concave
+relationship between asset returns and transactions costs with respect to the
+variable cost component. However, they do not ﬁnd it with respect to the ﬁxed
+cost component which is inconsistent with A&M’s horizon clientele eﬀect. In
+summary, the question whether liquidity aﬀects asset returns or not remains
+unresolved thus far. This question is important since there exists a vast literature
+in the area of market microstructure which argues that the liquidity has ﬁrst
+order eﬀect on asset returns.
+This paper attempts to shed light on the relation between liquidity and asset
+returns using a proxy for liquidity that is diﬀerent from the bid—ask spread
+204
+V.T. Datar et al./Journal of Financial Markets 1 (1998) 203—219
+
+3 The number of shares traded by itself is not a suﬃcient statistic for the liquidity of a stock since it
+does not take into account the diﬀerences in the number of shares outstanding or the shareholder
+base.
+4 Our work seems to be done in parallel with that of Hu (1997), who also uses a similar proxy to
+test Amihud and Mendelson’s (1986) model using the Tokyo Stock Exchange data.
+measure widely used by researchers. The reason for proposing a new proxy for
+liquidity is two-fold. First, the data on bid—ask spread is hard to obtain on
+a monthly basis over long periods of time (A&M and E&R use the average of
+the bid—ask spread at the beginning and at the end of the year as a proxy for the
+liquidity of a stock through that year). Second, Peterson and Fialkowski (1994)
+show that the quoted spread is a poor proxy for the actual transactions costs
+faced by investors and call for an alternative proxy which may do a better job of
+capturing the liquidity of an asset.
+In this paper, we propose the turnover rate of an asset as a proxy for its
+liquidity. We deﬁne the turnover rate of a stock as the number of shares traded
+divided by the number of shares outstanding in that stock and think of it as an
+intuitive metric of the liquidity of the stock.3 The advantage of using the
+turnover rate as a proxy for liquidity is two-fold. First, it has strong theoretical
+appeal. A&M prove that in equilibrium liquidity is correlated with trading
+frequency. So, if one cannot observe liquidity directly but can observe the
+turnover rate, then one can use the latter as a proxy for liquidity (this is
+discussed in detail below). Second, the data on turnover rates is relatively easy to
+obtain (it can be constructed from the CRSP tapes on a monthly basis). This
+enables us to capture month by month variation in the liquidity of assets and
+allows the examination of liquidity eﬀects across a large number of stocks over
+a long period of time.
+Using the turnover rate as a proxy for liquidity we examine whether stock
+returns are negatively related to liquidity as predicted by A&M’s model.4 We
+investigate if this relation persists after controlling for the ﬁrm size, book to
+market ratio and the ﬁrm beta. In order to ensure that our ﬁndings are not
+driven by a few outliers, we discard the lowest 1% and highest 1% observations
+of turnover rate and re-examine the relationship in the trimmed dataset. Since
+E&R ﬁnd that liquidity premium is mainly restricted to the month of January,
+we examine the relationship with and without the month of January. Finally, we
+subdivide the sample into two halves and examine the robustness of the relation
+between the stock returns and turnover over time.
+Our results support the predictions of A&M’s model. We ﬁnd that the stock
+returns are a decreasing function of the turnover rates. This relation persists
+after controlling for the ﬁrm size, book to market ratio and the ﬁrm beta. We
+ﬁnd similar results in the trimmed dataset as well which suggests that our results
+are not driven by a few inﬂuential outliers. In contrast to the ﬁndings of E&R,
+V.T. Datar et al./Journal of Financial Markets 1 (1998) 203—219
+205
+
+we do not observe any evidence of January seasonality. In particular, we ﬁnd
+that the stock returns are strongly related to the turnover rates throughout the
+year. Finally, when we subdivide our dataset into two halves, we observe that the
+liquidity eﬀect is signiﬁcant in the ﬁrst as well as in the second half. In summary,
+we ﬁnd that the liquidity eﬀect predicted by A&M’s model is robust and plays
+an important role in explaining the overall cross-section of stock returns.
+The remainder of this paper proceeds as follows: Section 2 provides the
+theoretical motivation for using the turnover rate as a proxy for liquidity;
+Section 3 discusses the methodology; Section 4 describes the data; Section 5
+highlights the empirical results and Section 6 concludes.
+2. Turnover rate, liquidity and asset returns
+A&M study a competitive dealership market where N#1 capital assets with
+diﬀering liquidity are traded at the posted bid and ask prices. In their model,
+there exist M types of investors who diﬀer in terms of their expected holding
+periods. A type-i investor enters the market with wealth ¼i and purchases
+capital assets at the quoted ask prices. He holds these assets for a random time
+¹i with mean E[¹i]"k~1
+i
+. At the end of his horizon, the type-i investor sells the
+capital assets back to the market makers at the bid prices and leaves the market.
+A&M assume that the investors arrive in the market according to some Poisson
+distribution and hold the capital assets for a duration which has exponential
+distribution. These assumptions enable them to construct a statistical equilib-
+rium of the economy under consideration.
+In such a framework, A&M show that ‘assets with higher spreads are
+allocated in equilibrium to portfolios with (the same or) longer expected holding
+periods’ (see their Proposition 1). They argue that ‘in equilibrium, the observed
+market (gross) return must be an increasing and concave piece-wise linear
+function of the relative spread’ (see their Proposition 2). These two propositions
+jointly imply that ‘the observed asset returns must be an increasing and concave
+function of the expected holding periods’. Atkins and Dyl (1994) use the average
+holding period (number of shares outstanding divided by the number of shares
+traded) observed ex post as a proxy for investor’s expected holding period and
+ﬁnd evidence consistent with Proposition 1 of A&M’s model. However, the joint
+implication of Propositions 1&2 described above remains untested so far.
+The turnover rate measure of liquidity that we use in this paper is propor-
+tional to the variable k in A&M’s model and is the inverse of Atkins and Dyl’s
+proxy for the expected holding period. Since A&M’s model implies that the
+observed (gross) asset return must be an increasing function of the expected
+holding periods, it also implies that the observed asset return must be a decreas-
+ing function of the turnover rate of that asset. This implication of A&M’s model
+is the basis of our investigation for the rest of the paper.
+206
+V.T. Datar et al./Journal of Financial Markets 1 (1998) 203—219
+
+5 Shanken (1992), Kandel and Stambaugh (1994), and several others argue in favor of GLS over
+OLS.
+3. Econometric methodology
+In this paper, we use the generalized least-squares (GLS) methodology to
+examine whether the observed cross-sectional variation in stock returns can be
+explained by the diﬀerences in the turnover rates as predicted by A&M’s (1986)
+model.5 We do this while controlling for the well known determinants of stock
+returns like the ﬁrm size, book-to-market ratio, the ﬁrm beta and the January
+eﬀect. In particular, we use the methodology of Litzenberger and Ramaswamy
+(1979) which is a reﬁnement of the Fama-MacBeth (1973) methodology used
+widely in the analysis of cross-section of stock returns.
+We estimate an empirical model of the form
+Rit"c0t# K+
+k/1
+cktxit#eit,
+i"1, 2, 2, Nt, t"1, 2, 2, ¹,
+(1)
+where Rit is the return on security i in month t, xit are attributes like the turnover
+rate, ﬁrm size, book to market ratio, ﬁrm beta etc. of stock i in month t, and the
+disturbance term represents the deviation of the realized return from its ex-
+pected value. Nt denotes the number of securities in month t which can vary
+from month to month.
+Litzenberger and Ramaswamy (pp. 174—175) show that if the monthly es-
+timators cL kt for ck, k"0, 1, 2, 3 or 4 are serially uncorrelated, the pooled GLS
+estimator cL k is found as the weighted mean of the monthly estimates, where the
+weights are inversely proportional to the variances of these estimates (see their
+Eqs. (27)—(31)).
+Speciﬁcally,
+cL k" T+
+t/1
+Zktckt
+where
+Zkt"
+[Var(cL kt)]~1
++Tt/1[Var(cL kt)]~1
+(2)
+and
+Var(cL k)" T+
+t/1
+Z2kt Var(cL kt)
+(3)
+If, as in the Fama and French (1992) methodology, one assumes that each cL kt is
+drawn from a stationary distribution, then the pooled estimate ck and its
+variance are given by
+cL k"1
+¹
+T+
+t/1
+cL kt
+and
+Var(cL k)"+Tt/1(cL kt!cL k)2
+¹(¹!1)
+.
+(4)
+V.T. Datar et al./Journal of Financial Markets 1 (1998) 203—219
+207
+
+6 The starting date is determined by availability of details of number of shares traded on the CRSP
+tapes. Since we lose some initial observations to estimate the turnover rate variable, we extend the
+dataset by one year to get broadly similar number of observations.
+7 Deﬁning the turnover rate as the average number of shares traded over the previous month, six
+months, nine months and a year did not substantively alter our ﬁndings.
+Thus, while estimating the average slope coeﬃcient, the Fama and French
+(1992) methodology ignores the precision and places equal weight on all
+slope coeﬃcients, whereas the GLS methodology places more (less) weight on
+the slope coeﬃcients that are estimated more (less) precisely. The Fama and
+French methodology yields the same results as the GLS methodology under
+classic Gauss-Markov assumptions. However, to the extent that these assump-
+tions are violated in practice, the GLS methodology leads to a more powerful
+test.
+4. Description of data
+Our dataset consists of all non-ﬁnancial ﬁrms on the NYSE from July 31,
+1962 through December 31, 1991. This time period is similar to that used by
+E&R and Fama and French (1992).6 Monthly data on returns is collected from
+the Centre for Research in Security Prices (CRSP) and the book value is
+extracted from the COMPUSTAT tapes. We calculate the monthly return
+as a percentage change in the value of one dollar of investment in that stock
+during month t. In our dataset, on average there are about 880 stocks in each
+month.
+We measure the turnover rate of every stock in the following way. For every
+month t, we calculate the average monthly trading volume (the average number
+of shares traded during the previous three months, i.e., during months t!3,
+t!2 and t!1) and divide it by the number of shares outstanding of that
+ﬁrm. We then express this ratio as a percentage to obtain our turnover rate
+variable.7 If the number of shares outstanding in a stock changes due to stock
+splits etc. then we exclude that stock for a period of three months. In our dataset
+the turnover rate varies from 0.0013% to 110% and has a mean of 3.6 (see
+Table 1).
+Since the range of the turnover rate variable in our sample is very large, it is
+possible that our estimated relationship between returns and turnover is driven
+by a few extreme realizations of turnover. We therefore discard the lowest 1%
+and highest 1% observations of turnover from the (complete) dataset and
+re-examine the predicted relationship in the trimmed dataset. In the trimmed
+dataset, the turnover rate varies from about 0.25% to 17.5% and has a mean of
+3.54.
+208
+V.T. Datar et al./Journal of Financial Markets 1 (1998) 203—219
+
+Table 1
+Month by month variation in turnover rate variable from July 1963 to December 1991.
+Realizations of the turnover rate variable are aggregated month by month for every year from July
+1963 to December 1991. The mean, 1%, 5%, 50%, 95% and 99% realizations are reported from
+January to December.
+Mean
+1%
+5%
+50%
+95%
+99%
+January
+3.50
+0.25
+0.59
+2.49
+9.56
+16.63
+February
+3.59
+0.26
+0.61
+2.58
+9.67
+16.88
+March
+3.59
+0.26
+0.62
+2.60
+9.51
+16.68
+April
+3.70
+0.27
+0.64
+2.68
+9.88
+17.10
+May
+3.69
+0.27
+0.64
+2.69
+9.84
+16.67
+June
+3.74
+0.27
+0.65
+2.71
+10.08
+17.00
+July
+3.69
+0.26
+0.60
+2.63
+10.08
+17.34
+August
+3.61
+0.26
+0.59
+2.57
+9.85
+16.92
+September
+3.64
+0.26
+0.59
+2.60
+9.91
+17.01
+October
+3.54
+0.26
+0.58
+2.52
+9.67
+16.77
+November
+3.59
+0.25
+0.59
+2.53
+9.98
+17.51
+December
+3.56
+0.25
+0.58
+2.52
+9.77
+17.18
+In order to examine whether the liquidity eﬀect persists after controlling for
+well-known determinants of stock returns, we also construct the ﬁrm size,
+book-to-market ratio and ﬁrm beta variables. We construct the book-to-market
+variable (natural logarithm of book value to market value for individual ﬁrms)
+along the lines of Fama and French (1992). In our complete dataset, the
+book-to-market variable at individual ﬁrm level ranges from !7.48 to 6.48 and
+has a mean of !0.10 (the trimmed dataset has the same range and a mean of
+!0.098). We deﬁne the log of ﬁrm size as the natural logarithm of total market
+capitalization of ﬁrm i, at the end of the prior month (month t!1). In
+our complete dataset, the size variable at the individual ﬁrm level varies from
+13.02 to 26.81 and has a mean of 19.45 (trimmed dataset has same range and
+a mean of 19.44). In our complete dataset the correlation between size and
+book-to-market at a ﬁrm level is !0.373 (!0.369 in the trimmed dataset)
+while the correlation between size and turnover rate is about 0.11 (0.147 in the
+trimmed dataset).
+Although Fama and French (1992) argue that systematic risk is not priced
+during this period, Jagannathan and Wang (1996), Amihud et al. (1993) and
+Kothari et al. (1995a) note otherwise. As the debate about the signiﬁcance of
+beta is far from over, we also control for beta in our regressions while examining
+the inﬂuence of the liquidity variable. Since the estimate of beta at a ﬁrm level
+potentially contains measurement error, we construct portfolio betas along the
+lines of A&M and assign the beta of the portfolio to all the stocks in that
+portfolio. In our complete dataset, the portfolio betas vary from 0.34 to 2.23 with
+V.T. Datar et al./Journal of Financial Markets 1 (1998) 203—219
+209
+
+8 As an alternative measure of ﬁrm beta, we also calculated ‘full’ sample betas along the lines of
+Kothari et al. (1995a). We did this in two separate ways, using full sample of monthly returns and full
+sample of yearly returns. In either case, the results remained essentially unchanged.
+9 For the sake of comparison, we replicated the Fama and French (1992) regressions of stock
+returns on ﬁrm size, book-to-market ratio and ﬁrm beta using Eq. (4) and found results similar to
+their Table 3.
+10 Fama and French (1992) ﬁnd negative slopes on beta in one time period (see their Appendix
+AIV). Jagannathan and Wang (1993) ﬁnd negative slopes on beta in some months (see their
+Table. 14).
+a mean value of 1.11 (same for trimmed dataset).8 The next section describes the
+results of our analysis.
+5. Liquidity and stock returns
+In this section we examine the inﬂuence of liquidity as measured by the
+turnover rate on the cross-section of stock returns with and without controlling
+for book-to-market ratio, ﬁrm size and ﬁrm beta. In each month, starting from
+July 1963 to December 1991, we run a cross-sectional regression (individually
+and jointly) of stock returns on turnover rate, book-to-market, size and beta.
+This gives us 342 monthly estimates of the slope coeﬃcients along with the
+associated standard errors, for each of the explanatory variables. We then
+aggregate these slope coeﬃcient estimates across time, using Eqs. (2) and (3).9
+Table 2 summarizes the results of our regressions for the complete dataset
+(top panel) and trimmed dataset (bottom panel). We ﬁnd that the turnover rate
+is signiﬁcantly negatively related to stock returns. The negative sign on the
+turnover rate variable conﬁrms that illiquid stocks oﬀer higher average returns
+than liquid stocks and lends support to the prediction of A&M’s model dis-
+cussed in Section 2.
+We examine if the liquidity eﬀect persists after controlling for ﬁrm size,
+book-to-market and ﬁrm beta. For the sake of comparison, we ﬁrst run univari-
+ate regressions of these well known determinants of stock returns and then
+numerous multi-variate regressions in combination with our proxy for liquidity.
+In univariate regressions, we ﬁnd that the magnitude and direction of the slope
+coeﬃcients on size and book-to-market ratio is consistent with the results of
+several other researchers. In particular, the slope coeﬃcient on size is negative
+and signiﬁcant (!0.06, t-stat. !6.17) while that on book-to-market is positive
+and signiﬁcant (0.22, t-stat. 9.53) in the overall sample period. Unlike others,
+ﬁrm beta, however, has a signiﬁcant negative coeﬃcient (!0.49, t-stat.
+!8.84).10 We discuss the implications of slope coeﬃcients on beta later in the
+paper.
+210
+V.T. Datar et al./Journal of Financial Markets 1 (1998) 203—219
+
+Table 2
+Average slopes of monthly cross-sectional regressions of returns on turnover, book-to-market, log of
+size and beta. From July 1963 to December 1991 All months Including January.
+Returns are regressed each month on the explanatory variables. The GLS estimates of average
+slopes and associated t-statistics (in parentheses) are calculated using Eqs. (2) and (3). The Panel
+A shows the results for the complete dataset while the panel B shows the results for the trimmed
+dataset.
+Constant
+Turnover
+Book-to-market
+Log of size
+Beta
+Panel A
+0.73
+!0.04
+(32.51)
+(!8.86)
+0.83
+!0.04
+0.21
+(34.19)
+(!9.07)
+(10.15)
+2.39
+!0.05
+!0.07
+(12.32)
+(!10.58)
+(!7.48)
+1.69
+!0.05
+0.16
+!0.04
+(8.09)
+(!10.56)
+(6.99)
+(!3.68)
+2.30
+!0.04
+0.14
+!0.05
+!0.37
+(9.70)
+(!8.58)
+(5.97)
+(!4.65)
+(!5.76)
+Panel B
+0.77
+!0.04
+(29.45)
+(!8.73)
+0.85
+!0.04
+0.22
+(30.76)
+(!9.02)
+(10.42)
+2.50
+!0.05
+!0.07
+(12.62)
+(!10.57)
+(!7.6)
+1.76
+!0.05
+0.16
+!0.04
+(8.28)
+(!10.5)
+(7.0)
+(!3.55)
+2.30
+!0.04
+0.14
+!0.05
+!0.36
+(9.62)
+(!8.6)
+(5.92)
+(!4.5)
+(!5.6)
+We then run several ad hoc models to examine the eﬀect of liquidity while
+controlling for the eﬀects of book-to-market ratio, size and beta. We ﬁnd that in
+each of these models, the turnover rate variable — our proxy for liquidity
+— retains its negative relation with returns and remains highly signiﬁcant (see
+Table 2 ﬁrst column). Further, the strength of this relationship (magnitude and
+signiﬁcance of the coeﬃcient) is not aﬀected by the presence of ﬁrm size, beta, or
+book-to-market in the regression. More importantly, the results with the trimmed
+dataset (Table 2 bottom panel) are very similar to those with the complete
+dataset. This suggests that the results are not driven by a few inﬂuential outliers.
+As a result, in the rest of the paper we only report results with the complete
+dataset.
+V.T. Datar et al./Journal of Financial Markets 1 (1998) 203—219
+211
+
+Table 3
+Average slopes of monthly cross-sectional regressions of returns on turnover, book to market, log of
+size and beta. From July 1963 to December 1991. All months excluding-January.
+Returns are regressed each month on the explanatory variables. The GLS estimates of average
+slopes and associated t-statistics (in parentheses) are calculated using Eqs. (2) and (3).
+Constant
+Turnover
+Book-to-market
+Log of size
+Beta
+0.60
+!0.04
+(25.95)
+(!8.86)
+0.61
+0.10
+(35.43)
+(4.39)
+0.45
+0.01
+(2.25)
+(0.77)
+1.18
+!0.62
+(16.71)
+(!9.9)
+0.68
+!0.04
+0.10
+(27.12)
+(!8.87)
+(4.55)
+0.54
+!0.05
+0.0
+(2.70)
+(!10.04)
+(1.16)
+0.13
+!0.04
+0.10
+0.03
+(0.61)
+(!10.02)
+(4.33)
+(2.88)
+0.88
+!0.04
+0.08
+0.02
+!0.45
+(3.58)
+(!7.91)
+(3.29)
+(1.60)
+(!6.84)
+11 Our complete sample runs from 1962 to 1991. As mentioned earlier the starting date is
+determined by the time CRSP tapes started reporting the number of shares traded variable. We use
+the ﬁrst year’s data to estimate the average turnover rate over past 3, 6, 9 and 12 months. Hence the
+table reports results for the 1963 to 1991 period.
+To account for the well known January seasonality (see, e.g., Keim, 1983) and
+to compare our results with the ﬁndings of E&R we repeat the above exercise
+using data for non-January months. Table 3 shows the results when we only
+include months from February to December every year in our sample period.
+Contrary to the results of E&R (but consistent with the ﬁndings of B&S) we do
+not ﬁnd any evidence of January seasonality in liquidity premium over a very
+similar sample period.11 In particular, we ﬁnd that the slope coeﬃcient on the
+turnover rate remains negative and highly signiﬁcant without the month of
+January, and both with and without the presence of ﬁrm size, book-to-market
+and beta. More importantly, the magnitude of the slope coeﬃcient of our
+liquidity proxy does not change much by the exclusion of the month of January.
+This suggests that liquidity is related to returns throughout the year and, more
+importantly, it is not subsumed by size, book-to-market and beta.
+212
+V.T. Datar et al./Journal of Financial Markets 1 (1998) 203—219
+
+A potential reason for the diﬀerence in our results and E&R’s results over
+a similar time period may be the diﬀerent proxies of liquidity used in the two
+studies. E&R average the beginning and the end of year relative bid—ask spreads
+of a stock in the previous year and assign that value as the spread for that stock
+throughout the current year. As a result, for any given stock E&R’s spread
+measure remains constant throughout the year. In contrast, our proxy for
+liquidity — the turnover rate — takes on diﬀerent values in diﬀerent months (see
+Table 1). This variation in the turnover rate measure may be the reason behind
+its ability to explain the cross-sectional variation in stock returns better than the
+quoted bid—ask spread.
+In order to test the robustness of our results, we divided our sample into two
+non-overlapping sub-periods of about equal length. The ﬁrst sub-period spans
+July 1963 to September 1977 and the second sub-period spans October 1977 to
+December 1991. The results for both the sub-periods, with and without the
+month of January, are shown in Tables 4 and 5. In both tables, the panel
+A (panel B) shows the results of regressions when the month of January is
+included (excluded). We ﬁnd that the turnover rate variable exhibits a reliable
+negative relation with returns in both the sub-periods. This relation persists even
+after controlling for size, book-to-market and beta and is not aﬀected by
+inclusion or exclusion of the month of January. Overall the relation between
+turnover rate and returns is stable across sub-periods and across all models with
+a statistically signiﬁcant coeﬃcient.
+For the overall sample period, the mean slope coeﬃcient on turnover rate
+variable across diﬀerent models is about !0.045 (see ﬁrst column of Table 2).
+This implies that across stocks, a drop of 1% in turnover rate is associated with
+a higher return of about 4.5 basis points per month, on average. In order to
+examine the magnitude of illiquidity premium implied by our results, we
+subtracted the turnover rate of an illiquid stock (the 10th percentile) from that of
+a liquid stock (the 90th percentile) and found the diﬀerence to be around 6%.
+A slope coeﬃcient of 4.5 basis points per month implies that in our sample the
+illiquid stocks earned a higher return of 27 basis points per month or about
+3.25% per annum as compared to the liquid stocks.
+The bi-variate regressions containing size and turnover help us in distinguish-
+ing the size eﬀect from the liquidity eﬀect. In these regressions, a pure variation
+in turnover rate (unrelated to variation in size) shows a fairly stable relationship
+with returns, (see Tables 2—5). In contrast, the size eﬀect seems to be restricted to
+the ﬁrst half on the sample period only (compare the slope coeﬃcients on size in
+Tables 4 and 5). This ﬁnding is consistent with E&R, Table 4 Regression (D),
+during the 1981—1990 sub-period. Thus, our study distinguishes the size eﬀect
+from the liquidity eﬀect and the evidence seems to support liquidity more than
+size.
+Having examined the cross-sectional relationship between stock returns and
+liquidity after controlling for size and book-to-market, we come back to the
+V.T. Datar et al./Journal of Financial Markets 1 (1998) 203—219
+213
+
+Table 4
+Subperiod 1, average slopes of monthly cross-sectional regressions of returns on turnover, book-to-
+market, size and beta from July 1963 to September 1977. Panel A corresponds to all months
+Including January. Panel B corresponds to all months Excluding January.
+Returns are regressed each month on the explanatory variables for the ﬁrst subperiod. The GLS
+estimates of average slopes and associated t-statistics (in parentheses) are calculated using Eqs. (2)
+and (3). Panel A corresponds to the results for all months including January while the Panel
+B corresponds to all months from February to December (January Excluded).
+Constant
+Turnover
+Book-to-market
+Log of size
+Beta
+Panel A
+0.31
+!0.024
+(10.54)
+(!3.49)
+0.22
+0.22
+(8.93)
+(7.97)
+2.37
+!0.11
+(8.55)
+(!7.60)
+0.61
+!0.4
+(6.27)
+(!4.66)
+0.40
+!0.025
+0.23
+(12.27)
+(!3.71)
+(6.29)
+2.78
+!0.031
+!0.12
+(9.80)
+(!4.45)
+(!8.35)
+1.67
+!0.031
+0.17
+!0.07
+(5.28)
+(!4.42)
+(5.37)
+(!4.15)
+2.28
+!0.023
+0.16
+!0.08
+!0.39
+(6.51)
+(!3.23)
+(5.22)
+(!4.79)
+(!4.32)
+Panel B
+0.15
+!0.026
+(4.89)
+(!3.63)
+0.03
+0.10
+(1.12)
+(3.31)
+0.25
+!0.02
+(0.88)
+(!0.79)
+0.61
+!0.56
+(6.14)
+(!6.38)
+0.19
+!0.03
+0.10
+(5.63)
+(!3.65)
+(3.60)
+0.57
+!0.03
+!0.02
+(1.95)
+(!3.94)
+(!1.33)
+!0.15
+!0.028
+0.10
+0.01
+(!0.45)
+(!3.90)
+(3.21)
+(0.81)
+0.60
+!0.02
+0.10
+0.004
+!0.47
+(1.66)
+(!2.63)
+(3.01)
+(0.03)
+(!5.07)
+214
+V.T. Datar et al./Journal of Financial Markets 1 (1998) 203—219
+
+Table 5
+Subperiod 2, average slopes of monthly cross-sectional regressions of returns on turnover, book-to-
+market, size and beta from October 1977 to December 1991. Panel A corresponds to all months
+Including January. Panel B corresponds to all months Excluding January.
+Returns are regressed each month on the explanatory variables for the second subperiod. The GLS
+estimates of average slopes and associated t-statistics (in parentheses) are calculated using Eqs. (2)
+and (3). Panel A corresponds to all months including January while Panel B corresponds to
+February to December months (January Excluded).
+Constant
+Turnover
+Book-to-market
+Log of size
+Beta
+Panel A
+1.34
+!0.05
+(38.15)
+(!8.73)
+1.15
+0.19
+(51.58)
+(6.04)
+2.15
+!0.05
+(8.10)
+(!3.45)
+1.65
+!0.51
+(17.30)
+(!6.02)
+1.33
+!0.05
+0.19
+(37.18)
+(!8.82)
+(5.93)
+2.05
+!0.06
+!0.03
+(7.70)
+(!10.13)
+(!2.52)
+1.70
+!0.06
+0.15
+!0.02
+(6.13)
+(!10.15)
+(4.49)
+(!1.31)
+2.32
+!0.05
+0.11
+!0.03
+!0.35
+(7.19)
+(!8.58)
+(3.13)
+(!2.00)
+(!3.82)
+Panel B
+1.26
+!0.05
+(34.79)
+(!8.62)
+1.08
+0.10
+(46.66)
+(2.87)
+0.63
+0.02
+(2.28)
+(1.79)
+1.72
+!0.67
+(17.43)
+(!7.62)
+1.26
+!0.05
+0.10
+(34.06)
+(!8.61)
+(2.81)
+0.52
+!0.06
+0.04
+(1.88)
+(!9.87)
+(2.80)
+0.35
+!0.06
+0.10
+0.05
+(1.20)
+(!9.89)
+(2.92)
+(3.09)
+1.11
+!0.05
+0.06
+0.03
+!0.42
+(3.34)
+(!8.23)
+(1.57)
+(2.10)
+(!4.60)
+V.T. Datar et al./Journal of Financial Markets 1 (1998) 203—219
+215
+
+issue of controlling for the systematic risk. When we control for beta in our
+regressions, we ﬁnd that the average slope coeﬃcients on turnover rate are not
+aﬀected. The negative sign on beta is troublesome at ﬁrst sight, but it is the
+only variable that is estimated by us from the data (unlike turnover, size or
+book-to-market ratio variables for which data is directly read from CRSP or
+Compustat tapes). The measurement of beta contains error which depends on
+the eﬃciency of the market proxy used (Kandel and Stambaugh, 1994) as well as
+the length of the measurement interval and procedure (Handa et al., 1989). As
+a further check, we calculated beta in several diﬀerent ways: security betas;
+portfolio beta; measured it with respect to value weighted as well as equally
+weighted market return. In each case, the magnitude and the signiﬁcance of the
+coeﬃcient on turnover was not aﬀected by the inclusion or the exclusion of the
+beta variable in the regression and the negative slope coeﬃcient on beta
+persisted. Since the focus of this paper is to provide an alternative test of A&M’s
+model, we simply note that the liquidity variable remains signiﬁcant in the
+presence of ﬁrm size, book-to-market ratio as well as ﬁrm beta and direct the
+readers to Roll and Ross (1994), Cadogan (1994), Fama and French (1995) and
+Kothari et al. (1995b) for interpretation of the slope on the beta, the estimation
+of the security market line, and related issues.
+6. Concluding remarks
+In this paper, we provide an alternative test of A&M’s model using the
+turnover rate as a proxy for liquidity and found strong support for A&M’s
+model. In particular, we ﬁnd that the stock returns are strongly negatively
+related to their turnover rates conﬁrming the notion that illiquid stocks provide
+higher average returns. In general, we ﬁnd that a drop of 1% in the turnover rate
+is associated with a higher return of about 4.5 basis points per month, on
+average. This relation between stock returns and liquidity remains signiﬁcant
+after controlling the ﬁrm size, book-to-market ratio, beta and the January eﬀect,
+and it is prevalent in the ﬁrst as well as the second half of our sample. In contrast
+to the ﬁndings of E&R but consistent with the ﬁndings of B&S, we do not ﬁnd
+any January seasonality. In our sample, liquidity explains the cross-sectional
+variation in the month of January as well as during the rest of the year. Overall,
+the results support the relation between liquidity and stock returns predicted by
+A&M’s model.
+Acknowledgements
+This work has greatly beneﬁted from many helpful comments oﬀered by
+Yakov Amihud, Richard Brealey, Michael Brennan, David Dubofsky, Elroy
+216
+V.T. Datar et al./Journal of Financial Markets 1 (1998) 203—219
+
+Dimson, Eugene Fama, Mark Flannery, Julian Franks, Chris James, Gautam
+Kaul, S.P. Kothari, Paul Marsh, M. Nimalendran, Kjell Nyborg, Maureen
+O’Hara, Krishna Ramaswamy, Mike Ryngaert, Jay Shanken, Avanidhar
+Subrahmanyam (the editor), George Tauchen and the seminar participants at
+Seattle University and the London business School. The second author is
+grateful for ﬁnancial support from the Institute of Finance and Accounting
+Research Fund. This work was supported, in part, by the University of Florida
+and the IBM Corporation through their Research Computing Initiative at the
+Northeast Regional Data Center. We remain responsible for all errors.
+References
+Amihud, Y., Christensen, B., Mendelson, H., 1993. Further evidence on risk return relationship.
+Working paper S-93-11, Salomon Center, New York University.
+Amihud, Y., Mendelson, H., 1980. Dealership market: Market-making with inventory. Journal of
+Financial Economics 8, 31—53.
+Amihud, Y., Mendelson, H., 1986. Asset pricing and the bid—ask spread. Journal of Financial
+Economics 17, 223—249.
+Atkins, A.B., Dyl, E.A., 1994. Clienteles induced by bid—ask spreads: empirical evidence. Working
+paper, University of Arizona.
+Bagehot, W., 1971. The only game in town. Financial Analysts Journal, March—April, 12—14.
+Bailey, W., Jagtiani, J., 1994. Foreign ownership restrictions and stock prices in the Thai capital
+market. Journal of Financial Economics 36, 57—87.
+Beneish, M.D., Gardner, J.C., 1995. Information costs and liquidity eﬀects from changes in the Dow
+Jones industrial average list. Journal of Financial and Quantitative Analysis 30.
+Benston, G.J., Hagerman, R.L., 1974. Determinants of the bid—ask spreads in the over-the-counter
+market. Journal of Financial Economics 1, 353—364.
+Branch, B., Freed, W., 1977. Bid—ask spreads on the AMEX and the big board. Journal of Finance 32
+(March), 159—164.
+Brennan, M., Subrahmanyam, A., 1996. Market microstructure and asset pricing. Journal of
+Financial Economics 41 (3), 441—464.
+Cadogan G., 1994. Estimating the security market line and performance measurement with augmented
+Fama—Macbeth regressions. OSPEF working paper no. 94-08-01, University of Michigan, Ann
+Arbor.
+Campbell, J., Grossman, S., Wang, J., Trading volume and serial correlation in stock returns.
+Quarterly Journal of Economics 108, 1993.
+Chen, N., Kan, R., 1989. Expected return and the bid—ask spread. Working paper, University of Chicago.
+Conrad, J., Hameed, A., Niden, C., 1994. Volume and autocovariances in short-horizon individual
+security returns. Journal of Finance 49 (4), 1305—1329.
+Constantinides, G., 1986. Capital market equilibrium with transaction costs. Journal of Political
+Economy 94, 842—862.
+Copeland, T.E., Galai, D., 1983. Information eﬀects on the bid—ask spread. Journal of Finance 38,
+1457—1469.
+Demsetz, H., 1968. The cost of transacting. Quarterly Journal of Economics 82, 33—53.
+Easley, D., O’Hara, M., 1987. Price, trade size, and information in securities markets. Journal of
+Financial Economics 19, 69—90.
+Easley, D., Keifer, N., O’Hara, M., Paperman, J., 1996. Liquidity, information, and infrequently
+traded stocks. Journal of Finance 51, 1405—1436.
+V.T. Datar et al./Journal of Financial Markets 1 (1998) 203—219
+217
+
+Eleswarapu, V., Reinganum, M., 1993. The seasonal behavior of liquidity premium in asset pricing.
+Journal of Financial Economics 34, 373—386.
+Fama, E.F., MacBeth, J., 1973. Risk, return and equilibrium: empirical tests. Journal of Political
+Economy 81, 607—636.
+Fama, E.F., French, K.R., 1992. The cross-section of expected stock returns. Journal of Finance 47,
+427—465.
+Fama, E.F., French, K.R., 1995. The CAPM is wanted, dead or alive. Working paper, University of
+Chicago.
+Garman, M.B., 1976. Market microstructure. Journal of Financial Economics 3, 257—275.
+Glosten, L.R., 1989. Insider trading, liquidity, and the role of monopolist specialist. Journal of
+Business 62 (2), 211—235.
+Glosten, L.R., Harris, L.E., 1988. Estimating the components of the bid—ask spread. Journal of
+Financial Economics 21, 123—142.
+Glosten, L.R., Milgrom, P.R., 1985. Bid, ask and transaction prices in a specialist market with
+heterogeneously informed traders. Journal of Financial Economics 14, 71—100.
+Grossman, S.J., Miller, M., 1988. Liquidity and market structure. Journal of Finance 43 (3), 617—637.
+Handa, P., Kothari, S.P., Wasley, C., 1989. The relation between return interval and betas:
+implications for the size eﬀect. Journal of Financial Economics 23, 79—100.
+Ho, T., Stoll, H.R., 1981. Optimal dealer pricing under transactions and return uncertainty. Journal
+of Financial Economics 9, 47—73.
+Ho, T., Stoll, H.R., 1983. The dynamics of dealer markets under competition. Journal of Finance 38,
+1053—1074.
+Hu, S., 1997. Trading turnover and expected stock returns: the trading fequency hypothesis and
+evidence from the Tokyo Stock Exchange. Working paper, University of Chicago.
+Jagannathan, R., Wang, Z., 1993. The CAPM is alive and well. Working paper, Carlson School of
+Management, University of Minnessota.
+Jagannathan, R., Wang, Z., 1996. The Conditional CAPM and the cross-section of expected returns.
+Journal of Finance 51, 3—53.
+Kandel, S., Stambaugh, R., 1994. Portfolio eﬃciency and the cross-section of expected returns.
+Rodney White Center for Financial Research Working Paper no. 6-94, Wharton School of
+business the University of Pennsylvania.
+Keim, D.B., 1983. Size related anomalies and the stock return seasonality: empirical evidence.
+Journal of Financial Economics 12, 13—32.
+Kothari, S.P., Shanken, J., Sloan, R., 1995a. Another look at the cross-section of expected stock
+returns. Journal of Finance 50, 185—224.
+Kothari, S.P., Shanken J., Sloan, R., 1995b. The CAPM: “Reports of My Death Have Been Highly
+Exaggerated”. Working paper FR 95-21, Bradley Policy Research Center, Simon Graduate
+School, University of Rochester.
+Litzenberger, R., Ramaswamy, K., 1979. The eﬀect of personal taxes and dividends on capital asset
+prices: theory and empirical evidence. Journal of Financial Economics, 163—196.
+Marsh, T., Rock, K., 1986. Exchange listing and liquidity: a comparison of the American stock
+exchange with the NASDAQ national market system. American Stock Exchange Transactions
+Data Research Project No. 2, January.
+Merton, R., 1987. Presidential Address: A simple model of Capital Market equilibrium with
+incomplete information. Journal of Finance 42 (3), 483—510.
+O’Hara, M., Oldﬁeld, G., 1986. the micro economics of market making. Journal of Financial and
+Quantitative Analysis 21, 361—376.
+Peterson, M., Fialkowski, D., 1994. Posted versus eﬀective spreads: Good prices or bad quotes?
+Journal of Financial Economics 35 (3), 269—292.
+Roll, R., Ross, S., 1994. On the cross-sectional relation between expected returns and betas. Journal
+of Finance 1, 101—121.
+218
+V.T. Datar et al./Journal of Financial Markets 1 (1998) 203—219
+
+Shanken, J., 1992. The current state of the arbitrage pricing theory. Journal of Finance 47 (4),
+1569—1574.
+Stoll, H.R., 1978. The pricing of security dealer services: An empirical study of NASDAQ stocks.
+Journal of Finance 33, 1153—1172.
+Tinic, S.M., 1972. The economics of liquidity services. Quarterly Journal of Economics 86,
+79—93.
+Tinic, S.M., West, R.R., 1972. Competition and the pricing of dealer service in the over-the-counter
+stock market. Journal of Financial and Quantitative Analysis 7, 1707—1727.
+V.T. Datar et al./Journal of Financial Markets 1 (1998) 203—219
+219

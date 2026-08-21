@@ -322,17 +322,47 @@ export function MethodSpecBoard({
                 <TableRow>
                   <TableHead>Leg</TableHead>
                   <TableHead>Side</TableHead>
-                  <TableHead>Selector</TableHead>
+                  <TableHead>Selector (0-based)</TableHead>
+                  <TableHead>Engine bucket</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {legs.map((l) => (
-                  <TableRow key={l.leg_id}>
-                    <TableCell className="text-xs">{l.leg_id}</TableCell>
-                    <TableCell className="text-xs">{l.side}</TableCell>
-                    <TableCell className="text-xs">{fmt(l.selector)}</TableCell>
-                  </TableRow>
-                ))}
+                {legs.map((l) => {
+                  const selector = (l.selector ?? {}) as Record<string, unknown>
+                  const entries = Object.entries(selector)
+                  return (
+                    <TableRow key={l.leg_id}>
+                      <TableCell className="text-xs">{l.leg_id}</TableCell>
+                      <TableCell className="text-xs">{l.side}</TableCell>
+                      <TableCell className="text-xs">{fmt(l.selector)}</TableCell>
+                      <TableCell className="text-xs">
+                        {entries.length === 0 && "—"}
+                        {entries.map(([sortId, rawIndex]) => {
+                          const sort = sorts.find((s) => s.sort_id === sortId)
+                          const groupCount = sort?.group_count as number | undefined
+                          const index = Number(rawIndex)
+                          const inRange =
+                            groupCount == null || Number.isNaN(index)
+                              ? null
+                              : index >= 0 && index < groupCount
+                          return (
+                            <div key={sortId} className="flex items-center gap-1.5">
+                              <span>
+                                {sortId}: bucket {Number.isNaN(index) ? fmt(rawIndex) : index + 1}
+                                {groupCount != null ? ` of ${groupCount}` : ""}
+                              </span>
+                              {inRange === false && (
+                                <Badge variant="destructive" className="text-[10px]">
+                                  out of range — this leg will always be empty
+                                </Badge>
+                              )}
+                            </div>
+                          )
+                        })}
+                      </TableCell>
+                    </TableRow>
+                  )
+                })}
               </TableBody>
             </Table>
           </div>
@@ -413,11 +443,13 @@ export function MethodSpecBoard({
           <p className="text-xs text-muted-foreground">
             primary metric: <span className="font-mono">{fmt(reported.primary_metric_id)}</span>
           </p>
-          {reported.comparison_derivation?.use_as_primary_comparison && (
+          {reported.comparison_derivation && (
             <p className="mt-1 text-xs text-muted-foreground">
-              comparison: <span className="font-mono">{fmt(reported.comparison_derivation.metric_id)}</span>{" "}
+              derivation: <span className="font-mono">{fmt(reported.comparison_derivation.metric_id)}</span>{" "}
               = {fmt(reported.comparison_derivation.high_metric_id)} − {fmt(reported.comparison_derivation.low_metric_id)}
-              {" "}(derived from reported table endpoints)
+              {reported.comparison_derivation.use_as_primary_comparison
+                ? " (used as primary comparison)"
+                : " (recorded, not used as primary comparison)"}
             </p>
           )}
           <Table>

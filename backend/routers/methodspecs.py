@@ -22,7 +22,7 @@ from pydantic import ValidationError as PydanticValidationError
 from backend.jobs import job_manager
 from backend.routers.papers import extract_text_from_pdf_bytes
 from backend.serialization import to_jsonable
-from backend.sessions import append_event
+from backend.sessions import append_event, complete_attempt_with_retry, start_attempt_with_retry
 from backend.state import (
     PAPER_TEXT_CACHE_DIR,
     RESOLUTIONS_DIR,
@@ -42,6 +42,7 @@ from src.infra.models.method_spec import (
     ResolvedMethodSpec,
 )
 from src.infra.models.schema_reference import build_schema_reference
+from src.infra.models.session import StepStatus
 from src.steps.step1_extractor.extractor import persist_raw_spec
 from src.steps.step2_reviewer.implementation_resolution import build_implementation_resolution
 from src.steps.step2_reviewer.review import apply_value_patches, review_method_spec
@@ -55,6 +56,8 @@ STAGE_DIRS = {
     "resolutions": RESOLUTIONS_DIR,
     "resolved": RESOLVED_DIR,
 }
+
+
 
 
 def _validate_paper_spec(raw: dict) -> MethodSpec:
@@ -73,12 +76,24 @@ class ExtractRequest(BaseModel):
     session_id: str | None = None
 
 
-def _extract_job(document_id: str, target_name: str, paper_text: str, llm_provider: str, llm_model: str | None, pdf_bytes: bytes | None = None):
+def _extract_job(
+    document_id: str, target_name: str, paper_text: str, llm_provider: str, llm_model: str | None,
+    pdf_bytes: bytes | None = None, session_id: str | None = None,
+):
     """Step1 only -- a single LLM call, no validation, no Step2 review loop
     (see `_review_loop_job` below, kicked off as its own job once this one
     completes). Splitting these into two jobs means Step1 can show
     "succeeded" the moment extraction itself returns, instead of only after
-    the whole (much slower) review loop also finishes."""
+    the whole (much slower) review loop also finishes.
+
+    When `session_id` is given, records this job's outcome as a real step-1
+    attempt via `complete_attempt_with_retry` -- mirrors steps 3-5
+    (`backend/routers/sessions.py`), which previously left steps 1/2
+    invisible to the session's own progress tracking (`session.json` stayed
+    `attempts: []` for both even after real extraction/review work ran),
+    making a session that only got through Step1/2 look indistinguishable
+    from one that was never touched at all in any session list.
+    """
     def run(log):
         # Cached under `document_id` the same way `/api/papers/upload` caches
         # it (`backend/routers/papers.py`) -- so later calls can fetch it
@@ -94,6 +109,8 @@ def _extract_job(document_id: str, target_name: str, paper_text: str, llm_provid
         result = extractor.extract(document_id=document_id, target_name=target_name, paper_text=paper_text, pdf_bytes=pdf_bytes)
         if result.raw_spec is None:
             log(f"Extraction failed: {result.error}")
+            if session_id:
+                complete_attempt_with_retry(session_id, step=1, status=StepStatus.FAILED, error=result.error)
             return {
                 "raw_spec": None,
                 "error": result.error,
@@ -105,6 +122,10 @@ def _extract_job(document_id: str, target_name: str, paper_text: str, llm_provid
 
         raw_path = persist_raw_spec(document_id, target_name, result.raw_spec)
         log(f"Persisted raw Step1 spec to {raw_path}")
+        if session_id:
+            complete_attempt_with_retry(
+                session_id, step=1, status=StepStatus.SUCCESS, output_refs={"raw_spec_ref": str(raw_path)}
+            )
         return {
             "raw_spec": result.raw_spec,
             "error": None,
@@ -127,10 +148,22 @@ class ReviewLoopRequest(BaseModel):
 
 
 def _review_loop_job(
-    raw_spec: dict, document_id: str, target_name: str, paper_text: str, llm_provider: str, llm_model: str | None
+    raw_spec: dict, document_id: str, target_name: str, paper_text: str, llm_provider: str, llm_model: str | None,
+    session_id: str | None = None,
 ):
     """Step2's LLM review loop, run as its own job so its progress/log is
-    scoped to the Step2 page (see docstring on `_extract_job` above)."""
+    scoped to the Step2 page (see docstring on `_extract_job` above).
+
+    Recorded as a real step-2 attempt (SUCCESS) whenever `outcome.spec` is
+    set -- which happens whenever the final `model_validate()` after all
+    `MAX_REVIEW_ROUNDS` passes, REGARDLESS of whether the loop's own
+    round-to-round convergence check (`validate_passed and not diff`) ever
+    tripped early. A spec that only ran the full round budget without an
+    early exit is not a failure -- `build_reviewed_method_spec` already
+    treats it as good enough to review (see its docstring); this attempt
+    recording must not re-impose a stricter "must have converged early" bar
+    on top of that.
+    """
     def run(log):
         log(f"Building {llm_provider} LLM client...")
         client = build_llm_client(llm_provider, llm_model)
@@ -142,8 +175,15 @@ def _review_loop_job(
             out_path = UNREVIEWED_DIR / f"{outcome.spec.factor_id}.paper.json"
             out_path.write_text(outcome.spec.model_dump_json(indent=2), encoding="utf-8")
             log(f"Saved reviewed draft spec to {out_path}")
+            if session_id:
+                complete_attempt_with_retry(
+                    session_id, step=2, status=StepStatus.SUCCESS,
+                    output_refs={"unreviewed_ref": str(out_path)},
+                )
         else:
             log(f"Review loop did not converge: {outcome.error}")
+            if session_id:
+                complete_attempt_with_retry(session_id, step=2, status=StepStatus.FAILED, error=outcome.error)
         return {
             "spec": outcome.spec,
             "error": outcome.error,
@@ -160,22 +200,29 @@ def _review_loop_job(
 @router.post("/review-loop")
 async def review_loop(req: ReviewLoopRequest) -> dict:
     job_id = job_manager.create_job(
-        _review_loop_job(req.raw_spec, req.document_id, req.target_name, req.paper_text, req.llm_provider, req.llm_model),
+        _review_loop_job(
+            req.raw_spec, req.document_id, req.target_name, req.paper_text, req.llm_provider, req.llm_model,
+            session_id=req.session_id,
+        ),
         session_id=req.session_id,
         step=2,
         stage="review_loop",
     )
+    if req.session_id:
+        start_attempt_with_retry(req.session_id, step=2, job_id=job_id)
     return {"job_id": job_id}
 
 
 @router.post("/extract")
 async def extract(req: ExtractRequest) -> dict:
     job_id = job_manager.create_job(
-        _extract_job(req.document_id, req.target_name, req.paper_text, req.llm_provider, req.llm_model),
+        _extract_job(req.document_id, req.target_name, req.paper_text, req.llm_provider, req.llm_model, session_id=req.session_id),
         session_id=req.session_id,
         step=1,
         stage="extract",
     )
+    if req.session_id:
+        start_attempt_with_retry(req.session_id, step=1, job_id=job_id)
     return {"job_id": job_id}
 
 
@@ -193,11 +240,13 @@ async def extract_from_pdf(
         raise HTTPException(status_code=400, detail="Uploaded file is empty")
     paper_text = extract_text_from_pdf_bytes(pdf_bytes)
     job_id = job_manager.create_job(
-        _extract_job(document_id, target_name, paper_text, llm_provider, llm_model, pdf_bytes=pdf_bytes),
+        _extract_job(document_id, target_name, paper_text, llm_provider, llm_model, pdf_bytes=pdf_bytes, session_id=session_id),
         session_id=session_id,
         step=1,
         stage="extract",
     )
+    if session_id:
+        start_attempt_with_retry(session_id, step=1, job_id=job_id)
     return {"job_id": job_id}
 
 

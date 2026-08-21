@@ -51,6 +51,9 @@ from src.infra.models.method_spec import (
     EvidenceCitation,
     TimeUnit,
     TimingSpec,
+    TransformKind,
+    TransformSpec,
+    TransformStage,
     Unit,
     UniverseSpec,
 )
@@ -173,6 +176,61 @@ class TestBuildConfigSingleSort:
         config = build_config(resolved, None)
         assert config["accounting_lag_months"] == 6
         assert any(d["config_key"] == "accounting_lag_months" for d in config.get("defaults_applied", []))
+
+
+class TestBuildConfigTransforms:
+    """`PortfolioSpec.transforms` -> `config["transforms"]`/
+    `config["unapplied_transforms"]`. Regression coverage for the bug where
+    `transforms` was resolved onto the spec but had no `KNOWN_CONFIG_KEYS`
+    entry, so `build_config` silently dropped it and the engine never
+    applied the 5 Dichev-1998-oscore winsorize transforms extraction
+    actually produced."""
+
+    def test_supported_winsorize_after_signal_lands_in_transforms(self):
+        paper = _single_sort_spec()
+        paper.portfolio.transforms.append(
+            TransformSpec(kind=TransformKind.WINSORIZE, stage=TransformStage.AFTER_SIGNAL, bounds=(0.01, 0.99))
+        )
+        resolved = _resolved(paper, {"at": SourceColumn(source="compustat_fundamental_annual", column="at")})
+        config = build_config(resolved, None)
+        assert config["transforms"] == [
+            {"kind": "winsorize", "stage": "after_signal", "bounds": [0.01, 0.99]}
+        ]
+        assert config["unapplied_transforms"] == []
+
+    def test_unsupported_kind_lands_in_unapplied_not_silently_dropped(self):
+        paper = _single_sort_spec()
+        paper.portfolio.transforms.append(
+            TransformSpec(kind=TransformKind.STANDARDIZE, stage=TransformStage.AFTER_SIGNAL, bounds=None)
+        )
+        resolved = _resolved(paper, {"at": SourceColumn(source="compustat_fundamental_annual", column="at")})
+        config = build_config(resolved, None)
+        assert config["transforms"] == []
+        assert config["unapplied_transforms"] == [
+            {
+                "kind": "standardize",
+                "stage": "after_signal",
+                "bounds": None,
+                "reason": "engine has no implementation for this transform kind/stage combination",
+            }
+        ]
+
+    def test_unsupported_stage_lands_in_unapplied_not_silently_dropped(self):
+        paper = _single_sort_spec()
+        paper.portfolio.transforms.append(
+            TransformSpec(kind=TransformKind.WINSORIZE, stage=TransformStage.BEFORE_SIGNAL, bounds=(0.01, 0.99))
+        )
+        resolved = _resolved(paper, {"at": SourceColumn(source="compustat_fundamental_annual", column="at")})
+        config = build_config(resolved, None)
+        assert config["transforms"] == []
+        assert len(config["unapplied_transforms"]) == 1
+        assert config["unapplied_transforms"][0]["stage"] == "before_signal"
+
+    def test_no_transforms_declared_yields_empty_lists(self):
+        resolved = _resolved(_single_sort_spec(), {"at": SourceColumn(source="compustat_fundamental_annual", column="at")})
+        config = build_config(resolved, None)
+        assert config["transforms"] == []
+        assert config["unapplied_transforms"] == []
 
 
 class TestUniverseFilterValueEncodingTranslation:

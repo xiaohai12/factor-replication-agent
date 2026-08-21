@@ -27,6 +27,7 @@ from typing import Any
 
 from src.infra.data_layer import catalog
 from src.infra.models.method_spec import (
+    FieldRole,
     FILTER_VALUE_ENCODINGS,
     MAX_SUPPORTED_SORT_DIMENSIONS,
     MissingStage,
@@ -56,13 +57,13 @@ class ConfigOverrideError(ValueError):
 KNOWN_CONFIG_KEYS: frozenset[str] = frozenset({
     "breakpoint_source", "breakpoint_quantiles", "weighting_rule",
     "rebalance_frequency", "holding_period_months", "accounting_lag_months",
-    "formation_lag_months", "signal_max_staleness_months", "missing_action", "universe",
+    "formation_lag_months", "signal_max_staleness_months", "signal_cadence", "missing_action", "universe",
     "formation_month", "formation_month_explicit", "long_leg", "short_leg",
     "sample_start_year", "sample_end_year", "publication_year",
     "universe_filters", "apply_delisting_returns", "return_combination_type",
     "return_basis", "estimator",
     "returns_table", "returns_layout", "unapplied_universe_filters",
-    "universe_filter_join_sources",
+    "universe_filter_join_sources", "transforms", "unapplied_transforms",
 })
 
 # Which config keys are governed by a fixed menu (see STANDARD below) --
@@ -86,7 +87,14 @@ CONFIG_KEY_STAGE: dict[str, str] = {
     # non-zero value by `C_cz`-derived overrides (`cz_profile_to_config_override`).
     "formation_lag_months": "signal_input",
     "signal_max_staleness_months": "signal_input",
+    "signal_cadence": "signal_input",
     "missing_action": "signal_input",
+    # `transforms` (e.g. per-month cross-sectional winsorize applied to the
+    # realized signal by `BacktestExecutor.apply_transforms`) changes the
+    # actual signal VALUES the same way `missing_action` does -- classified
+    # as signal_input, not portfolio, for the same reason.
+    "transforms": "signal_input",
+    "unapplied_transforms": "signal_input",
     # portfolio — sorting, weighting, rebalancing, leg definition
     "breakpoint_source": "portfolio",
     "breakpoint_quantiles": "portfolio",
@@ -415,6 +423,83 @@ def _unapplied_universe_filters(paper) -> list[dict[str, Any]]:
     ]
 
 
+# Which (kind, stage) combinations `BacktestExecutor.apply_transforms`
+# actually implements -- currently only a per-month cross-sectional
+# winsorize applied to the realized signal. Any `TransformSpec` outside this
+# set is NOT silently dropped: `_unapplied_transforms` records it instead
+# (same "never silently ignore a stated spec field" policy as
+# `_unapplied_universe_filters`).
+_SUPPORTED_TRANSFORMS: set[tuple[str, str]] = {("winsorize", "after_signal")}
+
+
+def _applied_transforms(paper) -> list:
+    """`paper.portfolio.transforms` filtered down to the ones the engine
+    actually implements (see `_SUPPORTED_TRANSFORMS`). Everything else is
+    recorded by `_unapplied_transforms` instead of being silently dropped."""
+    return [
+        t for t in paper.portfolio.transforms
+        if (ev(t.kind), ev(t.stage)) in _SUPPORTED_TRANSFORMS
+    ]
+
+
+def _unapplied_transforms(paper) -> list[dict[str, Any]]:
+    """Recorded, never-applied entries for every `TransformSpec` whose
+    (kind, stage) combination isn't in `_SUPPORTED_TRANSFORMS` -- e.g. a
+    `truncate`/`standardize`/`rank`/`log` transform, or a `winsorize` staged
+    `before_signal` -- so a future unimplemented transform is visibly
+    flagged in the config rather than silently vanishing (the same failure
+    mode that let the `oscore` winsorize bug go unnoticed: `transforms` was
+    a real resolved-spec field with no consumer anywhere downstream)."""
+    return [
+        {
+            "kind": ev(t.kind),
+            "stage": ev(t.stage),
+            "bounds": list(t.bounds) if t.bounds is not None else None,
+            "reason": "engine has no implementation for this transform kind/stage combination",
+        }
+        for t in paper.portfolio.transforms
+        if (ev(t.kind), ev(t.stage)) not in _SUPPORTED_TRANSFORMS
+    ]
+
+
+_CRSP_ONLY_SIGNAL_SOURCE = "crsp_msf"
+
+
+def _signal_cadence(paper, resolution) -> str:
+    """"monthly" (default) when every resolved SIGNAL_INPUT concept comes
+    from CRSP monthly data -- genuinely recomputed fresh every month (e.g.
+    momentum/reversal, one row per permno per month). "low_frequency" when
+    ANY resolved SIGNAL_INPUT concept comes from a non-CRSP source
+    (Compustat fundamentals/IBES/etc -- one row per fiscal period/quarter,
+    not restated every month).
+
+    Mirrors `script_generator.pick_signal_input_mode`'s own source
+    classification (`SIGNAL_INPUT_MODE in ("compustat", "multi_source")` <->
+    "low_frequency" here; "crsp_only" <-> "monthly" here) so the generated-
+    script path (`generate_backtest_script`, which embeds this same
+    `build_config` output into `CONFIG`) and the in-process path
+    (`assemble_signal_master_table`/tests calling `build_config` directly)
+    always agree. Computed independently (not by importing
+    `pick_signal_input_mode`) because `script_generator.py` already imports
+    this module -- importing back would be circular.
+
+    Defaults to "monthly" -- the historical implicit assumption -- whenever
+    there's no positive evidence of a non-CRSP signal source (no SIGNAL_INPUT
+    fields, or none with a resolved mapping yet), so any config that doesn't
+    explicitly declare a low-frequency signal keeps today's `hold=1` monthly
+    behavior byte-for-byte unchanged.
+    """
+    for f in paper.data.fields:
+        if FieldRole.SIGNAL_INPUT not in f.roles:
+            continue
+        mapping = resolution.concept_mapping.get(f.concept_id)
+        if mapping is None:
+            continue
+        if mapping.source != _CRSP_ONLY_SIGNAL_SOURCE:
+            return "low_frequency"
+    return "monthly"
+
+
 def _universe_filter_join_sources(paper, resolution) -> dict[str, list[str]]:
     """`{source: [columns]}` for every APPLIED universe filter whose
     resolved column is a REAL registered physical column (see
@@ -557,7 +642,27 @@ def _build_config_from_resolved(resolved: ResolvedMethodSpec, overrides: dict | 
         return sorted(kept, key=lambda s: s.order)
 
     sorts = _clamp_sort_dims(sorted(paper.portfolio.sorts, key=lambda s: s.order))
-    target_sort = next((s for s in sorts if s.role.value == "target"), sorts[0])
+    target_sort = next((s for s in sorts if s.role.value == "target"), None)
+    if target_sort is None and len(sorts) == 1:
+        # The engine currently only builds single-sort portfolios, so a
+        # spec with exactly one sort dimension IS the paper's own signal
+        # regardless of what role extraction/review happened to tag it
+        # with -- no ambiguity to resolve, unlike the multi-sort case.
+        target_sort = sorts[0]
+        defaults_applied.append({
+            "config_key": "sorts[0].role",
+            "value": "target",
+            "reason": (
+                f"single-sort spec; treated its only sort dimension as the paper's "
+                f"target signal despite role={target_sort.role.value!r}"
+            ),
+            "paper_value": target_sort.role.value,
+        })
+    if target_sort is None:
+        raise ValueError(
+            "method spec has no portfolio sort dimensions (portfolio.sorts is empty); "
+            "cannot build codegen config"
+        )
 
     for i, s in enumerate(sorts):
         _track_group_type(f"sorts[{i}].group_type", s.group_type)
@@ -603,6 +708,14 @@ def _build_config_from_resolved(resolved: ResolvedMethodSpec, overrides: dict | 
         # "formation_lag_months" comment.
         "formation_lag_months": 0,
         "signal_max_staleness_months": 11,
+        # "monthly" (default, preserves existing hold=1-every-month behavior)
+        # or "low_frequency" (Compustat/IBES/etc-sourced signal -- see
+        # `_signal_cadence`). Consumed by
+        # `BacktestExecutor.apply_signal_holding_period`'s
+        # `_forward_fill_low_frequency_signal` to forward-fill an annual-
+        # cadence signal onto every month when `rebalance_frequency` is
+        # finer than the signal's own true update cadence.
+        "signal_cadence": _signal_cadence(paper, resolution),
         "missing_action": _track_clamp(
             "missing_action",
             next(
@@ -644,6 +757,11 @@ def _build_config_from_resolved(resolved: ResolvedMethodSpec, overrides: dict | 
         ],
         "unapplied_universe_filters": _unapplied_universe_filters(paper),
         "universe_filter_join_sources": _universe_filter_join_sources(paper, resolution),
+        "transforms": [
+            {"kind": ev(t.kind), "stage": ev(t.stage), "bounds": list(t.bounds) if t.bounds is not None else None}
+            for t in _applied_transforms(paper)
+        ],
+        "unapplied_transforms": _unapplied_transforms(paper),
         "apply_delisting_returns": True,
         "return_combination_type": _track_clamp(
             "return_combination_type", paper.portfolio.return_combination.value,

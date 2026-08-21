@@ -123,7 +123,15 @@ dimensions with `order` reflecting sequence and (for sequential sorts)
 
 `portfolio.legs` describes which combination of sort groups form the long and
 short side -- each leg's `selector` maps `sort_id -> group_index` (0-based;
-group 0 = lowest bucket).
+group 0 = lowest bucket, group `group_count - 1` = highest bucket). **Convert
+the paper's own 1-based table/decile label before writing it down -- do not
+copy it as-is.** For deciles, the paper's "Decile 1" column is selector `0`
+and "Decile 10" is selector `9`, NOT `1` and `10` (same convention as the
+`portfolio_selector` worked example in 1.8 below). Writing `10` here for a
+10-group sort is not just off by one -- it silently makes that leg
+impossible to ever fill (the engine only ever labels buckets `1..
+group_count`), so the strategy's return series comes back empty every period
+with no error raised anywhere.
 
 ## 1.7a `breakpoints.basis`, `weighting`, `missing_policies[].action`: write the paper's literal description, not an engine token
 
@@ -197,10 +205,40 @@ IDs as `high_metric_id` / `low_metric_id`, and
 `use_as_primary_comparison: true`. Put each endpoint's zero-based portfolio
 bucket in `portfolio_selector` (for deciles, Port 1 is `0`, Port 10 is `9`).
 Do not calculate or write the difference yourself: the pipeline derives it
-deterministically. Select one stated table panel as the MethodSpec target;
-express its exchange/sample scope through the normal `universe.filters`.
-Do not use this mechanism for a regression coefficient or merely because a
-table happens to have ordered columns.
+deterministically. Do not use this mechanism for a regression coefficient or
+merely because a table happens to have ordered columns.
+
+## 1.8a Multi-panel papers: the filter must match the panel you took numbers from
+
+A paper often reports the SAME signal under several parallel panels/tables
+that differ only in one sample-restriction dimension -- separate columns or
+tables for different exchange listings, firm-size groups, industries,
+sub-periods, share classes, etc. (this is a general pattern, not specific to
+any one field). When that happens:
+
+1. Pick exactly ONE panel as this MethodSpec's target -- the one whose cells
+   you record in `reported_results.metrics`.
+2. `universe.filters` MUST encode that SAME panel's restriction, not the
+   paper's broader/combined description of "the whole sample across all
+   panels" (that sentence usually appears once in the Data/Sample section
+   and describes the union of every panel, not any single one of them).
+3. Cite the SAME table/panel in both places: attach a citation identifying
+   the chosen panel (table name + row/column, or a quote naming it) to BOTH
+   the relevant `universe.filters[].evidence` entry AND the
+   `reported_results.metrics[].evidence` entries you extracted from it.
+   Reusing the paper's one generic "our sample includes ..." sentence as the
+   filter's evidence when the numbers actually came from a specific
+   restricted panel is exactly the mismatch to avoid.
+4. Record which panel you picked (and, briefly, that other panels exist) in
+   `notes`.
+
+This applies to whatever dimension the paper actually splits on -- do not
+assume it is always an exchange screen. For example: if a paper reports one
+table for "all firms" and a second table restricted to "firms above the
+NYSE median size", and you are extracting the size-restricted table, the
+matching `universe.filters` entry (on the market-cap concept) and its
+citation must reflect that size restriction and cite that table, not the
+paper's generic universe paragraph.
 
 ## 1.8b Every `universe.filters[].concept_id` MUST have a matching `data.fields` entry
 
@@ -236,6 +274,15 @@ Nasdaq**, encode the executable CRSP screen as
 `exchcd` values are `1=NYSE`, `2=AMEX`, and `3=NASDAQ`. Add a matching
 `data.fields[]` entry for `exchcd`, with role `universe_filter`, mapped to
 `crsp_msf.exchcd`, and attach the paper's exchange citation to both entries.
+
+This `[1, 2, 3]` value is correct ONLY when the panel you are targeting
+(1.8a) truly is the combined NYSE+AMEX+NASDAQ sample. If the panel you took
+`reported_results.metrics` from is itself restricted to a subset of
+exchanges (e.g. a "NYSE and AMEX only" table reported alongside a separate
+"NASDAQ only" table), use the value for that subset instead (e.g. `[1, 2]`
+or `[3]`) and cite that specific panel -- do not default to `[1, 2, 3]` just
+because the paper's general Data section also happens to mention all three
+exchange names somewhere.
 
 ## 1.8c Genuinely-computed universe filters ALSO need `derivation`
 

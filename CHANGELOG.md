@@ -2,6 +2,220 @@
 
 ## [Unreleased]
 
+### reference: add `ShareVol` to the step6 UI factor picker + manual C&Z/HXZ fallback (2026-08-21)
+
+Added `ShareVol` (Datar/Naik/Radcliffe 1998) to
+`src/infra/reference/manifest.py`'s `CZ_FACTOR_ACRONYM_MANIFEST`
+(self-mapped, like `AssetGrowth`/`GP`/`Mom6m` -- no extracted MethodSpec
+exists for it yet) so it shows up in the step6 UI's `C_cz` preview dropdown
+(`/api/reference/cz-factors`, `frontend/src/pages/SessionDetailPage.tsx`'s
+"Run against C&Z's actual configuration" selects).
+
+Also added `ShareVol` to `src/infra/reference/__init__.py`'s
+`MANUAL_PAPER_RETURN_FALLBACK` (`mean_return=0.0091`, `t_stat=3.87`) and
+`src/infra/reference/hxz_bridge.py`'s `MANUAL_HXZ_REPORTED_FALLBACK`
+(`mean_return=-0.0011`, `t_stat=0.46`), so step6's C&Z/HXZ reference columns
+resolve for this factor even though `data/CZ code/SignalDoc.csv`'s `ShareVol`
+row has a `T-Stat` but no `Return`, and no HXZ testing-portfolio CSV exists
+for it under `data/hxz/return_ref/`.
+
+### reference: add `MeanRankRevGrowth` to the step6 UI factor picker + manual C&Z/HXZ fallback (2026-08-21)
+
+Added `MeanRankRevGrowth` (Lakonishok/Shleifer/Vishny 1994) to
+`src/infra/reference/manifest.py`'s `CZ_FACTOR_ACRONYM_MANIFEST`
+(self-mapped, same pattern as `ShareVol` above -- no extracted MethodSpec
+exists for it yet) so it shows up in the step6 UI's `C_cz`/HXZ preview
+dropdowns.
+
+Also added `MeanRankRevGrowth` to `src/infra/reference/__init__.py`'s
+`MANUAL_PAPER_RETURN_FALLBACK` (`mean_return=0.0055`, `t_stat=3.94`) and
+`src/infra/reference/hxz_bridge.py`'s `MANUAL_HXZ_REPORTED_FALLBACK`
+(`mean_return=-0.0019`, `t_stat=1.08`), since `data/CZ code/SignalDoc.csv`'s
+`MeanRankRevGrowth` row has neither a `Return` nor a `T-Stat` field filled in
+(only a paper-text note of a double-sort t=4.5, not the LS-portfolio number
+this fallback represents), and no HXZ testing-portfolio CSV exists for it
+under `data/hxz/return_ref/`.
+
+### backtest_engine: wire `PortfolioSpec.transforms` (winsorize) into the engine (2026-08-21)
+
+Fixed a bug where `PortfolioSpec.transforms` (`paper.portfolio.transforms`,
+documented in `src/infra/models/schema_reference.py`) was a real field
+populated by extraction/resolution but was never consumed downstream:
+`registry.KNOWN_CONFIG_KEYS` had no `transforms` entry (`build_config`
+silently dropped it) and `BacktestExecutor` had no winsorize/clip code path
+at all. 5 of 14 resolved specs (all Dichev 1998 `oscore`, from 5 separate
+extraction attempts) declared `{"kind": "winsorize", "stage":
+"after_signal", "bounds": [0.01, 0.99]}` per the paper's own stated
+methodology ("the top and bottom 1 percent of observations for each
+variable ... are set at the 1st and the 99th percentile"), and none of the
+5 generated plugin runs ever applied it -- the computed `oscore` signal had
+extreme un-clipped outliers (observed range roughly -2908 to 5604 vs a
+normal O-score range of about -10 to +10) that fell disproportionately in
+the extreme deciles used for the paper's long-short spread.
+
+Added `src/steps/step3_codegen/registry.py`'s `_applied_transforms`/
+`_unapplied_transforms` (mirrors `_applied_universe_filters`/
+`_unapplied_universe_filters`): only `{"kind": "winsorize", "stage":
+"after_signal"}` is currently implemented and lands in `config["transforms"]`;
+anything else lands in `config["unapplied_transforms"]` instead of being
+silently dropped, and both keys were added to `KNOWN_CONFIG_KEYS`/
+`CONFIG_KEY_STAGE` (classified `signal_input`, since a transform changes the
+realized signal value the same way `missing_action` does). Added
+`BacktestExecutor.apply_transforms` (`src/infra/backtest_engine/__init__.py`),
+called once in `run_with_config` right after `self.signal` is set (same
+"correctness-critical processing lives in the engine, not per-plugin"
+convention as the existing `pd.to_numeric` signal-dtype normalization):
+clips `signal["signal"]` at the given percentile bounds, computed
+cross-sectionally PER CALENDAR MONTH (`groupby("yyyymm")`) to match how the
+paper's decile portfolios are actually formed monthly. A no-op when
+`config["transforms"]` is empty/missing, so every other existing factor is
+unaffected. New tests: `tests/test_apply_transforms.py` (per-month clipping
+behavior, unsupported kind/stage left un-applied, empty/missing
+`transforms` is byte-for-byte no-op) and
+`tests/test_registry_resolved_method_spec.py::TestBuildConfigTransforms`
+(resolved-spec `transforms`/`unapplied_transforms` serialization).
+
+### backtest_engine: forward-fill low-frequency (Compustat-annual) signals under monthly rebalance (2026-08-21)
+
+Fixed a bug where an annual-cadence signal (e.g. Ohlson O-score, Altman
+Z-score -- one row per permno per fiscal year, sourced from
+`compustat_fundamental_annual`) combined with `rebalance_frequency:
+"monthly"` collapsed to near-zero coverage: `apply_signal_holding_period`'s
+`hold = min(holding_period_months, _rebalance_step_months(config))` caps
+`hold` at 1 for `rebalance_frequency == "monthly"`, so each annual signal row
+only ever expanded into the ONE calendar month right after its own
+formation month and then vanished for the other ~11 months of the year --
+`signal_max_staleness_months` was defined in every generated config but
+never actually wired up for this case (only `_resample_annual_signal_asof`
+read it, and that path is gated to `rebalance_frequency == "annual"` only).
+Confirmed as a real bug in `oscore`'s (session `d4718bf1865e48f5964e5aa997c4e160`)
+`return_series`: dense monthly coverage some years, collapsing to exactly one
+observation per year (every July) once accounting-annual-only firms
+dominate.
+
+Added a new `signal_cadence` config key (`"monthly"` default -- byte-
+identical to today's behavior for every existing config -- or
+`"low_frequency"` when any resolved `SIGNAL_INPUT` concept maps to a
+non-CRSP source), derived by a new `_signal_cadence()` helper in
+`src/steps/step3_codegen/registry.py`'s `build_config`/
+`_build_config_from_resolved` (mirrors `script_generator
+.pick_signal_input_mode`'s own source classification, computed
+independently to avoid a circular import since `script_generator.py`
+already imports `registry.py`). Registered in `KNOWN_CONFIG_KEYS` and
+`CONFIG_KEY_STAGE` (`"signal_input"` stage) alongside the other signal-input
+keys. Threaded automatically into the generated script's `CONFIG` dict
+(`script_generator.generate_backtest_script` already embeds `build_config`'s
+full output) and available identically on the in-process path
+(`assemble_signal_master_table`/direct `BacktestExecutor` callers).
+
+`BacktestExecutor.apply_signal_holding_period` (`src/infra/backtest_engine/__init__.py`)
+gained `_forward_fill_low_frequency_signal`, called alongside (not
+replacing) `_resample_annual_signal_asof`: when `rebalance_frequency ==
+"monthly"` and `config["signal_cadence"] == "low_frequency"`, forward-fills
+the annual signal onto every calendar month via `asof_align_to_monthly`
+(the same staleness-capped mechanism `join_universe_filter_sources` already
+uses for the analogous universe-filter case), capped at
+`signal_max_staleness_months` (default 11), BEFORE the existing hold-window
+expansion runs -- so each now-monthly row's `hold=1` correctly means "one
+row -> one held month" instead of "the annual row disappears for 11
+months". Mutually exclusive with `_resample_annual_signal_asof` (annual
+rebalance + explicit `formation_month` only) by construction; a config with
+no low-frequency evidence keeps `signal_cadence` defaulted to `"monthly"`
+and is a complete no-op through this new path.
+
+New tests in `tests/test_calendar_rebalance.py`: forward-fill spreads a
+single annual formation across all 12 held months, staleness cutoff still
+applies, and the low-frequency gate never fires for an annual-rebalance
+config (stays on `_resample_annual_signal_asof`'s path). Confirmed
+`tests/test_calendar_rebalance.py::test_monthly_caps_hold_at_one_month`,
+`::test_monthly_signal_not_resampled_by_annual_asof_logic`, and
+`tests/test_formation_lag_months.py::test_lag_crosses_year_boundary` pass
+unmodified (none declare `signal_cadence`, so they stay on the untouched
+default-`"monthly"` path). Regenerating `oscore`'s and `zscore`'s stored
+resolved configs (`build_config` re-run against their stored `spec.json`)
+confirms the only diff from the old stored config is the new
+`signal_cadence: "low_frequency"` key -- everything else is byte-identical,
+confirming this is a strictly additive, opt-in-by-evidence change.
+
+### data_layer: "time_only" macro signal sources + FRED GDP deflator (2026-08-21)
+
+Added generic support for market-wide, non-permno-keyed macro time series as
+a usable `SIGNAL_INPUT`. `DataSource` gained a `keyed_by` property
+(`"permno_time"` default vs `"time_only"`); `assemble_signal_master_table_from_sources`
+now splits off any `"time_only"` source's frame (`[time_avail_m, *cols]`, no
+permno) and broadcasts it onto the already-assembled permno-keyed master via
+a `time_avail_m`-only merge, applied AFTER the existing `[permno,
+time_avail_m]` outer-merge assembly so every currently-registered
+permno-keyed source's behavior is unchanged.
+
+New bespoke `MacroSignalSource` (parallel to `CrspSignalSource`/
+`ThirteenFSignalSource`), registered as `fred_gdp_deflator`
+(`concept_columns` incl. `"gnp_price_level_index"`/`"gdp_deflator"`) --
+FRED's GDP Implicit Price Deflator (series GDPDEF), used as the standard
+modern substitute for the GNP price-level index in Ohlson's (1980) O-score
+`log(total assets / GNP price-level index)` term (BEA no longer separately
+publishes a GNP deflator). Reads a pre-fetched snapshot
+(`data/local/gdp_deflator.parquet`, columns `yyyymm`/`value`) built by the
+new build-time-only `scripts/fetch_fred_series.py` (mirrors
+`scripts/fetch_ff_factors.py`, uses the existing dev-only
+`pandas-datareader` dependency -- no new runtime dependency). GDPDEF is
+quarterly; the fetch script forward-fills each quarter's value across its 3
+months (simplest sane choice for a slowly-changing scaling denominator) and
+applies a fixed 1-month availability lag (documented simplification, not a
+modeled point-in-time revision schedule). No extractor-prompt change needed:
+`SourceName`/`data_catalog` are derived live from the `sources.py` registry,
+so the new source is automatically a valid `source_table` choice.
+
+New tests: `tests/test_macro_signal_source.py` (registration, `keyed_by`,
+snapshot-missing/lag stamping, broadcast merge, and the macro-only fallback
+path). Updated `tests/test_data_catalog.py`'s `_HISTORICAL_SIGNAL_SOURCES`
+snapshot to include the new source.
+
+### step2 UI: human-editable universe filters (2026-08-21)
+
+The Step2 review page's "Universe filters" panel now lets a human add, remove,
+or edit an existing `universe.filters[]` entry directly -- `concept_id` and
+`op` as dropdowns (concept options come from the spec's own `data.fields`;
+op options come from the `FilterOp` enum via the schema-reference endpoint),
+`value` as a free-text JSON field (a flat list for `in`/`not_in`, a list of
+`[low, high]` pairs for `intervals`, a scalar for the rest). Same client-side-
+edit convention as the existing `derivation`/`accepted_unapplied` editors
+(`FilterSpec`'s scalar fields aren't `SourcedValue`s, so `/patch-value` can't
+touch them) -- `state.paper` is resent wholesale on the next `/review` or
+`/resolve` call, nothing persisted server-side until then. Findings whose
+`field_path` is a `universe.filters[i]` entry (any `kind`, including the new
+panel-mismatch check above) are now routed to this editor instead of the
+generic scalar value-patch UI, which would 500 on a field_path outside
+`apply_value_patches`' fixed known set.
+
+Every add/edit/remove also carries a reason, recorded as an audit trail: an
+edit or a newly added filter gets a `human correction: <reason>`
+`EvidenceCitation` appended to that filter's own `evidence[]` (mirroring
+`apply_value_patches`'s convention for scalar fields); a removal appends a
+note to `MethodSpec.notes` instead, since the filter itself no longer exists
+afterward to carry a citation.
+
+### extractor/step2: catch a universe filter that scopes the wrong panel (2026-08-21)
+
+When a paper reports the same signal under several parallel panels that
+differ only in one sample-restriction dimension (exchange listing, firm
+size, industry, sub-period, etc.), the extractor and LLM review prompts
+previously tended to anchor on the paper's one generic "our sample includes
+NYSE, Amex, and NASDAQ" sentence and always emit the combined
+`exchcd in [1, 2, 3]` screen, even when `reported_results.metrics` was
+actually read from a narrower panel (e.g. a NASDAQ-only table reported
+alongside a separate NYSE+AMEX-only table). Both prompts now state this as a
+general "match the filter to the panel you extracted numbers from" rule
+(not specific to `exchcd` or any one field) and no longer unconditionally
+push the extractor/reviewer toward the combined value. Step2's deterministic
+review also gained a new, field-agnostic structural check
+(`_universe_filter_panel_mismatch_findings`): when a universe filter's own
+citation names a different table than `reported_results.metrics`' citation,
+it is flagged `inconsistent` / `needs_human_confirmation`. A filter cited
+only by prose (no `table_ref`) is left alone -- that is normal even for a
+single-panel paper and this check cannot distinguish it from a genuine
+mismatch without re-reading the paper.
+
 ### reported results: opt-in deterministic table endpoint spreads (2026-08-21)
 
 `reported_results` can now request an explicit `high_minus_low` comparison

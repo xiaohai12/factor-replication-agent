@@ -117,6 +117,21 @@ MANUAL_HXZ_REPORTED_FALLBACK: dict[str, dict[str, float | str]] = {
         "t_stat": 0.06,
         "label": "HXZ (user-provided reference; no testing-portfolio CSV)",
     },
+    "OScore": {
+        "mean_return": -0.0009,
+        "t_stat": 0.48,
+        "label": "HXZ (user-provided reference; no testing-portfolio CSV)",
+    },
+    "ShareVol": {
+        "mean_return": -0.0011,
+        "t_stat": 0.46,
+        "label": "HXZ (user-provided reference; no testing-portfolio CSV)",
+    },
+    "MeanRankRevGrowth": {
+        "mean_return": -0.0019,
+        "t_stat": 1.08,
+        "label": "HXZ (user-provided reference; no testing-portfolio CSV)",
+    },
 }
 
 

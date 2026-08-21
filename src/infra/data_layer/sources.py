@@ -157,6 +157,14 @@ class DataSource(ABC):
     #: `name`/`role` properties.
     spec: Optional[SourceSpec] = None
 
+    #: "permno_time" (default): `load()` returns [permno, time_avail_m, *cols]
+    #: and joins other sources via an exact [permno, time_avail_m] merge.
+    #: "time_only": a market-wide source with no permno (e.g. a macro series
+    #: like FRED's GDP deflator) -- `load()` returns [time_avail_m, *cols]
+    #: and `assemble_signal_master_table_from_sources` broadcasts it onto
+    #: every permno row for that period via a time_avail_m-only merge instead.
+    keyed_by: str = "permno_time"
+
     @property
     def name(self) -> str:
         if self.spec is None:
@@ -868,34 +876,63 @@ def assemble_signal_master_table_from_sources(
         name: f for name, cols in by_source.items()
         if (f := _load_source_frame(d, name, cols, accounting_lag_months, link_tables)) is not None
     }
-    frames = list(frames_by_source.values())
-    if not frames:
+    if not frames_by_source:
         return pd.DataFrame(columns=["permno", "time_avail_m"])
 
-    crsp_frame = frames_by_source.get("crsp_msf")
-    if crsp_fiscal_year_end_columns and crsp_frame is not None:
-        missing = set(crsp_fiscal_year_end_columns) - set(crsp_frame.columns)
-        if missing:
-            raise ValueError(f"CRSP fiscal-year-end columns missing from source frame: {sorted(missing)}")
-        base_frames = [f for name, f in frames_by_source.items() if name != "crsp_msf"]
-        if not base_frames:
-            raise ValueError("CRSP fiscal-year-end alignment requires a non-CRSP fiscal-period source")
-        master = base_frames[0]
-        for f in base_frames[1:]:
-            master = master.merge(f, on=["permno", "time_avail_m"], how="outer")
-        month_index = (master["time_avail_m"] // 100) * 12 + (master["time_avail_m"] % 100 - 1)
-        fiscal_index = month_index - accounting_lag_months
-        master = master.copy()
-        master["_crsp_fiscal_yyyymm"] = (fiscal_index // 12) * 100 + (fiscal_index % 12) + 1
-        fiscal_crsp = crsp_frame[["permno", "time_avail_m", *crsp_fiscal_year_end_columns]].rename(
-            columns={"time_avail_m": "_crsp_fiscal_yyyymm"}
-        )
-        master = master.merge(fiscal_crsp, on=["permno", "_crsp_fiscal_yyyymm"], how="left")
-        return master.drop(columns=["_crsp_fiscal_yyyymm"]).sort_values(["permno", "time_avail_m"]).reset_index(drop=True)
+    # A "time_only" source (e.g. fred_gdp_deflator) is keyed by time_avail_m
+    # alone -- no permno column -- so it can't join the ordinary
+    # [permno, time_avail_m] outer merge below. Split it off here and
+    # broadcast it onto the assembled permno-keyed master AFTER that merge (a
+    # plain time_avail_m merge naturally repeats its one row per period
+    # across every permno already in master), leaving every currently-
+    # registered permno-keyed source's assembly below byte-for-byte unchanged.
+    time_only_frames = {
+        name: f for name, f in frames_by_source.items()
+        if get_source(name).keyed_by == "time_only"
+    }
+    frames_by_source = {n: f for n, f in frames_by_source.items() if n not in time_only_frames}
+    frames = list(frames_by_source.values())
 
-    master = frames[0]
-    for f in frames[1:]:
-        master = master.merge(f, on=["permno", "time_avail_m"], how="outer")
+    if frames:
+        crsp_frame = frames_by_source.get("crsp_msf")
+        if crsp_fiscal_year_end_columns and crsp_frame is not None:
+            missing = set(crsp_fiscal_year_end_columns) - set(crsp_frame.columns)
+            if missing:
+                raise ValueError(f"CRSP fiscal-year-end columns missing from source frame: {sorted(missing)}")
+            base_frames = [f for name, f in frames_by_source.items() if name != "crsp_msf"]
+            if not base_frames:
+                raise ValueError("CRSP fiscal-year-end alignment requires a non-CRSP fiscal-period source")
+            master = base_frames[0]
+            for f in base_frames[1:]:
+                master = master.merge(f, on=["permno", "time_avail_m"], how="outer")
+            month_index = (master["time_avail_m"] // 100) * 12 + (master["time_avail_m"] % 100 - 1)
+            fiscal_index = month_index - accounting_lag_months
+            master = master.copy()
+            master["_crsp_fiscal_yyyymm"] = (fiscal_index // 12) * 100 + (fiscal_index % 12) + 1
+            fiscal_crsp = crsp_frame[["permno", "time_avail_m", *crsp_fiscal_year_end_columns]].rename(
+                columns={"time_avail_m": "_crsp_fiscal_yyyymm"}
+            )
+            master = master.merge(fiscal_crsp, on=["permno", "_crsp_fiscal_yyyymm"], how="left")
+            master = master.drop(columns=["_crsp_fiscal_yyyymm"])
+        else:
+            master = frames[0]
+            for f in frames[1:]:
+                master = master.merge(f, on=["permno", "time_avail_m"], how="outer")
+    elif time_only_frames:
+        # No permno-keyed source at all (a spec built entirely from a
+        # market-wide macro concept) -- fall back to assembling the
+        # time_only frames directly; the result carries no permno column.
+        tf = list(time_only_frames.values())
+        master = tf[0]
+        for f in tf[1:]:
+            master = master.merge(f, on="time_avail_m", how="outer")
+        return master.sort_values(["time_avail_m"]).reset_index(drop=True)
+    else:
+        return pd.DataFrame(columns=["permno", "time_avail_m"])
+
+    for f in time_only_frames.values():
+        master = master.merge(f, on="time_avail_m", how="left")
+
     return master.sort_values(["permno", "time_avail_m"]).reset_index(drop=True)
 
 
@@ -1600,6 +1637,78 @@ register(ThirteenFSignalSource(SourceSpec(
         "instown_perc": "Percent of shares outstanding held by 13F institutional filers, as of this quarter's report date.",
     },
 )))
+
+
+class MacroSignalSource(DataSource):
+    """A market-wide, non-permno-keyed macro time series (2026-08-21) --
+    the first `keyed_by="time_only"` source: one value per period, the SAME
+    for every security, broadcast onto the permno panel by
+    `assemble_signal_master_table_from_sources`'s time_avail_m-only merge
+    rather than the ordinary [permno, time_avail_m] join. No permno, no
+    `crsp_link` hop -- `spec` still carries a minimal `SourceSpec` purely for
+    `physical_columns`/`concept_columns`/description (what catalog.py's view
+    derivation reads); its `source_key`/`observation_date`/`crsp_link` fields
+    are unused placeholders, same as `CrspSignalSource`'s/`ThirteenFSignalSource`'s.
+
+    `load()` reads a pre-fetched snapshot (built by
+    `scripts/fetch_fred_series.py`, columns `yyyymm`/`value`) and stamps
+    `time_avail_m` = observation month + `lag_months`.
+    """
+
+    keyed_by = "time_only"
+
+    def __init__(self, spec: SourceSpec, *, parquet_stem: str, lag_months: int = 1):
+        self.spec = spec
+        self._parquet_stem = parquet_stem
+        self._lag_months = lag_months
+
+    def load(self, data_dir, columns=None, ctx=None) -> pd.DataFrame:
+        path = Path(data_dir) / "local" / f"{self._parquet_stem}.parquet"
+        if not path.exists():
+            return None
+        df = pd.read_parquet(path)
+        # Fixed publication lag (default 1 month), not a modeled per-release
+        # point-in-time revision schedule -- same simplification as
+        # ThirteenFSignalSource's flat 2-month 13F lag above.
+        total = (df["yyyymm"] // 100) * 12 + (df["yyyymm"] % 100 - 1) + self._lag_months
+        df = df.copy()
+        df["time_avail_m"] = (total // 12) * 100 + (total % 12) + 1
+        cols = [c for c in (columns or ["value"]) if c in df.columns]
+        out = df[["time_avail_m", *cols]].dropna(subset=["time_avail_m"])
+        out["time_avail_m"] = out["time_avail_m"].astype(int)
+        return out.reset_index(drop=True)
+
+
+register(MacroSignalSource(
+    SourceSpec(
+        name="fred_gdp_deflator", role="signal", raw_file=None,
+        physical_columns={"value"},
+        concept_columns={
+            "gnp_price_level_index": "value", "gnp price-level index": "value",
+            "gdp_deflator": "value", "price_level_index": "value",
+        },
+        # Unused placeholder fields (this source is time_only, not linked
+        # through a CrspLinkSpec) -- kept non-None only to satisfy SourceSpec's
+        # required fields, same pattern as CrspSignalSource/ThirteenFSignalSource.
+        source_key="time_avail_m", observation_date=None, lag=0,
+        crsp_link=CrspLinkSpec(native_key="time_avail_m", link_table=None),
+        description=(
+            "FRED GDP Implicit Price Deflator (series GDPDEF), quarterly, "
+            "forward-filled to monthly and broadcast market-wide (same value "
+            "for every security -- no permno). Used as a substitute for the "
+            "GNP price-level index in Ohlson's (1980) O-score "
+            "log(total assets / GNP price-level index) term: the GNP "
+            "deflator is no longer separately published by BEA, and the GDP "
+            "deflator is the standard modern substitute (GNP and GDP differ "
+            "only by net factor income from abroad, negligible for the US)."
+        ),
+        column_descriptions={
+            "value": "GDP Implicit Price Deflator index level (FRED GDPDEF), quarterly value forward-filled across its 3 months.",
+        },
+    ),
+    parquet_stem="gdp_deflator",
+    lag_months=1,
+))
 
 
 # ---------------------------------------------------------------------------

@@ -84,6 +84,32 @@ def read_events(session_id: str, since_seq: int = -1) -> list[dict]:
     return out
 
 
+def start_attempt_with_retry(
+    session_id: str,
+    step: int,
+    job_id: Optional[str] = None,
+    max_attempts: int = 5,
+):
+    """Like `SessionStore.start_attempt`, but for callers (e.g.
+    `backend/routers/methodspecs.py`'s Step1/2 job-creation endpoints) that
+    don't want to make the caller track/pass the manifest's current
+    `revision` just to kick off a step attempt -- unlike steps 3-5
+    (`backend/routers/sessions.py`), which gate this on a client-supplied
+    `expected_revision` because they're building on top of a specific prior
+    artifact the client just looked at. Re-reads the manifest and retries on
+    `ConcurrentModificationError`, same reasoning as
+    `complete_attempt_with_retry`.
+    """
+    last_exc: Optional[ConcurrentModificationError] = None
+    for _ in range(max_attempts):
+        current = session_store.get(session_id)
+        try:
+            return session_store.start_attempt(session_id, current.revision, step=step, job_id=job_id)
+        except ConcurrentModificationError as exc:
+            last_exc = exc
+    raise last_exc  # pragma: no cover -- only reachable under genuine concurrent writers
+
+
 def complete_attempt_with_retry(
     session_id: str,
     step: int,

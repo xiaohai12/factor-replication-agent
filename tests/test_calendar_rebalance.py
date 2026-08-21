@@ -146,3 +146,98 @@ def test_monthly_signal_not_resampled_by_annual_asof_logic():
 
     assert sorted(merged["yyyymm"]) == [200004]
     assert set(merged["cohort"]) == {200003}
+
+
+def test_low_frequency_signal_forward_filled_across_monthly_rebalance():
+    # Annual-cadence signal (one row per permno per fiscal year, like
+    # Ohlson O-score/Altman Z-score from Compustat) combined with
+    # rebalance_frequency="monthly" + signal_cadence="low_frequency" should
+    # persist/be reused across every intervening month (up to
+    # signal_max_staleness_months), NOT just the single month right after
+    # its own formation row -- see docs/decision-log.md 2026-08-21 fix.
+    signal = pd.DataFrame({"permno": [1], "yyyymm": [200006], "signal": [0.5]})
+    data = pd.DataFrame(
+        {
+            "permno": 1,
+            "yyyymm": [200006 + i for i in range(7)] + [200101 + i for i in range(6)],
+            "ret": 0.01,
+            "me": 100.0,
+            "exchcd": 1,
+        }
+    )
+    merged = BacktestExecutor().apply_signal_holding_period(
+        data,
+        signal,
+        {
+            "holding_period_months": 12,
+            "rebalance_frequency": "monthly",
+            "signal_cadence": "low_frequency",
+            "signal_max_staleness_months": 11,
+        },
+    )
+
+    # One row per month is now held (hold=1 on a now-monthly signal frame),
+    # not just the single 200007 month the pre-fix hold=1-on-annual-row
+    # behavior would have produced.
+    assert len(merged) == 12
+    assert merged["yyyymm"].min() == 200007
+    assert merged["yyyymm"].max() == 200106
+    assert set(merged["signal"].unique()) == {0.5}
+
+
+def test_low_frequency_signal_respects_max_staleness():
+    # A signal older than signal_max_staleness_months should stop being
+    # forward-filled once staleness is exceeded, rather than persisting
+    # forever.
+    signal = pd.DataFrame({"permno": [1], "yyyymm": [200001], "signal": [0.5]})
+    months = [200001 + i for i in range(12)] + [200101 + i for i in range(6)]
+    data = pd.DataFrame(
+        {"permno": 1, "yyyymm": months, "ret": 0.01, "me": 100.0, "exchcd": 1}
+    )
+    merged = BacktestExecutor().apply_signal_holding_period(
+        data,
+        signal,
+        {
+            "holding_period_months": 12,
+            "rebalance_frequency": "monthly",
+            "signal_cadence": "low_frequency",
+            "signal_max_staleness_months": 3,
+        },
+    )
+    # Signal available 200001..200004 (0..3 months stale); held one month
+    # forward each -> 200002..200005. Beyond that the signal is too stale
+    # and drops out of the merged panel entirely.
+    assert sorted(merged["yyyymm"].unique().tolist()) == [200002, 200003, 200004, 200005]
+
+
+def test_low_frequency_gate_mutually_exclusive_with_annual_asof():
+    # signal_cadence="low_frequency" must NOT fire the forward-fill for an
+    # annual rebalance -- that case is handled exclusively by
+    # _resample_annual_signal_asof, and the two gates must never both fire
+    # on the same signal.
+    data = pd.DataFrame(
+        {
+            "permno": [1] * 13,
+            "yyyymm": [200006 + i for i in range(7)] + [200101 + i for i in range(6)],
+            "ret": 0.01,
+            "me": 100.0,
+            "exchcd": 1,
+        }
+    )
+    signal = pd.DataFrame({"permno": [1], "yyyymm": [200006], "signal": [0.5]})
+    merged = BacktestExecutor().apply_signal_holding_period(
+        data,
+        signal,
+        {
+            "holding_period_months": 12,
+            "rebalance_frequency": "annual",
+            "signal_cadence": "low_frequency",
+            "formation_month": 6,
+            "formation_month_explicit": True,
+            "signal_max_staleness_months": 11,
+        },
+    )
+    # Unaffected by the new forward-fill path -- unchanged annual behavior
+    # (single formation cohort, held for the full 12 months).
+    assert len(merged) == 12
+    assert set(merged["cohort"]) == {200006}

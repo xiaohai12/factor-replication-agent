@@ -191,6 +191,75 @@ def _universe_evidence_coverage_findings(paper: MethodSpec) -> list[Finding]:
     return findings
 
 
+def _universe_filter_panel_mismatch_findings(paper: MethodSpec) -> list[Finding]:
+    """Flag a universe filter whose OWN cited table differs from the table
+    `reported_results.metrics` was actually read from.
+
+    A paper often reports the same signal under several parallel panels that
+    differ only in one sample-restriction dimension -- exchange listing,
+    firm size, industry, sub-period, share class, etc. This is intentionally
+    generic (same spirit as `_universe_evidence_coverage_findings`): it never
+    looks at `concept_id`, `value`, or any keyword: it only compares table
+    coordinates, so it applies equally regardless of which field/dimension a
+    paper happens to split its panels on.
+
+    A filter cited only by prose (no `table_ref`) is NOT flagged here -- a
+    narrative universe citation is normal even for a single-panel paper, and
+    this check has no way to tell that apart from a genuine mismatch without
+    re-reading the paper (that judgment call belongs to the LLM review pass,
+    prompts/review_gate/llm_review.md). This only catches the narrower,
+    fully-deterministic case: the filter's citation and the metrics'
+    citation both name a specific table, and those tables disagree.
+    """
+    metric_tables = {
+        table
+        for metric in paper.reported_results.metrics
+        for citation in metric.evidence
+        if citation.table_ref is not None and (table := citation.table_ref.table.strip().lower())
+    }
+    if not metric_tables:
+        return []
+
+    findings: list[Finding] = []
+    for i, filt in enumerate(paper.universe.filters):
+        if filt.accepted_unapplied:
+            continue
+        filter_tables = {
+            table
+            for citation in filt.evidence
+            if citation.table_ref is not None and (table := citation.table_ref.table.strip().lower())
+        }
+        if not filter_tables or filter_tables & metric_tables:
+            continue
+        findings.append(
+            Finding(
+                # NOT plain `universe.filters[{i}]` -- that's also
+                # `_universe_filter_high_impact_entries`'s field_path for
+                # this same index's ALWAYS-shown baseline row, and the
+                # frontend's `displayFindings` dedupes any other finding at
+                # an already-high-impact path (SessionDetailPage.tsx's
+                # `highImpactPaths` filter) -- this finding's own reason
+                # would silently never reach the human. A distinct sub-path
+                # keeps it as its own visible row instead.
+                field_path=f"universe.filters[{i}].evidence",
+                kind="inconsistent",
+                reason=(
+                    f"universe.filters[{i}] (concept_id={filt.concept_id!r}) is cited "
+                    f"from table(s) {sorted(filter_tables)!r}, but reported_results.metrics "
+                    f"was read from table(s) {sorted(metric_tables)!r}. If the paper reports "
+                    "parallel panels that differ by this filter's restriction (e.g. different "
+                    "exchange/size/industry/sub-period groups), confirm this filter's value "
+                    "actually matches the panel these numbers came from, not a different panel."
+                ),
+                empirical_impact="high",
+                disposition=Disposition.NEEDS_HUMAN_CONFIRMATION,
+                paper_value={"concept_id": filt.concept_id, "op": filt.op.value, "value": filt.value},
+                evidence=filt.evidence,
+            )
+        )
+    return findings
+
+
 def _universe_filter_high_impact_entries(paper: MethodSpec) -> list[Finding]:
     """Surface every declared universe filter in the human-review panel."""
     return [
@@ -432,6 +501,60 @@ def _comparison_derivation_finding(paper: MethodSpec) -> Finding | None:
     )
 
 
+def _leg_selector_bounds_findings(paper: MethodSpec) -> list[Finding]:
+    """Flag any `portfolio.legs[].selector` index outside `[0, group_count)`
+    for its sort dimension -- unlike `_comparison_derivation_finding` (which
+    only checks endpoint selectors, and only when `comparison_derivation` is
+    set), this runs unconditionally on every leg, since a plain long/short
+    leg pair with no derivation is just as exposed.
+
+    An out-of-range index is never ambiguous, unlike most D2 findings: the
+    engine labels buckets `1..group_count`, so a selector outside `0..
+    group_count-1` can NEVER match any bucket in ANY period -- that leg
+    silently comes back empty every single time the backtest runs, with no
+    error raised anywhere (the failure only surfaces much later, as a
+    same-symptom-every-month pattern in Step4's sandbox group-balance check).
+    The extraction prompt documents the 0-based convention (`portfolio.legs`
+    section, and with a worked decile example under `reported_results`), but
+    an extractor pass can still copy the paper's own 1-based table labels
+    (e.g. "decile 10") straight into `selector` instead of converting them --
+    that off-by-one is exactly what this check catches deterministically,
+    without waiting on a real-data sandbox run.
+    """
+    findings: list[Finding] = []
+    sorts_by_id = {s.sort_id: s for s in paper.portfolio.sorts}
+    for i, leg in enumerate(paper.portfolio.legs):
+        for sort_id, raw_index in leg.selector.items():
+            sort = sorts_by_id.get(sort_id)
+            if sort is None or sort.group_count is None:
+                continue
+            try:
+                index = int(raw_index)
+            except (TypeError, ValueError):
+                continue
+            if 0 <= index < sort.group_count:
+                continue
+            findings.append(
+                Finding(
+                    field_path=f"portfolio.legs[{i}].selector",
+                    kind="inconsistent",
+                    reason=(
+                        f"leg {leg.leg_id!r} ({leg.side}) selector {sort_id}={index} is out of "
+                        f"range for a {sort.group_count}-group sort (valid 0-based range: 0.."
+                        f"{sort.group_count - 1}; the engine labels buckets 1..{sort.group_count}"
+                        "). An out-of-range selector can never match any bucket, so this leg "
+                        "comes back empty in every period the backtest runs, without ever "
+                        f"raising an error. If the paper calls this 'decile {index}' (1-based), "
+                        f"the correct 0-based selector is {index - 1}, not {index}."
+                    ),
+                    empirical_impact="high",
+                    disposition=Disposition.NEEDS_HUMAN_CONFIRMATION,
+                    paper_value=raw_index,
+                )
+            )
+    return findings
+
+
 def _missing_mapping_findings(paper: MethodSpec) -> list[Finding]:
     """A universe filter concept_id that isn't ALSO declared as a data.fields
     entry can never resolve to a physical column: build_implementation_
@@ -594,6 +717,8 @@ def _compute_findings(
     findings.extend(_missing_mapping_findings(paper))
     findings.extend(_disjoint_between_filter_findings(paper))
     findings.extend(_universe_evidence_coverage_findings(paper))
+    findings.extend(_universe_filter_panel_mismatch_findings(paper))
+    findings.extend(_leg_selector_bounds_findings(paper))
     if requires_crsp_fiscal_year_end_market_equity(paper):
         for error in market_equity_contract_errors(paper):
             findings.append(

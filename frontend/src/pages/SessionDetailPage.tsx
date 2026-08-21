@@ -410,6 +410,18 @@ export function SessionDetailPage() {
         setRequestText(JSON.stringify(body, null, 2))
       } else {
         body = JSON.parse(requestText)
+        // `requestText`'s `expected_revision` was only ever baked in once,
+        // when this step/session first loaded (see the effect below) -- if
+        // the session has been written since (another step ran, or this
+        // SAME step was already re-run once), that value is stale and the
+        // CAS in `SessionStore.update` rejects it with a 409. Re-read the
+        // manifest fresh right before submitting so a plain "Run" always
+        // targets the session's current revision, not whatever was current
+        // when the textarea was last populated.
+        if ("expected_revision" in body) {
+          const manifest = await sessionApi.get(sessionId)
+          body.expected_revision = manifest.revision
+        }
       }
       return sessionApi.runStep(def.endpoint(sessionId), body)
     },
@@ -1060,6 +1072,26 @@ function MethodSpecWorkflowPanel({
   //: endpoint; `state.paper` is resent wholesale on the next /resolve call).
   const [unappliedReasonDrafts, setUnappliedReasonDrafts] = useState<Record<number, string>>({})
   const [unappliedError, setUnappliedError] = useState<string | null>(null)
+  //: universe.filters index -> drafted {concept_id, op, value} text for that
+  //: filter's own scalar fields. Same client-side-only pattern as
+  //: `derivationDrafts` -- concept_id/op/value live on `FilterSpec`, not a
+  //: `SourcedValue`, so `/patch-value` can't touch them either.
+  const [filterFieldDrafts, setFilterFieldDrafts] = useState<
+    Record<number, { concept_id?: string; op?: string; value?: string }>
+  >({})
+  const [filterFieldError, setFilterFieldError] = useState<string | null>(null)
+  //: universe.filters index -> drafted reason text for that filter's edit
+  //: or removal -- recorded as an `EvidenceCitation` (edit) or appended to
+  //: `paper.notes` (removal, since the filter itself is gone afterward) so
+  //: the correction has an audit trail, same spirit as `/patch-value`'s
+  //: "human correction: <reason>" citation for scalar fields.
+  const [filterReasonDrafts, setFilterReasonDrafts] = useState<Record<number, string>>({})
+  const [addFilterReason, setAddFilterReason] = useState("")
+  //: Set only when `addDefaultTargetSort` can't auto-pick a concept/direction
+  //: (ambiguous or missing `signal.formula.output_concept`/`signal.direction`)
+  //: -- surfaced next to the "Add default target sort" button instead of a
+  //: silent no-op.
+  const [sortDefaultError, setSortDefaultError] = useState<string | null>(null)
   //: null = "total diff" (Step1 raw -> final spec); otherwise an index into
   //: `state.history` for that single round's before/after.
   const [selectedRound, setSelectedRound] = useState<number | null>(null)
@@ -1170,9 +1202,11 @@ function MethodSpecWorkflowPanel({
         setError(extractJob.result?.error ?? "Extraction returned no output")
         patch({ extractJobId: undefined })
       }
+      queryClient.invalidateQueries({ queryKey: ["session", sessionId] })
     } else if (extractJob.status === "failed") {
       setError(extractJob.error)
       patch({ extractJobId: undefined })
+      queryClient.invalidateQueries({ queryKey: ["session", sessionId] })
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [extractJob.status])
@@ -1197,9 +1231,11 @@ function MethodSpecWorkflowPanel({
         setError(reviewJob.result?.error ?? "Step2 review loop did not converge on a valid MethodSpec")
       }
       queryClient.invalidateQueries({ queryKey: ["session-events", sessionId] })
+      queryClient.invalidateQueries({ queryKey: ["session", sessionId] })
     } else if (reviewJob.status === "failed") {
       patch({ reviewRunning: false, reviewJobId: undefined })
       setError(reviewJob.error)
+      queryClient.invalidateQueries({ queryKey: ["session", sessionId] })
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [reviewJob.status])
@@ -1244,13 +1280,19 @@ function MethodSpecWorkflowPanel({
   // staleness detection forcing a re-review anymore (docs/decision-log.md
   // 2026-08-09), so we clear it here as the deliberate "you must redo this"
   // signal instead.
+  // Takes `paper` as an argument (rather than closing over `state.paper`)
+  // so `applyPendingCorrections` below can hand it the filter-edited paper
+  // when both kinds of correction are pending together -- see that
+  // function's comment for why.
   const patchValueMutation = useMutation({
-    mutationFn: () =>
-      sessionApi.patchPaperValue(state.paper!, valuePatchDrafts, "", sessionId, unsupportedValueDrafts),
+    mutationFn: (paper: Record<string, unknown>) =>
+      sessionApi.patchPaperValue(paper, valuePatchDrafts, "", sessionId, unsupportedValueDrafts),
     onSuccess: (paperSpec) => {
       patch({ paper: paperSpec, review: undefined, reviewSource: undefined, resolved: undefined })
       setValuePatchDrafts({})
       setUnsupportedValueDrafts({})
+      setFilterFieldDrafts({})
+      setFilterReasonDrafts({})
       queryClient.invalidateQueries({ queryKey: ["session-events", sessionId] })
     },
     onError: (err) => setError(err instanceof ApiError ? `${err.status}: ${err.message}` : String(err)),
@@ -1327,6 +1369,261 @@ function MethodSpecWorkflowPanel({
       reviewSource: undefined,
       resolved: undefined,
     })
+  }
+
+  //: Same `EvidenceCitation` shape as every citation elsewhere in the spec
+  //: -- `interpretation` records who made this correction and why, mirroring
+  //: `apply_value_patches`'s "<source> correction: <reason>" convention for
+  //: scalar `SourcedValue` fields, so a filter edit leaves the same kind of
+  //: audit trail those do.
+  const humanCorrectionCitation = (reason: string) => ({
+    location: "", quote: "", table_ref: null,
+    interpretation: reason.trim() ? `human correction: ${reason.trim()}` : "human correction",
+  })
+
+  // concept_id/op/value editing for existing `universe.filters[]` entries --
+  // same client-side-edit pattern as `applyDerivationEdits` above (these
+  // scalar `FilterSpec` fields aren't `SourcedValue`s either, so there's no
+  // `/patch-value` path for them; `state.paper` is resent wholesale on the
+  // next /review or /resolve call). Pure computation only -- no `patch()`
+  // call and no draft reset here, since `applyPendingCorrections` below
+  // decides where the result goes (straight to local state, or into the
+  // `/patch-value` request body when value corrections are pending too).
+  const computeFilterEditsPaper = (): Record<string, unknown> | undefined => {
+    const paper = state.paper as { universe?: { filters?: Array<Record<string, unknown>> } } | undefined
+    const filters = paper?.universe?.filters
+    if (!filters || Object.keys(filterFieldDrafts).length === 0) return paper as Record<string, unknown> | undefined
+    const nextFilters = [...filters]
+    try {
+      for (const [indexStr, draft] of Object.entries(filterFieldDrafts)) {
+        const i = Number(indexStr)
+        const next = { ...nextFilters[i] }
+        if (draft.concept_id !== undefined) next.concept_id = draft.concept_id
+        if (draft.op !== undefined) next.op = draft.op
+        if (draft.value !== undefined) {
+          const text = draft.value.trim()
+          next.value = text === "" ? null : JSON.parse(text)
+        }
+        const existingEvidence = Array.isArray(next.evidence) ? next.evidence : []
+        next.evidence = [...existingEvidence, humanCorrectionCitation(filterReasonDrafts[i] ?? "")]
+        nextFilters[i] = next
+      }
+    } catch (e) {
+      setFilterFieldError(e instanceof Error ? `Invalid filter value JSON: ${e.message}` : String(e))
+      return undefined
+    }
+    return { ...paper, universe: { ...paper!.universe, filters: nextFilters } }
+  }
+
+  // One "Apply" action for both pending correction kinds -- scalar
+  // `valuePatchDrafts` (goes through `/patch-value`) and local
+  // `universe.filters[]` edits (`filterFieldDrafts`, no backend endpoint).
+  // Deliberately a single button rather than two: `patchValueMutation`'s
+  // `onSuccess` replaces `state.paper` wholesale with the server's
+  // response, so if the two were applied separately, whichever ran second
+  // would silently drop the other's edit. Folding the filter edits into
+  // the paper sent to `/patch-value` (when both are pending) keeps both in
+  // the round trip.
+  const applyPendingCorrections = () => {
+    setFilterFieldError(null)
+    const nextPaper = computeFilterEditsPaper()
+    if (nextPaper === undefined) return
+    if (Object.keys(valuePatchDrafts).length > 0) {
+      patchValueMutation.mutate(nextPaper)
+    } else if (Object.keys(filterFieldDrafts).length > 0) {
+      patch({ paper: nextPaper, review: undefined, reviewSource: undefined, resolved: undefined })
+      setFilterFieldDrafts({})
+      setFilterReasonDrafts({})
+    }
+  }
+
+  const addUniverseFilter = () => {
+    const paper = state.paper as { universe?: { filters?: Array<Record<string, unknown>> } } | undefined
+    if (!paper?.universe) return
+    const nextFilters = [
+      ...(paper.universe.filters ?? []),
+      {
+        concept_id: "", op: "nonmissing", value: null,
+        evidence: [humanCorrectionCitation(addFilterReason)],
+        derivation: null, accepted_unapplied: false, unapplied_reason: "",
+      },
+    ]
+    patch({
+      paper: { ...paper, universe: { ...paper.universe, filters: nextFilters } },
+      review: undefined,
+      reviewSource: undefined,
+      resolved: undefined,
+    })
+    setAddFilterReason("")
+  }
+
+  //: The engine currently only executes single-sort portfolios (see
+  //: `registry.py`'s `_clamp_sort_dims`/target-sort resolution) -- for a
+  //: paper whose extracted spec has NO `portfolio.sorts` entry at all (e.g.
+  //: a Fama-MacBeth/regression-based paper being manually approximated with
+  //: an equivalent quantile-sort portfolio, or an extraction gap), this
+  //: builds one deterministic default sort + a long/short leg pair instead
+  //: of requiring the human to hand-author every `SortDimension` field.
+  //: The sort's `concept_id` is `signal.formula.output_concept` -- the
+  //: paper's OWN computed signal, same convention as every other resolved
+  //: spec in this repo (verified against `asset_growth`'s resolved spec:
+  //: the sort's concept_id matches the signal's `output_concept`, not a raw
+  //: `data.fields` input) -- never a raw input field, since target-sort
+  //: concepts are deliberately excluded from `unmapped_concepts()`'s
+  //: required-mapping set (they reference the computed signal, not a
+  //: physical column). Long/short legs are picked from `signal.direction`
+  //: (negative => long the low quantile, positive => long the high
+  //: quantile); anything else (non_monotonic/unspecified) is genuinely
+  //: ambiguous and left for a human to author manually.
+  const addDefaultTargetSort = () => {
+    setSortDefaultError(null)
+    const paper = state.paper as
+      | {
+          portfolio?: { sorts?: Array<Record<string, unknown>>; legs?: Array<Record<string, unknown>> }
+          signal?: { formula?: { output_concept?: string }; direction?: { value?: string } }
+        }
+      | undefined
+    if (!paper?.portfolio) return
+    if ((paper.portfolio.sorts ?? []).length > 0) return
+    const conceptId = paper.signal?.formula?.output_concept?.trim()
+    if (!conceptId) {
+      setSortDefaultError("signal.formula.output_concept is empty -- can't auto-pick a sort concept, add the sort manually.")
+      return
+    }
+    const direction = paper.signal?.direction?.value
+    if (direction !== "positive" && direction !== "negative") {
+      setSortDefaultError(
+        `signal.direction is ${direction ?? "unset"} -- long/short legs are ambiguous, add the sort manually.`,
+      )
+      return
+    }
+    const sortId = `${conceptId}_quintile`
+    const groupCount = 5
+    const citation = humanCorrectionCitation(
+      `auto-filled default single sort (quintile, full-sample breakpoints) for signal concept '${conceptId}' -- `
+      + "paper's own portfolio.sorts was empty (e.g. a regression-based method being approximated with an "
+      + "equivalent quantile-sort portfolio)",
+    )
+    const sourced = (value: string) => ({ value, evidence: [], status: "unspecified", unsupported_value: null })
+    const sort = {
+      sort_id: sortId,
+      concept_id: conceptId,
+      role: "target",
+      order: 0,
+      mode: sourced("independent"),
+      group_type: sourced("quantile"),
+      group_count: groupCount,
+      breakpoints: { basis: sourced("full_sample"), values: [] },
+      condition_on_sort_id: null,
+      evidence: [citation],
+    }
+    const legs = [
+      {
+        leg_id: `low_${conceptId}`,
+        side: direction === "negative" ? "long" : "short",
+        selector: { [sortId]: 0 },
+        evidence: [citation],
+      },
+      {
+        leg_id: `high_${conceptId}`,
+        side: direction === "negative" ? "short" : "long",
+        selector: { [sortId]: groupCount - 1 },
+        evidence: [citation],
+      },
+    ]
+    patch({
+      paper: {
+        ...paper,
+        portfolio: {
+          ...paper.portfolio,
+          sorts: [sort],
+          legs: [...(paper.portfolio.legs ?? []), ...legs],
+        },
+      },
+      review: undefined,
+      reviewSource: undefined,
+      resolved: undefined,
+    })
+  }
+
+  //: `group_count` is a plain int on `SortDimension`, not a `SourcedValue`
+  //: -- `high_impact_sourced_values` (review.py) never lists it, so it has
+  //: no `/patch-value` path at all, unlike `breakpoints.basis`/`group_type`/
+  //: `mode`. Edits both fields locally, client-side, same as
+  //: `computeFilterEditsPaper` does for `universe.filters`' non-SourcedValue
+  //: fields -- and keeps the two legs' `selector` indices in sync with
+  //: `group_count` (the "high" leg must always point at `group_count - 1`,
+  //: the new top bucket, or a leg silently references a bucket that no
+  //: longer exists once the count shrinks).
+  const updateSingleSort = (index: number, changes: { group_count?: number; breakpoints_basis?: string }) => {
+    const paper = state.paper as
+      | { portfolio?: { sorts?: Array<Record<string, unknown>>; legs?: Array<Record<string, unknown>> } }
+      | undefined
+    const sorts = paper?.portfolio?.sorts
+    const sort = sorts?.[index]
+    if (!paper?.portfolio || !sorts || !sort) return
+    const sortId = String(sort.sort_id)
+    const prevGroupCount = Number(sort.group_count ?? 0)
+    const nextGroupCount = changes.group_count ?? prevGroupCount
+    const nextSort = { ...sort }
+    if (changes.group_count !== undefined) nextSort.group_count = changes.group_count
+    if (changes.breakpoints_basis !== undefined) {
+      const bp = sort.breakpoints as { basis?: Record<string, unknown>; values?: unknown[] } | undefined
+      nextSort.breakpoints = {
+        ...bp,
+        basis: { ...(bp?.basis ?? {}), value: changes.breakpoints_basis, unsupported_value: null },
+      }
+    }
+    const nextSorts = sorts.map((s, i) => (i === index ? nextSort : s))
+    const legs = paper.portfolio.legs ?? []
+    const nextLegs =
+      changes.group_count === undefined || nextGroupCount === prevGroupCount
+        ? legs
+        : legs.map((leg) => {
+            const selector = leg.selector as Record<string, number> | undefined
+            if (!selector || !(sortId in selector)) return leg
+            const isHighBucket = selector[sortId] === prevGroupCount - 1
+            if (!isHighBucket) return leg
+            return { ...leg, selector: { ...selector, [sortId]: nextGroupCount - 1 } }
+          })
+    patch({
+      paper: { ...paper, portfolio: { ...paper.portfolio, sorts: nextSorts, legs: nextLegs } },
+      review: undefined,
+      reviewSource: undefined,
+      resolved: undefined,
+    })
+  }
+
+  const removeUniverseFilter = (index: number) => {
+    const paper = state.paper as
+      | { notes?: string; universe?: { filters?: Array<Record<string, unknown>> } }
+      | undefined
+    const filters = paper?.universe?.filters
+    if (!filters) return
+    const removed = filters[index]
+    const reason = (filterReasonDrafts[index] ?? "").trim()
+    const noteLine = `Removed universe filter (human correction${reason ? `: ${reason}` : ""}): ${JSON.stringify({
+      concept_id: removed?.concept_id, op: removed?.op, value: removed?.value,
+    })}`
+    const nextFilters = filters.filter((_, i) => i !== index)
+    const nextNotes = paper!.notes ? `${paper!.notes}\n${noteLine}` : noteLine
+    patch({
+      paper: { ...paper, notes: nextNotes, universe: { ...paper!.universe, filters: nextFilters } },
+      review: undefined,
+      reviewSource: undefined,
+      resolved: undefined,
+    })
+    const remapIndexed = <T,>(prev: Record<number, T>): Record<number, T> => {
+      const next: Record<number, T> = {}
+      for (const [k, v] of Object.entries(prev)) {
+        const idx = Number(k)
+        if (idx === index) continue
+        next[idx > index ? idx - 1 : idx] = v
+      }
+      return next
+    }
+    setFilterFieldDrafts(remapIndexed)
+    setFilterReasonDrafts(remapIndexed)
   }
 
   const convertToRangeUnion = (suggestion: RangeUnionSuggestion) => {
@@ -1499,16 +1796,25 @@ function MethodSpecWorkflowPanel({
           <div className="flex flex-col gap-2 rounded-md border border-border p-3">
             <div className="flex items-center justify-between">
               <p className="text-sm font-medium">Step1 succeeded -- raw, unreviewed LLM extraction</p>
-              <Button size="sm" variant="outline" onClick={() => navigate(`/runs/${sessionId}/step/2`)}>
-                Go to Step 2 — Review
-              </Button>
+              <div className="flex gap-2">
+                <Button
+                  size="sm"
+                  variant="outline"
+                  disabled={!file || extractMutation.isPending}
+                  onClick={() => extractMutation.mutate()}
+                >
+                  {extractMutation.isPending ? "Re-extracting…" : "Re-extract"}
+                </Button>
+                <Button size="sm" variant="outline" onClick={() => navigate(`/runs/${sessionId}/step/2`)}>
+                  Go to Step 2 — Review
+                </Button>
+              </div>
             </div>
             <p className="text-xs text-muted-foreground">
               Not validated yet, and menu-vocabulary fields (weighting/breakpoints/etc.) are still written as
               the paper's own wording, not engine tokens -- shown below as-is. The Step2 review loop{" "}
               {reviewJob.status === "running" ? "is now running in the background" : reviewJob.status === "completed" ? "has already finished" : "starts automatically"}
               ; see its result (corrected spec, findings, and a before/after diff) on the Step2 page.
-              Re-extracting above will replace this.
             </p>
             <MethodSpecBoard spec={state.rawSpec} />
             <button
@@ -1553,7 +1859,7 @@ function MethodSpecWorkflowPanel({
                 : "Step2 review loop hasn't started yet."}
         </p>
         {reviewJobId && <JobLogPanel job={reviewJob} title="Step2 review loop" />}
-        {!reviewJobId && canRetry && (
+        {canRetry && reviewJob.status !== "running" && (
           <Button
             size="sm"
             disabled={reviewLoopMutation.isPending}
@@ -1566,10 +1872,10 @@ function MethodSpecWorkflowPanel({
               })
             }
           >
-            {reviewLoopMutation.isPending ? "Starting…" : "Run Step2 review loop"}
+            {reviewLoopMutation.isPending ? "Starting…" : reviewJobId ? "Re-run Step2 review loop" : "Run Step2 review loop"}
           </Button>
         )}
-        {!canRetry && !reviewJobId && (
+        {!canRetry && (
           <p className="text-xs text-muted-foreground">
             Missing document id/target name/paper text for this session (e.g. after a page reload lost
             in-progress state) -- re-extract from Step 1 instead.
@@ -1616,6 +1922,75 @@ function MethodSpecWorkflowPanel({
           stored review. "Re-run from Step 1 output" instead throws away any edits made in this step and
           restarts the full LLM review loop from Step 1's raw extraction.
         </p>
+        {(() => {
+          const sorts = ((state.paper as { portfolio?: { sorts?: Array<Record<string, unknown>> } })
+            .portfolio?.sorts ?? [])
+          if (sorts.length === 0) {
+            return (
+              <div className="flex flex-col gap-2 rounded-md border border-amber-500/50 bg-amber-500/10 p-2 text-xs">
+                <p>
+                  <strong>Portfolio has no sort dimensions.</strong> Step3 codegen needs at least one
+                  target-role sort to build portfolios from -- this is expected for a regression-based
+                  method (e.g. Fama-MacBeth) where the paper never sorts stocks into groups at all, or a
+                  sign that Step1 extraction missed the paper's portfolio construction. The button below
+                  auto-fills a default single quintile sort (long the low group, short the high group, or
+                  vice versa per <span className="font-mono">signal.direction</span>) -- you can adjust the
+                  group count and breakpoint basis right here once it's added, no JSON editing needed.
+                </p>
+                <div className="flex items-center gap-2">
+                  <Button size="sm" variant="outline" onClick={addDefaultTargetSort}>
+                    Add default target sort (quintile)
+                  </Button>
+                  {sortDefaultError && <p className="text-destructive">{sortDefaultError}</p>}
+                </div>
+              </div>
+            )
+          }
+          // The engine only ever executes a single sort dimension
+          // (`registry.py`'s `_clamp_sort_dims` keeps just the target when
+          // there are more) -- only the first entry is editable here.
+          const sort = sorts[0]
+          const breakpoints = sort.breakpoints as { basis?: { value?: string } } | undefined
+          return (
+            <div className="flex flex-col gap-2 rounded-md border border-border p-2 text-xs">
+              <p className="font-medium">
+                Sort dimension: <span className="font-mono">{String(sort.sort_id)}</span> on concept{" "}
+                <span className="font-mono">{String(sort.concept_id)}</span>
+              </p>
+              <div className="flex flex-wrap items-center gap-3">
+                <label className="flex items-center gap-1">
+                  <span className="text-muted-foreground">Groups (quintile=5, decile=10):</span>
+                  <Input
+                    type="number"
+                    min={2}
+                    max={20}
+                    className="h-7 w-16 text-xs"
+                    value={String(sort.group_count ?? "")}
+                    onChange={(e) => {
+                      const n = Number(e.target.value)
+                      if (Number.isInteger(n) && n >= 2) updateSingleSort(0, { group_count: n })
+                    }}
+                  />
+                </label>
+                <label className="flex items-center gap-1">
+                  <span className="text-muted-foreground">Breakpoint basis:</span>
+                  <Select
+                    value={breakpoints?.basis?.value ?? "full_sample"}
+                    onValueChange={(v) => updateSingleSort(0, { breakpoints_basis: v })}
+                  >
+                    <SelectTrigger className="h-7 w-32 text-xs">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="full_sample">Full sample</SelectItem>
+                      <SelectItem value="nyse">NYSE</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </label>
+              </div>
+            </div>
+          )
+        })()}
         {state.review && (
           <div className="flex flex-col gap-1">
             <div className="flex items-center gap-2">
@@ -1646,7 +2021,19 @@ function MethodSpecWorkflowPanel({
               // structured objects, not scalar SourcedValues. They remain
               // visible for human review, but must be corrected in the
               // MethodSpec/filter workflow rather than sent to /patch-value.
-              const canPatch = !["missing_mapping", "universe_filter", "incomplete"].includes(String(f.kind))
+              // Every finding whose field_path IS a `universe.filters[i]`
+              // entry (or a sub-path under it, e.g. `_universe_filter_panel_
+              // mismatch_findings`'s "inconsistent" kind) is excluded the
+              // same way regardless of `kind` -- `apply_value_patches`
+              // raises on any field_path outside its fixed scalar set.
+              // These get their OWN inline concept_id/op/value editor below
+              // (right where every other field's correction UI lives, not a
+              // separate card) instead of the generic value-patch input.
+              const canPatch =
+                !["missing_mapping", "universe_filter", "incomplete"].includes(String(f.kind))
+                && !/^universe\.filters\[\d+\]/.test(fieldPath)
+              const filterIndexMatch = /^universe\.filters\[(\d+)\]/.exec(fieldPath)
+              const filterIndex = filterIndexMatch ? Number(filterIndexMatch[1]) : null
               const info = schemaFieldInfo(fieldPath)
               const allowedValues = fieldPath.endsWith(".source_column") ? sourceColumnOptions(fieldPath) : info?.allowed_values ?? null
               const usingOther = useOtherValueFor[fieldPath] ?? false
@@ -1666,7 +2053,7 @@ function MethodSpecWorkflowPanel({
                       <span className="font-mono font-medium">{fieldPath}</span>{" "}
                       <span className="text-muted-foreground">({String(f.kind)})</span>
                       <p className="text-muted-foreground">{String(f.reason)}</p>
-                      {!canPatch && f.paper_value !== undefined && f.paper_value !== null && (
+                      {!canPatch && filterIndex === null && f.paper_value !== undefined && f.paper_value !== null && (
                         <p className="text-muted-foreground">value: {JSON.stringify(f.paper_value)}</p>
                       )}
                     </div>
@@ -1689,10 +2076,96 @@ function MethodSpecWorkflowPanel({
                     </div>
                   )}
                   {!canPatch && f.kind === "incomplete" && (
-                    <p className="pl-1 text-muted-foreground">
-                      Add the cited restriction as a universe filter, then re-run review. Do not treat the
-                      description alone as an executable screen.
-                    </p>
+                    <div className="flex items-center gap-2 pl-1">
+                      <p className="text-muted-foreground">
+                        Add the cited restriction as a universe filter, then re-run review. Do not treat the
+                        description alone as an executable screen.
+                      </p>
+                      <Input
+                        className="h-7 w-56 text-[11px]"
+                        placeholder="reason for the new filter (recorded as evidence)"
+                        value={addFilterReason}
+                        onChange={(e) => setAddFilterReason(e.target.value)}
+                      />
+                      <Button size="sm" variant="outline" onClick={addUniverseFilter}>
+                        Add filter
+                      </Button>
+                    </div>
+                  )}
+                  {!canPatch && filterIndex !== null && (() => {
+                    const draft = filterFieldDrafts[filterIndex] ?? {}
+                    const paperValue = (f.paper_value ?? {}) as { concept_id?: string; op?: string; value?: unknown }
+                    const opOptions = schemaFieldInfo("universe.filters.op")?.allowed_values ?? []
+                    const conceptOptions = Array.from(
+                      new Set(
+                        (
+                          ((state.paper as { data?: { fields?: Array<Record<string, unknown>> } } | undefined)
+                            ?.data?.fields ?? []) as Array<Record<string, unknown>>
+                        ).map((field) => String(field.concept_id)),
+                      ),
+                    )
+                    return (
+                      <div className="flex flex-wrap items-center gap-2 pl-1">
+                        <span className="text-muted-foreground">Confirm or correct this filter:</span>
+                        <Select
+                          value={draft.concept_id ?? String(paperValue.concept_id ?? "")}
+                          onValueChange={(v) =>
+                            setFilterFieldDrafts((prev) => ({ ...prev, [filterIndex]: { ...prev[filterIndex], concept_id: v } }))
+                          }
+                        >
+                          <SelectTrigger className="h-7 w-44 text-xs">
+                            <SelectValue placeholder="concept_id" />
+                          </SelectTrigger>
+                          <SelectContent>
+                            {conceptOptions.map((c) => (
+                              <SelectItem key={c} value={c}>
+                                {c}
+                              </SelectItem>
+                            ))}
+                            {!conceptOptions.includes(String(paperValue.concept_id ?? "")) && paperValue.concept_id ? (
+                              <SelectItem value={String(paperValue.concept_id)}>{String(paperValue.concept_id)}</SelectItem>
+                            ) : null}
+                          </SelectContent>
+                        </Select>
+                        <Select
+                          value={draft.op ?? String(paperValue.op ?? "")}
+                          onValueChange={(v) =>
+                            setFilterFieldDrafts((prev) => ({ ...prev, [filterIndex]: { ...prev[filterIndex], op: v } }))
+                          }
+                        >
+                          <SelectTrigger className="h-7 w-36 text-xs">
+                            <SelectValue placeholder="op" />
+                          </SelectTrigger>
+                          <SelectContent>
+                            {opOptions.map((op) => (
+                              <SelectItem key={op} value={op}>
+                                {op}
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                        <Input
+                          className="h-7 w-56 font-mono text-[11px]"
+                          placeholder={`current: ${JSON.stringify(paperValue.value)} (JSON, e.g. [1,2] or [[1,3999],[5000,5999]])`}
+                          value={draft.value ?? ""}
+                          onChange={(e) =>
+                            setFilterFieldDrafts((prev) => ({ ...prev, [filterIndex]: { ...prev[filterIndex], value: e.target.value } }))
+                          }
+                        />
+                        <Input
+                          className="h-7 w-56 text-[11px]"
+                          placeholder="reason for this edit/removal (recorded as evidence)"
+                          value={filterReasonDrafts[filterIndex] ?? ""}
+                          onChange={(e) => setFilterReasonDrafts((prev) => ({ ...prev, [filterIndex]: e.target.value }))}
+                        />
+                        <Button size="sm" variant="ghost" onClick={() => removeUniverseFilter(filterIndex)}>
+                          Remove
+                        </Button>
+                      </div>
+                    )
+                  })()}
+                  {filterFieldError && filterIndex !== null && (
+                    <p className="pl-1 text-destructive">{filterFieldError}</p>
                   )}
                   {canPatch && (
                     <div className="flex items-center gap-2 pl-1">
@@ -1765,11 +2238,11 @@ function MethodSpecWorkflowPanel({
                 </div>
               )
             })}
-            {Object.keys(valuePatchDrafts).length > 0 && (
-              <Button size="sm" variant="outline" disabled={patchValueMutation.isPending} onClick={() => patchValueMutation.mutate()}>
+            {(Object.keys(valuePatchDrafts).length > 0 || Object.keys(filterFieldDrafts).length > 0) && (
+              <Button size="sm" variant="outline" disabled={patchValueMutation.isPending} onClick={applyPendingCorrections}>
                 {patchValueMutation.isPending
                   ? "Patching…"
-                  : `Apply ${Object.keys(valuePatchDrafts).length} value correction(s) -- re-run review after`}
+                  : `Apply ${Object.keys(valuePatchDrafts).length + Object.keys(filterFieldDrafts).length} correction(s) -- re-run review after`}
               </Button>
             )}
             <p className="text-xs text-muted-foreground">
@@ -1777,7 +2250,8 @@ function MethodSpecWorkflowPanel({
               "missing_mapping" findings are the only exception (fix `data.fields`/`universe.filters` and
               re-extract instead). A value correction replaces the extracted content itself (marks it "clear"
               and records your reason as evidence) and clears
-              the current review -- re-run review afterward.
+              the current review -- re-run review afterward. A universe filter edit/add/remove works the same
+              way, recorded as an evidence citation (or a `notes` line for a removal) instead.
             </p>
           </div>
         )}

@@ -172,6 +172,15 @@ def load_cz_reference_profile(
 # number always wins over this fallback.
 MANUAL_PAPER_RETURN_FALLBACK: dict[str, dict[str, float]] = {
     "Leverage": {"mean_return": 0.0036, "t_stat": 2.64},
+    # Datar/Naik/Radcliffe 1998 `ShareVol`: SignalDoc carries a T-Stat (8.86)
+    # but no Return, so it still qualifies for this fallback (see
+    # `_apply_manual_return_fallback` -- SignalDoc's own T-Stat is dropped in
+    # favor of this pair, not merged with it).
+    "ShareVol": {"mean_return": 0.0091, "t_stat": 3.87},
+    # Lakonishok/Shleifer/Vishny 1994 `MeanRankRevGrowth`: SignalDoc has
+    # neither Return nor T-Stat (only a paper-text note of t=4.5 from a
+    # double sort, not the LS-portfolio field this fallback represents).
+    "MeanRankRevGrowth": {"mean_return": 0.0055, "t_stat": 3.94},
 }
 
 
