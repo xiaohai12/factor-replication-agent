@@ -14,6 +14,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Optional
 
+from src.infra.market_equity_policy import assert_market_equity_contract
 from src.infra.models.method_spec import FieldRole, ResolvedMethodSpec
 from src.infra.models.plugin import PluginRecord
 from src.infra.tooling import (
@@ -26,7 +27,6 @@ from src.infra.tooling import (
     render_tool_results,
     splice_tool_catalog,
 )
-
 
 PLUGIN_OUTPUT_COLS = ["permno", "yyyymm", "signal"]
 
@@ -194,6 +194,7 @@ class MetaCoder:
         """
         if not spec.is_ready:
             raise ValueError("Cannot generate plugin from a ResolvedMethodSpec that isn't ready")
+        assert_market_equity_contract(spec)
         if not self.llm_client:
             raise RuntimeError("llm_client required for MetaCoder.generate_plugin()")
 

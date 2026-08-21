@@ -55,6 +55,19 @@ class TestApplyUniverseFiltersDSL:
         out = BacktestExecutor.apply_universe_filters(df, [{"field": "me", "op": "between", "value": [10, 60]}])
         assert set(out["permno"]) == {2, 3}
 
+    def test_intervals_filter_unions_disjoint_intervals(self):
+        df = _msf_df()
+        out = BacktestExecutor.apply_universe_filters(
+            df, [{"field": "siccd", "op": "intervals", "value": [[1, 3999], [5000, 5999]]}]
+        )
+        assert set(out["permno"]) == {1, 2, 4}
+
+    def test_intervals_rejects_malformed_intervals(self):
+        with pytest.raises(ValueError, match="intervals"):
+            BacktestExecutor.apply_universe_filters(
+                _msf_df(), [{"field": "siccd", "op": "intervals", "value": [[3999, 1]]}]
+            )
+
     def test_gte_filter(self):
         df = _msf_df()
         out = BacktestExecutor.apply_universe_filters(df, [{"field": "me", "op": "gte", "value": 50}])

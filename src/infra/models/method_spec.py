@@ -361,6 +361,8 @@ class FilterOp(str, Enum):
     NOT_IN = "not_in"
     BETWEEN = "between"
     NOT_BETWEEN = "not_between"
+    #: Union of inclusive numeric intervals within one top-level predicate.
+    INTERVALS = "intervals"
     GT = "gt"
     GTE = "gte"
     LT = "lt"
@@ -402,6 +404,32 @@ class FilterSpec(BaseModel):
     #: recorded, reviewable gap (see `registry._unapplied_universe_filters`).
     accepted_unapplied: bool = False
     unapplied_reason: str = ""
+
+    @model_validator(mode="after")
+    def _validate_intervals_value(self) -> FilterSpec:
+        """Keep list membership and range unions unambiguous before the engine."""
+        if self.op in {FilterOp.IN, FilterOp.NOT_IN}:
+            if not isinstance(self.value, list) or any(isinstance(item, (list, tuple, dict)) for item in self.value):
+                raise ValueError(
+                    f"FilterOp.{self.op.value} requires a flat list of values; "
+                    "use FilterOp.intervals for numeric intervals"
+                )
+            return self
+        if self.op != FilterOp.INTERVALS:
+            return self
+        if not isinstance(self.value, list) or not self.value:
+            raise ValueError("FilterOp.intervals requires a non-empty list of [low, high] ranges")
+        for interval in self.value:
+            if (
+                not isinstance(interval, (list, tuple))
+                or len(interval) != 2
+                or not all(isinstance(bound, (int, float)) and not isinstance(bound, bool) for bound in interval)
+                or interval[0] > interval[1]
+            ):
+                raise ValueError(
+                    "FilterOp.intervals requires every range to be a numeric [low, high] pair with low <= high"
+                )
+        return self
 
 
 class UniverseSpec(BaseModel):
@@ -668,6 +696,11 @@ class ReportedMetric(BaseModel):
     estimate: float
     unit: Unit
     frequency: TimeUnit
+    #: For a table cell that is one bucket of an ordered portfolio sort, the
+    #: zero-based bucket selector used by the paper (for example
+    #: ``{"zscore": 0}`` for Port 1).  It is deliberately absent for
+    #: regression coefficients and other non-portfolio table results.
+    portfolio_selector: dict[str, int] | None = None
     statistic: MetricStatistic | None = None
     sample_period: Period
     evidence: list[EvidenceCitation] = Field(default_factory=list)
@@ -685,11 +718,30 @@ class ReportedMetric(BaseModel):
         return self
 
 
+class ComparisonDerivation(BaseModel):
+    """A deterministic comparison requested from two reported table cells.
+
+    The extractor records the two facts; it never supplies the calculated
+    difference.  Consumers materialize the estimate from those facts, which
+    keeps empirical arithmetic out of the LLM boundary.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    metric_id: str
+    label: str
+    operation: Literal["high_minus_low"]
+    high_metric_id: str
+    low_metric_id: str
+    use_as_primary_comparison: bool = False
+
+
 class ReportedResults(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     primary_metric_id: str
     metrics: list[ReportedMetric] = Field(default_factory=list, max_length=4)
+    comparison_derivation: ComparisonDerivation | None = None
 
     @model_validator(mode="after")
     def _primary_metric_exists(self) -> ReportedResults:
@@ -700,7 +752,46 @@ class ReportedResults(BaseModel):
             raise ValueError(
                 f"primary_metric_id {self.primary_metric_id!r} not found in metrics {ids}"
             )
+        derivation = self.comparison_derivation
+        if derivation is not None:
+            if derivation.metric_id in ids:
+                raise ValueError(
+                    "comparison_derivation.metric_id must not duplicate a reported metric_id"
+                )
+            missing = {derivation.high_metric_id, derivation.low_metric_id}.difference(ids)
+            if missing:
+                raise ValueError(
+                    "comparison_derivation references unknown metric_id values: "
+                    f"{sorted(missing)}"
+                )
+            if derivation.high_metric_id == derivation.low_metric_id:
+                raise ValueError("comparison_derivation endpoints must be different metrics")
         return self
+
+    def primary_comparison_metric(self) -> ReportedMetric | None:
+        """Return the deterministic headline comparison without trusting LLM
+        arithmetic.  With no opted-in derivation this is exactly the legacy
+        primary metric.
+        """
+        by_id = {metric.metric_id: metric for metric in self.metrics}
+        derivation = self.comparison_derivation
+        if derivation is None or not derivation.use_as_primary_comparison:
+            return by_id.get(self.primary_metric_id)
+        high = by_id[derivation.high_metric_id]
+        low = by_id[derivation.low_metric_id]
+        return ReportedMetric(
+            metric_id=derivation.metric_id,
+            label=derivation.label,
+            estimand=Estimand.SPREAD,
+            adjustment_model=high.adjustment_model,
+            weighting=high.weighting,
+            estimate=high.estimate - low.estimate,
+            unit=high.unit,
+            frequency=high.frequency,
+            sample_period=high.sample_period,
+            evidence=[*high.evidence, *low.evidence],
+            status=EvidenceStatus.UNSPECIFIED,
+        )
 
 
 # --- 6.1 (cont'd) Top-level MethodSpec ----------------------------------
@@ -733,6 +824,15 @@ class MethodSpec(BaseModel):
         ImplementationResolution to detect staleness (D1, D2).
         """
         payload = self.model_dump(mode="json", exclude={"notes"})
+        # This is an additive, opt-in extension.  Preserve existing content
+        # hashes when an older MethodSpec has no derivation at all.
+        if self.reported_results.comparison_derivation is None:
+            payload["reported_results"].pop("comparison_derivation", None)
+        # `portfolio_selector` was added alongside the derivation; likewise,
+        # its absent form must not rehash every pre-extension MethodSpec.
+        for metric in payload["reported_results"].get("metrics", []):
+            if metric.get("portfolio_selector") is None:
+                metric.pop("portfolio_selector", None)
         canonical = json.dumps(payload, sort_keys=True, separators=(",", ":"))
         return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
 
@@ -780,7 +880,10 @@ class Finding(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     field_path: str
-    kind: Literal["ambiguous", "unsupported", "missing_mapping", "inconsistent"]
+    kind: Literal[
+        "ambiguous", "unsupported", "missing_mapping", "inconsistent",
+        "incomplete", "universe_filter",
+    ]
     reason: str = ""
     empirical_impact: Literal["high", "low"]
     disposition: Disposition
@@ -797,7 +900,8 @@ class MethodReview(BaseModel):
     factor_id: str
     capability_version: str
     findings: list[Finding] = Field(default_factory=list)
-    #: One `Finding` per `high_impact_sourced_values` field, UNCONDITIONALLY
+    #: One `Finding` per `high_impact_sourced_values` field and declared
+    #: universe filter, UNCONDITIONALLY
     #: (including `AUTO_APPROVE` ones, which `findings` above omits) -- lets
     #: the review UI show every high-impact field's current value, gating
     #: editability on `disposition` rather than on "did it produce a
@@ -1026,4 +1130,3 @@ class ResolvedMethodSpec(BaseModel):
             self._all_concepts_mapped()
             and self._universe_filters_supported()
         )
-

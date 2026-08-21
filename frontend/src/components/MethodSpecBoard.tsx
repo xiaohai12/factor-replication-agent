@@ -31,6 +31,20 @@ function fmt(value: unknown): string {
   return String(value)
 }
 
+function formatFilterValue(op: unknown, value: unknown): string {
+  if (
+    op === "intervals"
+    && Array.isArray(value)
+    && value.every((interval) => Array.isArray(interval) && interval.length === 2)
+  ) {
+    return value.map(([low, high]) => `${String(low)}–${String(high)}`).join(" OR ")
+  }
+  if (op === "in" && Array.isArray(value) && value.some((item) => Array.isArray(item))) {
+    return `${fmt(value)} (invalid: use intervals)`
+  }
+  return fmt(value)
+}
+
 function isSourced(v: unknown): v is SourcedValueLike {
   return typeof v === "object" && v !== null && !Array.isArray(v) && "value" in (v as object)
 }
@@ -258,7 +272,7 @@ export function MethodSpecBoard({
                   <TableRow key={i}>
                     <TableCell className="text-xs">{f.concept_id}</TableCell>
                     <TableCell className="text-xs">{f.op}</TableCell>
-                    <TableCell className="text-xs">{fmt(f.value)}</TableCell>
+                    <TableCell className="text-xs">{formatFilterValue(f.op, f.value)}</TableCell>
                   </TableRow>
                 ))}
               </TableBody>
@@ -399,6 +413,13 @@ export function MethodSpecBoard({
           <p className="text-xs text-muted-foreground">
             primary metric: <span className="font-mono">{fmt(reported.primary_metric_id)}</span>
           </p>
+          {reported.comparison_derivation?.use_as_primary_comparison && (
+            <p className="mt-1 text-xs text-muted-foreground">
+              comparison: <span className="font-mono">{fmt(reported.comparison_derivation.metric_id)}</span>{" "}
+              = {fmt(reported.comparison_derivation.high_metric_id)} − {fmt(reported.comparison_derivation.low_metric_id)}
+              {" "}(derived from reported table endpoints)
+            </p>
+          )}
           <Table>
             <TableHeader>
               <TableRow>
@@ -442,4 +463,3 @@ export function MethodSpecBoard({
     </div>
   )
 }
-

@@ -430,6 +430,23 @@ class BacktestExecutor:
         if op == "between":
             lo, hi = value
             return series.between(lo, hi)
+        if op == "intervals":
+            if not isinstance(value, list) or not value:
+                raise ValueError("FilterOp 'intervals' requires a non-empty list of [low, high] ranges")
+            mask = pd.Series(False, index=series.index)
+            for interval in value:
+                if (
+                    not isinstance(interval, (list, tuple))
+                    or len(interval) != 2
+                    or not all(isinstance(bound, (int, float)) and not isinstance(bound, bool) for bound in interval)
+                    or interval[0] > interval[1]
+                ):
+                    raise ValueError(
+                        "FilterOp 'intervals' requires every range to be a numeric [low, high] pair with low <= high"
+                    )
+                lo, hi = interval
+                mask |= series.between(lo, hi)
+            return mask
         if op == "not_between":
             lo, hi = value
             return ~series.between(lo, hi)

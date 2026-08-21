@@ -136,6 +136,7 @@ TRACK_LABELS: dict[str, str] = {
 _OP_LABELS = {
     "not_between": "not between",
     "between": "between",
+    "intervals": "in any of the intervals",
     "in": "one of",
     "gte": "at least",
     "lte": "at most",
@@ -221,6 +222,12 @@ def _readable_field(field: str) -> str:
 
 
 def _readable_filter_value(value: Any) -> str:
+    if (
+        isinstance(value, list)
+        and value
+        and all(isinstance(interval, list) and len(interval) == 2 for interval in value)
+    ):
+        return " or ".join(f"{interval[0]} to {interval[1]}" for interval in value)
     if isinstance(value, list) and len(value) == 2 and all(isinstance(v, (int, float)) for v in value):
         return f"{value[0]} to {value[1]}"
     if isinstance(value, list):

@@ -9,9 +9,12 @@ import sys
 import tempfile
 from pathlib import Path
 
+from src.infra.market_equity_policy import (
+    FORBIDDEN_COMPUSTAT_MARKET_EQUITY_COLUMNS,
+    requires_crsp_fiscal_year_end_market_equity,
+)
 from src.infra.models.method_spec import ResolvedMethodSpec
 from src.infra.models.plugin import PluginRecord, ValidationReport
-
 
 # Patterns that indicate potential future information leakage
 FORBIDDEN_PATTERNS = [
@@ -120,6 +123,7 @@ class AdversarialSandbox:
         if report.syntax_ok:
             report.schema_ok = self._check_schema(plugin, report)
             report.no_future_leak = self._check_no_future_leak(plugin, report)
+            report.no_future_leak = self._check_market_equity_policy(plugin, spec, report) and report.no_future_leak
             report.reproducible = self._check_reproducibility(plugin, report)
             report.executes_ok = self._check_executes(script_text, data, report)
             report.faithful_ok = self._check_faithfulness(plugin, spec, report)
@@ -166,6 +170,61 @@ class AdversarialSandbox:
             if pattern in plugin.code:
                 report.errors.append(f"Forbidden pattern detected: '{pattern}'")
                 return False
+        return True
+
+    def _check_market_equity_policy(
+        self, plugin: PluginRecord, spec: ResolvedMethodSpec, report: ValidationReport
+    ) -> bool:
+        """Hard validation of the approved Dichev Z-score implementation choice."""
+        if not requires_crsp_fiscal_year_end_market_equity(spec):
+            return True
+        tree = ast.parse(plugin.code)
+        references = {node.id.lower() for node in ast.walk(tree) if isinstance(node, ast.Name)}
+        references |= {
+            node.value.lower()
+            for node in ast.walk(tree)
+            if isinstance(node, ast.Constant) and isinstance(node.value, str)
+        }
+        forbidden = sorted(references & FORBIDDEN_COMPUSTAT_MARKET_EQUITY_COLUMNS)
+        missing = sorted({"prc", "shrout", "lt"} - references)
+        constants = {node.value for node in ast.walk(tree) if isinstance(node, ast.Constant) and isinstance(node.value, (int, float))}
+        has_price_abs = any(
+            isinstance(node, ast.Attribute)
+            and node.attr == "abs"
+            and any(
+                isinstance(child, ast.Constant) and child.value == "prc"
+                for child in ast.walk(node.value)
+            )
+            for node in ast.walk(tree)
+        )
+        has_price_share_product = any(
+            isinstance(node, ast.BinOp)
+            and isinstance(node.op, ast.Mult)
+            and {"prc", "shrout"}.issubset({
+                child.value.lower()
+                for child in ast.walk(node)
+                if isinstance(child, ast.Constant) and isinstance(child.value, str)
+            })
+            for node in ast.walk(tree)
+        )
+        if forbidden or missing or 1000 not in constants or not has_price_abs or not has_price_share_product:
+            details = []
+            if forbidden:
+                details.append(f"forbidden Compustat proxy reference(s): {', '.join(forbidden)}")
+            if missing:
+                details.append(f"missing required raw column reference(s): {', '.join(missing)}")
+            if 1000 not in constants:
+                details.append("missing / 1000 unit conversion (CRSP shares are thousands; Compustat lt is millions)")
+            if not has_price_abs:
+                details.append("price is not explicitly absolute-valued")
+            if not has_price_share_product:
+                details.append("no explicit prc * shrout market-equity product")
+            report.errors.append(
+                "Dichev Z-score implementation policy violation: must compute market equity as "
+                "abs(prc) * shrout / 1000 through CCM at fiscal year end, then divide by Compustat lt; "
+                + "; ".join(details)
+            )
+            return False
         return True
 
     def _check_reproducibility(self, plugin: PluginRecord, report: ValidationReport) -> bool:
@@ -582,4 +641,3 @@ def _main():
 
 print(json.dumps(_main()))
 '''
-

@@ -225,6 +225,20 @@ class TestUniverseFilterValueEncodingTranslation:
         config = build_config(resolved, None)
         assert config["universe_filters"][0] == {"field": "me", "op": "gte", "value": 100}
 
+    def test_intervals_passes_through_to_runtime_config(self):
+        paper = _single_sort_spec()
+        paper.universe.filters.append(
+            FilterSpec(concept_id="sic", op=FilterOp.INTERVALS, value=[[1, 3999], [5000, 5999]])
+        )
+        resolved = _resolved(paper, {
+            "at": SourceColumn(source="compustat_fundamental_annual", column="at"),
+            "sic": SourceColumn(source="crsp_msf", column="siccd"),
+        })
+        config = build_config(resolved, None)
+        assert config["universe_filters"] == [
+            {"field": "siccd", "op": "intervals", "value": [[1, 3999], [5000, 5999]]}
+        ]
+
 
 class TestAcceptedUnappliedUniverseFilter:
     """`FilterSpec.accepted_unapplied` -- the "other" escape hatch: a human

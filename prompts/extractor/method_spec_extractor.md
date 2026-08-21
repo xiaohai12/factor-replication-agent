@@ -190,6 +190,18 @@ the table) so `primary_metric_id` can be pointed at whichever one actually
 matches `portfolio.weighting` -- Step2 review checks this and will flag a
 mismatch.
 
+When an ordered-portfolio table's intended headline comparison is its two
+endpoints, record the two endpoint table cells as metrics and, **only then**,
+add `comparison_derivation` with `operation: "high_minus_low"`, their metric
+IDs as `high_metric_id` / `low_metric_id`, and
+`use_as_primary_comparison: true`. Put each endpoint's zero-based portfolio
+bucket in `portfolio_selector` (for deciles, Port 1 is `0`, Port 10 is `9`).
+Do not calculate or write the difference yourself: the pipeline derives it
+deterministically. Select one stated table panel as the MethodSpec target;
+express its exchange/sample scope through the normal `universe.filters`.
+Do not use this mechanism for a regression coefficient or merely because a
+table happens to have ordered columns.
+
 ## 1.8b Every `universe.filters[].concept_id` MUST have a matching `data.fields` entry
 
 A universe filter can only ever be executed if its `concept_id` resolves to
@@ -215,6 +227,15 @@ a physical data column, and that resolution is driven entirely by
   `data.fields` entry for the concept it depends on, rather than a made-up
   name -- the engine may not support the exact filter, but it should still
   be traceable to a real underlying data field.
+
+### CRSP exchange-screen example
+
+When a paper explicitly restricts its US equity sample to **NYSE, AMEX, and
+Nasdaq**, encode the executable CRSP screen as
+`{"concept_id": "exchcd", "op": "in", "value": [1, 2, 3]}`: CRSP
+`exchcd` values are `1=NYSE`, `2=AMEX`, and `3=NASDAQ`. Add a matching
+`data.fields[]` entry for `exchcd`, with role `universe_filter`, mapped to
+`crsp_msf.exchcd`, and attach the paper's exchange citation to both entries.
 
 ## 1.8c Genuinely-computed universe filters ALSO need `derivation`
 
@@ -258,6 +279,20 @@ definition for each column. For every `data.fields[]` entry:
   concept comes from, leave `source_table`/`source_column` unset (`status:
   "unspecified"`) rather than guessing -- same "never guess" rule as
   everywhere else in this prompt.
+
+### Dichev Z-score implementation directive
+
+For the target `Z_score` from `Is the risk of bankruptcy a systematic risk.pdf`,
+the approved implementation intentionally overrides any tempting Compustat
+market-value shortcut. Do not use `mkvalt`, `prcc_f`, `prcc_c`, `prccm`, or
+`csho`. Add `crsp_fiscal_year_end_price` mapped to `crsp_msf.prc` and
+`crsp_fiscal_year_end_shares` mapped to `crsp_msf.shrout`, alongside
+`total_liabilities` mapped to `compustat_fundamental_annual.lt`. Include the
+two CRSP concepts in `formula.inputs`, and make an explicit formula step:
+`market_equity = abs(crsp_fiscal_year_end_price) * crsp_fiscal_year_end_shares / 1000`.
+Then use `market_equity / total_liabilities`. The runtime will point-in-time
+CCM-link the fields and match the CRSP observation to the Compustat fiscal-end
+month before applying the accounting lag; do not add lag or join mechanics.
 
 ## 1.9 Sample periods are three independent things
 

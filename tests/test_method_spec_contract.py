@@ -14,42 +14,45 @@ this file only locks the contract itself.
 
 from __future__ import annotations
 
+import hashlib
+import json
 from datetime import datetime, timezone
 
 import pytest
 from pydantic import ValidationError
 
 from src.infra.models.method_spec import (
+    DISPOSITION_MATRIX,
     AdjustmentModel,
     BreakpointSpec,
     CalculationStep,
+    ComparisonDerivation,
     ConstructionType,
     DataAvailability,
     DataSpec,
     Disposition,
-    DISPOSITION_MATRIX,
     Estimand,
     EstimationMethod,
     EstimationSpec,
     EvidenceCitation,
     EvidenceStatus,
-    Finding,
+    FieldRole,
     FilterOp,
     FilterSpec,
+    Finding,
     FormulaSpec,
     GroupType,
     ImplementationResolution,
     MethodReview,
-    Period,
     MethodSpec,
+    MetricStatistic,
     PaperRef,
-    WeightingScheme,
+    Period,
     PortfolioLeg,
     PortfolioSpec,
     ReportedMetric,
     ReportedResults,
     RequiredField,
-    FieldRole,
     ResolutionEntry,
     ResolvedMethodSpec,
     SampleSpec,
@@ -63,11 +66,11 @@ from src.infra.models.method_spec import (
     SourcedValue,
     Substitution,
     TableRef,
-    MetricStatistic,
     TimeUnit,
     TimingSpec,
     Unit,
     UniverseSpec,
+    WeightingScheme,
     WindowAnchor,
     WindowSpec,
 )
@@ -304,6 +307,41 @@ class TestReportedMetrics:
             metrics.append(m)
         with pytest.raises(ValidationError):
             ReportedResults(primary_metric_id="m0", metrics=metrics)
+
+    def test_opted_in_endpoint_spread_is_derived_deterministically(self):
+        low = _minimal_reported_results().metrics[0].model_copy(
+            update={"metric_id": "port1", "label": "Port 1", "estimate": 0.48, "unit": Unit.PERCENT,
+                    "portfolio_selector": {"z": 0}}
+        )
+        high = low.model_copy(
+            update={"metric_id": "port10", "label": "Port 10", "estimate": 1.07,
+                    "portfolio_selector": {"z": 9}}
+        )
+        results = ReportedResults(
+            primary_metric_id="port1",
+            metrics=[low, high],
+            comparison_derivation=ComparisonDerivation(
+                metric_id="port10_minus_port1", label="Port 10 − Port 1",
+                operation="high_minus_low", high_metric_id="port10", low_metric_id="port1",
+                use_as_primary_comparison=True,
+            ),
+        )
+        derived = results.primary_comparison_metric()
+        assert derived is not None
+        assert derived.estimand == Estimand.SPREAD
+        assert derived.estimate == pytest.approx(0.59)
+
+    def test_unset_derivation_does_not_change_content_hash(self):
+        spec = _simple_accounting_ratio_spec()
+        legacy_payload = spec.model_dump(mode="json")
+        legacy_payload["reported_results"].pop("comparison_derivation")
+        for metric in legacy_payload["reported_results"]["metrics"]:
+            metric.pop("portfolio_selector")
+        legacy_payload.pop("notes")
+        expected = hashlib.sha256(
+            json.dumps(legacy_payload, sort_keys=True, separators=(",", ":")).encode("utf-8")
+        ).hexdigest()
+        assert MethodSpec.model_validate(legacy_payload).content_hash() == expected
 
 
 class TestEstimatedSignalRequiresEstimation:
@@ -619,6 +657,20 @@ class TestFilterDerivation:
         )
         filt = FilterSpec.model_validate_json(old_json)
         assert filt.derivation is None
+
+
+class TestInRangesFilter:
+    def test_accepts_numeric_range_union(self):
+        filt = FilterSpec(concept_id="sic", op=FilterOp.INTERVALS, value=[[1, 3999], [5000, 5999]])
+        assert filt.op == FilterOp.INTERVALS
+
+    def test_rejects_reversed_range(self):
+        with pytest.raises(ValueError, match="intervals"):
+            FilterSpec(concept_id="sic", op=FilterOp.INTERVALS, value=[[3999, 1]])
+
+    def test_rejects_nested_ranges_under_in(self):
+        with pytest.raises(ValueError, match="flat list"):
+            FilterSpec(concept_id="sic", op=FilterOp.IN, value=[[1, 3999], [5000, 5999]])
 
 
 class TestResolutionEntryAppendOnly:

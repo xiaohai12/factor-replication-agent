@@ -78,7 +78,7 @@ async def run_step6_experiment(session_id: str, req: ExperimentRequest) -> dict:
         log(f"Running experiment batch for '{spec_factor_id(spec)}' ({req.snapshot_id})...")
         try:
             runs = pipeline.controller.run_experiment(
-                plugin, spec, plan, req.snapshot_id, reuse_original_run=reuse_original_run,
+                plugin, spec, plan, req.snapshot_id, reuse_original_run=reuse_original_run, progress=log,
             )
         except Exception as exc:
             complete_attempt_with_retry(session_id, step=6, status=StepStatus.FAILED, error=str(exc))

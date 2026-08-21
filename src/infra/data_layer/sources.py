@@ -452,6 +452,20 @@ def build_crsp_monthly_panel_ciz(
             pass a small `nrows` rather than loading the full file.
     """
     d = Path(data_dir)
+    # Step4's local validation fixture is intentionally a compact,
+    # flat collection of ``*_sample.csv`` files, rather than a copy of the
+    # production ``<data-root>/local/<WRDS filename>`` tree.  Accept that
+    # layout directly so validating a script never depends on its optional
+    # pre-flattened CRSP parquet.  Production callers retain the normal
+    # directory and filename convention above.
+    if not (d / monthly_file).exists():
+        sample_dir = d.parent if d.name == "local" else d
+        sample_monthly = sample_dir / f"{Path(monthly_file).stem}_sample.csv"
+        sample_delisting = sample_dir / f"{Path(delisting_file).stem}_sample.csv"
+        if sample_monthly.exists() and sample_delisting.exists():
+            d = sample_dir
+            monthly_file = sample_monthly.name
+            delisting_file = sample_delisting.name
     monthly = pd.read_csv(
         d / monthly_file,
         usecols=CIZ_MONTHLY_USECOLS,
@@ -646,6 +660,13 @@ def link_to_permno(
         link_df = link_df[link_df[col].isin(allowed)]
 
     work = df.reset_index(drop=True).copy()
+    # Raw validation CSVs let pandas infer numeric identifiers such as GVKEY,
+    # whereas the frozen CCM parquet preserves them as strings.  Identifier
+    # joins are textual (leading zeroes are meaningful), so normalize both
+    # sides before merging rather than making Step4 fall back to a source
+    # parquet merely to obtain a matching dtype.
+    work[key] = work[key].astype("string").str.strip()
+    link_df[key] = link_df[key].astype("string").str.strip()
     work["_row"] = range(len(work))
     merged = work.merge(link_df, on=key, how="left")
 
@@ -702,7 +723,13 @@ def _read_raw_link_table_csv(path: Path, link: str) -> pd.DataFrame:
     header = pd.read_csv(path, nrows=0).columns
     header_map = {c.lower(): c for c in header}
     usecols = [header_map[c] for c in wanted_lower if c in header_map]
-    df = pd.read_csv(path, usecols=usecols, low_memory=False)
+    # Link keys are identifiers, not quantities.  In particular, raw CCM's
+    # six-character GVKEY values (e.g. ``001000``) must retain leading zeros
+    # to match the corresponding Compustat source key.  Coercing after CSV
+    # inference is too late: pandas has already turned it into ``1000``.
+    key_col = header_map.get(lt.key)
+    dtype = {key_col: "string"} if key_col is not None else None
+    df = pd.read_csv(path, usecols=usecols, dtype=dtype, low_memory=False)
     df.columns = [c.lower() for c in df.columns]
     for col in (lt.valid_from, lt.valid_to):
         df[col] = pd.to_datetime(df[col], format="%Y-%m-%d", errors="coerce")
@@ -748,7 +775,12 @@ def _read_raw_source_csv(
     header = pd.read_csv(path, nrows=0).columns
     header_map = {c.lower(): c for c in header}
     usecols = [header_map[c] for c in wanted if c in header_map]
-    df = pd.read_csv(path, usecols=usecols, low_memory=False)
+    # Security identifiers are codes, not quantities.  In particular, GVKEY
+    # values carry leading zeroes that must survive the validation sample's
+    # CSV parse in order to join the canonical CCM parquet.
+    key_col = spec.source_key if spec else None
+    dtype = {header_map[key_col]: "string"} if key_col in header_map else None
+    df = pd.read_csv(path, usecols=usecols, low_memory=False, dtype=dtype)
     df.columns = [c.lower() for c in df.columns]
     df = _apply_raw_filters(df, raw_filters)
     if date_col and date_col in df.columns:
@@ -771,7 +803,17 @@ def _load_generic_signal_frame(
     read_cols = [c for c in {key, *([date_col] if date_col else []), *cols} if c]
 
     path = d / f"{spec.name}.parquet"
-    if path.exists():
+    # The validation sample deliberately exercises the raw WRDS CSV loaders.
+    # Its files live directly under ``validation_sample/`` and carry a
+    # ``_sample`` suffix; prefer them over convenience parquets when present.
+    sample_raw_path = (
+        d / f"{Path(spec.raw_file).stem}_sample.csv"
+        if d.name == "validation_sample" and spec.raw_file
+        else None
+    )
+    if sample_raw_path is not None and sample_raw_path.exists():
+        df = _read_raw_source_csv(sample_raw_path, spec.name, read_cols, date_col=date_col)
+    elif path.exists():
         df = pd.read_parquet(path, columns=read_cols)
     else:
         raw_path = d / "local" / spec.raw_file if spec.raw_file else None
@@ -814,18 +856,42 @@ def assemble_signal_master_table_from_sources(
     data_dir: str | Path,
     by_source: dict[str, list[str]],
     accounting_lag_months: int = 6,
+    *,
+    crsp_fiscal_year_end_columns: list[str] | tuple[str, ...] = (),
 ) -> pd.DataFrame:
     """Spec-free core of `assemble_signal_master_table`: build the
     [permno, time_avail_m, ...] table from an explicit {source: [columns]} map.
     Used directly by the generated standalone backtest script."""
     d = Path(data_dir)
     link_tables = _load_link_tables(d)
-    frames = [
-        f for name, cols in by_source.items()
+    frames_by_source = {
+        name: f for name, cols in by_source.items()
         if (f := _load_source_frame(d, name, cols, accounting_lag_months, link_tables)) is not None
-    ]
+    }
+    frames = list(frames_by_source.values())
     if not frames:
         return pd.DataFrame(columns=["permno", "time_avail_m"])
+
+    crsp_frame = frames_by_source.get("crsp_msf")
+    if crsp_fiscal_year_end_columns and crsp_frame is not None:
+        missing = set(crsp_fiscal_year_end_columns) - set(crsp_frame.columns)
+        if missing:
+            raise ValueError(f"CRSP fiscal-year-end columns missing from source frame: {sorted(missing)}")
+        base_frames = [f for name, f in frames_by_source.items() if name != "crsp_msf"]
+        if not base_frames:
+            raise ValueError("CRSP fiscal-year-end alignment requires a non-CRSP fiscal-period source")
+        master = base_frames[0]
+        for f in base_frames[1:]:
+            master = master.merge(f, on=["permno", "time_avail_m"], how="outer")
+        month_index = (master["time_avail_m"] // 100) * 12 + (master["time_avail_m"] % 100 - 1)
+        fiscal_index = month_index - accounting_lag_months
+        master = master.copy()
+        master["_crsp_fiscal_yyyymm"] = (fiscal_index // 12) * 100 + (fiscal_index % 12) + 1
+        fiscal_crsp = crsp_frame[["permno", "time_avail_m", *crsp_fiscal_year_end_columns]].rename(
+            columns={"time_avail_m": "_crsp_fiscal_yyyymm"}
+        )
+        master = master.merge(fiscal_crsp, on=["permno", "_crsp_fiscal_yyyymm"], how="left")
+        return master.drop(columns=["_crsp_fiscal_yyyymm"]).sort_values(["permno", "time_avail_m"]).reset_index(drop=True)
 
     master = frames[0]
     for f in frames[1:]:
@@ -897,12 +963,16 @@ def assemble_signal_master_table(spec: Any, data_dir: str | Path) -> pd.DataFram
     not an as-of join -- fine for single-source and same-frequency
     multi-source signals; mixing annual+monthly in one formula needs an as-of
     join (future)."""
+    from src.infra.market_equity_policy import requires_crsp_fiscal_year_end_market_equity
     from src.steps.step3_codegen.registry import build_config
     from src.steps.step3_codegen.script_generator import signal_input_sources_from_resolved
 
     by_source = signal_input_sources_from_resolved(spec)
     lag_months = build_config(spec, None).get("accounting_lag_months") or 6
-    return assemble_signal_master_table_from_sources(data_dir, by_source, lag_months)
+    fiscal_columns = ["prc", "shrout"] if requires_crsp_fiscal_year_end_market_equity(spec) else []
+    return assemble_signal_master_table_from_sources(
+        data_dir, by_source, lag_months, crsp_fiscal_year_end_columns=fiscal_columns
+    )
 
 
 class CrspSignalSource(DataSource):
@@ -1603,4 +1673,3 @@ def returns_universes_view() -> dict[str, dict[str, str]]:
     for alias, u in _RETURNS_UNIVERSES.items():
         out[alias] = {"returns_table": u.returns_table, "returns_layout": u.returns_layout}
     return out
-

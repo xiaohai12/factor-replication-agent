@@ -28,9 +28,13 @@ from __future__ import annotations
 
 from typing import Any
 
-from src.steps.step3_codegen import registry as codegen_registry
+from src.infra.market_equity_policy import (
+    CRSP_MARKET_EQUITY_COLUMNS,
+    assert_market_equity_contract,
+    requires_crsp_fiscal_year_end_market_equity,
+)
 from src.infra.models.method_spec import FieldRole, ResolvedMethodSpec
-
+from src.steps.step3_codegen import registry as codegen_registry
 
 # Sources the legacy binary crsp_only/compustat generated-script path handles.
 # Anything beyond these (IBES/OptionMetrics/13F/...) routes to the source-driven
@@ -86,6 +90,14 @@ def pick_signal_input_mode(spec: ResolvedMethodSpec) -> str:
     if sources == {"crsp_msf"}:
         return "crsp_only"
     return "compustat"
+
+
+def crsp_fiscal_year_end_columns(spec: ResolvedMethodSpec) -> list[str]:
+    """Columns whose CRSP month must match the Compustat fiscal month, not availability month."""
+    if not requires_crsp_fiscal_year_end_market_equity(spec):
+        return []
+    assert_market_equity_contract(spec)
+    return list(CRSP_MARKET_EQUITY_COLUMNS)
 
 
 
@@ -170,6 +182,7 @@ def generate_backtest_script(
         signal_sources_map: dict[str, list[str]] = {}
     else:
         signal_sources_map = signal_input_sources_from_resolved(spec)
+    fiscal_year_end_columns = crsp_fiscal_year_end_columns(spec)
 
     if signal_input_mode in ("compustat", "multi_source"):
         compustat_requirements = (
@@ -196,6 +209,7 @@ def generate_backtest_script(
         signal_input_mode=signal_input_mode,
         signal_data_dir=signal_data_dir,
         signal_sources_map=repr(signal_sources_map),
+        crsp_fiscal_year_end_columns=repr(fiscal_year_end_columns),
         output_path=output_path,
         config_dict=config_lines,
         plugin_code_literal=repr(plugin_code),
@@ -282,6 +296,7 @@ ACCOUNTING_LAG_MONTHS = CONFIG["accounting_lag_months"]
 SIGNAL_INPUT_MODE = "{signal_input_mode}"  # "compustat" | "crsp_only" | "multi_source"
 SIGNAL_DATA_DIR = os.environ.get("BACKTEST_SIGNAL_DATA_DIR", "{signal_data_dir}")  # multi_source only: dir of raw WRDS-shaped tables
 SIGNAL_INPUT_SOURCES = {signal_sources_map}  # multi_source only: {{source: [columns]}}
+CRSP_FISCAL_YEAR_END_COLUMNS = {crsp_fiscal_year_end_columns}  # match fiscal month through CCM, then apply accounting lag
 OUTPUT_PATH = "{output_path}"
 FF_FACTORS_PATH = "{ff_factors_path}"  # optional; empty string if not supplied
 LIQUIDITY_FACTORS_DATA_DIR = "{liquidity_factors_data_dir}"  # optional; dir containing local/liquidity_factors.csv
@@ -339,7 +354,8 @@ def build_signal_input(msf: pd.DataFrame) -> pd.DataFrame:
     if SIGNAL_INPUT_MODE in ("multi_source", "compustat"):
         from src.infra.data_layer import assemble_signal_master_table_from_sources
         return assemble_signal_master_table_from_sources(
-            SIGNAL_DATA_DIR, SIGNAL_INPUT_SOURCES, ACCOUNTING_LAG_MONTHS
+            SIGNAL_DATA_DIR, SIGNAL_INPUT_SOURCES, ACCOUNTING_LAG_MONTHS,
+            crsp_fiscal_year_end_columns=CRSP_FISCAL_YEAR_END_COLUMNS,
         )
     return msf.rename(columns={{"yyyymm": "time_avail_m"}})
 

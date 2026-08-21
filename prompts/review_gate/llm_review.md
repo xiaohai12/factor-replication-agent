@@ -96,6 +96,12 @@ in `signal.formula.steps[].expression` actually appear in `data.fields`/
 `portfolio.weighting` -- if the paper reports both EW and VW headline
 spreads, `primary_metric_id` must point at the one matching
 `portfolio.weighting`, not whichever column happened to be extracted first.
+If `reported_results.comparison_derivation` requests `high_minus_low`, verify
+that its endpoint metrics come from the same table panel and have the same
+unit, frequency, weighting, adjustment, and sample period; their selectors
+must be the actual low/high buckets of the stated sort, and the portfolio
+legs must implement that same spread. Do not calculate the difference in the
+review -- the deterministic pipeline does that.
 Is `timing.holding_period.value` actually in MONTHS -- a paper that says
 "held for 1 year" must be `12`, not `1` (a bare copy of the paper's own
 number when its stated unit isn't months is a common extraction mistake;
@@ -114,6 +120,34 @@ a `data.fields[].concept_id` entry. As with every other field: only fill it
 in when you can point to a specific spot in the paper describing the
 computation; leave it `null` rather than guessing.
 
+Also verify range semantics: `universe.filters` entries are AND-combined.
+When one paper clause gives multiple numeric intervals for the same field
+(for example, “SIC codes 1 to 3999 and 5000 to 5999”), preserve the intended
+union as one `op: "intervals"` filter with `value: [[1,3999],[5000,5999]]`.
+Never represent disjoint intervals as separate top-level `between` filters,
+because that produces an empty universe. `in` only accepts a flat membership
+list (for example `[10,11]`), so `in: [[low,high], ...]` is invalid and must
+be corrected to `intervals`.
+
+For every paper-stated inclusion or exclusion rule that changes which
+firm-month observations may enter the analysis, verify that the spec has a
+`universe.filters[]` entry carrying the same citation. Do not leave an
+executable restriction only in `universe.description`. Exchange eligibility,
+share class, industry, size/price, listing-age, geography, and data-quality
+screens are illustrative categories only; do not infer a rule the paper does
+not state.
+
+For an explicit CRSP NYSE/AMEX/Nasdaq restriction, correct the filter to
+`{"concept_id": "exchcd", "op": "in", "value": [1, 2, 3]}` and verify a
+matching `data.fields[]` entry maps `exchcd` to `crsp_msf.exchcd`
+(`1=NYSE`, `2=AMEX`, `3=NASDAQ`).
+
+More generally, a filter only resolves the cited universe restriction when it
+has a corresponding `data.fields[]` entry whose source table and column are
+real catalog entries. A citation attached to an unsupported or invented field
+does not make that filter executable; correct it rather than retaining it as a
+placeholder.
+
 For each `data.fields[]` entry, also check `source_table`/`source_column`
 against the `data_catalog` tool result (see § 0) -- the live listing of
 every registered data source, its columns, and each column's WRDS
@@ -127,6 +161,15 @@ nothing in the catalog plausibly matches. Never force-fit a field onto a
 registered column just to avoid `"other"`. Leave `source_table`/
 `source_column` unset if the paper is genuinely silent on the underlying
 data measure -- same "never guess" rule as everywhere else.
+
+For `Z_score` from `Is the risk of bankruptcy a systematic risk.pdf`, enforce
+the approved implementation directive: market equity must be an explicit
+`abs(crsp_fiscal_year_end_price) * crsp_fiscal_year_end_shares / 1000` step,
+where the two inputs map to `crsp_msf.prc` and `crsp_msf.shrout`; liabilities
+map to `compustat_fundamental_annual.lt`. Reject/remove `mkvalt`, `prcc_f`,
+`prcc_c`, `prccm`, and `csho` as market-equity substitutes. This is a recorded
+implementation choice; retain the paper's own source wording in evidence and
+do not invent CCM or timing claims as paper quotations.
 
 Pay particular attention to these commonly error-prone areas:
 
@@ -149,6 +192,9 @@ Pay particular attention to these commonly error-prone areas:
   sample period?
 - `reported_results.metrics` -- does `primary_metric_id` correspond to the
   paper's headline result, and is `adjustment_model` correct?
+- `reported_results.comparison_derivation` -- if present, are its two cited
+  endpoint metrics compatible table cells and do the configured legs reproduce
+  its requested high-minus-low comparison?
 - `portfolio.legs` -- do the long/short leg selectors match the paper's
   stated long-short direction (not accidentally swapped)?
 - `weighting` / `construction_type` / `breakpoints.basis` /
@@ -307,4 +353,3 @@ Return **only** a strict JSON object with this shape and nothing else:
 section you want run next round (currently none are registered for this
 step -- leave this an empty list; requesting an unregistered name is
 harmless, it's simply ignored).
-

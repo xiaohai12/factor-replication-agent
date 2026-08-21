@@ -1,41 +1,52 @@
 \section{The Controlled Replication Pipeline}
 \label{sec:pipeline}
 
-Figure~\ref{fig:architecture} summarizes the eight-step pipeline that
-produces every quantity in \S\ref{sec:results}. Only two steps involve the
-language model at all -- extraction (Step 1) and signal-code generation
-(Step 3) -- and both are bounded, in the sense made precise below, so that
-no empirical parameter ever originates from the model itself.
+Figure~\ref{fig:architecture} summarizes the eight-step agent pipeline that
+produces every quantity in \S\ref{sec:results}. The language model has a
+strictly limited role: it may extract a method from paper text (Step~1), write
+the signal formula (Step~3), and, only if requested, draft an explanation of
+already-computed evidence (Step~8). All empirical choices and every reported
+number are instead produced by reviewed specifications and deterministic,
+controlled components.
 
 \begin{figure}[htbp]
   \centering
   \fbox{\parbox{0.9\linewidth}{\centering \vspace{4cm} F1: pipeline architecture diagram (TikZ or exported PDF) \vspace{4cm}}}
-  \caption{The eight-step controlled replication pipeline. The LLM appears
-    only in Step 1 (extraction) and Step 3 (\texttt{compute\_signal}
-    generation).}
+  \caption{The eight-step controlled replication pipeline. The LLM is used
+    only for bounded extraction (Step~1), \texttt{compute\_signal}
+    generation (Step~3), and an optional, evidence-constrained diagnosis
+    proposal (Step~8).}
   \label{fig:architecture}
 \end{figure}
 
-\subsection{MethodSpec as the sole carrier of method}
+\subsection{Step 1: extract a MethodSpec from the paper}
 
-Step 1 extracts a structured \emph{MethodSpec} from the paper's text alone
+Step~1 extracts a structured \emph{MethodSpec} from the paper's text alone
 -- signal definition, universe, timing, and portfolio-construction fields,
 each tagged with the source sentence it was read from. No downstream step
 ever reads the paper directly; every later step's notion of "what the paper
 says" is mediated entirely through this one artifact, which makes the
-extraction auditable independently of everything that follows. Step 2 is a
-review gate: a human confirms or corrects any field the extractor flags as
-low-confidence or internally inconsistent, and the MethodSpec is marked
-\texttt{codegen\_ready} only once every required field has either direct
-textual support or an explicit human correction. This gate is also where
-the RQ2 measurements originate (\S\ref{sec:intro}): every human correction
-is recorded as an evidence entry on the field it touches, so the fraction of
-high-impact fields the agent resolved unassisted is a byproduct of running
-Step 2, not a separately constructed measurement.
+extraction auditable independently of everything that follows.
 
-\subsection{Fixed configuration menu and clamping}
+\subsection{Step 2: review and resolve empirical choices}
 
-Once a MethodSpec is codegen-ready, \texttt{registry.build\_config} turns it
+Step~2 is the review gate described above: a human confirms or corrects
+low-confidence or inconsistent fields, and each intervention is retained as
+field-level evidence. It also verifies source registration and blocks an
+unknown signal-input source. Only a specification with direct textual support
+or an explicit human resolution for every required field is marked
+\texttt{codegen\_ready}. This gate also produces the RQ2 extraction measure
+(\S\ref{sec:intro}): the fraction of high-impact fields resolved without
+assistance is read from this ordinary review record, not a separate annotation
+exercise.
+
+\subsection{Step 3: generate the signal and freeze the configuration}
+
+Once a MethodSpec is codegen-ready, the LLM generates only a
+\texttt{compute\_signal} function and the pipeline assembles it into one
+complete standalone backtest script. It cannot generate lags, universe,
+breakpoint, weighting, or portfolio-construction logic.
+\texttt{registry.build\_config} then turns the approved MethodSpec
 into an executable configuration by resolving every relevant field against
 a fixed menu of allowed values (weighting rule, breakpoint convention,
 rebalance frequency, holding period, universe filters, estimator; the full
@@ -48,21 +59,48 @@ something one can actually enumerate: because the menu is finite and
 explicit, every configuration this paper ever runs is a labeled point in a
 known space, not an unbounded piece of hand-written logic.
 
-\subsection{Sandbox validation and repair-then-refreeze}
+This control is also an operational limitation of the present agent, rather
+than a claim that every paper can be reproduced without extension. A factor is
+admissible only when its required inputs are available through the registered
+data sources and links, and its empirical design can be expressed in the
+engine menu. For example, the currently implemented weighting alternatives are
+equal weighting (EW) and value weighting (VW); a paper requiring another
+weighting rule is recorded as an out-of-menu deviation rather than
+approximated by generated code. The study-level data and design boundaries---
+US common equity, monthly CRSP returns, and the supported Compustat/IBES
+signal inputs and link tables---are stated fully in \S\ref{sec:scope}.
 
-Step 4 validates the generated \texttt{compute\_signal} plugin in a sandbox
+\subsection{Step 4: validate the generated artifact in a sandbox}
+
+Step~4 validates the generated \texttt{compute\_signal} plugin in a sandbox
 -- syntax and schema checks, plus a static scan for look-ahead leakage --
-before it is allowed to run against real data. If a technical repair to the
-plugin is needed mid-batch, the entire batch of tracks for that factor is
-re-executed under the repaired code with repair disabled
-(\texttt{max\_refreeze\_attempts} bounds how many times this can happen),
-so that no two tracks reported for the same factor are ever silently
-compared under different code. This guarantees that the frozen signal $\SA$
-underlying $\Aref$, $\Acz$, and $\Ahxz$ is, by construction, the exact same
-artifact across all three tracks -- the identity in
-Equation~\eqref{eq:three-term} would not otherwise hold exactly.
+before it is allowed to run against real data. Only technical syntax or schema
+failures are repairable at this stage; empirical choices remain the reviewed
+MethodSpec's responsibility.
 
-\subsection{Evidence store and hashing}
+\subsection{Step 5: execute the frozen backtest script}
+
+Step~5 runs exactly the standalone script assembled in Step~3, in a controlled
+subprocess against the resolved data snapshot. The standardized engine supplies
+the approved universe, lags, breakpoints, weighting, portfolio construction,
+and return calculations; the plugin supplies only the signal formula.
+Execution therefore yields deterministic track-level metrics from a fixed
+script, configuration, and data snapshot rather than from a model-directed
+backtest.
+
+\subsection{Step 6: compare tracks and implementation variants}
+
+Step~6 orchestrates the original-specification, standardized (HXZ), and
+one-at-a-time or declarative-matrix sensitivity tracks. They share the same
+frozen signal code, while only their explicitly recorded configuration
+overrides differ. If a technical repair changes code during a batch, the
+controller re-runs the \emph{entire} batch under the repaired code with repair
+disabled, subject to \texttt{max\_refreeze\_attempts}. This guarantees that
+the frozen signal $\SA$ underlying $\Aref$, $\Acz$, and $\Ahxz$ is, by
+construction, the exact same artifact across all three tracks -- the identity
+in Equation~\eqref{eq:three-term} would not otherwise hold exactly.
+
+\subsection{Step 7: decompose the replication gap and preserve evidence}
 
 Every executed track is recorded as a \texttt{RunRecord}: its configuration
 hash, its plugin's code hash, and its resulting metrics, stored alongside
@@ -74,7 +112,7 @@ the gap decomposition, and the identification level of each comparison
 (\S\ref{sec:design}) -- which is the only input the next step is permitted
 to read.
 
-\subsection{The Step 8 diagnosis layer}
+\subsection{Step 8: optionally draft an evidence-constrained diagnosis}
 
 Step 8 is an optional, LLM-assisted explanation layer over an already-
 computed evidence bundle. It is deliberately not permitted to alter, or even
@@ -86,4 +124,3 @@ bundle or that contains a digit of its own, and every output is tagged
 finding. This confines the language model, even in the one place it is
 permitted to comment on results, to drafting attribution language for
 numbers it did not compute and cannot alter.
-

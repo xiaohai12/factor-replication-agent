@@ -44,3 +44,5 @@ runs/
 
 # ZIP data archives stay local unless explicitly force-added.
 *.zip
+
+Template_for_a_Masters_thesis/

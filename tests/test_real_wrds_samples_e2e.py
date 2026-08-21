@@ -36,12 +36,13 @@ pytestmark = pytest.mark.skipif(
 
 
 @pytest.fixture()
-def sample_data_dir(tmp_path) -> Path:
-    local = tmp_path / "local"
-    local.mkdir()
-    for real_name, sample_name in _SAMPLE_FILES.items():
-        (local / real_name).symlink_to(SAMPLES_DIR / sample_name)
-    return tmp_path
+def sample_data_dir() -> Path:
+    """The validation sample's native flat ``*_sample.csv`` layout.
+
+    This is the exact layout Step4 uses; do not hide it behind test-only
+    symlinks to production raw-file names.
+    """
+    return SAMPLES_DIR
 
 
 @pytest.fixture()

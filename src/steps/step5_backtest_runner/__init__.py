@@ -33,16 +33,18 @@ from typing import Callable, Optional
 import pandas as pd
 
 from src.infra.data_layer import DataLayer
+from src.infra.hashing import snapshot_manifest_hash
 from src.infra.models.method_spec import ResolvedMethodSpec
 from src.infra.models.plugin import PluginRecord
 from src.infra.models.run_record import RunMetrics, RunRecord
 from src.infra.provenance import collect_runtime_provenance
-from src.infra.hashing import snapshot_manifest_hash
 from src.infra.reference import external_reference_endpoints
 from src.steps.step3_codegen.registry import build_config
-from src.steps.step3_codegen.script_generator import generate_backtest_script, pick_signal_input_mode
+from src.steps.step3_codegen.script_generator import (
+    generate_backtest_script,
+    pick_signal_input_mode,
+)
 from src.steps.step7_replication_diff.bundle import build_evidence_bundle
-
 
 # Bumped to 2 when comparison.json gained the deterministic evidence bundle
 # (derived / config_diff / gap_decomposition / evidence_keys) that the step-8
@@ -78,14 +80,20 @@ def _spec_paper_reported(spec: ResolvedMethodSpec) -> dict:
     state which window its `paper_reported_spread` endpoint sits on instead
     of leaving the mismatch undeclared."""
     rr = spec.paper.reported_results
-    primary = next((m for m in rr.metrics if m.metric_id == rr.primary_metric_id), None)
+    primary = rr.primary_comparison_metric()
     reported_window = spec.paper.sample.reported_returns
     return {
         "return_type": primary.estimand.value if primary else "",
-        "spreads": {m.metric_id: m.estimate for m in rr.metrics},
+        "spreads": {
+            **{m.metric_id: m.estimate for m in rr.metrics},
+            **({primary.metric_id: primary.estimate} if primary and primary.metric_id not in {m.metric_id for m in rr.metrics} else {}),
+        },
         "t_stats": {m.metric_id: m.statistic.value for m in rr.metrics if m.statistic},
         "main_spread": primary.estimate if primary else None,
         "main_t_stat": primary.statistic.value if primary and primary.statistic else None,
+        "comparison_derivation": rr.comparison_derivation.model_dump(mode="json")
+        if rr.comparison_derivation and rr.comparison_derivation.use_as_primary_comparison
+        else None,
         "sample_start_year": reported_window.start_year,
         "sample_end_year": reported_window.end_year,
     }

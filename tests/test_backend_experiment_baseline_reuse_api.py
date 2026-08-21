@@ -46,7 +46,7 @@ def _minimal_request_body():
 def test_reuse_candidate_resolved_from_a_successful_step5_attempt(monkeypatch):
     captured = {}
 
-    def fake_run_experiment(plugin, spec, plan, snapshot_id, reuse_original_run=None):
+    def fake_run_experiment(plugin, spec, plan, snapshot_id, reuse_original_run=None, progress=None):
         captured["reuse_original_run"] = reuse_original_run
         return []
 
@@ -80,7 +80,7 @@ def test_reuse_candidate_resolved_from_a_successful_step5_attempt(monkeypatch):
 def test_no_reuse_candidate_when_step5_never_ran(monkeypatch):
     captured = {}
 
-    def fake_run_experiment(plugin, spec, plan, snapshot_id, reuse_original_run=None):
+    def fake_run_experiment(plugin, spec, plan, snapshot_id, reuse_original_run=None, progress=None):
         captured["reuse_original_run"] = reuse_original_run
         return []
 
@@ -100,7 +100,7 @@ def test_no_reuse_candidate_when_step5_never_ran(monkeypatch):
 def test_no_reuse_candidate_when_run_original_is_false(monkeypatch):
     captured = {}
 
-    def fake_run_experiment(plugin, spec, plan, snapshot_id, reuse_original_run=None):
+    def fake_run_experiment(plugin, spec, plan, snapshot_id, reuse_original_run=None, progress=None):
         captured["reuse_original_run"] = reuse_original_run
         return []
 

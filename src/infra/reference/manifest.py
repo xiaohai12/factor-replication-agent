@@ -15,4 +15,7 @@ CZ_FACTOR_ACRONYM_MANIFEST: dict[str, str] = {
     "AssetGrowth": "AssetGrowth",
     "GP": "GP",
     "Mom6m": "Mom6m",
+    # Dichev (1998), *Is the Risk of Bankruptcy a Systematic Risk?*.
+    # Verified against C&Z's SignalDoc and their Placebos/ZScore.py.
+    "d5661ba61aae804d": "ZScore",
 }

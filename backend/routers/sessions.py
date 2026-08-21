@@ -414,7 +414,12 @@ async def validate_step4_artifact(session_id: str, req: ValidateArtifactRequest)
                 env = {
                     **os.environ,
                     "PYTHONPATH": f"{repo_root}{os.pathsep}{os.environ.get('PYTHONPATH', '')}",
-                    "BACKTEST_DATA_PATH": str(sample_storage_path / "crsp_msf.parquet"),
+                    # Deliberately point at a non-existent legacy parquet so
+                    # the generated script takes its raw-CSV fallback.  Step4
+                    # validates against validation_sample/*_sample.csv (with
+                    # CCM's existing parquet link table), not its optional
+                    # flattened CRSP/Compustat convenience parquets.
+                    "BACKTEST_DATA_PATH": str(sample_storage_path / "__use_validation_sample_csv__"),
                     "BACKTEST_SIGNAL_DATA_DIR": str(sample_storage_path),
                 }
                 log("Running the full validated script against the validation sample (same engine path as Step5)...")

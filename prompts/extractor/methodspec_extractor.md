@@ -58,6 +58,27 @@ Rules:
 - If the same factor idea is tested across multiple asset classes, generate the project-relevant executable target by default, e.g. US equity; record other asset classes in `robustness_or_secondary_specs`.
 - Do not mix robustness tests, holdout samples, or alternative strategies into the main executable spec.
 
+### 1.2.1 Universe-filter ranges
+
+`universe.filters` is an AND-combined list of `{concept_id, op, value}`
+predicates. When one inclusion/exclusion clause names the same field with
+multiple numeric intervals (for example, “SIC codes 1 to 3999 and 5000 to
+5999”), encode one predicate with `op: "intervals"` and
+`value: [[1, 3999], [5000, 5999]]`. The intervals are a union of permitted
+values; never emit separate top-level `between` predicates for disjoint
+ranges. `in` is only for a flat membership list such as `[10, 11]`; never
+put `[low, high]` pairs under `in`. Use separate filters only for independently
+required conditions.
+
+More generally, every paper-stated inclusion or exclusion rule that changes
+which firm-month observations may enter the analysis must be emitted as a
+`universe.filters[]` entry and carry the same supporting citation. Do not
+leave an executable restriction only in `universe.description`. Examples
+include eligible exchanges, share classes, industry exclusions, size or price
+thresholds, listing-age rules, geography, and positive/non-missing data
+screens. These are examples of the rule, not permission to infer a restriction
+the paper did not state.
+
 ## 1.3 Source format
 
 Every high-impact field must use this source format:
@@ -236,7 +257,7 @@ do not hand-edit the block below; it is regenerated at prompt-load time from
 <!-- FIELD_CONTRACT:ALLOWED_VALUES:START -->
 ```text
 portfolio.universe_filters[].op:
-eq, neq, in, not_in, between, not_between, gt, gte, lt, lte, nonmissing, nonzero, is_true, is_false
+eq, neq, in, not_in, between, not_between, intervals, gt, gte, lt, lte, nonmissing, nonzero, is_true, is_false
 
 portfolio.sort.breakpoint_basis:
 nyse, full_sample, other, unspecified

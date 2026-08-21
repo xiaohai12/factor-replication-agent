@@ -45,6 +45,16 @@ function extractPaperReported(
   const reported = paper?.reported_results as Record<string, unknown> | undefined
   const metrics = reported?.metrics as Record<string, unknown>[] | undefined
   if (!reported || !metrics) return null
+  const derivation = reported.comparison_derivation as {
+    operation?: string; high_metric_id?: string; low_metric_id?: string; use_as_primary_comparison?: boolean
+  } | undefined
+  if (derivation?.use_as_primary_comparison && derivation.operation === "high_minus_low") {
+    const high = metrics.find((m) => m.metric_id === derivation.high_metric_id)
+    const low = metrics.find((m) => m.metric_id === derivation.low_metric_id)
+    if (typeof high?.estimate === "number" && typeof low?.estimate === "number") {
+      return { mean_return: high.estimate - low.estimate }
+    }
+  }
   const primary = metrics.find((m) => m.metric_id === reported.primary_metric_id)
   if (!primary) return null
   const statistic = primary.statistic as { kind?: string; value?: number } | undefined
@@ -72,6 +82,56 @@ function extractPaperSampleWindow(
   const startYear = reportedReturns?.start_year
   const endYear = reportedReturns?.end_year
   return typeof startYear === "number" && typeof endYear === "number" ? { startYear, endYear } : null
+}
+
+interface RangeUnionSuggestion {
+  conceptId: string
+  indexes: number[]
+  ranges: Array<[number, number]>
+}
+
+function disjointUniverseRangeSuggestions(paper: Record<string, unknown> | undefined): RangeUnionSuggestion[] {
+  const filters = (paper?.universe as { filters?: Array<Record<string, unknown>> } | undefined)?.filters ?? []
+  const byConcept = new Map<string, Array<{ index: number; range: [number, number] }>>()
+  const legacyRangeUnionSuggestions: RangeUnionSuggestion[] = []
+  filters.forEach((filter, index) => {
+    const value = filter.value
+    const isRangeUnion = (
+      Array.isArray(value)
+      && value.length > 0
+      && value.every((interval) => (
+        Array.isArray(interval)
+        && interval.length === 2
+        && interval.every((bound) => typeof bound === "number")
+        && interval[0] <= interval[1]
+      ))
+    )
+    if (filter.op === "in" && typeof filter.concept_id === "string" && isRangeUnion) {
+      legacyRangeUnionSuggestions.push({
+        conceptId: filter.concept_id,
+        indexes: [index],
+        ranges: value as Array<[number, number]>,
+      })
+      return
+    }
+    if (
+      filter.op === "between"
+      && typeof filter.concept_id === "string"
+      && Array.isArray(value)
+      && value.length === 2
+      && value.every((bound) => typeof bound === "number")
+      && value[0] <= value[1]
+    ) {
+      const entries = byConcept.get(filter.concept_id) ?? []
+      entries.push({ index, range: [value[0], value[1]] })
+      byConcept.set(filter.concept_id, entries)
+    }
+  })
+  return [...byConcept.entries()].flatMap(([conceptId, entries]) => {
+    const ordered = [...entries].sort((a, b) => a.range[0] - b.range[0])
+    const disjoint = ordered.length > 1 && ordered.some((entry, i) => i > 0 && entry.range[0] > ordered[i - 1].range[1])
+    return disjoint ? [{ conceptId, indexes: entries.map((entry) => entry.index), ranges: entries.map((entry) => entry.range) }] : []
+  }).concat(legacyRangeUnionSuggestions)
 }
 
 
@@ -974,6 +1034,7 @@ function MethodSpecWorkflowPanel({
   const navigate = useNavigate()
   const queryClient = useQueryClient()
   const [state, setState] = useState<MethodSpecWorkflowState>(() => getMethodSpecWorkflowState(sessionId))
+  const rangeUnionSuggestions = useMemo(() => disjointUniverseRangeSuggestions(state.paper), [state.paper])
   const [file, setFile] = useState<File | null>(null)
   const [targetName, setTargetName] = useState(defaultTargetName)
   // Restore from persisted state on mount -- otherwise navigating away from
@@ -1268,6 +1329,31 @@ function MethodSpecWorkflowPanel({
     })
   }
 
+  const convertToRangeUnion = (suggestion: RangeUnionSuggestion) => {
+    const paper = state.paper as { universe?: { filters?: Array<Record<string, unknown>> } } | undefined
+    const filters = paper?.universe?.filters
+    if (!filters) return
+    const firstIndex = Math.min(...suggestion.indexes)
+    const first = filters[firstIndex]
+    const evidence = suggestion.indexes.flatMap((index) => {
+      const itemEvidence = filters[index].evidence
+      return Array.isArray(itemEvidence) ? itemEvidence : []
+    })
+    const nextFilters = filters.filter((_, index) => !suggestion.indexes.includes(index))
+    nextFilters.splice(firstIndex, 0, {
+      ...first,
+      op: "intervals",
+      value: suggestion.ranges,
+      evidence,
+    })
+    patch({
+      paper: { ...paper, universe: { ...paper.universe, filters: nextFilters } },
+      review: undefined,
+      reviewSource: undefined,
+      resolved: undefined,
+    })
+  }
+
   const resolveMutation = useMutation({
     mutationFn: async () => {
       // Deterministic concept-mapping is tried first either way (see
@@ -1556,7 +1642,11 @@ function MethodSpecWorkflowPanel({
               // run). `missing_mapping` findings still can't be patched this
               // way -- they need a `data.fields`/`universe.filters` fix and
               // a re-extract, not a value correction.
-              const canPatch = f.kind !== "missing_mapping"
+              // A universe filter and an incomplete-evidence finding are
+              // structured objects, not scalar SourcedValues. They remain
+              // visible for human review, but must be corrected in the
+              // MethodSpec/filter workflow rather than sent to /patch-value.
+              const canPatch = !["missing_mapping", "universe_filter", "incomplete"].includes(String(f.kind))
               const info = schemaFieldInfo(fieldPath)
               const allowedValues = fieldPath.endsWith(".source_column") ? sourceColumnOptions(fieldPath) : info?.allowed_values ?? null
               const usingOther = useOtherValueFor[fieldPath] ?? false
@@ -1586,7 +1676,7 @@ function MethodSpecWorkflowPanel({
                     <p className="pl-1 text-muted-foreground">ℹ {info.description}</p>
                   )}
                   {/* §5.1: source -- the field's own evidence citations */}
-                  {canPatch && evidence.length > 0 && (
+                  {evidence.length > 0 && (
                     <div className="flex flex-col gap-0.5 pl-1">
                       <span className="text-muted-foreground">Source:</span>
                       {evidence.map((c, j) => (
@@ -1597,6 +1687,12 @@ function MethodSpecWorkflowPanel({
                         </p>
                       ))}
                     </div>
+                  )}
+                  {!canPatch && f.kind === "incomplete" && (
+                    <p className="pl-1 text-muted-foreground">
+                      Add the cited restriction as a universe filter, then re-run review. Do not treat the
+                      description alone as an executable screen.
+                    </p>
                   )}
                   {canPatch && (
                     <div className="flex items-center gap-2 pl-1">
@@ -1686,6 +1782,26 @@ function MethodSpecWorkflowPanel({
           </div>
         )}
       </div>
+
+      {rangeUnionSuggestions.length > 0 && (
+        <div className="flex flex-col gap-2 rounded-md border border-amber-500/50 bg-amber-500/5 p-3 text-sm">
+          <p className="font-medium">Universe range union needs correction</p>
+          <p className="text-xs text-muted-foreground">
+            <code>in</code> accepts a flat list of values, not nested intervals; separate filters are also combined
+            with AND. Converting replaces the interval set with one <code>intervals</code> predicate; re-run review
+            afterward.
+          </p>
+          {rangeUnionSuggestions.map((suggestion) => (
+            <div key={suggestion.conceptId} className="flex flex-wrap items-center gap-2 text-xs">
+              <code>{suggestion.conceptId}</code>
+              <span>{suggestion.ranges.map(([low, high]) => `${low}–${high}`).join(" OR ")}</span>
+              <Button size="sm" variant="outline" onClick={() => convertToRangeUnion(suggestion)}>
+                Convert to intervals
+              </Button>
+            </div>
+          ))}
+        </div>
+      )}
 
       {((state.totalDiff?.length ?? 0) > 0 || (state.history?.length ?? 0) > 0) && (
         <div className="flex flex-col gap-2 rounded-md border border-border p-3">
@@ -2221,7 +2337,7 @@ function Step6CzConfigPreview({
           <SelectContent>
             {factors.map((f) => (
               <SelectItem key={f.acronym} value={f.acronym}>
-                {f.factor_id} ({f.acronym})
+                {f.acronym}
               </SelectItem>
             ))}
           </SelectContent>
@@ -2266,14 +2382,12 @@ interface HxzReportedPreview {
   label: string
 }
 
-/** HXZ's own reported number for the ③ (`standardized_hxz`) row's
- * "Reported (reference)" column (docs/step6.md's `N_hxz` gap) -- recomputed
- * from a downloaded HXZ testing-portfolio CSV via
- * `GET /steps/6/hxz-config` (`src.infra.reference.hxz_bridge`), not a live
- * network call like C&Z's. Only factors with a CSV wired up under
- * `data/hxz/return_ref/` resolve (404 otherwise, e.g. anything but
- * `AssetGrowth` today) -- reuses the same C&Z factor manifest for the
- * acronym dropdown since it's the same factor_id/acronym pairing. */
+/** HXZ's reported/reference number for the ③ (`standardized_hxz`) row's
+ * "Reported (reference)" column (docs/step6.md's `N_hxz` gap). It is usually
+ * recomputed from a downloaded HXZ testing-portfolio CSV, but a deliberately
+ * labelled manual reference can be shown when no such CSV exists. This is not
+ * a live network call like C&Z's. The C&Z manifest supplies the shared
+ * factor-id/acronym dropdown. */
 function Step6HxzConfigPreview({
   sessionId,
   sessionFactorId,
@@ -2330,8 +2444,9 @@ function Step6HxzConfigPreview({
       <div>
         <p className="font-medium">Look up HXZ's own reported result</p>
         <p className="text-muted-foreground">
-          Recomputed from a downloaded HXZ testing-portfolio decile file (not a live call) -- reference only for the
-          ③ row, never run as its own track. Uses this factor's OWN paper sample window (
+          Uses a downloaded HXZ testing-portfolio decile file when available, otherwise a clearly labelled manual
+          reference (not a live call) -- reference only for the ③ row, never run as its own track. Uses this
+          factor's OWN paper sample window (
           {sampleWindow ? `${sampleWindow.startYear}–${sampleWindow.endYear}` : "full range -- spec has no sample window yet"}
           ), the same basis ①'s reference number is on.
         </p>
@@ -2353,7 +2468,7 @@ function Step6HxzConfigPreview({
           <SelectContent>
             {factors.map((f) => (
               <SelectItem key={f.acronym} value={f.acronym}>
-                {f.factor_id} ({f.acronym})
+                {f.acronym}
               </SelectItem>
             ))}
           </SelectContent>
@@ -2440,4 +2555,3 @@ function Step6VersionsPicker({
     </div>
   )
 }
-

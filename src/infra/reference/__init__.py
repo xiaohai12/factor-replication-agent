@@ -349,12 +349,11 @@ def external_reference_endpoints(
       are fixed to C&Z's own sample window and were produced by C&Z's own R
       engine, so `window_adjustable=False` and no window-sensitivity number
       can be computed for it.
-    - **HXZ** is recomputed from their published testing-portfolio returns
-      by `hxz_bridge`, on whichever window is asked for and using this
-      engine's own Newey-West `_series_metrics`, so `window_adjustable=True`
-      and `window_sensitivity_spread` reports how much the endpoint moves
-      between the replicated paper's window and HXZ's own 1967-2016 window
-      -- the measurable part of the window/basis mismatch.
+    - **HXZ** is normally recomputed from their published testing-portfolio
+      returns by `hxz_bridge`, on whichever window is asked for and using
+      this engine's own Newey-West `_series_metrics`. A specifically labelled
+      manual reference may be used when no such file exists; it is not
+      window-adjustable and never described as a recomputation.
 
     Returns `{}` for an endpoint that cannot be resolved (unknown acronym,
     SignalDoc not downloaded, no HXZ testing-portfolio CSV for this factor)
@@ -392,6 +391,7 @@ def external_reference_endpoints(
     on_hxz_window = (hxz_windows or {}).get("hxz_paper_sample") or {}
     if on_paper_window.get("mean_return") is not None:
         alt_spread = on_hxz_window.get("mean_return")
+        is_manual_reference = on_paper_window.get("n_months") is None
         endpoints["hxz"] = {
             "spread": on_paper_window["mean_return"],
             "t_stat": on_paper_window.get("t_stat"),
@@ -399,12 +399,16 @@ def external_reference_endpoints(
             "sample_end_year": on_paper_window.get("end_year"),
             "n_months": on_paper_window.get("n_months"),
             "source": (
-                f"{on_paper_window.get('label')} testing-portfolio returns, recomputed on the "
-                "paper's own window with this engine's Newey-West metrics"
+                str(on_paper_window.get("label"))
+                if is_manual_reference
+                else (
+                    f"{on_paper_window.get('label')} testing-portfolio returns, recomputed on the "
+                    "paper's own window with this engine's Newey-West metrics"
+                )
             ),
-            "window_adjustable": True,
+            "window_adjustable": not is_manual_reference,
             "window_sensitivity_spread": (
-                None if alt_spread is None else on_paper_window["mean_return"] - alt_spread
+                None if is_manual_reference or alt_spread is None else on_paper_window["mean_return"] - alt_spread
             ),
             "window_sensitivity_basis": {
                 "alt_spread": alt_spread,

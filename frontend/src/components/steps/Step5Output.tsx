@@ -18,6 +18,15 @@ interface ReportedMetric {
   sample_period?: { start_year?: number | null; end_year?: number | null } | null
 }
 
+interface ComparisonDerivation {
+  metric_id: string
+  label: string
+  operation: "high_minus_low"
+  high_metric_id: string
+  low_metric_id: string
+  use_as_primary_comparison?: boolean
+}
+
 function executionId(attempt: StepAttempt | undefined): string | undefined {
   const raw = attempt?.output_refs.execution_ids
   if (!raw) return undefined
@@ -62,8 +71,20 @@ function useStep3Facts(sessionId: string, manifest: SessionManifest | undefined)
 
 function reportedPrimaryMetric(spec: Record<string, unknown> | undefined): ReportedMetric | undefined {
   const paper = spec?.paper as Record<string, unknown> | undefined
-  const rr = paper?.reported_results as { primary_metric_id?: string; metrics?: ReportedMetric[] } | undefined
+  const rr = paper?.reported_results as {
+    primary_metric_id?: string
+    metrics?: ReportedMetric[]
+    comparison_derivation?: ComparisonDerivation | null
+  } | undefined
   if (!rr?.metrics) return undefined
+  const derivation = rr.comparison_derivation
+  if (derivation?.use_as_primary_comparison && derivation.operation === "high_minus_low") {
+    const high = rr.metrics.find((m) => m.metric_id === derivation.high_metric_id)
+    const low = rr.metrics.find((m) => m.metric_id === derivation.low_metric_id)
+    if (high && low) {
+      return { ...high, metric_id: derivation.metric_id, label: `${derivation.label} (derived)`, estimand: "spread", estimate: high.estimate - low.estimate, statistic: null }
+    }
+  }
   return rr.metrics.find((m) => m.metric_id === rr.primary_metric_id)
 }
 
@@ -355,4 +376,3 @@ export function Step5Output({
     </div>
   )
 }
-

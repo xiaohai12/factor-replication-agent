@@ -122,15 +122,20 @@ _VALIDATION_SAMPLE_DIR = DATA_DIR / "local" / "validation_sample"
 def ensure_validation_sample_snapshot() -> None:
     """Register data/local/validation_sample/ as a snapshot -- a small (~50
     real, long-history companies), ID-aligned real-data sample built by
-    scripts/build_real_wrds_samples.py, materialized as the SAME 3
-    pre-flattened parquet tables `ensure_local_snapshot` requires (no nested
-    `local/` raw-CSV fallback folder needed). Intended for Step4's execution
-    smoke test / RepairLoop: fast (tens of thousands of rows, not the full
-    real data/local export) but still genuinely real data, not synthetic.
+    scripts/build_real_wrds_samples.py. Step4 reads its flat `*_sample.csv`
+    files directly (while retaining the existing CCM parquet link table), so
+    no nested `local/` raw-CSV fallback folder is needed. Intended for Step4's
+    execution smoke test / RepairLoop: fast (tens of thousands of rows, not
+    the full real data/local export) but still genuinely real data, not synthetic.
     Same never-auto-generated gating as `ensure_local_snapshot`."""
     if pipeline.data_layer.snapshots.get_snapshot(VALIDATION_SAMPLE_SNAPSHOT_ID) is not None:
         return
-    required = ("crsp_msf.parquet", "compustat_fundamental_annual.parquet", "ccm_lnkhist.parquet")
+    required = (
+        "CRSP_STOCK_MONTH_sample.csv",
+        "CRSP_DELISTING_sample.csv",
+        "COMPUSTAT_FUNDAMENTALS_ANNUAL_sample.csv",
+        "ccm_lnkhist.parquet",
+    )
     if not all((_VALIDATION_SAMPLE_DIR / name).exists() for name in required):
         return
     pipeline.data_layer.snapshots.register_snapshot(

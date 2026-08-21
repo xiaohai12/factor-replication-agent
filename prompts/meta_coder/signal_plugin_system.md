@@ -32,6 +32,10 @@ def compute_signal(df: pd.DataFrame) -> pd.DataFrame:
   (meanest, ...), OptionMetrics implied vol, 13F holdings, patent data, etc.
   Do not assume the source based on the field name's "look" — trust the
   Column Mapping.
+- If the mapping supplies `prc`, `shrout`, and `lt` for the Dichev Z-score
+  policy, market equity is exactly `df["prc"].abs() * df["shrout"] / 1000`;
+  divide that by `lt`. Never substitute `mkvalt`, `prcc_f`, `prcc_c`, `prccm`,
+  or `csho`.
 
 ## Hard rules
 1. Compute ONLY the signal formula — no portfolio construction, no breakpoints, no weighting

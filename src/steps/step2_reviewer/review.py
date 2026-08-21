@@ -26,6 +26,10 @@ from enum import Enum
 from pathlib import Path
 from typing import Any
 
+from src.infra.market_equity_policy import (
+    market_equity_contract_errors,
+    requires_crsp_fiscal_year_end_market_equity,
+)
 from src.infra.models.method_spec import (
     CAPABILITY_VERSION_V1,
     DISPOSITION_MATRIX,
@@ -109,6 +113,98 @@ def high_impact_sourced_values(paper: MethodSpec) -> list[tuple[str, SourcedValu
         checks.append((f"data.fields[{i}].source_table", f.source_table))
         checks.append((f"data.fields[{i}].source_column", f.source_column))
     return checks
+
+
+def _citation_key(citation: EvidenceCitation) -> tuple[str, ...] | None:
+    """Stable, deliberately literal key for universe-evidence coverage.
+
+    The extractor is required to reuse a restriction's original citation on
+    the corresponding ``FilterSpec``.  We therefore compare the quoted text
+    (or, for table-only evidence, the complete table coordinate), rather than
+    trying to infer a restriction's meaning from keywords such as ``NYSE`` or
+    ``SIC``.  A citation with neither form cannot establish coverage.
+    """
+    quote = " ".join(citation.quote.lower().split())
+    if quote:
+        return ("quote", quote)
+    if citation.table_ref is not None:
+        return (
+            "table",
+            citation.table_ref.table.strip().lower(),
+            citation.table_ref.row.strip().lower(),
+            citation.table_ref.column.strip().lower(),
+        )
+    return None
+
+
+def _universe_evidence_coverage_findings(paper: MethodSpec) -> list[Finding]:
+    """Require each cited universe restriction to be represented by a filter.
+
+    This is intentionally generic: it never identifies exchanges, industries,
+    share classes, or any other particular screen.  Instead it enforces the
+    structural contract that a paper citation used to support the universe
+    description must also be carried by an executable ``FilterSpec``. A cited
+    filter is executable only when its corresponding data field has a real
+    source-table/column mapping; a made-up filter with an ``other`` source is
+    not evidence coverage. An explicitly ``accepted_unapplied`` filter remains
+    a valid documented human decision. An unmatched citation is a high-impact
+    human-review decision, never an automatic rewrite.
+    """
+    fields_by_concept = {field.concept_id: field for field in paper.data.fields}
+
+    def is_covered_filter(filt: Any) -> bool:
+        if filt.accepted_unapplied:
+            return bool(filt.unapplied_reason.strip())
+        field = fields_by_concept.get(filt.concept_id)
+        if field is None:
+            return False
+        source_table = _unwrap_enum_value(field.source_table.value)
+        return source_table not in {"other", "unspecified"} and field.source_column.value is not None
+
+    covered = {
+        key
+        for filt in paper.universe.filters
+        if is_covered_filter(filt)
+        for citation in filt.evidence
+        if (key := _citation_key(citation)) is not None
+    }
+    findings: list[Finding] = []
+    for i, citation in enumerate(paper.universe.description.evidence):
+        key = _citation_key(citation)
+        if key is None or key in covered:
+            continue
+        findings.append(
+            Finding(
+                field_path=f"universe.description.evidence[{i}]",
+                kind="incomplete",
+                reason=(
+                    "Universe evidence is not attached to an executable universe.filters entry. "
+                    "Add a cited filter with a real data.fields source/column mapping, or record "
+                    "the stated restriction as accepted_unapplied with a reason."
+                ),
+                empirical_impact="high",
+                disposition=Disposition.NEEDS_HUMAN_CONFIRMATION,
+                paper_value=citation.quote or citation.table_ref.model_dump(),
+                evidence=[citation],
+            )
+        )
+    return findings
+
+
+def _universe_filter_high_impact_entries(paper: MethodSpec) -> list[Finding]:
+    """Surface every declared universe filter in the human-review panel."""
+    return [
+        Finding(
+            field_path=f"universe.filters[{i}]",
+            kind="universe_filter",
+            reason="Universe membership restriction; confirm its evidence and runtime applicability.",
+            empirical_impact="high",
+            disposition=Disposition.NEEDS_HUMAN_CONFIRMATION,
+            paper_value={"concept_id": filt.concept_id, "op": filt.op.value, "value": filt.value},
+            evidence=filt.evidence,
+        )
+        for i, filt in enumerate(paper.universe.filters)
+    ]
 
 
 #: field_paths whose classified value is checked against a fixed engine
@@ -255,7 +351,7 @@ def _primary_metric_weighting_finding(paper: MethodSpec) -> Finding | None:
     fires when the metric actually carries a `weighting` tag (never guess
     when the extractor/reviewer left it unset)."""
     rr = paper.reported_results
-    primary = next((m for m in rr.metrics if m.metric_id == rr.primary_metric_id), None)
+    primary = rr.primary_comparison_metric()
     if primary is None or primary.weighting is None:
         return None
     if primary.weighting == paper.portfolio.weighting.value:
@@ -274,6 +370,65 @@ def _primary_metric_weighting_finding(paper: MethodSpec) -> Finding | None:
         empirical_impact="high",
         disposition=Disposition.NEEDS_HUMAN_CONFIRMATION,
         paper_value=primary.weighting.value,
+    )
+
+
+def _comparison_derivation_finding(paper: MethodSpec) -> Finding | None:
+    """Ensure an opt-in table endpoint spread remains a valid, executable
+    comparison instead of a convenient but incompatible subtraction."""
+    rr = paper.reported_results
+    derivation = rr.comparison_derivation
+    if derivation is None:
+        return None
+    by_id = {metric.metric_id: metric for metric in rr.metrics}
+    high = by_id[derivation.high_metric_id]
+    low = by_id[derivation.low_metric_id]
+    incompatible = [
+        field
+        for field in ("unit", "frequency", "weighting", "adjustment_model", "sample_period")
+        if getattr(high, field) != getattr(low, field)
+    ]
+    target_sort = next(
+        (
+            sort
+            for sort in paper.portfolio.sorts
+            if high.portfolio_selector is not None
+            and low.portfolio_selector is not None
+            and sort.sort_id in high.portfolio_selector
+            and sort.sort_id in low.portfolio_selector
+        ),
+        None,
+    )
+    endpoints_ok = (
+        target_sort is not None
+        and target_sort.group_count is not None
+        and high.portfolio_selector == {target_sort.sort_id: target_sort.group_count - 1}
+        and low.portfolio_selector == {target_sort.sort_id: 0}
+    )
+    leg_selectors = {(leg.side, tuple(sorted(leg.selector.items()))) for leg in paper.portfolio.legs}
+    executable = (
+        paper.portfolio.return_combination.value.value == "extreme_group_spread"
+        and target_sort is not None
+        and target_sort.group_count is not None
+        and ("long", tuple(sorted({target_sort.sort_id: target_sort.group_count - 1}.items()))) in leg_selectors
+        and ("short", tuple(sorted({target_sort.sort_id: 0}.items()))) in leg_selectors
+    )
+    if not incompatible and endpoints_ok and executable:
+        return None
+    reasons: list[str] = []
+    if incompatible:
+        reasons.append("endpoint metrics disagree on " + ", ".join(incompatible))
+    if not endpoints_ok:
+        reasons.append("endpoint metric selectors are not the target sort's low and high buckets")
+    if not executable:
+        reasons.append("portfolio legs/return combination do not implement the requested high-minus-low spread")
+    return Finding(
+        field_path="reported_results.comparison_derivation",
+        kind="inconsistent",
+        reason="; ".join(reasons) + ".",
+        empirical_impact="high",
+        disposition=Disposition.NEEDS_HUMAN_CONFIRMATION,
+        paper_value=derivation.model_dump(mode="json"),
     )
 
 
@@ -312,6 +467,52 @@ def _missing_mapping_findings(paper: MethodSpec) -> list[Finding]:
     return findings
 
 
+def _disjoint_between_filter_findings(paper: MethodSpec) -> list[Finding]:
+    """Flag same-field interval intersections that make the universe empty.
+
+    The filter list is intentionally AND-only. Disjoint ranges in one paper
+    clause normally mean an allowed-range union, but this reviewer must never
+    silently rewrite paper facts, so it asks for human confirmation of the
+    explicit ``intervals`` predicate instead.
+    """
+    by_concept: dict[str, list[tuple[int, list[float]]]] = {}
+    for i, filt in enumerate(paper.universe.filters):
+        value = filt.value
+        if (
+            not filt.accepted_unapplied
+            and filt.op.value == "between"
+            and isinstance(value, list)
+            and len(value) == 2
+            and all(isinstance(bound, (int, float)) and not isinstance(bound, bool) for bound in value)
+            and value[0] <= value[1]
+        ):
+            by_concept.setdefault(filt.concept_id, []).append((i, value))
+
+    findings: list[Finding] = []
+    for concept_id, intervals in by_concept.items():
+        if len(intervals) < 2:
+            continue
+        ordered = sorted(intervals, key=lambda item: item[1][0])
+        if any(right[1][0] > left[1][1] for left, right in zip(ordered, ordered[1:])):
+            indices = [i for i, _ in intervals]
+            findings.append(
+                Finding(
+                    field_path=f"universe.filters[{indices[0]}]",
+                    kind="inconsistent",
+                    reason=(
+                        f"{concept_id!r} has disjoint top-level 'between' filters at indices {indices}. "
+                        "Top-level universe filters are combined with AND, so this produces an empty universe. "
+                        "If the paper means a union of allowed intervals, replace them with one "
+                        "FilterOp.intervals value such as [[low1, high1], [low2, high2]]."
+                    ),
+                    empirical_impact="high",
+                    disposition=Disposition.NEEDS_HUMAN_CONFIRMATION,
+                    paper_value=[value for _, value in intervals],
+                )
+            )
+    return findings
+
+
 def review_method_spec(
     paper: MethodSpec, capability_version: str = CAPABILITY_VERSION_V1
 ) -> MethodReview:
@@ -345,6 +546,7 @@ def _all_high_impact_field_findings(paper: MethodSpec) -> list[Finding]:
         finding = _evidence_status_finding(field_path, sourced_value, always=True)
         if finding is not None:
             entries.append(finding)
+    entries.extend(_universe_filter_high_impact_entries(paper))
     return entries
 
 
@@ -384,11 +586,29 @@ def _compute_findings(
         _lag_unit_capability_finding(paper),
         _sort_dimension_count_finding(paper),
         _primary_metric_weighting_finding(paper),
+        _comparison_derivation_finding(paper),
     ):
         if capability_finding is not None:
             findings.append(capability_finding)
 
     findings.extend(_missing_mapping_findings(paper))
+    findings.extend(_disjoint_between_filter_findings(paper))
+    findings.extend(_universe_evidence_coverage_findings(paper))
+    if requires_crsp_fiscal_year_end_market_equity(paper):
+        for error in market_equity_contract_errors(paper):
+            findings.append(
+                Finding(
+                    field_path="signal.formula",
+                    kind="unsupported",
+                    reason=(
+                        "Approved implementation policy for Dichev Z-score requires CCM-aligned "
+                        "CRSP abs(prc) * shrout / 1000 at fiscal year end and Compustat lt: " + error
+                    ),
+                    empirical_impact="high",
+                    disposition=Disposition.NEEDS_HUMAN_CONFIRMATION,
+                    paper_value="CRSP fiscal-year-end market equity",
+                )
+            )
     return findings
 
 
@@ -499,4 +719,3 @@ def _field_snapshot(paper: MethodSpec) -> dict[str, dict]:
         }
         for field_path, sourced_value in high_impact_sourced_values(paper)
     }
-

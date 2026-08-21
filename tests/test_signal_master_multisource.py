@@ -18,6 +18,7 @@ from src.infra.data_layer import (
     assemble_signal_master_table,
     link_to_permno,
 )
+from src.infra.data_layer.sources import _read_raw_link_table_csv
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 DATA_DIR = REPO_ROOT / "data" / "synthetic_data" / "test_papers_v1"
@@ -106,6 +107,22 @@ def test_link_to_permno_drops_bad_linktype_and_prefers_primary():
     assert "linktype" not in out.columns and "linkprim" not in out.columns
 
 
+def test_raw_ccm_csv_preserves_zero_padded_gvkey_for_linking(tmp_path):
+    """CSV inference must not turn CCM's ``001000`` identifier into ``1000``."""
+    path = tmp_path / "CRSP_COMPUSTAT_LINK.csv"
+    path.write_text(
+        "gvkey,lpermno,linkdt,linkenddt,linktype,linkprim\n"
+        "001000,12345,1980-01-01,E,LC,P\n"
+    )
+
+    ccm = _read_raw_link_table_csv(path, "ccm")
+    assert ccm.loc[0, "gvkey"] == "001000"
+
+    source = pd.DataFrame([{"gvkey": "001000", "datadate": "1981-12-31", "at": 1.0}])
+    linked = link_to_permno(source, "compustat_fundamental_annual", {"ccm": ccm})
+    assert linked.loc[0, "permno"] == 12345
+
+
 def test_load_source_frame_raises_for_source_without_date_column(monkeypatch):
     # Any source registered with observation_date=None must fail loud, not
     # silently return zero rows (regression for the patents_nber bug fixed
@@ -148,4 +165,3 @@ def test_load_source_frame_raises_for_source_without_date_column(monkeypatch):
 # multi_source template no longer reads (it now calls
 # `build_crsp_monthly_panel_ciz`, expecting a real WRDS CIZ export). See
 # docs/decision-log.md (2026-07-31 entry).
-

@@ -21,7 +21,7 @@ import pytest
 
 from src.infra.models.plugin import PluginRecord, ValidationReport
 from src.infra.models.run_record import RunMetrics, RunRecord
-from src.steps.step6_dual_track_controller import MultiTrackController, ExperimentPlan
+from src.steps.step6_dual_track_controller import ExperimentPlan, MultiTrackController
 from tests._spec_test_helpers import minimal_resolved_spec, spec_factor_id
 
 
@@ -116,6 +116,21 @@ class FakeSandbox:
 
 
 class TestRunExperiment:
+    def test_progress_reports_plan_track_start_and_metrics(self):
+        runner = FakeRunner(fail_times=0)
+        controller = MultiTrackController(runner=runner, meta_coder=FakeMetaCoder(), sandbox=FakeSandbox())
+        messages: list[str] = []
+        plan = ExperimentPlan(factor_id="t", run_original=True, run_standardized=False)
+
+        controller.run_experiment(_plugin(), _spec(), plan, snapshot_id="snap1", progress=messages.append)
+
+        assert messages[0] == "Experiment plan: 1 track(s) total (1 to execute, 0 reused baseline)."
+        assert messages[1] == "Track 1/1 started: original_method."
+        assert messages[2] == (
+            "Track 1/1 completed: original_method "
+            "(status=success, mean_monthly_return=1.000%, t_stat=2.00)."
+        )
+
     def test_single_track_happy_path(self):
         runner = FakeRunner(fail_times=0)
         controller = MultiTrackController(runner=runner, meta_coder=FakeMetaCoder(), sandbox=FakeSandbox())

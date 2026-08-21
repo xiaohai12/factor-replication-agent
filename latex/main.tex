@@ -1,28 +1,90 @@
+\PassOptionsToPackage{table}{xcolor}
 \documentclass[
   11pt,
-  a4paper,
   oneside,
-  headings=big,
-  headsepline,
-  bibliography=totoc,
-  listof=totoc,
-  abstract=true
-]{scrreprt}
+  english,
+  singlespacing,
+  liststotoc,
+  headsepline
+]{MastersDoctoralThesis}
+
 \input{preamble}
 
-\title{Underdetermination in Factor Replication:\\
+\thesistitle[Underdetermination in Factor Replication]{Underdetermination in Factor Replication:\\
   A Controlled, Leakage-Proof LLM Agent as an Independent Second Implementer}
+\supervisor{}
+\examiner{}
 \author{Your Name}
+\addresses{}
+\subject{}
+\keywords{}
+\university{{University of Lausanne}}
+\department{}
+\group{}
+\faculty{}
 \date{\today}
+
+\AtBeginDocument{
+  \hypersetup{pdftitle=\ttitle}
+  \hypersetup{pdfauthor=\authorname}
+  \hypersetup{pdfkeywords=\keywordnames}
+}
 
 \begin{document}
 
-\pagenumbering{roman}
-\maketitle
+\pagestyle{scrheadings}
 
+% ---------------------------------------------------------------------------
+% Title page -- follows the supplied UNIL template verbatim in structure.
+% ---------------------------------------------------------------------------
+\begin{titlepage}
+\begin{center}
+
+\vspace*{.06\textheight}
+{\scshape\LARGE \univname\par}\vspace{1.5cm}
+\textsc{\Large Master's Thesis}\\[0.5cm]
+
+\HRule \\[0.4cm]
+{\huge \bfseries \ttitle\par}\vspace{0.4cm}
+\HRule \\[1.5cm]
+
+\begin{minipage}[t]{0.4\textwidth}
+\begin{flushleft} \large
+\emph{Author:}\\
+{\authorname}
+\end{flushleft}
+\end{minipage}
+\begin{minipage}[t]{0.4\textwidth}
+\begin{flushright} \large
+\emph{Supervisor:}\\
+{\supname}
+\end{flushright}
+\end{minipage}\\[1cm]
+
+\vfill
+{\large \today\par}
+
+\begin{tikzpicture}[remember picture,overlay]
+  \node[anchor=south east, xshift=-1.5cm, yshift=1.5cm]
+    at (current page.south east) {
+      \includegraphics[scale=0.15]{Figures/UNIL-LOGOTYPE-BLUE-CMYK.eps}
+    };
+\end{tikzpicture}
+
+\end{center}
+\end{titlepage}
+
+% ---------------------------------------------------------------------------
+% Abstract
+% ---------------------------------------------------------------------------
 \clearpage
 \thispagestyle{empty}
-\begin{abstract}
+
+\begin{center}
+  \LARGE \textbf{Abstract}
+\end{center}
+\vspace{1cm}
+
 % TODO: 2026-08-18 draft skeleton. Fill in after Ch.1/Ch.7 numbers are final.
 % Should state: (1) the underdetermination framing (not "replication crisis"),
 % (2) the two research questions RQ1 (why do C&Z/HXZ diverge on a given
@@ -32,19 +94,31 @@
 % finding, (4) that all empirical numbers are deterministic once the LLM
 % step is frozen.
 Placeholder abstract.
-\end{abstract}
 
-\clearpage
+\cleardoublepage
+
+% ---------------------------------------------------------------------------
+% Contents, tables, and figures
+% ---------------------------------------------------------------------------
 \tableofcontents
+
+\begingroup
+\makeatletter
+\let\oldaddvspace\addvspace
+\renewcommand*\addvspace[1]{}
 \listoftables
 \listoffigures
+\let\addvspace\oldaddvspace
+\makeatother
+\endgroup
 
-\clearpage
-\pagenumbering{arabic}
+% ---------------------------------------------------------------------------
+% Thesis content
+% ---------------------------------------------------------------------------
+\pagestyle{scrheadings}
 
-% The source files deliberately retain their original section commands.
-% For this thesis layout, promote those levels at the presentation layer:
-% section -> chapter, subsection -> section, subsubsection -> subsection.
+% Preserve the existing content files byte-for-byte while presenting their
+% top-level sections as the template's chapters.
 \let\thesischapter\chapter
 \let\thesissection\section
 \let\thesissubsection\subsection
@@ -69,7 +143,9 @@ Placeholder abstract.
 \input{sections/appendix_e_per_factor}
 \input{sections/appendix_f_reproducibility}
 
-\bibliographystyle{plainnat}
-\bibliography{refs}
+% ---------------------------------------------------------------------------
+% Bibliography
+% ---------------------------------------------------------------------------
+\printbibliography
 
 \end{document}

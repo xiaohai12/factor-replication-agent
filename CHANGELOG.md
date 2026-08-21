@@ -2,6 +2,95 @@
 
 ## [Unreleased]
 
+### reported results: opt-in deterministic table endpoint spreads (2026-08-21)
+
+`reported_results` can now request an explicit `high_minus_low` comparison
+from two cited portfolio table cells. The extractor records the endpoint
+facts and selectors only; Step5 deterministically materializes the difference
+for the paper-reference endpoint. Step2 rejects mismatched endpoint metadata
+or legs that do not implement the same spread, and the dashboard labels the
+result as derived. The extension is opt-in: an absent derivation retains the
+legacy primary-metric behavior and content hash.
+
+### step2: require cited universe restrictions to reach human review (2026-08-20)
+
+Every declared universe filter is now a high-impact review item. The reviewer
+also flags any quoted/table universe-description evidence that is not reused
+by an executable filter as an `incomplete` / `needs_human_confirmation`
+finding; an unsupported or invented data field cannot satisfy coverage. The
+extractor and reviewer prompts include the standard CRSP example
+`exchcd in [1, 2, 3]` for an explicitly stated NYSE/AMEX/Nasdaq screen. The
+existing `Finding.kind` vocabulary now includes `incomplete` and
+`universe_filter` so these cases retain their structural meaning in the UI.
+
+### data layer: preserve raw CCM `gvkey` leading zeros (2026-08-20)
+
+The raw link-table CSV loader now reads its declared identifier key as text.
+This prevents pandas from converting CCM `gvkey` values such as `001000` to
+`1000`, which previously broke the raw Compustat-to-CCM join and removed most
+pre-1990 observations from the Dichev Z-score backtest.
+
+### step6: add Dichev ZScore C&Z/HXZ references (2026-08-20)
+
+Registered the reviewed Dichev Z-score session (`d5661ba61aae804d`) as C&Z
+`ZScore`, so it appears in Step 6's OpenAssetPricing C&Z dropdown. Added the
+user-provided HXZ reference (`mean_return=0.01`, `t_stat=0.06`) for the same
+acronym. It is explicitly labelled as a manual reference without an HXZ
+testing-portfolio CSV and is not presented as a window-adjustable
+recomputation. The C&Z and HXZ selectors render the C&Z acronym alone rather
+than the internal hashed factor ID.
+
+### universe filters: add explicit `intervals` unions (2026-08-20)
+
+Added the `FilterOp.intervals` `{field, op, value}` predicate for a union of
+inclusive numeric intervals, preserving the existing top-level AND filter
+pattern. The schema and engine validate/evaluate it deterministically; Step2
+now flags disjoint same-field `between` filters that would otherwise create
+an empty universe, and extraction/review prompts instruct the LLM to emit the
+single union predicate. The frontend renders range unions readably and offers
+an explicit conversion action for disjoint `between` filters and legacy
+invalid `in: [[low, high], ...]` values. The schema now rejects that invalid
+legacy shape outright, so it cannot silently reach the backtest engine.
+
+### step4: run validation samples from raw CSV inputs (2026-08-20)
+
+Step4's full-script smoke test now forces the generated script's CSV fallback
+and the source loaders recognize `data/local/validation_sample/`'s flat
+`*_sample.csv` layout. This prevents optional flattened CRSP/Compustat
+parquets from masking the raw-loader path during validation; the existing CCM
+parquet link table remains available unchanged. Identifier keys are normalized
+textually before the raw-CSV-to-CCM join, covering CSV numeric inference (for
+example `gvkey`) without losing identifier semantics.
+
+### latex: organize the pipeline section by agent steps 1--8 (2026-08-20)
+
+Rewrote the controlled-replication-pipeline section to give each pipeline step
+its own account, including standalone script execution (Step 5) and
+multi-track/refreeze orchestration (Step 6). The description now also states
+that Step 8 is an optional, evidence-constrained LLM diagnosis layer, while
+preserving the boundary that empirical choices and reported numbers remain
+deterministic. It now explicitly identifies registered data availability and
+the finite menu (including EW/VW) as operational limitations, with a
+cross-reference to the study scope.
+
+### Dichev Z-score: force CCM-aligned CRSP market equity (2026-08-20)
+
+For `Z_score` from *Is the risk of bankruptcy a systematic risk?*, the
+user-approved implementation policy now hard-requires CRSP fiscal-year-end
+`abs(prc) * shrout / 1000` (through CCM) and Compustat `lt`. Step 1/2 prompts
+state the contract, Step 2 records violations, Step 3 refuses non-compliant
+specs and builds the fiscal-month CRSP/Compustat join, and Step 4 rejects
+plugins that use Compustat market-value/price/share substitutes or omit the
+required raw inputs/unit conversion.
+
+### step6: stream per-track experiment progress to the session log (2026-08-20)
+
+Step 6 now logs the planned number of tracks (including reused baselines),
+each track's start, and each completion with status, mean monthly return, and
+t-stat. A re-freeze batch rerun is logged explicitly. These messages flow
+through the existing job SSE stream and persisted session event journal, so
+the UI shows useful progress during full-data multi-track runs.
+
 ### repo: keep ZIP data archives local by default (2026-08-20)
 
 Added a global ZIP ignore rule and removed the HXZ testing-portfolio archives
@@ -13,14 +102,14 @@ Added a global CSV ignore rule and removed the CSV files accidentally added by
 the latest commit from Git tracking. The local files are retained; the older
 tracked HXZ reference CSV is unchanged.
 
-### latex: adapted thesis presentation to the supplied master's template (2026-08-20)
+### latex: adopted the supplied master's template and UNIL title page (2026-08-20)
 
-Reformatted the existing `latex/` document as an Overleaf-compatible KOMA-
-Script thesis: A4 page geometry with binding offset, Palatino typography,
-chapter-style divisions, a ruled title page, running headers, Roman-numbered
-front matter, and lists of tables and figures. The adaptation is confined to
-`main.tex`, `preamble.tex`, and build documentation; thesis section/table text,
-bibliography data, citations, equations, and figure placeholders are unchanged.
+Reformatted the existing `latex/` document with the supplied template itself,
+including its `MastersDoctoralThesis.cls`, exact margins/spacing/headings,
+header and footer scheme, BibLaTeX author-year style, ruled title-page layout,
+and original UNIL EPS logo. The adaptation is confined to the formatting
+wrapper and copied template assets; thesis section/table text, bibliography
+data, citations, equations, and figure placeholders are unchanged.
 
 ### data_layer: registered `fopt`/`lt` concept aliases + `fopt` description (2026-08-19)
 

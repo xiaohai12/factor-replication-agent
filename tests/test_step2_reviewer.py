@@ -12,20 +12,23 @@ from src.infra.data_layer import DataDictionary
 from src.infra.models.method_spec import (
     AdjustmentModel,
     BreakpointSpec,
+    ComparisonDerivation,
     ConstructionType,
     DataAvailability,
     DataSpec,
     Disposition,
     Estimand,
+    EvidenceCitation,
     EvidenceStatus,
     FieldRole,
     FilterOp,
     FilterSpec,
     FormulaSpec,
     GroupType,
-    Period,
     MethodSpec,
+    MetricStatistic,
     PaperRef,
+    Period,
     PortfolioLeg,
     PortfolioSpec,
     ReportedMetric,
@@ -38,12 +41,10 @@ from src.infra.models.method_spec import (
     SortDimension,
     SortMode,
     SortRole,
-    SourcedValue,
     SourceColumn,
+    SourcedValue,
     SourceName,
-    MetricStatistic,
     TableRef,
-    EvidenceCitation,
     TimeUnit,
     TimingSpec,
     Unit,
@@ -129,10 +130,54 @@ def _base_spec(**portfolio_overrides) -> MethodSpec:
     )
 
 
+def _dichev_policy_spec(*, use_forbidden_proxy: bool = False) -> MethodSpec:
+    spec = _base_spec()
+    spec.factor_id = MethodSpec.make_factor_id("Is the risk of bankruptcy a systematic risk.pdf", "Z_score")
+    spec.target_name = "Z_score"
+    spec.paper.document_id = "Is the risk of bankruptcy a systematic risk.pdf"
+    spec.signal.formula.inputs = [
+        "at", "crsp_fiscal_year_end_price", "crsp_fiscal_year_end_shares", "total_liabilities"
+    ]
+    spec.data.fields.extend([
+        RequiredField(
+            concept_id="crsp_fiscal_year_end_price", name_in_paper="market equity price",
+            roles=[FieldRole.SIGNAL_INPUT],
+            source_table=SourcedValue(value=SourceName.CRSP_MSF, status=EvidenceStatus.CLEAR),
+            source_column=SourcedValue(value="prc", status=EvidenceStatus.CLEAR),
+        ),
+        RequiredField(
+            concept_id="crsp_fiscal_year_end_shares", name_in_paper="market equity shares",
+            roles=[FieldRole.SIGNAL_INPUT],
+            source_table=SourcedValue(value=SourceName.CRSP_MSF, status=EvidenceStatus.CLEAR),
+            source_column=SourcedValue(value="shrout", status=EvidenceStatus.CLEAR),
+        ),
+        RequiredField(
+            concept_id="total_liabilities", name_in_paper="total liabilities",
+            roles=[FieldRole.SIGNAL_INPUT],
+            source_table=SourcedValue(value=SourceName.COMPUSTAT_FUNDAMENTAL_ANNUAL, status=EvidenceStatus.CLEAR),
+            source_column=SourcedValue(value="lt", status=EvidenceStatus.CLEAR),
+        ),
+    ])
+    if use_forbidden_proxy:
+        spec.data.fields.append(RequiredField(
+            concept_id="market_value_equity", name_in_paper="market value equity",
+            roles=[FieldRole.SIGNAL_INPUT],
+            source_table=SourcedValue(value=SourceName.COMPUSTAT_FUNDAMENTAL_ANNUAL, status=EvidenceStatus.CLEAR),
+            source_column=SourcedValue(value="mkvalt", status=EvidenceStatus.CLEAR),
+        ))
+    return spec
+
+
 class TestReviewCleanBaseline:
     def test_fully_clear_spec_has_no_findings(self):
         review = review_method_spec(_base_spec())
         assert review.findings == []
+
+    def test_dichev_policy_flags_compustat_market_value_proxy(self):
+        review = review_method_spec(_dichev_policy_spec(use_forbidden_proxy=True))
+        policy_findings = [f for f in review.findings if "implementation policy" in f.reason]
+        assert policy_findings
+        assert any("mkvalt" in f.reason for f in policy_findings)
 
     def test_fully_clear_spec_still_lists_every_high_impact_field(self):
         # `findings` stays empty (nothing needs attention), but
@@ -228,6 +273,55 @@ class TestMissingMappingFindings:
         paper.universe.filters = [FilterSpec(concept_id="at", op=FilterOp.NONMISSING)]
         review = review_method_spec(paper)
         assert not any(f.field_path == "universe.filters[0].concept_id" for f in review.findings)
+
+
+class TestUniverseEvidenceCoverage:
+    def test_uncovered_universe_citation_needs_human_confirmation(self):
+        paper = _base_spec()
+        citation = EvidenceCitation(location="p. 1", quote="Eligible firms must meet the stated sample screen.")
+        paper.universe.description.evidence = [citation]
+
+        review = review_method_spec(paper)
+
+        finding = next(f for f in review.findings if f.field_path == "universe.description.evidence[0]")
+        assert finding.kind == "incomplete"
+        assert finding.disposition == Disposition.NEEDS_HUMAN_CONFIRMATION
+        assert finding.evidence == [citation]
+
+    def test_filter_reusing_universe_citation_covers_it(self):
+        paper = _base_spec()
+        citation = EvidenceCitation(location="p. 1", quote="Eligible firms must meet the stated sample screen.")
+        paper.universe.description.evidence = [citation]
+        paper.universe.filters = [FilterSpec(concept_id="at", op=FilterOp.GT, value=0, evidence=[citation])]
+
+        review = review_method_spec(paper)
+
+        assert not any(f.kind == "incomplete" for f in review.findings)
+
+    def test_unsupported_filter_field_does_not_cover_universe_citation(self):
+        paper = _base_spec()
+        citation = EvidenceCitation(location="p. 1", quote="Eligible firms must meet the stated sample screen.")
+        paper.universe.description.evidence = [citation]
+        paper.universe.filters = [FilterSpec(concept_id="at", op=FilterOp.GT, value=0, evidence=[citation])]
+        paper.data.fields[0].source_table = SourcedValue(
+            value=SourceName.OTHER,
+            unsupported_value="invented eligibility condition",
+            status=EvidenceStatus.CLEAR,
+        )
+
+        review = review_method_spec(paper)
+
+        assert any(f.kind == "incomplete" for f in review.findings)
+
+    def test_every_universe_filter_is_shown_as_high_impact(self):
+        paper = _base_spec()
+        paper.universe.filters = [FilterSpec(concept_id="at", op=FilterOp.GT, value=0)]
+
+        review = review_method_spec(paper)
+
+        finding = next(f for f in review.all_high_impact_fields if f.field_path == "universe.filters[0]")
+        assert finding.kind == "universe_filter"
+        assert finding.disposition == Disposition.NEEDS_HUMAN_CONFIRMATION
 
 
 class TestEngineMenuUnconditionalFindings:
@@ -331,6 +425,47 @@ class TestEngineMenuUnconditionalFindings:
         # _base_spec() leaves ReportedMetric.weighting unset (None) -- never guess.
         review = review_method_spec(_base_spec())
         assert not any(f.field_path == "reported_results.primary_metric_id" for f in review.findings)
+
+    def test_endpoint_derivation_requires_matching_spread_legs(self):
+        paper = _base_spec()
+        low = paper.reported_results.metrics[0].model_copy(
+            update={"metric_id": "low", "estimate": 0.48, "portfolio_selector": {"sort1": 0}}
+        )
+        high = low.model_copy(
+            update={"metric_id": "high", "estimate": 1.07, "portfolio_selector": {"sort1": 9}}
+        )
+        paper.reported_results = ReportedResults(
+            primary_metric_id="low", metrics=[low, high],
+            comparison_derivation=ComparisonDerivation(
+                metric_id="high_minus_low", label="High − low", operation="high_minus_low",
+                high_metric_id="high", low_metric_id="low", use_as_primary_comparison=True,
+            ),
+        )
+        paper.portfolio.legs = [
+            PortfolioLeg(leg_id="long", side="long", selector={"sort1": 9}),
+            PortfolioLeg(leg_id="short", side="short", selector={"sort1": 0}),
+        ]
+        assert not any(
+            finding.field_path == "reported_results.comparison_derivation"
+            for finding in review_method_spec(paper).findings
+        )
+        paper.portfolio.legs[0].selector = {"sort1": 8}
+        assert any(
+            finding.field_path == "reported_results.comparison_derivation"
+            for finding in review_method_spec(paper).findings
+        )
+
+    def test_disjoint_same_field_between_filters_require_confirmation(self):
+        paper = _base_spec()
+        paper.universe.filters = [
+            FilterSpec(concept_id="at", op=FilterOp.BETWEEN, value=[1, 3999]),
+            FilterSpec(concept_id="at", op=FilterOp.BETWEEN, value=[5000, 5999]),
+        ]
+        review = review_method_spec(paper)
+        matches = [f for f in review.findings if f.kind == "inconsistent"]
+        assert len(matches) == 1
+        assert matches[0].disposition == Disposition.NEEDS_HUMAN_CONFIRMATION
+        assert "intervals" in matches[0].reason
 
 
 

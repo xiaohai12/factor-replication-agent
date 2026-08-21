@@ -36,20 +36,21 @@ import itertools
 import json
 import uuid
 from collections import Counter
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
-from src.steps.step5_backtest_runner import BacktestRunner
-from src.steps.step3_codegen import MetaCoder
-from src.steps.step3_codegen.registry import build_config
-from src.steps.step4_validator import AdversarialSandbox
-from src.steps.step7_replication_diff import safe_diff_ablation
 from src.infra.models.method_spec import ResolvedMethodSpec
 from src.infra.models.plugin import PluginRecord
 from src.infra.models.run_record import RunRecord
 from src.infra.reference import HXZ_STANDARD_CONFIG as HXZ_STANDARD_CONFIG
 from src.infra.repair import RepairLoop
+from src.steps.step3_codegen import MetaCoder
+from src.steps.step3_codegen.registry import build_config
+from src.steps.step4_validator import AdversarialSandbox
+from src.steps.step5_backtest_runner import BacktestRunner
+from src.steps.step7_replication_diff import safe_diff_ablation
 
 if TYPE_CHECKING:
     from src.steps.step6_dual_track_controller.experiment_spec import ExperimentMatrix
@@ -249,6 +250,7 @@ class MultiTrackController:
         plan: ExperimentPlan,
         snapshot_id: str,
         reuse_original_run: RunRecord | None = None,
+        progress: Callable[[str], None] | None = None,
     ) -> list[RunRecord]:
         """Run all planned tracks for a factor.
 
@@ -279,7 +281,7 @@ class MultiTrackController:
         matrix = self._plan_to_matrix(plan, spec)
         return self.run_from_matrix(
             plugin, spec, matrix, snapshot_id, run_baseline=plan.run_original,
-            reused_baseline_run=reuse_original_run,
+            reused_baseline_run=reuse_original_run, progress=progress,
         )
 
     def _plan_to_matrix(self, plan: ExperimentPlan, spec: ResolvedMethodSpec) -> "ExperimentMatrix":
@@ -510,6 +512,7 @@ class MultiTrackController:
         snapshot_id: str,
         run_baseline: bool = True,
         reused_baseline_run: RunRecord | None = None,
+        progress: Callable[[str], None] | None = None,
     ) -> list[RunRecord]:
         """Run every experiment in a loaded, validated
         `experiment_spec.ExperimentMatrix` (Phase A2,
@@ -563,8 +566,25 @@ class MultiTrackController:
             identification_by_track[exp.name] = (exp.family, exp.identification_level)
             switches_by_track[exp.name] = _switches_flipped_from_diff(exp.resolved_diff)
 
+        total_tracks = len(track_specs) + len(reused_runs)
+        if progress:
+            execution_count = len(track_specs)
+            reused_count = len(reused_runs)
+            progress(
+                f"Experiment plan: {total_tracks} track(s) total "
+                f"({execution_count} to execute, {reused_count} reused baseline)."
+            )
+            for index, run in enumerate(reused_runs, start=1):
+                progress(
+                    f"Track {index}/{total_tracks} reused: {run.track} "
+                    f"(Step 5 execution {run.run_id})."
+                )
+
         runs, effective_plugin, refreeze_attempts = self._run_tracks_with_freeze(
-            plugin, spec, snapshot_id, track_specs
+            plugin, spec, snapshot_id, track_specs,
+            progress=progress,
+            total_tracks=total_tracks,
+            completed_before_execution=len(reused_runs),
         )
         runs.extend(reused_runs)
         for run in runs:
@@ -732,6 +752,9 @@ class MultiTrackController:
         snapshot_id: str,
         track_specs: list[tuple[str, dict[str, Any]]],
         max_refreeze_attempts: int = 1,
+        progress: Callable[[str], None] | None = None,
+        total_tracks: int | None = None,
+        completed_before_execution: int = 0,
     ) -> tuple[list[RunRecord], PluginRecord, int]:
         """Run every `(track_name, config_overrides)` in `track_specs`,
         automatically re-running the WHOLE batch from a re-frozen plugin if
@@ -769,9 +792,14 @@ class MultiTrackController:
         """
         if len(track_specs) <= 1:
             runs = []
-            for track_name, overrides in track_specs:
+            for offset, (track_name, overrides) in enumerate(track_specs, start=1):
+                track_index = completed_before_execution + offset
+                if progress:
+                    progress(f"Track {track_index}/{total_tracks or len(track_specs)} started: {track_name}.")
                 record, _used_plugin = self._run_track(plugin, spec, snapshot_id, track_name, overrides)
                 runs.append(record)
+                if progress:
+                    progress(self._track_completed_message(track_index, total_tracks or len(track_specs), record))
             return runs, plugin, 0
 
         current_plugin = plugin
@@ -780,12 +808,19 @@ class MultiTrackController:
             runs: list[RunRecord] = []
             used_plugins: dict[str, PluginRecord] = {}
             loop = self.repair_loop if attempt == 0 else self._frozen_repair_loop
-            for track_name, overrides in track_specs:
+            for offset, (track_name, overrides) in enumerate(track_specs, start=1):
+                track_index = completed_before_execution + offset
+                track_total = total_tracks or (completed_before_execution + len(track_specs))
+                if progress:
+                    prefix = "Re-freeze pass: " if attempt else ""
+                    progress(f"{prefix}Track {track_index}/{track_total} started: {track_name}.")
                 record, used_plugin = self._run_track(
                     current_plugin, spec, snapshot_id, track_name, overrides, repair_loop=loop
                 )
                 runs.append(record)
                 used_plugins[track_name] = used_plugin
+                if progress:
+                    progress(self._track_completed_message(track_index, track_total, record, refreeze=bool(attempt)))
 
             divergent = [
                 (name, used_plugins[name])
@@ -798,6 +833,27 @@ class MultiTrackController:
 
             attempt += 1
             current_plugin = divergent[0][1]
+            if progress:
+                progress(
+                    "A technical repair changed the plugin code; re-running every executable "
+                    "track once with the repaired code to keep the batch comparable."
+                )
+
+    @staticmethod
+    def _track_completed_message(
+        track_index: int,
+        total_tracks: int,
+        record: RunRecord,
+        refreeze: bool = False,
+    ) -> str:
+        """Human-readable, SSE-safe completion line for one Step 6 track."""
+        prefix = "Re-freeze pass: " if refreeze else ""
+        details = [f"status={record.status}"]
+        if record.metrics.mean_return is not None:
+            details.append(f"mean_monthly_return={record.metrics.mean_return:.3%}")
+        if record.metrics.t_stat is not None:
+            details.append(f"t_stat={record.metrics.t_stat:.2f}")
+        return f"{prefix}Track {track_index}/{total_tracks} completed: {record.track} ({', '.join(details)})."
 
     def _get_ablation_override(self, switch: str, target_config: dict[str, Any]) -> dict[str, Any]:
         """Get a single-switch config override: flip just this one setting

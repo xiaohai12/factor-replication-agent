@@ -105,13 +105,18 @@ def _load_decile_returns(csv_path: Path, rank_column: str) -> pd.DataFrame:
     return df
 
 
-# Manual paper-reported fallback for a factor with no HXZ testing-portfolio
-# CSV under `data/hxz/return_ref/` -- filled in from the paper's own stated
-# HXZ-protocol result, one factor at a time, never guessed. Used by
-# `compute_hxz_reported` only when no CSV-derived number is available, so a
-# real recomputed CSV number always wins over this fallback.
+# Manual reference for a factor with no HXZ testing-portfolio CSV under
+# `data/hxz/return_ref/`.  Each value's label must state its provenance;
+# these are never represented as a recomputation from an HXZ return file.
+# Used by `compute_hxz_reported` only when no CSV-derived number is available,
+# so a real recomputed CSV number always wins over this fallback.
 MANUAL_HXZ_REPORTED_FALLBACK: dict[str, dict[str, float | str]] = {
     "PS": {"mean_return": 0.0029, "t_stat": 1.11, "label": "HXZ (paper-reported, no testing-portfolio CSV)"},
+    "ZScore": {
+        "mean_return": 0.01,
+        "t_stat": 0.06,
+        "label": "HXZ (user-provided reference; no testing-portfolio CSV)",
+    },
 }
 
 
