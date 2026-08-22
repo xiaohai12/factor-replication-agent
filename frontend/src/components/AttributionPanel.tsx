@@ -182,26 +182,72 @@ function fmtNum(v: number | undefined, digits = 4): string {
 // already reports -- not a new/independent threshold set.
 const HXZ_TIERS = [1.96, 2.78, 3.39]
 
+type ExternalPerformanceEntry = {
+  available?: boolean
+  mean_return?: number | null
+  t_stat?: number | null
+  source?: string | null
+}
+
+const EXTERNAL_PERFORMANCE_LABELS: Record<string, string> = {
+  cz: "C&Z (reported)",
+  hxz: "HXZ (reported)",
+}
+
+// cz/hxz need to be visually distinguishable from EACH OTHER, not just from
+// the agent tracks -- a single shared "external" color made both reference
+// points indistinguishable at a glance. Literal hex (Tailwind blue-500/
+// red-500) because recharts `fill` needs an actual color value, not a
+// className -- same reasoning as HXZ_TIERS's reference lines using
+// `stroke-amber-500` via className (those ARE applied through className,
+// this can't be).
+const EXTERNAL_PERFORMANCE_COLORS: Record<string, string> = {
+  cz: "#3b82f6",
+  hxz: "#ef4444",
+}
+
 /** docs/step7-8.md Q8's "forest plot" candidate: one row per track, its own
  * t-stat as a point, HXZ's three tiered significance thresholds (Q7) as
  * dashed reference lines -- lets you see at a glance which tier each track
  * clears without reading the significance table row by row. Tracks with a
- * `null` t-stat are omitted (never plotted as zero). */
+ * `null` t-stat are omitted (never plotted as zero).
+ *
+ * `externalPerformance` (optional, `bundle.external_performance_comparison`
+ * minus `agent_tracks`) adds C&Z's/HXZ's own reported t-stat as extra rows,
+ * distinguished by a third fill color and an "(external)" tooltip note --
+ * a direct comparison against agent tracks, NOT routed through
+ * `paper_reported` the way `ThreeTermIdentityPanel` is (that number is
+ * sometimes an incomplete/non-comparable statistic; this just plots
+ * whatever each side actually reports). */
 export function ForestPlot({
   tracks,
   baselineTrack,
+  externalPerformance,
 }: {
   tracks: Record<string, { vs_paper?: { track_raw_t_stat?: number | null; track_significance_tier?: number | null } }>
   baselineTrack?: string
+  externalPerformance?: Record<string, ExternalPerformanceEntry>
 }) {
-  const rows = Object.entries(tracks)
+  const trackRows = Object.entries(tracks)
     .map(([track, d]) => ({
       track,
       tStat: d.vs_paper?.track_raw_t_stat,
       tier: d.vs_paper?.track_significance_tier ?? null,
+      external: false as const,
+      refKey: null,
     }))
-    .filter((r): r is { track: string; tStat: number; tier: number | null } => typeof r.tStat === "number")
-    .sort((a, b) => Math.abs(b.tStat) - Math.abs(a.tStat))
+    .filter((r): r is { track: string; tStat: number; tier: number | null; external: false; refKey: null } => typeof r.tStat === "number")
+  const externalRows = Object.entries(externalPerformance ?? {})
+    .filter(([, entry]) => entry.available && typeof entry.t_stat === "number")
+    .map(([ref, entry]) => ({
+      track: EXTERNAL_PERFORMANCE_LABELS[ref] ?? ref,
+      tStat: entry.t_stat as number,
+      tier: null,
+      external: true as const,
+      refKey: ref,
+      source: entry.source,
+    }))
+  const rows = [...trackRows, ...externalRows].sort((a, b) => Math.abs(b.tStat) - Math.abs(a.tStat))
 
   if (rows.length === 0) {
     return <p className="text-xs text-muted-foreground">No track t-stats available to plot.</p>
@@ -232,12 +278,23 @@ export function ForestPlot({
           <Tooltip
             content={({ active, payload }) => {
               if (!active || !payload?.length) return null
-              const p = payload[0].payload as { track: string; tStat: number; tier: number | null }
+              const p = payload[0].payload as {
+                track: string
+                tStat: number
+                tier: number | null
+                external: boolean
+                refKey: string | null
+                source?: string | null
+              }
               return (
                 <div className="rounded-md border border-border bg-background p-2 text-xs shadow">
                   <p className="font-medium">{p.track}</p>
                   <p>t_stat: {p.tStat.toFixed(2)}</p>
-                  <p>HXZ tier: {p.tier ?? "n/a"}</p>
+                  {p.external ? (
+                    <p className="text-muted-foreground">external reference{p.source ? ` -- ${p.source}` : ""}</p>
+                  ) : (
+                    <p>HXZ tier: {p.tier ?? "n/a"}</p>
+                  )}
                 </div>
               )
             }}
@@ -246,7 +303,13 @@ export function ForestPlot({
             {rows.map((r) => (
               <Cell
                 key={r.track}
-                fill={r.track === baselineTrack ? "var(--color-muted-foreground)" : "var(--color-primary)"}
+                fill={
+                  r.external
+                    ? EXTERNAL_PERFORMANCE_COLORS[r.refKey ?? ""] ?? "var(--color-secondary-foreground)"
+                    : r.track === baselineTrack
+                      ? "var(--color-muted-foreground)"
+                      : "var(--color-primary)"
+                }
               />
             ))}
           </Bar>

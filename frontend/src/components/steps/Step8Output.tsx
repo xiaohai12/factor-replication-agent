@@ -7,6 +7,22 @@ type RejectedClaim = { reason: string; claim: Record<string, unknown> }
 
 type Section = "reproduction" | "robustness" | "vs_cz" | "spec_quality" | "gap_split" | null
 
+// docs/step7-8.md readability redesign: one line-item in a card's compact
+// table -- most items in a homogeneous set (config divergences, per-switch
+// effects, weak spec fields) need only a value comparison, not a full
+// templated sentence. `note` is the only per-row prose, reserved for rows
+// that genuinely need explanation (an `unresolved` classification, or an
+// individually significant effect); a routine/explained row leaves it
+// empty.
+type SummaryRow = {
+  label: string
+  ours?: string
+  theirs?: string
+  effect?: string
+  tag?: string
+  note?: string
+}
+
 type DiagnosisSummary = {
   comparison_line?: string | null
   // docs/step7-8.md Part XVI: which of the 4 reader-facing sections this
@@ -18,26 +34,63 @@ type DiagnosisSummary = {
   per_switch_summary: Record<string, string>
   joint_supported: boolean | null
   dominant_switches: string[]
-  // docs/step7-8.md Part XII: inverted-pyramid layout -- `headline` (bottom
-  // line, always shown first) names its own comparison target in plain
-  // language, so no separate "vs. X" title is needed; `details` are
-  // supporting bullets in decreasing importance; `footnote` is a
-  // de-emphasized technical caveat.
+  // docs/step7-8.md readability redesign: inverted-pyramid layout --
+  // `headline` (bottom line, always shown first) names its own comparison
+  // target in plain language, so no separate "vs. X" title is needed;
+  // `intro` states a shared caveat/classification note ONCE for the whole
+  // card instead of repeating it on every row; `rows` is the compact table
+  // of same-shape items; `narrative` holds standalone sentences that are
+  // not about any one row; `footnote` is a de-emphasized technical caveat.
   headline: string
-  details: string[]
+  intro: string
+  rows: SummaryRow[]
+  narrative: string[]
   footnote: string
   // docs/step7-8.md Part XVI: {short label: long explanation} for every
-  // setting mentioned by short name in `headline`/`details` -- rendered as
-  // hover-tooltip terms, not inlined into every sentence.
+  // setting mentioned by short name -- rendered as hover-tooltip terms, not
+  // inlined into every sentence.
   glossary?: Record<string, string>
 }
 
 type VsPaperSummary = {
   section?: Section
   headline: string
-  details: string[]
+  intro: string
+  rows: SummaryRow[]
+  narrative: string[]
   footnote: string
   glossary?: Record<string, string>
+}
+
+// docs/step7-8.md "Step B": whether C&Z's and HXZ's own self-reported
+// numbers for this factor agree or conflict with EACH OTHER -- independent
+// of anything this engine ran. Rendered as its own banner ahead of every
+// other card, since it is context a reader needs before asking whether OUR
+// replication agrees with the paper.
+type PaperVerdictAgreement = {
+  available: boolean
+  verdict: "agree_significant" | "agree_insignificant" | "conflict" | "unavailable"
+  headline: string
+}
+
+function paperVerdictBannerClass(verdict: PaperVerdictAgreement["verdict"]): string {
+  if (verdict === "conflict") {
+    return "border-amber-600/30 bg-amber-500/10 text-amber-900 dark:text-amber-300"
+  }
+  if (verdict === "agree_significant" || verdict === "agree_insignificant") {
+    return "border-sky-600/30 bg-sky-500/10 text-sky-900 dark:text-sky-300"
+  }
+  return ""
+}
+
+function PaperVerdictBanner({ agreement }: { agreement?: PaperVerdictAgreement }) {
+  if (!agreement || !agreement.available || !agreement.headline) return null
+  return (
+    <div className={cn("flex items-start gap-2 rounded-md border px-3 py-2 text-sm", paperVerdictBannerClass(agreement.verdict))}>
+      {agreement.verdict === "conflict" && <span aria-hidden="true">⚠</span>}
+      <span>{agreement.headline}</span>
+    </div>
+  )
 }
 
 // docs/step7-8.md Part XVI: reading order is by READER QUESTION, not by
@@ -113,11 +166,96 @@ function GlossaryTerms({ glossary }: { glossary?: Record<string, string> }) {
   )
 }
 
+// docs/step7-8.md readability redesign: the compact table -- one row per
+// item in a homogeneous set. Each row shows its own label/tag/values/effect
+// and, only when it needs one, a `note` -- the shared reasoning behind a
+// whole group of rows lives once in the card's `intro` instead (rendered by
+// `SummaryCardBody`), not repeated here per row.
+function SummaryRows({ rows }: { rows: SummaryRow[] }) {
+  if (rows.length === 0) return null
+  return (
+    <ul className="flex flex-col gap-1.5 text-sm text-foreground/90">
+      {rows.map((row, i) => (
+        <li key={i} className="rounded-md border border-border/60 px-2 py-1.5">
+          <div className="flex flex-wrap items-baseline gap-x-2 gap-y-0.5">
+            <span className="font-medium">{row.label}</span>
+            {row.tag && (
+              <span className="rounded-full border border-border/60 px-1.5 py-0 text-[11px] text-muted-foreground">
+                {row.tag}
+              </span>
+            )}
+          </div>
+          {(row.ours || row.theirs) && (
+            <p className="text-xs text-muted-foreground">
+              {row.ours && <>ours: {row.ours}</>}
+              {row.ours && row.theirs && " · "}
+              {row.theirs && <>theirs: {row.theirs}</>}
+            </p>
+          )}
+          {row.effect && <p className="text-xs text-muted-foreground">Effect: {row.effect}</p>}
+          {row.note && <p className="text-xs text-foreground/90">{row.note}</p>}
+        </li>
+      ))}
+    </ul>
+  )
+}
+
+// Standalone sentences not tied to any one row above -- an aggregate fact
+// or a cross-cutting verdict.
+function NarrativeList({ narrative }: { narrative: string[] }) {
+  if (narrative.length === 0) return null
+  return (
+    <ul className="flex flex-col gap-1 text-sm text-foreground/90">
+      {narrative.map((n, i) => (
+        <li key={i} className="flex gap-2">
+          <span className="text-muted-foreground">·</span>
+          <span>{n}</span>
+        </li>
+      ))}
+    </ul>
+  )
+}
+
+// Shared card body -- `SummaryCard` and `ReproductionCard` differ only in
+// their header (eyebrow vs. verdict badge), not in how `intro`/`rows`/
+// `narrative`/`footnote`/`glossary` render.
+function SummaryCardBody({
+  intro,
+  rows,
+  narrative,
+  footnote,
+  glossary,
+}: {
+  intro: string
+  rows: SummaryRow[]
+  narrative: string[]
+  footnote: string
+  glossary?: Record<string, string>
+}) {
+  if (!intro && rows.length === 0 && narrative.length === 0 && !footnote && !glossary) return null
+  return (
+    <CardContent className="flex flex-col gap-2">
+      {intro && <p className="text-xs text-muted-foreground italic">{intro}</p>}
+      <SummaryRows rows={rows} />
+      <NarrativeList narrative={narrative} />
+      <GlossaryTerms glossary={glossary} />
+      {footnote && (
+        <>
+          {(rows.length > 0 || narrative.length > 0) && <Separator />}
+          <p className="text-xs text-muted-foreground italic">{footnote}</p>
+        </>
+      )}
+    </CardContent>
+  )
+}
+
 function SummaryCard({ summary }: { summary: DiagnosisSummary }) {
-  // Old persisted diagnosis.json (pre-Part-XII) has no details/headline --
-  // never assume these exist, or a stale session crashes the whole page.
-  const details = summary.details ?? []
-  if (!summary.headline && details.length === 0) return null
+  // Old persisted diagnosis.json (pre-readability-redesign) has no
+  // rows/narrative/headline -- never assume these exist, or a stale session
+  // crashes the whole page.
+  const rows = summary.rows ?? []
+  const narrative = summary.narrative ?? []
+  if (!summary.headline && rows.length === 0 && narrative.length === 0) return null
   return (
     <Card size="sm" className={cn("gap-2 border-l-4 shadow-none", sectionAccentClass(summary.section))}>
       <CardHeader className="gap-1.5">
@@ -126,27 +264,13 @@ function SummaryCard({ summary }: { summary: DiagnosisSummary }) {
         </p>
         {summary.headline && <CardTitle className="text-sm leading-snug font-semibold">{summary.headline}</CardTitle>}
       </CardHeader>
-      {(details.length > 0 || summary.footnote || summary.glossary) && (
-        <CardContent className="flex flex-col gap-2">
-          {details.length > 0 && (
-            <ul className="flex flex-col gap-1 text-sm text-foreground/90">
-              {details.map((d, i) => (
-                <li key={i} className="flex gap-2">
-                  <span className="text-muted-foreground">·</span>
-                  <span>{d}</span>
-                </li>
-              ))}
-            </ul>
-          )}
-          <GlossaryTerms glossary={summary.glossary} />
-          {summary.footnote && (
-            <>
-              {details.length > 0 && <Separator />}
-              <p className="text-xs text-muted-foreground italic">{summary.footnote}</p>
-            </>
-          )}
-        </CardContent>
-      )}
+      <SummaryCardBody
+        intro={summary.intro ?? ""}
+        rows={rows}
+        narrative={narrative}
+        footnote={summary.footnote}
+        glossary={summary.glossary}
+      />
     </Card>
   )
 }
@@ -158,7 +282,6 @@ function SummaryCard({ summary }: { summary: DiagnosisSummary }) {
 // "we disagree with C&Z" or "we disagree with HXZ", which it never meant.
 function ReproductionCard({ summary, overallTag }: { summary: VsPaperSummary; overallTag: string }) {
   if (!summary.headline) return null
-  const details = summary.details ?? []
   return (
     <Card size="sm" className="gap-2 border-l-4 border-l-primary shadow-none">
       <CardHeader className="gap-1.5">
@@ -170,39 +293,30 @@ function ReproductionCard({ summary, overallTag }: { summary: VsPaperSummary; ov
         </div>
         <CardTitle className="text-sm leading-snug font-semibold">{summary.headline}</CardTitle>
       </CardHeader>
-      {(details.length > 0 || summary.footnote || summary.glossary) && (
-        <CardContent className="flex flex-col gap-2">
-          {details.length > 0 && (
-            <ul className="flex flex-col gap-1 text-sm text-foreground/90">
-              {details.map((d, i) => (
-                <li key={i} className="flex gap-2">
-                  <span className="text-muted-foreground">·</span>
-                  <span>{d}</span>
-                </li>
-              ))}
-            </ul>
-          )}
-          <GlossaryTerms glossary={summary.glossary} />
-          {summary.footnote && (
-            <>
-              {details.length > 0 && <Separator />}
-              <p className="text-xs text-muted-foreground italic">{summary.footnote}</p>
-            </>
-          )}
-        </CardContent>
-      )}
+      <SummaryCardBody
+        intro={summary.intro ?? ""}
+        rows={summary.rows ?? []}
+        narrative={summary.narrative ?? []}
+        footnote={summary.footnote}
+        glossary={summary.glossary}
+      />
     </Card>
   )
 }
 
-/** step8's diagnosis report (docs/step7-8.md Part XVI): 4 reader-facing
- * sections in reading order -- reproduction, robustness, vs C&Z, spec
- * quality -- each its own card, badge shown ONLY on the reproduction card.
- * The old per-analysis_stage "Findings" claim listing stays dropped (Part
- * XV §15.4): every card here is built directly from the bundle, never from
- * claims. `claims`/`rendered_sentence` are still returned by the API for
- * citation/audit, just not rendered here; the rejected-claims audit trail
- * is kept since it serves a different purpose (validation transparency). */
+/** step8's diagnosis report (docs/step7-8.md Part XVI): a `PaperVerdictBanner`
+ * ("Step B" -- do C&Z's and HXZ's own numbers even agree with each other,
+ * independent of anything we ran) shown first, ahead of the 4 reader-facing
+ * section cards -- reproduction, robustness, vs C&Z, spec quality -- each its
+ * own card, badge shown ONLY on the reproduction card. The vs_cz/robustness
+ * cards' own bullets also fold in "Step A" (whether reimplementing that
+ * implementer's config reproduces the number THEY got) via `summary.py`, so
+ * no separate card is needed for that half. The old per-analysis_stage
+ * "Findings" claim listing stays dropped (Part XV §15.4): every card here is
+ * built directly from the bundle, never from claims. `claims`/`rendered_
+ * sentence` are still returned by the API for citation/audit, just not
+ * rendered here; the rejected-claims audit trail is kept since it serves a
+ * different purpose (validation transparency). */
 export function Step8Output({ diagnosis }: { diagnosis: Record<string, unknown> }) {
   const rejected = (diagnosis.rejected_claims as RejectedClaim[] | undefined) ?? []
   const summary = [...((diagnosis.summary as DiagnosisSummary[] | undefined) ?? [])].sort(
@@ -210,6 +324,7 @@ export function Step8Output({ diagnosis }: { diagnosis: Record<string, unknown> 
   )
   const vsPaperSummary = diagnosis.vs_paper_summary as VsPaperSummary | undefined
   const specQualitySummary = diagnosis.spec_quality_summary as DiagnosisSummary | undefined
+  const paperVerdictAgreement = diagnosis.paper_verdict_agreement as PaperVerdictAgreement | undefined
   const overallTag = String(diagnosis.overall_tag ?? "inconclusive")
 
   return (
@@ -217,6 +332,8 @@ export function Step8Output({ diagnosis }: { diagnosis: Record<string, unknown> 
       <div className="flex flex-wrap items-center gap-2">
         <Badge variant="secondary">{String(diagnosis.status ?? "").replaceAll("_", " ")}</Badge>
       </div>
+
+      <PaperVerdictBanner agreement={paperVerdictAgreement} />
 
       <div className="flex flex-col gap-2">
         {vsPaperSummary && <ReproductionCard summary={vsPaperSummary} overallTag={overallTag} />}

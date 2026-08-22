@@ -25,7 +25,7 @@ from backend.spec_parsing import parse_spec
 from backend.state import pipeline
 from src.evaluation import diagnostics as step_diagnostics
 from src.infra.models.session import ConcurrentModificationError, StepStatus
-from src.infra.reference import cz_profile_to_config_override, fetch_cz_reference_profile_live
+from src.infra.reference import CzFilterParseError, cz_profile_to_config_override, fetch_cz_reference_profile_live
 from src.infra.reference.hxz_bridge import compute_hxz_reported_both_windows
 from src.infra.session_store import SessionNotFoundError
 from src.steps.step3_codegen.registry import build_config
@@ -39,6 +39,24 @@ def _get_or_404(session_id: str):
         return session_store.get(session_id)
     except SessionNotFoundError:
         raise HTTPException(status_code=404, detail=f"No session '{session_id}'")
+
+
+def _persist_reference_preview(factor_id: Optional[str], filename: str, payload: dict) -> None:
+    """Write a step6 preview response to `results_dir` (`runs/backtest_
+    scripts/results/{factor_id}/`, same directory `comparison.json` lives
+    in) so step7 (`external_references_for_results_dir`,
+    src/infra/reference/__init__.py) can reuse exactly what the user
+    previewed instead of re-querying. `factor_id` here is `spec.paper.
+    factor_id` (the resolved-spec hash results_dir is keyed by), NOT the
+    session's own human-readable `factor_id` field -- callers must pass the
+    former. A missing/blank `factor_id` (spec not loaded into the step6 UI
+    yet) is a silent no-op: the preview itself must never fail because
+    persistence couldn't find a home for it."""
+    if not factor_id:
+        return
+    results_dir = pipeline.scripts_path / "results" / factor_id
+    results_dir.mkdir(parents=True, exist_ok=True)
+    (results_dir / filename).write_text(json.dumps(payload, indent=2, default=str))
 
 
 @router.get("/{session_id}/steps/6/track-configs")
@@ -105,7 +123,7 @@ def get_step6_resolved_configs(session_id: str, req: ResolvedConfigsRequest) -> 
 
 
 @router.get("/{session_id}/steps/6/cz-config")
-def get_step6_cz_config(session_id: str, acronym: str) -> dict:
+def get_step6_cz_config(session_id: str, acronym: str, factor_id: Optional[str] = None) -> dict:
     """Preview-only (never triggers a backtest): fetch C&Z's reported
     config/performance for `acronym` (docs/step6.md gap #1's `C_cz`) via a
     LIVE `openassetpricing` call pinned to
@@ -114,6 +132,13 @@ def get_step6_cz_config(session_id: str, acronym: str) -> dict:
     request. Retries up to `_MAX_CZ_CONFIG_FETCH_ATTEMPTS` times on a
     transient fetch failure, logging every attempt (and the final outcome)
     to the session event log.
+
+    `factor_id` (optional, `spec.paper.factor_id` -- the resolved-spec
+    hash, passed by the frontend once `spec` is loaded) persists this
+    response to `results_dir/cz_reference.json` (see
+    `_persist_reference_preview`) so step7 reuses it instead of querying
+    again later. Omitted (spec not loaded yet), the preview still works,
+    it just isn't persisted.
     """
     _get_or_404(session_id)
 
@@ -149,12 +174,26 @@ def get_step6_cz_config(session_id: str, acronym: str) -> dict:
         )
         raise HTTPException(status_code=404, detail=f"Acronym '{acronym}' not found in C&Z SignalDoc")
 
-    config_override = cz_profile_to_config_override(profile)
+    try:
+        config_override = cz_profile_to_config_override(profile)
+    except CzFilterParseError as exc:
+        append_event(
+            session_id, step=6, stage="cz_config_preview", event="filter_parse_failed",
+            detail=f"acronym={acronym!r} filter_expr={profile.filter_expr!r}: {exc}",
+            level="error",
+        )
+        raise HTTPException(
+            status_code=422,
+            detail=(
+                f"Could not translate SignalDoc's per-predictor Filter for '{acronym}' "
+                f"({profile.filter_expr!r}) into a universe filter: {exc}"
+            ),
+        )
     append_event(
         session_id, step=6, stage="cz_config_preview", event="fetch_succeeded",
         detail=f"acronym={acronym!r}", level="info",
     )
-    return {
+    payload = {
         "acronym": acronym,
         "raw": {
             "stock_weight": profile.stock_weight,
@@ -164,6 +203,7 @@ def get_step6_cz_config(session_id: str, acronym: str) -> dict:
             "start_month": profile.start_month,
             "sample_start_year": profile.sample_start_year,
             "sample_end_year": profile.sample_end_year,
+            "filter_expr": profile.filter_expr,
         },
         "config_override": config_override,
         "cz_reported": {
@@ -172,11 +212,17 @@ def get_step6_cz_config(session_id: str, acronym: str) -> dict:
             "sign": profile.sign,
         },
     }
+    _persist_reference_preview(factor_id, "cz_reference.json", payload)
+    return payload
 
 
 @router.get("/{session_id}/steps/6/hxz-config")
 def get_step6_hxz_config(
-    session_id: str, acronym: str, sample_start_year: Optional[int] = None, sample_end_year: Optional[int] = None
+    session_id: str,
+    acronym: str,
+    sample_start_year: Optional[int] = None,
+    sample_end_year: Optional[int] = None,
+    factor_id: Optional[str] = None,
 ) -> dict:
     """Preview-only: HXZ's own reported long-short mean return/t-stat for
     `acronym` (docs/step6.md's `N_hxz` gap), recomputed from a downloaded
@@ -187,12 +233,18 @@ def get_step6_hxz_config(
     and `hxz_paper_sample` (always HXZ's own 1967-2016 paper window,
     regardless of what was passed in). Returns 404 if `acronym` has no HXZ
     reference file wired up yet.
+
+    `factor_id` (optional, `spec.paper.factor_id`) persists this response
+    to `results_dir/hxz_reference.json`, same reasoning as `get_step6_cz_
+    config`'s `factor_id` param -- see `_persist_reference_preview`.
     """
     _get_or_404(session_id)
     result = compute_hxz_reported_both_windows(acronym, sample_start_year, sample_end_year)
     if result is None:
         raise HTTPException(status_code=404, detail=f"No HXZ reference data wired up for acronym '{acronym}'")
-    return {"acronym": acronym, **result}
+    payload = {"acronym": acronym, **result}
+    _persist_reference_preview(factor_id, "hxz_reference.json", payload)
+    return payload
 
 
 class ComparisonRequest(BaseModel):

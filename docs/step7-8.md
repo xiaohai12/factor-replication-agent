@@ -196,9 +196,9 @@ weighting_x_breakpoint`），供 step8 引用具体的交互假设（比如 §8 
 weighting×breakpoint 假设）。
 
 - 代价：字段数一旦增多，两两交互组合数会变多（C(n,2)），但 §4c 规定超过
-  `MAX_FACTORIAL_SWITCHES`（现改为 4，见 Part V）差异字段时退回 OAT（不
-  做全组合，也就不存在这个交互表），所以全组合路径本身已经把 n 限制在
-  <=4，两两交互最多 C(4,2)=6 项，可控。
+  `MAX_FACTORIAL_SWITCHES`（现改为 3，2026-08-22 从 4 再调低，见 Part V）
+  差异字段时退回 OAT（不做全组合，也就不存在这个交互表），所以全组合路径
+  本身已经把 n 限制在 <=3，两两交互最多 C(3,2)=3 项，可控。
 - 三阶及以上的交互（比如 `weighting × breakpoint × universe` 三者同时的
   联合效应）**不单独输出**——全组合的"主效应 - 全部两两交互 = 剩余残差"
   天然就是三阶及以上交互的合并残差，不需要再拆分，"精确加总到总差距为 0"
@@ -347,6 +347,17 @@ ConfigDiffHeatmap"——其余两个候选仍未做）
 2. **配对 Newey-West 显著性检验**（单开关效应是否显著，不只是"观察到不同"）
 3. **联合 Wald 检验**（多个开关加在一起是否显著解释了差距，防止只挑最大的
    一个开关下结论——类似 ANOVA 的整体 F 检验先于事后两两比较）
+
+### `MAX_FACTORIAL_SWITCHES` 从 4 改成 3（2026-08-22）
+
+用户要求"尽量少跑"：①→③ 和 ①→② 两条自动归因路径可能同时都命中全因子
+上限，`2*(2^n-2)` 条 factorial track 会叠加在 baseline/②/③ 之上——n=4 时
+是 `2*(2^4-2)=28`，加上 baseline+②+③ 逼近 32 条；n=3 时降到
+`2*(2^3-2)=12`，总数更可控。代价：能精确算 Shapley/两两交互的开关数上限
+从 4 降到 3，超过 3 个差异字段的批次退回 OAT（线性开关数、无法捕捉交互
+效应，只能看单开关的可加性贡献）。`src/steps/step6_dual_track_controller/
+__init__.py` 的 `MAX_FACTORIAL_SWITCHES = 3` 已改，`attribution.py`
+`_MAX_SWITCHES_FOR_SHAPLEY`（独立更宽松的哨兵值，见其注释）不受影响。
 
 ### `MAX_FACTORIAL_SWITCHES` 从 5 改成 4（2026-08-17，讨论后决定）
 
@@ -690,6 +701,136 @@ factorial_breakpoint_universe 7.52        2.83        否
 **注意**：`robustness_summary`/`bridge_comparison` 这批次都是
 `available: false`（分别缺 `ablation_*` 轨道、缺 `cz_bridge` 轨道）——
 不是算错，只是这批次没跑那类轨道，暂不纳入报告。
+
+### 示例 7（已确认）：`three_term_identity` —— agent 自身的复现误差，
+往往比"该用谁的 config"这件事更大
+
+**背景**：`MeanRankRevGrowth`（session `11c2aab1e8e74ceb93dcfb776d76b4a9`）
+讨论中发现，`three_term_identity.cz` 一直是 `available: false`（"missing:
+external cz reference spread"），但 `src/infra/reference/__init__.py` 的
+`MANUAL_PAPER_RETURN_FALLBACK` 早就手填了这个因子的数字
+（mean_return=0.0055, t_stat=3.94,来自论文原文）。查证后发现是接线 bug——
+`load_cz_reference_profile` 默认从 `data/osap/SignalDoc.csv`（下载脚本的
+目标路径，这个仓库里没下载过）读取，读不到文件就直接 `return None`,从没
+机会走到 `_apply_manual_return_fallback`。已修复（见 CHANGELOG "fix:
+`three_term_identity`'s C&Z endpoint..."）：文件缺失/找不到该 acronym 时
+统一回落到纯手填的 `MANUAL_PAPER_RETURN_FALLBACK`，不再要求 CSV 存在。
+修复后重算了这份 `comparison.json`（不需要重跑回测，`.metrics.json`/`.csv`
+已经落盘）。
+
+**真实数字**（同一份 `comparison.json`，修复后的 `three_term_identity`）：
+
+```
+X - P = (X - A_hybrid) + (A_hybrid - A) + (A - P)
+        signal_and_environment  config   agent_replication_residual
+
+cz 线（X = C&Z 自己报告的 0.0055, t=3.94）：
+  signal_and_environment = +0.00167
+  config                 = -0.00097
+  agent_replication_residual = -0.01720   <- 最大项，远超另外两项之和
+  total_gap (X - P) = -0.0165
+
+hxz 线（X = HXZ 自己报告的 -0.0019, t=1.08，符号是反的）：
+  signal_and_environment = -0.00440
+  config                 = -0.00230
+  agent_replication_residual = -0.01720   <- 同样是最大项
+  total_gap (X - P) = -0.0239
+```
+
+两条线的 `agent_replication_residual` 完全相同（-0.0172），这不是巧合——
+这一项只跟 agent 自己的 paper-faithful baseline（`original_method`,
+0.00480）与论文原文（0.022）的距离有关，跟 C&Z/HXZ 各自的 config/signal
+选择无关，所以两条线算出来天然一样。
+
+**结论文字**："C&Z 和 HXZ 各自的复现结果，跟论文原文的距离里，最大的一块
+都不是'config 选了不同的分组方式/权重方式'，也不是'signal 计算细节不同'，
+而是**我们 agent 自己的 paper-faithful 基线复现,相对论文原文本身就只有
+约 22% 的量级**（0.0048 vs 0.022）——这一项（-0.0172）比 config 项
+（cz 线 -0.00097，hxz 线 -0.00230）和 signal 项（cz 线 +0.00167，hxz 线
+-0.00440）加起来还大一个数量级。更进一步：**HXZ 自己报告的数字符号都是
+反的**（-0.0019，t=1.08，不显著），C&Z 自己的数字虽然显著（t=3.94）但也
+只有论文原文的四分之一量级——三方（agent/C&Z/HXZ）互相之间的分歧，比
+任何一方各自'离论文有多远'要小得多。这意味着 `MeanRankRevGrowth` 这个
+因子本身很可能是个衰减/脆弱效应,而不是某个实现细节的问题；之前聊的
+'HXZ config 让效应减半、joint test 不显著'（示例见上文关于该 session 的
+讨论）应该放在这个更大的背景下理解——不是''weighting/breakpoint/universe
+谁的锅'，而是这整个因子在三方复现里普遍偏弱。"
+
+**注意**：`agent_replication_residual` 在两条线里数值相同，是这个恒等式的
+数学性质（两条线共享同一个 baseline/paper 数字），不需要每次都重新验证；
+但 `signal_and_environment`/`config` 两项一定会随实现者不同而不同,这才是
+每条线真正各自携带的信息。
+
+**2026-08-22 后续更正**：上面把 cz 端点的 0.0055/3.94 说成"C&Z 自己报告的
+数字"是不准确的——查 `MANUAL_PAPER_RETURN_FALLBACK` 的注释
+（[src/infra/reference/__init__.py:176](../src/infra/reference/__init__.py#L176)）
+和 `data/CZ code/SignalDoc.csv` 里 `MeanRankRevGrowth` 那一行的 Notes（"not
+exactly what we do"），这个数字实际上是**从原论文文本里手填的替代值**，
+C&Z 自己从没跑出过这个因子的 LS-portfolio 数字（SignalDoc 的 Return 字段
+是空的）。这意味着 cz 这条线的 `total_gap = X - P` 本质上是论文自己两个
+不同数字之间的差，不是"论文 vs 独立实现者"；`signal_and_environment`/
+`config` 两项因此被污染，不能当作干净的"C&Z 信号/config 实现差异"来读。
+`agent_replication_residual` 不受影响（跟 C&Z 无关）。HXZ 那条线不一样——
+`MANUAL_HXZ_REPORTED_FALLBACK` 里这个因子标的是 `"user-provided reference"`
+（不是 `"paper-reported"`），是用户从 HXZ 论文原文手填的独立数字，不是借用
+本论文的替代值。
+
+**用户裁决（2026-08-22）**：不给 `three_term_identity` 加独立性门槛——
+"cz 和 hxz 的外部数据都在 step6 时候已经得到，你就当可信的"。改为新增一个
+不经过 `paper_reported` 的并行机制，见下方 Part VII.5。
+
+---
+
+## Part VII.5 `external_performance_comparison`：跳过 `paper_reported` 的
+直接多方对比（2026-08-22，已实现）
+
+**动机**：`paper_reported` 有时不是 `mean_return`（可能是别的统计量）、
+经常缺 t-stat，强行把一切都塞进 `X - P` 的减法恒等式（`three_term_
+identity`）在这种情况下要么算不出来、要么算出来的数字语义可疑（见上面
+的更正）。`three_term_identity` 保留不动（`paper_reported` 数据完整时仍然
+有用），新增一个更简单的并行区块：agent 已跑轨道的 `mean_return`/`t_stat`
+（已有数据，不用重算）直接跟 C&Z/HXZ 自己报告的数字摆在一起，不做减法、
+不要求所有字段都齐全。
+
+**数据持久化时机**：不在跑实验时查/存（用户："不要跑实验的时候再写入,要
+跑实验前,点击 preview 后"）——`GET /steps/6/cz-config`、`/hxz-config`
+（`backend/routers/replication.py`）现在接受可选的 `factor_id` 查询参数
+（`spec.paper.factor_id`,即 `results_dir` 用的那个哈希,不是 session 自己
+的人类可读 `factor_id`），点击 preview 成功后就把当次返回值原样写进
+`results_dir/cz_reference.json`/`hxz_reference.json`（`_persist_reference_
+preview`），代表"用户当时看到、认可的那份数字"。前端 `Step6CzConfigPreview`/
+`Step6HxzConfigPreview`（`frontend/src/pages/SessionDetailPage.tsx`）从
+`spec.paper.factor_id` 取值传过去；`Step6HxzConfigPreview` 之前不接收
+`spec`，新增了 `specFactorId` prop。
+
+**读取端**：`src/infra/reference/__init__.py` 新增
+`external_references_for_results_dir(results_dir, acronym, ...)`——cz/hxz
+各自独立地优先读持久化文件,文件不存在时（老 session、或用户没点过
+preview）退回现在的 `external_reference_endpoints()` 实时查询,不倒退。
+`step5_backtest_runner.write_comparison_summary` 已改用这个函数。
+
+**新 bundle 区块**（`build_external_performance_comparison`,
+`src/steps/step7_replication_diff/bundle.py`）：
+
+```
+external_performance_comparison: {
+  "agent_tracks": {"<track>": {mean_return, t_stat, n_months, significance_tier}, ...},
+  "cz": {available, mean_return, t_stat, sample_start_year, sample_end_year, source},
+  "hxz": {同上}
+}
+```
+
+**前端**：`ForestPlot`（`frontend/src/components/AttributionPanel.tsx`）
+新增可选的 `externalPerformance` prop——C&Z/HXZ 自己的 t-stat 作为额外的行
+画在同一张图上（用不同填色区分，tooltip 标"external reference"），跟 agent
+各轨道按 `|t|` 统一排序，不需要单独一张表。`Step7Output.tsx` 接线。
+
+`runs/backtest_scripts/results/4a483a60aae1c941/{cz,hxz}_reference.json`
+已为 session `11c2aab1e8e74ceb93dcfb776d76b4a9` 手动补齐（这个 session 的
+multi-track 在这套机制之前就跑完了，用户明确不想重跑）——直接调了 preview
+端点背后同一套函数，不是编的数字；`comparison.json` 的 `three_term_
+identity`/`external_performance_comparison`/`evidence_keys` 已用这两个文件
+重算过。新测试：`tests/test_external_reference_persistence.py`（7 个用例）。
 
 ---
 
@@ -1474,6 +1615,111 @@ bundle_and_sentence_from_the_relation`）改成直接调用 `deterministic_
 sentence(claim, evidence)` 断言句子内容，不再通过 `render_markdown` 间接
 验证。`tests/test_replication_diagnosis.py` 122 passed，更广套件
 156 passed；前端 `npx tsc --noEmit` + `npx oxlint` 均干净。
+
+---
+
+## "Step A" / "Step B"：补上 `external_performance_comparison` 缺的两个判定
+（2026-08-22，已实现）
+
+Part VII.5 的 `external_performance_comparison` 把 agent 每条 track 自己的
+`mean_return`/`t_stat` 跟 C&Z/HXZ 自报的数字并排列出，但只是摆数字，没有
+判定；用户原始问题里的四条（这个因子我们测出来可复现么/cz和hxz原文本身
+说可复现还是矛盾/我们跑cz、hxz配置和他们原文差多少/为什么不同）里，
+①④已经有 `vs_paper_summary`/Shapley+配对+联合检验覆盖，②③一直没有对应的
+判定逻辑。用真实 `MeanRankRevGrowth` 数据（session
+`11c2aab1e8e74ceb93dcfb776d76b4a9`，`results/4a483a60aae1c941/
+comparison.json`）手算过一遍示例、跟用户确认过输出形状后落地。
+
+**Step A**（补③）：`bundle._verdict_vs_external_reference` + `external_
+performance_comparison.agent_vs_cz`/`.agent_vs_hxz`——把 C&Z/HXZ 的自报数字
+包装成一个假的 `paper_reported`，直接复用 `build_track_vs_paper`/
+`classify_overall` 现成的 sign/ratio/significance 判定逻辑，不重新发明一套。
+真实数据：`agent_vs_cz` = `reproduced`（ratio 0.70x，双边都显著，同号）；
+`agent_vs_hxz` = `inconclusive`（反号，双边都不显著）。
+
+**Step B**（补②）：新顶层 `paper_verdict_agreement`
+(`bundle.build_paper_verdict_agreement`)——纯粹比较 C&Z 自己的数字和 HXZ
+自己的数字，跟 agent 跑了什么完全无关，产出 `agree_significant`/
+`agree_insignificant`/`conflict`/`unavailable` 四档。真实数据：`conflict`
+（C&Z 显著为正 t=3.94，HXZ 不显著且反号 t=1.08）——对应真实存在的"两篇论文
+自己就矛盾"的情况。
+
+**接线**：`agent_vs_cz`/`agent_vs_hxz` 不建新 claim type，直接在
+`_build_cz_summary`/`_build_sensitivity_summary`（后者限定 `to_hxz` 线）里
+各加一句由 `_format_reference_verdict` 生成的确定性 bullet，跟 vs_cz/
+robustness 卡片现有内容合并展示，不新开卡片。`paper_verdict_agreement`
+新增独立的 `PaperVerdictAgreement` 模型（`available`/`verdict`/
+`headline`），`summary.build_paper_verdict_agreement_summary` 生成，
+`render.py` 在 `## Summary` 最前面加一行 blockquote，前端新增
+`PaperVerdictBanner`（`conflict` 琥珀色、`agree_*` 蓝色），排在所有卡片
+最前面。两个新 section 都注册了 `_bundle_section_tool`（context-only，不
+对应任何 claim type），prompt 的"What you receive"里显式告诉 LLM 不要
+针对这两个 section 造 claim（没有对应 claim type，造了也会被拒）。
+
+新测试：`tests/test_external_reference_persistence.py` 新增 4 个
+`agent_vs_cz`/`agent_vs_hxz` 用例 + `TestBuildPaperVerdictAgreement`
+6 个用例；`tests/test_replication_diagnosis.py` 新增 6 个（`TestCzNarrative`/
+`TestSensitivitySummary` 各 2 个 bullet 用例 + `TestPaperVerdictAgreementSummary`
+4 个）。全量 `tests/test_replication_diagnosis.py`/
+`tests/test_external_reference_persistence.py` 178 passed；前端
+`npx tsc --noEmit` + `npx oxlint` 均干净。
+
+---
+
+## 可读性重做：`DiagnosisSummary.details` 拆成 `intro`+`rows`+`narrative`
+（2026-08-22，已实现）
+
+用户读了一份真实渲染出来的报告后反馈"可读性差、很多没用信息"，并要求"结构性
+重做"（而不是只删重复句）。具体问题：同一段免责声明在同一张卡片里逐条重复
+2-3 遍（比如"C&Z always overrides..."这句话在 3 条 house_convention 行里
+一字不差重复 3 次；"contribution share not shown..."在 3 条不显著 switch 上
+各重复一次；`three_term_identity` 的 purity notes 段落在 cz/hxz 两张卡片里
+重复）。读的过程中还发现一个真实 bug：`short_portfolios`/`long_portfolios`
+（机械地由 `breakpoint_quantiles` 派生，见 `registry.py`
+`_remap_extreme_portfolios_for_quantile_override`，根本不是独立配置项，甚至
+不是合法的 override key）被当成一条独立的"unresolved, warrants human
+review"分歧展示出来，跟已经解释过的"Number of portfolio groups: 10 vs 5"
+重复计数,还凭空制造了一个不存在的"未解决问题"。
+
+**新数据模型**（`src/infra/models/diagnosis.py`）：新增 `SummaryRow`
+（`label`/`ours`/`theirs`/`effect`/`tag`/`note`）——`note` 是唯一允许的
+逐条叙述,只用于真正需要解释的行（`unresolved` 分类,或单独统计显著的
+效应）,常规/已解释/不显著的行 `note` 留空。`DiagnosisSummary`/
+`VsPaperSummary` 的 `details: list[str]` 换成 `intro: str`（整张卡片共享的
+免责声明,只说一次）+ `rows: list[SummaryRow]`（同形状条目的简表）+
+`narrative: list[str]`（不属于任何一行的独立句子,比如聚合事实、Step A
+判定、跨线 callout）。
+
+**`summary.py` 逐个函数改造**：
+- `_build_cz_summary`：每个变化的 config key 一行,`tag` 是
+  "C&Z convention"/"paper ambiguous"/"unresolved"；前两类的解释挪进 `intro`
+  只说一次;`unresolved` 保留在该行自己的 `note` 里（够少见,值得单独说）。
+  新增 `_DERIVED_CONFIG_KEYS = {"long_portfolios", "short_portfolios"}`,
+  从所有逐 key 遍历里排除——上面那个 bug 的修法。
+- `_build_sensitivity_summary`：每个 switch 一行,`tag` 是贡献占比百分比
+  （只在联合检验确认时才填）；"份额不显示,因为没通过联合检验"这句挪进
+  `intro` 只说一次,不再每行重复。
+- `build_three_term_summaries`：三个 component 变成三行（最大的一项
+  `tag="largest"`）,"最大分量是..."/窗口敏感度那两句挪进 `narrative`。
+- `build_spec_quality_summary`：`reason`/`disposition` 完全相同的
+  weak_fields 合并成一行,列出所有字段名,不再逐条重复同一句解释。
+
+**前端**（`Step8Output.tsx`）：新增 `SummaryRows`/`NarrativeList`/
+`SummaryCardBody` 三个组件,`SummaryCard`/`ReproductionCard` 现在共用同一个
+body 渲染逻辑,不再各自重复一份。
+
+**用真实数据核实过修复效果**（`MeanRankRevGrowth`,
+`results/4a483a60aae1c941/comparison.json`）：`"Short portfolios: we use
+[10], C&Z uses [5]"`这条虚假的"unresolved"行不再出现,`to_cz.rows` 里只剩
+"Number of portfolio groups"（`tag="C&Z convention"`）一行。
+
+`_fold_claim_evidence_into_details` 改名
+`_fold_claim_evidence_into_narrative`（操作对象换成 `narrative` 字段,逻辑
+不变）。没有新增 claim type,没有改变任何 LLM 参与度——纯粹是模板生成层的
+结构重排。`tests/test_replication_diagnosis.py` 新增/重写 7 个测试（覆盖
+row/intro/narrative 拆分、spec_quality 分组、`long_portfolios`/
+`short_portfolios` 排除的专项回归测试）,164/164 通过；前端
+`npx tsc --noEmit` + `npx oxlint` 均干净。
 
 
 

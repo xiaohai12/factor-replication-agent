@@ -12,7 +12,7 @@ import json
 from pathlib import Path
 from typing import Any
 
-from src.infra.models.diagnosis import DiagnosisClaim, ReplicationDiagnosisReport
+from src.infra.models.diagnosis import DiagnosisClaim, ReplicationDiagnosisReport, SummaryRow
 
 
 _BANNER = (
@@ -289,37 +289,85 @@ def _summary_line_priority(comparison_line: str | None) -> int:
     return order.get(comparison_line, 2)
 
 
-def _summary_section(report: ReplicationDiagnosisReport) -> list[str]:
-    """docs/step7-8.md Part XII: renders the deterministic rollup in
-    inverted-pyramid order -- `headline` (bottom line, always first), then
-    `details` (one bullet per supporting point, decreasing importance), then
-    `footnote` (de-emphasized technical caveat). No "vs. X" line-label
-    heading -- `headline` names its own comparison target in plain language
-    (user-requested redesign, docs/step7-8.md Part XII).
+def _render_row(row: "SummaryRow") -> str:
+    """One `SummaryRow` -> one markdown bullet. `note` (reserved for rows
+    that genuinely need explanation -- `unresolved`, or an individually
+    significant effect) is the only per-row prose; a routine/explained row
+    renders as label + values + effect only, no repeated boilerplate
+    sentence (docs/step7-8.md readability redesign)."""
+    line = f"**{row.label}**"
+    if row.tag:
+        line += f" [{row.tag}]"
+    line += ":"
+    values = []
+    if row.ours:
+        values.append(f"ours = {row.ours}")
+    if row.theirs:
+        values.append(f"theirs = {row.theirs}")
+    if values:
+        line += " " + ", ".join(values) + "."
+    if row.effect:
+        line += f" Effect: {row.effect}."
+    if row.note:
+        line += f" {row.note}"
+    return line
+
+
+def _render_summary_body(
+    lines: list[str],
+    headline: str,
+    intro: str,
+    rows: list["SummaryRow"],
+    narrative: list[str],
+    footnote: str,
+    overall_tag: str | None = None,
+) -> None:
+    """docs/step7-8.md readability redesign: `headline` (bottom line,
+    always first), then `intro` (a shared caveat/classification note stated
+    ONCE for the whole card -- e.g. "rows tagged 'C&Z convention' are..."),
+    then the compact `rows` table, then standalone `narrative` sentences,
+    then `footnote` (de-emphasized technical caveat) last. No "vs. X"
+    line-label heading -- `headline` names its own comparison target in
+    plain language.
     """
+    if headline:
+        lines.append(f"**{headline}**")
+        lines.append("")
+    if intro:
+        lines.append(f"_{intro}_")
+        lines.append("")
+    for row in rows:
+        lines.append(f"- {_render_row(row)}")
+    if rows:
+        lines.append("")
+    for entry in narrative:
+        lines.append(f"- {entry}")
+    if narrative:
+        lines.append("")
+    if overall_tag is not None:
+        lines.append(f"- Verdict: `{overall_tag}`")
+    if footnote:
+        lines.append(f"- _{footnote}_")
+    lines.append("")
+
+
+def _summary_section(report: ReplicationDiagnosisReport) -> list[str]:
+    """docs/step7-8.md Part XII/readability redesign: renders every
+    deterministic rollup via `_render_summary_body`."""
     lines = ["## Summary", ""]
+    if report.paper_verdict_agreement.available and report.paper_verdict_agreement.headline:
+        # docs/step7-8.md "Step B": shown first, ahead of everything else --
+        # context a reader needs before asking whether OUR replication
+        # agrees with the paper.
+        lines.append(f"> {report.paper_verdict_agreement.headline}")
+        lines.append("")
     if not report.summary and not report.vs_paper_summary.headline:
         return lines + ["No deterministic summary available.", ""]
     for s in sorted(report.summary, key=lambda s: _summary_line_priority(s.comparison_line)):
-        if s.headline:
-            lines.append(f"**{s.headline}**")
-            lines.append("")
-        for detail in s.details:
-            lines.append(f"- {detail}")
-        if s.details:
-            lines.append("")
-        lines.append(f"- Verdict: `{s.overall_tag}`")
-        if s.footnote:
-            lines.append(f"- _{s.footnote}_")
-        lines.append("")
+        _render_summary_body(lines, s.headline, s.intro, s.rows, s.narrative, s.footnote, overall_tag=s.overall_tag)
     if report.vs_paper_summary.headline:
-        lines.append(f"**{report.vs_paper_summary.headline}**")
-        lines.append("")
-        for detail in report.vs_paper_summary.details:
-            lines.append(f"- {detail}")
-        if report.vs_paper_summary.footnote:
-            lines.append(f"- _{report.vs_paper_summary.footnote}_")
-        lines.append("")
+        vps = report.vs_paper_summary
+        _render_summary_body(lines, vps.headline, vps.intro, vps.rows, vps.narrative, vps.footnote)
     return lines
 
 

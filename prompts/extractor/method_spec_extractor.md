@@ -93,6 +93,45 @@ this value directly as `holding_period_months` with no unit conversion of
 its own, so a wrong unit here silently produces a backtest that holds
 positions for the wrong length of time.
 
+## 1.4c `timing.data_availability`: only `anchor=fiscal_period_end` actually does anything
+
+`timing.data_availability` (`lag_value`, `lag_unit`, `anchor`, `basis`)
+controls when each firm-year's accounting datapoint becomes "available" for
+point-in-time use: the engine computes `time_avail_m = fiscal_period_end_date
++ lag_value (in lag_unit)`, unconditionally treating the lag as measured
+FROM the fiscal period end. **`anchor` is not actually consumed by this
+calculation** -- whatever you write there (`formation_date`,
+`fiscal_period_end`, `report_date`, `observation_date`), the engine always
+applies the lag as if it were `fiscal_period_end`. So:
+
+- `lag_value`/`lag_unit` must be the number of months (or other unit) from
+  the fiscal period's END DATE to when that data becomes usable -- NOT the
+  gap from fiscal period end to the portfolio formation date, and NOT a
+  restatement of "fiscal year t-1 data used in year t" as `1 year`. A paper
+  that follows the standard Fama-French (1992) convention ("form accounting
+  variables at the end of June in year t using fiscal year-end t-1 data")
+  is describing a firm with a DECEMBER fiscal year-end: `Dec 31(t-1)` to
+  `June 30(t)` is 6 months, so write `lag_value: 6, lag_unit: "month"`, NOT
+  `lag_value: 1, lag_unit: "year"` (`12` months) -- the latter overshoots
+  the paper's own stated formation date by half a year and makes the engine
+  use a whole fiscal year's worth of stale data. When the paper doesn't
+  give you enough to compute an exact figure, `6` months is this codebase's
+  own standing default for the Fama-French convention (see
+  `registry.build_config`'s fallback) -- use it rather than guessing a
+  round number like `12`.
+- Always set `anchor: "fiscal_period_end"` -- the other three enum values
+  exist in the schema for future use but have no effect in the current
+  engine; picking one of them does not encode anything different, it just
+  silently discards whatever timing nuance you were trying to capture.
+- Unlike most fields in this schema, `timing.data_availability` is a plain
+  object, not a `SourcedValue` wrapper -- it has no `status` of its own. Put
+  your citation in its `evidence[]` list regardless, and if you are not
+  confident in the exact month count, say so directly in that citation's
+  `interpretation` (e.g. "paper does not state fiscal year-end month;
+  assumed December per the Fama-French convention it cites") rather than
+  writing a number you derived from loosely paraphrasing the paper's own
+  "year t-1 data, year t formation" language as if it were exact.
+
 ## 1.5 Formula steps, not one giant expression
 
 `signal.formula.steps` is an ORDERED list of `CalculationStep` objects, each
@@ -133,6 +172,32 @@ impossible to ever fill (the engine only ever labels buckets `1..
 group_count`), so the strategy's return series comes back empty every period
 with no error raised anywhere.
 
+**Which extreme group is `long` and which is `short` is determined by
+`signal.direction`, never by which decile a table sentence happens to name
+first.** The engine computes the executed spread return as `long - short`
+(literally `long_leg_return - short_leg_return`), so `long` must be the group
+with the HIGHER expected return per the paper's own documented relationship:
+
+- `signal.direction = "positive"` (higher signal value -> higher returns):
+  `long` = highest-value group (selector `group_count - 1`), `short` =
+  lowest-value group (selector `0`).
+- `signal.direction = "negative"` (higher signal value -> LOWER returns):
+  `long` = LOWEST-value group (selector `0`), `short` = HIGHEST-value group
+  (selector `group_count - 1`) -- the reverse of the positive case.
+
+Do not default to "long = top decile" out of habit; that default is only
+correct for a positive-direction signal. A paper's own prose about a
+"Spread (10-1)" or "High minus Low" *table column* is a reporting
+convention for that column, not evidence about which side of the trade is
+economically `long` -- e.g. a sentence like "the high-growth firms have an
+alpha of -0.46% ... and the spread is -0.70%" names the high-value decile
+first, but if `signal.direction` for that same signal is `negative`, the
+low-value decile is still the one with the higher expected return and must
+be the `long` leg. When you are not confident which decile the paper's own
+`Sharpe ratio` / long-short "spread portfolio" narrative actually trades,
+re-derive it from `signal.direction` using the rule above rather than the
+table column's label order.
+
 ## 1.7a `breakpoints.basis`, `weighting`, `missing_policies[].action`: write the paper's literal description, not an engine token
 
 `portfolio.sorts[].breakpoints.basis.value`, `portfolio.weighting.value`, and
@@ -165,9 +230,11 @@ its free-text cases are too varied to enumerate exhaustively, but still
 prefer the exact engine token whenever the paper's scheme genuinely and
 unambiguously matches one of these:
 
-- return_combination: write exactly `extreme_group_spread` for a long the
-  top group / short the bottom group construction (the by-far most common
-  case), `average_leg_spread` when each leg averages MULTIPLE portfolios,
+- return_combination: write exactly `extreme_group_spread` for a construction
+  that takes the difference between the two extreme groups of a single sort
+  (the by-far most common case -- see §1.7 above for how to determine which
+  extreme is `long` vs `short`; it is NOT always "top group long"),
+  `average_leg_spread` when each leg averages MULTIPLE portfolios,
   `single_signal_portfolio_return` when there is no short leg at all, or
   `full_portfolio_return` for a return computed across the whole universe
   with no long-short spread. Only write a free-text sentence when none of
@@ -341,12 +408,61 @@ Then use `market_equity / total_liabilities`. The runtime will point-in-time
 CCM-link the fields and match the CRSP observation to the Compustat fiscal-end
 month before applying the accounting lag; do not add lag or join mechanics.
 
+## 1.8e A restriction without a paper-stated executable value must still be encoded, not narrated away
+
+Papers routinely describe a real sample restriction in prose without giving
+the specific number needed to execute it -- e.g. "non-financial firms" (no
+SIC range stated), "excluding utilities," "ordinary common shares only" (no
+share-code list stated). When you hit this pattern:
+
+- Do NOT simply drop the restriction into `data.coverage_notes`/`notes` and
+  otherwise leave it out of the structured spec. Free text is not read by
+  the review/resolution pipeline or the codegen step -- a restriction that
+  exists only as prose is functionally invisible downstream, identical to a
+  restriction the paper never mentioned at all.
+- Instead, still add the `data.fields[]` entry AND the `universe.filters[]`
+  entry, exactly as in 1.8b. Fill the filter's `value` with the standard,
+  well-established value used throughout this literature for that exact
+  restriction (e.g. SIC 6000-6999 for "non-financial"/excluding financial
+  firms -- the same convention Fama and French and most CRSP/Compustat asset-
+  pricing papers use), not a guess specific to this paper.
+- Because the paper itself never states that number, set
+  `universe.filters[].accepted_unapplied = true` with a one-sentence
+  `unapplied_reason` explaining that the paper describes the restriction but
+  never states an executable value, and that the `value` you filled in is a
+  standard literature convention, not something read directly off the page.
+  This is what makes the gap reviewable and correctable by a human later
+  (via `human_confirmed_applied`, if the standard value is confirmed
+  appropriate) -- an omitted filter cannot be reviewed or corrected at all,
+  because nothing about it exists in the structured spec for a human to see.
+- This is the SAME "never guess, but never silently drop either" instinct as
+  1.8c's `derivation` guidance, applied one level up: leave the specific
+  *value* uncertain-but-present (`accepted_unapplied`), never leave the
+  entire filter/field pair absent.
+
 ## 1.9 Sample periods are three independent things
 
 `sample.data_coverage` (raw data availability), `sample.formation` (the
 executable strategy sample), and `sample.reported_returns` (the sample the
 paper's headline numbers actually cover) are frequently different date
 ranges. Fill each independently; do not assume they're the same.
+
+**Common trap**: a table caption often states FORMATION periods only, e.g.
+"portfolios formed at the end of April each year from 1968 to 1989." Do NOT
+copy that same 1968-1989 range into `reported_returns` unchanged. For a
+strategy with a holding period of H months, the LAST formation (April 1989
+here) keeps generating returns for H more months past that date -- for
+H >= 12, `reported_returns.end_year` is therefore AT LEAST one year later
+than `formation.end_year` (April 1989's 12-month hold ends April 1990, so
+`reported_returns.end_year` = 1990, not 1989). Look for the paper's own
+explicit statement of its total data/return window (often a separate
+sentence near the sample-period description, distinct from the table
+caption) to confirm the actual end year -- if the paper never states it
+explicitly, derive it as `formation.end_year + ceil(holding_period_months /
+12)` rather than defaulting to formation's own end year. When genuinely
+uncertain, mark `sample.reported_returns.status` as `table_only` or
+`inferred` (not `clear`) so it gets flagged for human review rather than
+silently treated as loudly confirmed.
 
 ---
 

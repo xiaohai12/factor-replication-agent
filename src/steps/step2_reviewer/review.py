@@ -179,8 +179,10 @@ def _universe_evidence_coverage_findings(paper: MethodSpec) -> list[Finding]:
                 kind="incomplete",
                 reason=(
                     "Universe evidence is not attached to an executable universe.filters entry. "
-                    "Add a cited filter with a real data.fields source/column mapping, or record "
-                    "the stated restriction as accepted_unapplied with a reason."
+                    "Add a cited filter with a real data.fields source/column mapping, record the "
+                    "stated restriction as accepted_unapplied with a reason, or -- if the filter "
+                    "should actually run (e.g. its evidence is inferred/derived rather than a "
+                    "directly-quoted paper value) -- mark it human_confirmed_applied with a reason."
                 ),
                 empirical_impact="high",
                 disposition=Disposition.NEEDS_HUMAN_CONFIRMATION,
@@ -407,6 +409,81 @@ def _sort_dimension_count_finding(paper: MethodSpec) -> Finding | None:
         empirical_impact="high",
         disposition=Disposition.NEEDS_HUMAN_CONFIRMATION,
         paper_value=len(sorts),
+    )
+
+
+def _reported_returns_year_findings(paper: MethodSpec) -> list[Finding]:
+    """Always-shown entries for `sample.reported_returns.start_year`/
+    `end_year` -- these are `Period` fields, not `SourcedValue`s, so
+    `high_impact_sourced_values`/`_evidence_status_finding` can't cover
+    them (a `Period` has its own `status`/`evidence` on the whole date
+    range, not per boundary year). Lets a human see and correct the exact
+    window Step7 treats as the paper's headline in-sample period, same
+    posture as every other high-impact field. Paired with
+    `_reported_returns_holding_period_mismatch_finding` below, which flags
+    the specific case where this window looks wrong."""
+    reported = paper.sample.reported_returns
+    disposition = DISPOSITION_MATRIX.get(
+        (reported.status, EMPIRICAL_IMPACT_HIGH), Disposition.NEEDS_HUMAN_CONFIRMATION
+    )
+    return [
+        Finding(
+            field_path="sample.reported_returns.start_year", kind="ambiguous",
+            reason=f"evidence_status={reported.status.value}", empirical_impact="high",
+            disposition=disposition, paper_value=reported.start_year, evidence=reported.evidence,
+        ),
+        Finding(
+            field_path="sample.reported_returns.end_year", kind="ambiguous",
+            reason=f"evidence_status={reported.status.value}", empirical_impact="high",
+            disposition=disposition, paper_value=reported.end_year, evidence=reported.evidence,
+        ),
+    ]
+
+
+def _reported_returns_holding_period_mismatch_finding(paper: MethodSpec) -> Finding | None:
+    """Deterministic cross-check, not LLM-based (this project's numbers stay
+    deterministic, see AGENTS.md): `sample.formation` and
+    `sample.reported_returns` are DIFFERENT windows in general -- for a
+    holding period H >= 12 months, the last formation keeps generating
+    returns for H more months, so `reported_returns.end_year` should be AT
+    LEAST one year later than `formation.end_year`. A common step1
+    extraction failure mode copies a table caption's FORMATION-period range
+    (e.g. "portfolios formed 1968-1989") straight into `reported_returns`
+    unchanged, silently losing the return-window's own end date (real
+    example: Lakonishok/Shleifer/Vishny 1994's MeanRankRevGrowth --
+    reported_returns extracted as 1968-1989, identical to formation, when
+    the paper's own stated data coverage runs through April 1990 and C&Z's
+    independently-reported SampleEndYear agrees on 1990). Fires only when
+    the two windows are byte-identical (both start AND end year) despite a
+    >=12-month hold, to avoid false positives on strategies where the two
+    windows legitimately coincide (e.g. rolling monthly rebalance)."""
+    formation = paper.sample.formation
+    reported = paper.sample.reported_returns
+    holding_months = paper.timing.holding_period.value
+    if holding_months is None or holding_months < 12:
+        return None
+    if formation.start_year is None or formation.end_year is None:
+        return None
+    if reported.start_year is None or reported.end_year is None:
+        return None
+    if formation.start_year != reported.start_year or formation.end_year != reported.end_year:
+        return None
+    return Finding(
+        field_path="sample.reported_returns",
+        kind="inconsistent",
+        reason=(
+            f"sample.reported_returns ({reported.start_year}-{reported.end_year}) is IDENTICAL to "
+            f"sample.formation ({formation.start_year}-{formation.end_year}), but the paper's "
+            f"{holding_months}-month holding period means the LAST formation's returns extend at "
+            "least 1 year past formation.end_year -- reported_returns is likely copied from prose/"
+            "table text describing formation periods, not the actual return-observation window. "
+            "Confirm the true reported-returns end year below (often formation.end_year + "
+            "holding_period_months/12, or check the paper's own explicit data-coverage statement)."
+        ),
+        empirical_impact="high",
+        disposition=Disposition.NEEDS_HUMAN_CONFIRMATION,
+        paper_value=f"{reported.start_year}-{reported.end_year}",
+        evidence=reported.evidence,
     )
 
 
@@ -670,6 +747,7 @@ def _all_high_impact_field_findings(paper: MethodSpec) -> list[Finding]:
         if finding is not None:
             entries.append(finding)
     entries.extend(_universe_filter_high_impact_entries(paper))
+    entries.extend(_reported_returns_year_findings(paper))
     return entries
 
 
@@ -710,6 +788,7 @@ def _compute_findings(
         _sort_dimension_count_finding(paper),
         _primary_metric_weighting_finding(paper),
         _comparison_derivation_finding(paper),
+        _reported_returns_holding_period_mismatch_finding(paper),
     ):
         if capability_finding is not None:
             findings.append(capability_finding)
@@ -735,6 +814,20 @@ def _compute_findings(
                 )
             )
     return findings
+
+
+# `Period` fields (sample.data_coverage/formation/reported_returns) aren't
+# `SourcedValue`s (see `_reported_returns_year_findings`'s docstring), so
+# `apply_value_patches`'s normal `high_impact_sourced_values` lookup can't
+# reach their `start_year`/`end_year` -- this is a second, small fixed
+# registry for the one Period whose years are exposed as patchable
+# high-impact fields today (`sample.reported_returns`, see docs/decision-
+# log.md 2026-08-22). Same "fixed, known set, never attacker-chosen
+# attribute" posture as `patchable` below.
+_PATCHABLE_PERIOD_YEAR_FIELDS: dict[str, str] = {
+    "sample.reported_returns.start_year": "start_year",
+    "sample.reported_returns.end_year": "end_year",
+}
 
 
 def apply_value_patches(
@@ -781,10 +874,19 @@ def apply_value_patches(
     patchable = dict(high_impact_sourced_values(patched))
     unsupported_values = unsupported_values or {}
     for field_path, new_value in patches.items():
+        if field_path in _PATCHABLE_PERIOD_YEAR_FIELDS:
+            year_attr = _PATCHABLE_PERIOD_YEAR_FIELDS[field_path]
+            period = patched.sample.reported_returns
+            setattr(period, year_attr, _coerce_to_current_type(getattr(period, year_attr), new_value, field_path))
+            period.status = EvidenceStatus.CLEAR
+            period.evidence.append(
+                EvidenceCitation(interpretation=f"{source} correction: {reason}" if reason else f"{source} correction")
+            )
+            continue
         if field_path not in patchable:
             raise ValueError(
                 f"{field_path!r} is not a patchable high-impact field "
-                f"(must be one of {sorted(patchable)})"
+                f"(must be one of {sorted(patchable) + sorted(_PATCHABLE_PERIOD_YEAR_FIELDS)})"
             )
         sourced_value = patchable[field_path]
         sourced_value.value = _coerce_to_current_type(sourced_value.value, new_value, field_path)

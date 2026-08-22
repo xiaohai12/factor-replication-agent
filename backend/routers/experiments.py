@@ -44,6 +44,41 @@ class ExperimentRequest(BaseModel):
     cz_config_override: dict | None = None
 
 
+class ExperimentPreviewRequest(BaseModel):
+    spec: dict
+    run_original: bool = True
+    run_standardized: bool = True
+    ablation_switches: list[str] = []
+    factorial_switches: list[str] = []
+    auto_attribution: bool = True
+    cz_config_override: dict | None = None
+
+
+@router.post("/{session_id}/steps/6/experiment/preview")
+async def preview_step6_experiment(session_id: str, req: ExperimentPreviewRequest) -> dict:
+    """Track count/names `POST .../experiment` would run for this plan, with
+    no execution -- lets the UI show "N experiments" and gate the actual run
+    behind a confirmation before submitting the (potentially expensive) job.
+    """
+    try:
+        session_store.get(session_id)
+    except SessionNotFoundError:
+        raise HTTPException(status_code=404, detail=f"No session '{session_id}'")
+
+    spec = parse_spec(req.spec)
+    plan = ExperimentPlan(
+        factor_id=spec_factor_id(spec),
+        run_original=req.run_original,
+        run_standardized=req.run_standardized,
+        ablation_switches=req.ablation_switches,
+        factorial_switches=req.factorial_switches,
+        auto_attribution=req.auto_attribution,
+        cz_config_override=req.cz_config_override,
+    )
+    tracks = pipeline.controller.preview_tracks(plan, spec)
+    return {"track_count": len(tracks), "tracks": tracks}
+
+
 @router.post("/{session_id}/steps/6/experiment")
 async def run_step6_experiment(session_id: str, req: ExperimentRequest) -> dict:
     try:

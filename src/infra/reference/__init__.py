@@ -28,6 +28,8 @@ file's header for field-by-field provenance against the HXZ paper).
 from __future__ import annotations
 
 import csv
+import json
+import re
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -86,6 +88,10 @@ class CZReferenceProfile:
     start_month: int | None = None        # formation month
     sample_start_year: int | None = None
     sample_end_year: int | None = None
+    filter_expr: str | None = None        # SignalDoc "Filter": free-text R expression, a
+                                           # per-predictor universe restriction layered on
+                                           # top of the global backbone filter (see
+                                           # cz_profile_to_config_override)
 
 
 def _is_nan(value: Any) -> bool:
@@ -140,6 +146,7 @@ def _profile_from_row(acronym: str, row: dict) -> CZReferenceProfile:
         start_month=_to_int(row.get("Start Month")),
         sample_start_year=_to_int(row.get("SampleStartYear")),
         sample_end_year=_to_int(row.get("SampleEndYear")),
+        filter_expr=_clean_str(row.get("Filter")),
     )
 
 
@@ -147,18 +154,22 @@ def load_cz_reference_profile(
     acronym: str, signaldoc_path: str | Path | None = None
 ) -> CZReferenceProfile | None:
     """Load one factor's `CZReferenceProfile` from `SignalDoc.csv` by
-    `Acronym`. Returns None if the acronym isn't found or the file isn't
-    available (e.g. `data/osap/SignalDoc.csv` not downloaded --
-    `scripts/download_osap.py`)."""
+    `Acronym`. Falls back to `MANUAL_PAPER_RETURN_FALLBACK` (mean_return/
+    t_stat only, no config-override fields) when the file isn't available
+    (e.g. `data/osap/SignalDoc.csv` not downloaded -- `scripts/
+    download_osap.py`) or the acronym isn't in it -- these entries are
+    hand-filled from the paper's own text specifically so this reference
+    doesn't depend on the CSV being present. Returns None only when neither
+    source has the acronym."""
     path = Path(signaldoc_path) if signaldoc_path else None
     try:
         rows = load_signaldoc(path) if path else load_signaldoc()
     except FileNotFoundError:
-        return None
+        rows = {}
 
     row = rows.get(acronym)
     if row is None:
-        return None
+        return _manual_fallback_profile(acronym)
 
     return _apply_manual_return_fallback(_profile_from_row(acronym, row))
 
@@ -193,6 +204,19 @@ def _apply_manual_return_fallback(profile: CZReferenceProfile) -> CZReferencePro
     profile.mean_return = fallback["mean_return"]
     profile.t_stat = fallback["t_stat"]
     return profile
+
+
+def _manual_fallback_profile(acronym: str) -> CZReferenceProfile | None:
+    """`CZReferenceProfile` built purely from `MANUAL_PAPER_RETURN_FALLBACK`,
+    for when `SignalDoc.csv` doesn't have this acronym at all (missing file
+    or missing row) -- only `mean_return`/`t_stat` are populated, every
+    other field (weighting, breakpoint, sample window, ...) stays `None`
+    since the CSV row that would supply them doesn't exist; callers needing
+    those (e.g. `cz_profile_to_config_override`) still require a real row."""
+    fallback = MANUAL_PAPER_RETURN_FALLBACK.get(acronym)
+    if fallback is None:
+        return None
+    return CZReferenceProfile(acronym=acronym, mean_return=fallback["mean_return"], t_stat=fallback["t_stat"])
 
 
 # Pinned, not `None`/"latest" -- a caller must get the SAME SignalDoc release
@@ -257,6 +281,91 @@ def _cz_breakpoint_quantiles(ls_quantile: float | None) -> int:
     return _CZ_DEFAULT_GROUP_COUNT
 
 
+class CzFilterParseError(ValueError):
+    """Raised when a SignalDoc `Filter` R expression doesn't match one of the
+    known translatable patterns (`_parse_cz_filter_expr`) -- fails loud
+    rather than silently dropping a stated per-predictor universe
+    restriction, same policy `BacktestExecutor.apply_universe_filters` uses
+    for a filter referencing a missing field."""
+
+
+_CZ_FILTER_IN_RE = re.compile(r"^(\w+)%in%c\(([^)]*)\)$")
+_CZ_FILTER_ABS_GT_RE = re.compile(r"^abs\((\w+)\)>(-?\d+(?:\.\d+)?)$")
+_CZ_FILTER_CMP_RE = re.compile(r"^(\w+)(==|!=|<=|>=|<|>)(-?\d+(?:\.\d+)?)$")
+_CZ_FILTER_CMP_OP: dict[str, str] = {"==": "eq", "!=": "neq", "<=": "lte", ">=": "gte", "<": "lt", ">": "gt"}
+
+
+def _cz_filter_number(text: str) -> int | float:
+    value = float(text)
+    return int(value) if value.is_integer() else value
+
+
+def _split_top_level_commas(expr: str) -> list[str]:
+    """Split on `,` at paren-depth 0 only -- a bare `str.split(",")` would
+    also split INSIDE `c(1,2)`, breaking the `%in%c(...)` clause apart."""
+    parts: list[str] = []
+    depth = 0
+    current: list[str] = []
+    for ch in expr:
+        if ch == "(":
+            depth += 1
+            current.append(ch)
+        elif ch == ")":
+            depth -= 1
+            current.append(ch)
+        elif ch == "," and depth == 0:
+            parts.append("".join(current))
+            current = []
+        else:
+            current.append(ch)
+    parts.append("".join(current))
+    return [p.strip() for p in parts if p.strip()]
+
+
+def _parse_cz_filter_clause(clause: str) -> dict[str, Any]:
+    compact = clause.replace(" ", "")
+    m = _CZ_FILTER_IN_RE.match(compact)
+    if m:
+        field, values_str = m.groups()
+        values = [_cz_filter_number(v) for v in values_str.split(",") if v != ""]
+        return {"field": field, "op": "in", "value": values}
+    m = _CZ_FILTER_ABS_GT_RE.match(compact)
+    if m:
+        # abs(field) > N  <=>  NOT (-N <= field <= N) -- exactly `not_between`'s
+        # semantics (BacktestExecutor._apply_filter_op), so this is an exact
+        # translation for the strict-inequality form actually seen in
+        # SignalDoc (e.g. AssetGrowth's `abs(prc)>5`), not an approximation.
+        field, bound_str = m.groups()
+        bound = _cz_filter_number(bound_str)
+        return {"field": field, "op": "not_between", "value": [-bound, bound]}
+    m = _CZ_FILTER_CMP_RE.match(compact)
+    if m:
+        field, op_str, value_str = m.groups()
+        return {"field": field, "op": _CZ_FILTER_CMP_OP[op_str], "value": _cz_filter_number(value_str)}
+    raise CzFilterParseError(
+        f"Cannot translate SignalDoc Filter clause {clause!r} into a universe_filters "
+        "entry -- unrecognized pattern (supported: 'field%in%c(...)', 'field OP N' for "
+        "==/!=/<=/>=/</>, 'abs(field)>N')."
+    )
+
+
+def _parse_cz_filter_expr(expr: str) -> list[dict[str, Any]]:
+    """Translate a SignalDoc `Filter` column's free-text R expression (a
+    per-predictor universe restriction layered on TOP of the global backbone
+    filter -- see `cz_profile_to_config_override`; previously a documented,
+    unimplemented gap, docs/step6.md §10) into `universe_filters` entries.
+
+    Handles the R idioms actually observed in `SignalDoc.csv` (roughly
+    78/331 factors have a non-null `Filter`, comma-separated when a
+    predictor states more than one condition -- e.g. `'shrcd<=11,
+    exchcd==1'`): `field%in%c(...)`, simple comparisons (`==`/`!=`/`<=`/
+    `>=`/`<`/`>`), and `abs(field)>N` (translated to an exact `not_between`
+    exclusion). Raises `CzFilterParseError` for anything else -- never
+    silently drops or approximates a clause it doesn't recognize.
+    """
+    return [_parse_cz_filter_clause(clause) for clause in _split_top_level_commas(expr)]
+
+
 def cz_profile_to_config_override(profile: CZReferenceProfile) -> dict[str, Any]:
     """Convert a `CZReferenceProfile` (C&Z's own reported empirical choices,
     parsed from `SignalDoc.csv`) into a `registry.build_config(...,
@@ -279,7 +388,14 @@ def cz_profile_to_config_override(profile: CZReferenceProfile) -> dict[str, Any]
     Also sets `universe_filters` unconditionally to C&Z's own base universe
     (`shrcd` in {10, 11, 12}, `exchcd` in {1, 2, 3}) -- `Signals/pyCode/
     SignalMasterTable.py`, the shared table every predictor is built from,
-    not SignalDoc (which doesn't record it at all).
+    not SignalDoc (which doesn't record it at all). If `profile.filter_expr`
+    is set (SignalDoc's `Filter` column -- a PER-PREDICTOR restriction
+    layered on top of that shared backbone, e.g. `MeanRankRevGrowth`'s
+    `exchcd%in%c(1,2)` excluding NASDAQ), its parsed clauses
+    (`_parse_cz_filter_expr`) are appended, narrowing the universe further --
+    was a documented, unimplemented gap (docs/step6.md §10, ~78/331 factors
+    affected) until 2026-08-22. Raises `CzFilterParseError` (never silently
+    drops the clause) if `filter_expr` doesn't match a known pattern.
     """
     weighting = profile.stock_weight or "ew"  # C&Z default: sweight NA -> EW
     if weighting not in ("ew", "vw"):
@@ -317,6 +433,11 @@ def cz_profile_to_config_override(profile: CZReferenceProfile) -> dict[str, Any]
             {"field": "exchcd", "op": "in", "value": [1, 2, 3]},
         ],
     }
+    if profile.filter_expr:
+        override["universe_filters"] = [
+            *override["universe_filters"],
+            *_parse_cz_filter_expr(profile.filter_expr),
+        ]
     if profile.portfolio_period is not None:
         override["holding_period_months"] = profile.portfolio_period
         rebalance = _PORTFOLIO_PERIOD_TO_REBALANCE_FREQUENCY.get(profile.portfolio_period)
@@ -377,12 +498,18 @@ def external_reference_endpoints(
 
     profile = load_cz_reference_profile(acronym, signaldoc_path)
     if profile is not None and profile.mean_return is not None:
+        is_manual_fallback = acronym in MANUAL_PAPER_RETURN_FALLBACK and profile.sample_start_year is None
         endpoints["cz"] = {
             "spread": profile.mean_return,
             "t_stat": profile.t_stat,
             "sample_start_year": profile.sample_start_year,
             "sample_end_year": profile.sample_end_year,
-            "source": "SignalDoc.csv (C&Z's own reported Return/T-Stat)",
+            "source": (
+                "MANUAL_PAPER_RETURN_FALLBACK (hand-filled from the paper's own text, "
+                "SignalDoc.csv has no Return/T-Stat for this acronym)"
+                if is_manual_fallback
+                else "SignalDoc.csv (C&Z's own reported Return/T-Stat)"
+            ),
             "window_adjustable": False,
             "window_sensitivity_spread": None,
         }
@@ -427,3 +554,99 @@ def external_reference_endpoints(
         }
 
     return endpoints
+
+
+# Filenames `get_step6_cz_config`/`get_step6_hxz_config` (backend/routers/
+# replication.py) write into `results_dir` (`runs/backtest_scripts/results/
+# {factor_id}/`, same directory as `comparison.json`) every time the user
+# clicks preview in the step6 UI -- captures exactly the numbers the user
+# saw/confirmed at step6 time, so step7 doesn't need a second (possibly
+# different, e.g. after `DEFAULT_OPENAP_RELEASE_YEAR` moves on) live query.
+CZ_REFERENCE_PREVIEW_FILENAME = "cz_reference.json"
+HXZ_REFERENCE_PREVIEW_FILENAME = "hxz_reference.json"
+
+
+def _load_persisted_cz_reference(results_dir: Path) -> dict[str, Any] | None:
+    path = results_dir / CZ_REFERENCE_PREVIEW_FILENAME
+    if not path.is_file():
+        return None
+    data = json.loads(path.read_text())
+    cz_reported = data.get("cz_reported") or {}
+    mean_return = cz_reported.get("mean_return")
+    if mean_return is None:
+        return None
+    raw = data.get("raw") or {}
+    return {
+        "spread": mean_return,
+        "t_stat": cz_reported.get("t_stat"),
+        "sample_start_year": raw.get("sample_start_year"),
+        "sample_end_year": raw.get("sample_end_year"),
+        "source": f"step6 preview ({CZ_REFERENCE_PREVIEW_FILENAME}, persisted when the user clicked preview)",
+        "window_adjustable": False,
+        "window_sensitivity_spread": None,
+    }
+
+
+def _load_persisted_hxz_reference(results_dir: Path) -> dict[str, Any] | None:
+    path = results_dir / HXZ_REFERENCE_PREVIEW_FILENAME
+    if not path.is_file():
+        return None
+    data = json.loads(path.read_text())
+    on_paper_window = data.get("original_insample") or {}
+    on_hxz_window = data.get("hxz_paper_sample") or {}
+    mean_return = on_paper_window.get("mean_return")
+    if mean_return is None:
+        return None
+    alt_spread = on_hxz_window.get("mean_return")
+    is_manual_reference = on_paper_window.get("n_months") is None
+    return {
+        "spread": mean_return,
+        "t_stat": on_paper_window.get("t_stat"),
+        "sample_start_year": on_paper_window.get("start_year"),
+        "sample_end_year": on_paper_window.get("end_year"),
+        "n_months": on_paper_window.get("n_months"),
+        "source": f"{on_paper_window.get('label')} (step6 preview, persisted when the user clicked preview)",
+        "window_adjustable": not is_manual_reference,
+        "window_sensitivity_spread": (
+            None if is_manual_reference or alt_spread is None else mean_return - alt_spread
+        ),
+        "window_sensitivity_basis": {
+            "alt_spread": alt_spread,
+            "alt_start_year": on_hxz_window.get("start_year"),
+            "alt_end_year": on_hxz_window.get("end_year"),
+        },
+    }
+
+
+def external_references_for_results_dir(
+    results_dir: Path | None,
+    acronym: str | None,
+    paper_sample_start_year: int | None = None,
+    paper_sample_end_year: int | None = None,
+) -> dict[str, dict[str, Any]]:
+    """`external_reference_endpoints`, but preferring whatever the user
+    already previewed in the step6 UI (persisted to `results_dir` by
+    `get_step6_cz_config`/`get_step6_hxz_config`) over a fresh query.
+
+    cz/hxz are resolved independently -- a batch can have one persisted and
+    the other missing (e.g. the user only clicked one preview button, or an
+    older session predates this persistence). Falls back to
+    `external_reference_endpoints` per-endpoint when its file is absent, so
+    behavior never regresses for old sessions/batches.
+    """
+    endpoints: dict[str, dict[str, Any]] = {}
+    if results_dir is not None:
+        persisted_cz = _load_persisted_cz_reference(results_dir)
+        if persisted_cz is not None:
+            endpoints["cz"] = persisted_cz
+        persisted_hxz = _load_persisted_hxz_reference(results_dir)
+        if persisted_hxz is not None:
+            endpoints["hxz"] = persisted_hxz
+
+    if "cz" in endpoints and "hxz" in endpoints:
+        return endpoints
+
+    live = external_reference_endpoints(acronym, paper_sample_start_year, paper_sample_end_year)
+    endpoints.setdefault("cz", live.get("cz"))
+    endpoints.setdefault("hxz", live.get("hxz"))
+    return {k: v for k, v in endpoints.items() if v is not None}

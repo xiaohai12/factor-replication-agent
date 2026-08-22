@@ -299,20 +299,51 @@ class RejectedClaim(BaseModel):
     claim: dict
 
 
+class SummaryRow(BaseModel):
+    """One line-item in a `DiagnosisSummary`/`VsPaperSummary` card's compact
+    table (docs/step7-8.md "readability redesign") -- most items in a
+    homogeneous set (config divergences, per-switch effects, weak spec
+    fields) need only a value comparison, not a full templated sentence.
+    Replaces the earlier one-full-sentence-per-item approach, which produced
+    the same boilerplate explanation 2-4 times verbatim on a single card.
+
+    `note` is the ONLY per-row prose allowed, and is reserved for rows that
+    genuinely need explanation -- an `unresolved` classification, or an
+    individually statistically significant effect. A routine/explained/
+    insignificant row leaves `note` empty: its `label`/`ours`/`theirs`/
+    `effect`/`tag` already say everything needed, and repeating the same
+    classification's boilerplate reason on every such row is exactly the
+    noise this redesign removes.
+    """
+
+    label: str
+    ours: str = ""
+    theirs: str = ""
+    effect: str = ""
+    #: Short classification badge text, e.g. "C&Z convention", "paper
+    #: ambiguous", "unresolved", "significant", "not significant". Free text
+    #: (not a strict enum) -- different sections use different
+    #: vocabularies -- but always kept to 2-4 words.
+    tag: str = ""
+    note: str = ""
+
+
 class DiagnosisSummary(BaseModel):
     """Deterministic rollup for one comparison line (docs/step7-8.md Part IX
-    §9.3 "option 1" -- NOT a second LLM-authored free-text layer; Part XII's
-    `headline`/`details`/`footnote` are built straight from `bundle`, same
-    discipline as everything else step7/8 produces: pure template generation,
-    zero LLM involvement).
+    §9.3 "option 1" -- NOT a second LLM-authored free-text layer; built
+    straight from `bundle`, same discipline as everything else step7/8
+    produces: pure template generation, zero LLM involvement).
 
-    Inverted-pyramid layout (docs/step7-8.md Part XII, user-requested
-    redesign): `headline` is the one-sentence bottom line, always shown
-    first; `details` are supporting points in decreasing importance, one per
-    item (e.g. one per diverging implementation choice), never merged into
-    one long paragraph; `footnote` is de-emphasized technical caveats (e.g.
-    joint-test availability). No "vs. X"/line-label title is needed -- each
-    `headline` names its own comparison target in plain language.
+    Inverted-pyramid layout (docs/step7-8.md Part XII, later restructured
+    for readability): `headline` is the one-sentence bottom line, always
+    shown first; `intro` states a shared caveat/classification note ONCE
+    for the whole card (instead of repeating it on every row below);
+    `rows` is the compact table of same-shape items; `narrative` holds
+    standalone sentences that are not about any one row (aggregate facts,
+    cross-cutting verdicts); `footnote` is a de-emphasized technical caveat
+    (e.g. joint-test availability), shown last. No "vs. X"/line-label title
+    is needed -- each `headline` names its own comparison target in plain
+    language.
     """
 
     #: `None` when no line-scoped (per_switch/joint_gate) claim exists at all
@@ -350,35 +381,66 @@ class DiagnosisSummary(BaseModel):
     #: Part XII). Names its own comparison target in plain language --
     #: e.g. "Compared with C&Z's independent replication of this paper, ...".
     headline: str = ""
-    #: Supporting points in decreasing importance, one entry per item (e.g.
-    #: one per diverging implementation choice) -- never merged into a
-    #: single run-on paragraph.
-    details: list[str] = Field(default_factory=list)
+    #: A shared caveat/classification note for the WHOLE card, stated once
+    #: -- e.g. "Rows tagged 'C&Z convention' are overridden by C&Z the same
+    #: way for every factor, regardless of what this paper itself says."
+    #: Replaces re-deriving/re-stating that same reason on every row below.
+    intro: str = ""
+    #: The compact table: one row per item in a homogeneous set (config
+    #: divergences, per-switch effects, weak spec fields). Replaces the
+    #: earlier `details: list[str]` full-sentence-per-item approach.
+    rows: list[SummaryRow] = Field(default_factory=list)
+    #: Standalone sentences that are NOT about any one row above -- an
+    #: aggregate fact (e.g. "our spread vs C&Z's total difference"), a
+    #: cross-cutting verdict (e.g. "Step A"'s reimplementation check), or a
+    #: genuinely one-off callout that doesn't belong to the table.
+    narrative: list[str] = Field(default_factory=list)
     #: De-emphasized technical caveat (e.g. joint-test availability/result),
     #: shown last and visually de-emphasized by the renderer/frontend.
     footnote: str = ""
     #: {short label: long explanation} for every setting mentioned by SHORT
-    #: name in `headline`/`details` (docs/step7-8.md Part XVI) -- the long,
-    #: zero-background `CONFIG_KEY_LABELS` explanation is tooltip/glossary
-    #: content now, not inlined into every sentence.
+    #: name in `headline`/`rows`/`narrative` (docs/step7-8.md Part XVI) --
+    #: the long, zero-background `CONFIG_KEY_LABELS` explanation is
+    #: tooltip/glossary content now, not inlined into every sentence.
     glossary: dict[str, str] = Field(default_factory=dict)
 
 
 class VsPaperSummary(BaseModel):
     """docs/step7-8.md Part XII: the baseline track vs. the paper's own
-    reported number, same `headline`/`details`/`footnote` layout as
-    `DiagnosisSummary` -- a small dedicated model rather than three loose
-    fields on `ReplicationDiagnosisReport`, since this is one coherent unit
-    (report-level, not per-comparison-line). Always section="reproduction"
-    (docs/step7-8.md Part XVI) -- this IS the reproduction section, not one
-    instance among several.
+    reported number, same `headline`/`intro`/`rows`/`narrative`/`footnote`
+    layout as `DiagnosisSummary` -- a small dedicated model rather than
+    loose fields on `ReplicationDiagnosisReport`, since this is one coherent
+    unit (report-level, not per-comparison-line). Always
+    section="reproduction" (docs/step7-8.md Part XVI) -- this IS the
+    reproduction section, not one instance among several.
     """
 
     section: Literal["reproduction"] = "reproduction"
     headline: str = ""
-    details: list[str] = Field(default_factory=list)
+    intro: str = ""
+    rows: list[SummaryRow] = Field(default_factory=list)
+    narrative: list[str] = Field(default_factory=list)
     footnote: str = ""
     glossary: dict[str, str] = Field(default_factory=dict)
+
+
+class PaperVerdictAgreement(BaseModel):
+    """docs/step7-8.md "Step B": whether C&Z's and HXZ's own self-reported
+    numbers for this factor agree or conflict with EACH OTHER, entirely
+    independent of anything this engine ran. Built by
+    `summary.py::build_paper_verdict_agreement_summary` straight from
+    `bundle["paper_verdict_agreement"]` (`src.steps.step7_replication_diff.
+    bundle.build_paper_verdict_agreement`), template-generated, never
+    LLM-authored -- same discipline as `VsPaperSummary`. Rendered as its own
+    banner, ahead of the reproduction card, since it is context a reader
+    needs before asking whether OUR replication agrees with the paper.
+    """
+
+    available: bool = False
+    #: `agree_significant` | `agree_insignificant` | `conflict` | `unavailable`
+    #: -- see `bundle.build_paper_verdict_agreement` for the exact rule.
+    verdict: Literal["agree_significant", "agree_insignificant", "conflict", "unavailable"] = "unavailable"
+    headline: str = ""
 
 
 class ReplicationDiagnosisReport(BaseModel):
@@ -413,3 +475,8 @@ class ReplicationDiagnosisReport(BaseModel):
     spec_quality_summary: DiagnosisSummary = Field(
         default_factory=lambda: DiagnosisSummary(section="spec_quality")
     )
+    #: Whether C&Z's and HXZ's own self-reported numbers agree with each
+    #: other -- report-level, not per-line, built by
+    #: `summary.py::build_paper_verdict_agreement_summary`. Template-
+    #: generated, never LLM-authored.
+    paper_verdict_agreement: PaperVerdictAgreement = Field(default_factory=PaperVerdictAgreement)

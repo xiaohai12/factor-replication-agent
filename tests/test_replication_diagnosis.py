@@ -42,11 +42,12 @@ from src.steps.step8_diagnosis import ReplicationDiagnoser, validate_claims
 from src.steps.step8_diagnosis.render import deterministic_sentence, render_markdown, report_to_jsonable
 from src.steps.step8_diagnosis.summary import (
     build_deterministic_summary,
+    build_paper_verdict_agreement_summary,
     build_spec_quality_summary,
     build_three_term_summaries,
     build_vs_paper_summary,
     _build_robustness_summary,
-    _fold_claim_evidence_into_details,
+    _fold_claim_evidence_into_narrative,
 )
 from tests._spec_test_helpers import minimal_resolved_spec
 
@@ -105,6 +106,9 @@ class TestTrackVsPaper:
         # hurdles (1.96/2.78/3.39) -- docs/step7-8.md Q7.
         assert vs["paper_significance_tier"] == 3
         assert vs["track_significance_tier"] == 3
+        # docs/step7-8.md readability follow-up: ratio 0.8 falls inside
+        # CLOSE_REPLICATION_RATIO_BAND (0.5x-2.0x) and signs agree.
+        assert vs["magnitude_tier"] == "clean"
 
     def test_opposite_sign_is_flagged(self):
         vs = build_track_vs_paper(PAPER, TRACKS["standardized_hxz"]["metrics"])
@@ -112,6 +116,35 @@ class TestTrackVsPaper:
         assert vs["track_significant"] is False
         assert vs["significance_agrees"] is False
         assert vs["track_significance_tier"] == 0
+        # docs/step7-8.md readability follow-up: opposite sign is always
+        # "failed", regardless of the ratio.
+        assert vs["magnitude_tier"] == "failed"
+
+
+class TestMagnitudeTier:
+    """docs/step7-8.md readability follow-up: `overall_tag` is sign+
+    significance only, blind to magnitude -- `magnitude_tier` is the
+    parallel field that fixes a real "0.22x shown as reproduced" case."""
+
+    def test_ratio_just_inside_close_band_is_clean(self):
+        vs = build_track_vs_paper({"main_spread": 0.01, "main_t_stat": 3.0}, {"mean_return": 0.005, "t_stat": 2.0})
+        assert vs["abs_spread_ratio"] == 0.5
+        assert vs["magnitude_tier"] == "clean"
+
+    def test_ratio_between_partial_and_clean_bands_is_partial(self):
+        vs = build_track_vs_paper({"main_spread": 0.022, "main_t_stat": 3.0}, {"mean_return": 0.0048, "t_stat": 3.0})
+        assert round(vs["abs_spread_ratio"], 4) == 0.2182
+        assert vs["magnitude_tier"] == "partial"
+
+    def test_ratio_outside_partial_band_is_failed(self):
+        vs = build_track_vs_paper({"main_spread": 0.01, "main_t_stat": 3.0}, {"mean_return": 0.001, "t_stat": 2.0})
+        assert vs["abs_spread_ratio"] == 0.1
+        assert vs["magnitude_tier"] == "failed"
+
+    def test_unknown_ratio_is_none(self):
+        vs = build_track_vs_paper({"main_spread": None, "main_t_stat": None}, {"mean_return": 0.005, "t_stat": 2.0})
+        assert vs["abs_spread_ratio"] is None
+        assert vs["magnitude_tier"] is None
 
     def test_alpha_headline_compares_against_our_alpha_not_the_raw_spread(self):
         paper = {"return_type": "three-factor alpha", "main_spread": -0.007, "main_t_stat": -3.84}
@@ -737,10 +770,11 @@ class TestThreeTermSummary:
         assert summaries[0].section == "gap_split"
         assert "C&Z" in summaries[0].headline
 
-    def test_details_are_ordered_by_absolute_size_and_name_the_largest(self):
-        details = build_three_term_summaries(self.BUNDLE)[0].details
-        assert details[0].startswith("Portfolio-construction settings")
-        assert "not a controlled experiment" in details[-1]
+    def test_rows_are_ordered_by_absolute_size_and_narrative_names_the_largest(self):
+        summary = build_three_term_summaries(self.BUNDLE)[0]
+        assert summary.rows[0].label.startswith("Portfolio-construction settings")
+        assert summary.rows[0].tag == "largest"
+        assert "not a controlled experiment" in summary.narrative[-1]
 
     def test_footnote_states_the_terms_are_not_equally_clean(self):
         footnote = build_three_term_summaries(self.BUNDLE)[0].footnote
@@ -753,8 +787,8 @@ class TestThreeTermSummary:
     def test_window_sensitivity_is_reported_when_measurable(self):
         bundle = json.loads(json.dumps(self.BUNDLE))
         bundle["three_term_identity"]["cz"]["window_basis"]["window_sensitivity_spread"] = -0.0012
-        details = build_three_term_summaries(bundle)[0].details
-        assert any("sample window alone" in d for d in details)
+        narrative = build_three_term_summaries(bundle)[0].narrative
+        assert any("sample window alone" in n for n in narrative)
 
     def test_appended_by_build_deterministic_summary_without_any_claims(self):
         summaries = build_deterministic_summary([], self.BUNDLE)
@@ -1656,6 +1690,21 @@ def _bundle_with_narrative_extras() -> dict:
     return bundle
 
 
+def _summary_text(summary) -> str:
+    """Flatten a `DiagnosisSummary`/`VsPaperSummary`'s `headline`/`intro`/
+    `rows`/`narrative`/`footnote` into one searchable string -- for tests
+    that only care whether a phrase appears SOMEWHERE on the card, mirroring
+    what a reader sees across the whole thing (docs/step7-8.md readability
+    redesign moved most per-item text from a flat `details: list[str]` into
+    `rows`, so a substring check now needs to look at more than one field)."""
+    parts = [summary.headline, summary.intro]
+    for row in summary.rows:
+        parts += [row.label, row.ours, row.theirs, row.effect, row.tag, row.note]
+    parts += summary.narrative
+    parts.append(summary.footnote)
+    return " ".join(p for p in parts if p)
+
+
 class TestCzNarrative:
     """docs/step7-8.md Part XI: the PRIMARY narrative (project's core
     research question, AGENTS.md -- inter-implementer agreement)."""
@@ -1666,17 +1715,22 @@ class TestCzNarrative:
     def test_house_convention_classification_and_effect_are_reported(self):
         summaries = build_deterministic_summary([], self.bundle)
         to_cz = next(s for s in summaries if s.comparison_line == "to_cz")
-        detail_text = " ".join(to_cz.details)
+        text = _summary_text(to_cz)
         # docs/step7-8.md Part XI readability follow-up: no raw config-key
         # identifiers in reader-facing text -- a human-readable label instead.
-        assert "universe_filters" not in detail_text
-        assert "stock universe:" in detail_text.lower()
+        assert "universe_filters" not in text
+        assert len(to_cz.rows) == 1
+        row = to_cz.rows[0]
+        assert row.label.lower() == "stock universe"
         assert to_cz.glossary["stock universe"] == "which stocks are allowed into consideration at all"
-        assert "excludes financial companies" in detail_text
-        assert "listed on the nyse, amex, or nasdaq" in detail_text.lower()
-        assert "cross-factor house" in detail_text
-        assert "not an ambiguity in the paper" in detail_text
-        assert "t=-0.52" in detail_text or "t=" in detail_text
+        assert "excludes financial companies" in row.ours
+        assert "nyse, amex, or nasdaq" in row.theirs.lower()
+        # docs/step7-8.md readability redesign: the shared "why" explanation
+        # is stated ONCE in `intro`, not repeated on the row itself.
+        assert row.tag == "C&Z convention"
+        assert row.note == ""
+        assert "overridden by C&Z the same way for every factor" in to_cz.intro
+        assert "t=-0.52" in row.effect or "t=" in row.effect
         # docs/step7-8.md Part XII: headline is the bottom line, shown first,
         # and names the comparison target itself (no separate "vs. C&Z" title).
         assert to_cz.headline
@@ -1692,17 +1746,77 @@ class TestCzNarrative:
         bundle["paired_tests"]["to_cz"]["per_switch"]["universe"]["t_stat"] = 3.2
         summaries = build_deterministic_summary([], bundle)
         to_cz = next(s for s in summaries if s.comparison_line == "to_cz")
-        assert "does NOT decay" in " ".join(to_cz.details)
+        assert "does NOT decay" in to_cz.rows[0].note
 
     def test_cross_line_callout_suppressed_when_switch_is_not_significant(self):
         summaries = build_deterministic_summary([], self.bundle)
         to_cz = next(s for s in summaries if s.comparison_line == "to_cz")
-        assert "does NOT decay" not in " ".join(to_cz.details)
+        assert to_cz.rows[0].note == ""
 
     def test_headline_reflects_high_agreement_when_all_explained_and_insignificant(self):
         summaries = build_deterministic_summary([], self.bundle)
         to_cz = next(s for s in summaries if s.comparison_line == "to_cz")
         assert "none has a statistically significant effect" in to_cz.headline
+
+    def test_quantiles_divergence_finds_its_paired_effect_and_flips_the_headline(self):
+        # docs/step7-8.md readability follow-up: `_CONFIG_KEY_TO_SWITCH_NAME`
+        # was missing `breakpoint_quantiles -> quantiles` -- a real
+        # MeanRankRevGrowth batch showed this silently dropping a
+        # significant (t=2.02) effect and reporting "no paired-test
+        # evidence" instead, which also flipped the headline to claim NO
+        # divergence was individually significant when one actually was.
+        bundle = _bundle_with_narrative_extras()
+        bundle["config_diff"]["pairs"]["cz_actual_config"]["changed_keys"].append("breakpoint_quantiles")
+        bundle["config_diff"]["pairs"]["cz_actual_config"]["details"]["breakpoint_quantiles"] = {
+            "stage": "portfolio", "baseline_value": 10, "track_value": 5,
+        }
+        bundle["paired_tests"]["to_cz"]["per_switch"]["quantiles"] = {
+            "available": True, "track": "cz_factorial_quantiles",
+            "mean_diff": 0.00133, "t_stat": 2.02, "n_overlap_months": 276,
+        }
+        bundle["evidence_keys"].update(flatten({
+            "config_diff": bundle["config_diff"], "paired_tests": bundle["paired_tests"],
+        }))
+        summaries = build_deterministic_summary([], bundle)
+        to_cz = next(s for s in summaries if s.comparison_line == "to_cz")
+        row = next(r for r in to_cz.rows if r.label.lower() == "number of portfolio groups")
+        assert "no paired-test evidence" not in row.effect
+        assert "t=2.02" in row.effect
+        assert "statistically significant" in row.effect
+        assert "none has a statistically significant effect" not in to_cz.headline
+        assert "at least one has a statistically significant effect" in to_cz.headline
+
+    def test_shapley_coverage_narrative_reports_covered_switches_and_flags_uncovered_keys(self):
+        # docs/step7-8.md readability follow-up: `shapley_attribution.to_cz`
+        # only covers `universe` here (step6's switch vocabulary has no
+        # entry for `formation_lag_months`) -- the narrative must say so
+        # explicitly rather than let the exact `shapley_sum_check ==
+        # total_gap` identity read as "100% of the gap is explained".
+        bundle = _bundle_with_narrative_extras()
+        bundle["config_diff"]["pairs"]["cz_actual_config"]["changed_keys"].append("formation_lag_months")
+        bundle["config_diff"]["pairs"]["cz_actual_config"]["details"]["formation_lag_months"] = {
+            "stage": "portfolio", "baseline_value": 0, "track_value": 1,
+        }
+        bundle["evidence_keys"].update(flatten({"config_diff": bundle["config_diff"]}))
+        summaries = build_deterministic_summary([], bundle)
+        to_cz = next(s for s in summaries if s.comparison_line == "to_cz")
+        text = " ".join(to_cz.narrative)
+        assert "full-factorial design covers" in text
+        # Sign is NEGATED from shapley_attribution's own convention
+        # (target-minus-baseline, +0.000257) to match `paired_tests`'
+        # baseline-minus-track convention every row's `effect` uses.
+        assert "-0.00026/month" in text
+        assert "does NOT cover 1 other real difference" in text
+        assert "formation lag" in text
+        assert '"100% of the total gap explained."' in text
+
+    def test_shapley_coverage_narrative_omitted_when_grid_unavailable(self):
+        bundle = _bundle_with_narrative_extras()
+        bundle["shapley_attribution"]["to_cz"] = {"available": False, "reason": "no grid"}
+        bundle["evidence_keys"].update(flatten({"shapley_attribution": bundle["shapley_attribution"]}))
+        summaries = build_deterministic_summary([], bundle)
+        to_cz = next(s for s in summaries if s.comparison_line == "to_cz")
+        assert "full-factorial design covers" not in " ".join(to_cz.narrative)
 
     def test_unresolved_divergence_gets_the_concerning_headline(self):
         bundle = _bundle_with_narrative_extras()
@@ -1715,6 +1829,11 @@ class TestCzNarrative:
         summaries = build_deterministic_summary([], bundle)
         to_cz = next(s for s in summaries if s.comparison_line == "to_cz")
         assert "warrants human review" in to_cz.headline
+        # The per-row explanation for THIS classification lives in `note`
+        # (rare enough not to warrant a shared `intro` sentence), not `intro`.
+        assert to_cz.rows[0].tag == "unresolved"
+        assert "open question warranting human review" in to_cz.rows[0].note
+        assert "unresolved" not in to_cz.intro.lower()
 
     def test_paper_ambiguous_classification_when_flagged_weak(self):
         bundle = _bundle_with_narrative_extras()
@@ -1730,7 +1849,8 @@ class TestCzNarrative:
         }))
         summaries = build_deterministic_summary([], bundle)
         to_cz = next(s for s in summaries if s.comparison_line == "to_cz")
-        assert "flagged by our own review as weakly specified" in " ".join(to_cz.details)
+        assert to_cz.rows[0].tag == "paper ambiguous"
+        assert "flagged by our own review as weakly specified" in to_cz.intro
 
     def test_no_cz_pair_yields_no_headline_not_a_crash(self):
         bundle = _bundle_with_attribution_extras()
@@ -1750,10 +1870,65 @@ class TestCzNarrative:
         }
         summaries = build_deterministic_summary([], bundle)
         to_cz = next(s for s in summaries if s.comparison_line == "to_cz")
-        detail_text = " ".join(to_cz.details)
-        assert 'the paper describes its universe as: "NYSE/AMEX/NASDAQ nonfinancial firms excluding SIC 6000-6999"' in detail_text
+        row = to_cz.rows[0]
+        assert row.ours == 'the paper describes it as: "NYSE/AMEX/NASDAQ nonfinancial firms excluding SIC 6000-6999"'
         # C&Z's side stays the fixed house-convention description either way.
-        assert "C&Z's own fixed cross-factor universe convention" in detail_text
+        assert "C&Z's own fixed cross-factor universe convention" in row.theirs
+
+    def test_agent_vs_cz_verdict_bullet_is_appended(self):
+        # docs/step7-8.md "Step A": whether reimplementing C&Z's own config
+        # actually reproduces the number C&Z themselves report.
+        bundle = _bundle_with_narrative_extras()
+        # `_cz_level_and_gap_bullets` (the "our spread vs C&Z's" line) needs a
+        # resolvable cz_actual_config track spread/t-stat, or it bails before
+        # ever reaching the new verdict bullet -- add one, mirroring the real
+        # shape `build_evidence_bundle` produces.
+        bundle["derived"]["tracks"]["cz_actual_config"] = {
+            "vs_paper": {"track_spread": 0.0048, "track_raw_t_stat": 3.0},
+            "n_months": 432,
+        }
+        bundle["external_performance_comparison"] = {
+            "agent_vs_cz": {"available": True, "verdict": "reproduced", "abs_spread_ratio": 0.7},
+        }
+        summaries = build_deterministic_summary([], bundle)
+        to_cz = next(s for s in summaries if s.comparison_line == "to_cz")
+        assert "reproduces their own published number closely" in " ".join(to_cz.narrative)
+
+    def test_agent_vs_cz_verdict_bullet_omitted_when_unavailable(self):
+        bundle = _bundle_with_narrative_extras()
+        bundle["external_performance_comparison"] = {"agent_vs_cz": {"available": False}}
+        summaries = build_deterministic_summary([], bundle)
+        to_cz = next(s for s in summaries if s.comparison_line == "to_cz")
+        assert "reproduces their own published number" not in " ".join(to_cz.narrative)
+
+    def test_long_and_short_portfolios_never_get_their_own_row(self):
+        # `long_portfolios`/`short_portfolios` are mechanically derived from
+        # `breakpoint_quantiles` (registry.py's `_build_config_from_
+        # resolved`/`_remap_extreme_portfolios_for_quantile_override`) --
+        # not a valid override key, not an independent decision. Counting
+        # them as a SEPARATE config_diff row duplicates the `breakpoint_
+        # quantiles` row and can misclassify a mechanically-explained
+        # difference as "unresolved" purely because these two derived keys
+        # have no house-convention/paper-ambiguity classification of their
+        # own. Real bug found reading a live report: "Short portfolios:
+        # we use [10], C&Z uses [5]" showed up as its own "unresolved,
+        # warrants human review" row right next to the already-explained
+        # "Number of portfolio groups: 10 vs 5" row.
+        bundle = _bundle_with_narrative_extras()
+        bundle["config_diff"]["pairs"]["cz_actual_config"]["changed_keys"] = [
+            "breakpoint_quantiles", "long_portfolios", "short_portfolios",
+        ]
+        bundle["config_diff"]["pairs"]["cz_actual_config"]["details"] = {
+            "breakpoint_quantiles": {"stage": "portfolio", "baseline_value": 10, "track_value": 5},
+            "long_portfolios": {"stage": "portfolio", "baseline_value": [1], "track_value": [1]},
+            "short_portfolios": {"stage": "portfolio", "baseline_value": [10], "track_value": [5]},
+        }
+        bundle["evidence_keys"].update(flatten({"config_diff": bundle["config_diff"]}))
+        summaries = build_deterministic_summary([], bundle)
+        to_cz = next(s for s in summaries if s.comparison_line == "to_cz")
+        labels = [row.label.lower() for row in to_cz.rows]
+        assert labels == ["number of portfolio groups"]
+        assert not any(row.tag == "unresolved" for row in to_cz.rows)
 
 
 class TestSensitivitySummary:
@@ -1767,13 +1942,13 @@ class TestSensitivitySummary:
         bundle = _bundle_with_narrative_extras()
         summaries = build_deterministic_summary([], bundle)
         to_hxz = next(s for s in summaries if s.comparison_line == "to_hxz")
-        assert any("portfolio weighting" in d.lower() for d in to_hxz.details)
+        assert any(row.label.lower() == "portfolio weighting" for row in to_hxz.rows)
         assert to_hxz.glossary["portfolio weighting"] == (
             "whether bigger companies count for more in the portfolio, or every stock counts equally"
         )
-        assert "joint significance test" in " ".join(to_hxz.details).lower()
+        assert "joint significance test" in " ".join(to_hxz.narrative).lower()
         assert "sensitivity context, not itself the reproducibility question" in to_hxz.footnote
-        assert "Standardized HXZ protocol (a named case" in " ".join(to_hxz.details)
+        assert "Standardized HXZ protocol (a named case" in " ".join(to_hxz.narrative)
         assert to_hxz.section == "robustness"
 
     def test_unavailable_shapley_still_shows_robustness_evidence_when_available(self):
@@ -1787,25 +1962,74 @@ class TestSensitivitySummary:
         to_hxz = next(s for s in summaries if s.comparison_line == "to_hxz")
         assert to_hxz.headline != ""
         assert "the result is stable" in to_hxz.headline
-        assert "Compared with the fully standardized HXZ protocol" not in " ".join(to_hxz.details)
+        assert "Compared with the fully standardized HXZ protocol" not in " ".join(to_hxz.narrative)
 
     def test_nothing_available_at_all_yields_no_card(self):
         bundle = _bundle_with_narrative_extras()
         bundle["shapley_attribution"]["to_hxz"] = {"available": False, "reason": "no grid"}
         bundle["robustness_summary"] = {"available": False, "reason": "n/a"}
         bundle["publication_decay"]["tracks"] = {}
-        headline, details, footnote, glossary = _build_robustness_summary(bundle)
-        assert (headline, details, footnote, glossary) == ("", [], "", {})
+        headline, intro, rows, narrative, footnote, glossary = _build_robustness_summary(bundle)
+        assert (headline, intro, rows, narrative, footnote, glossary) == ("", "", [], [], "", {})
 
     def test_joint_test_not_significant_is_reflected_and_shares_suppressed(self):
         bundle = _bundle_with_narrative_extras()
         bundle["joint_test"]["to_hxz"]["p_value"] = 0.4  # flip to "measured, not significant"
         summaries = build_deterministic_summary([], bundle)
         to_hxz = next(s for s in summaries if s.comparison_line == "to_hxz")
-        detail_text = " ".join(to_hxz.details)
-        assert "does not confirm this" in detail_text
-        assert "contribution share not shown" in detail_text
-        assert "accounts for" not in detail_text
+        assert "does not confirm this" in " ".join(to_hxz.narrative)
+        # docs/step7-8.md readability redesign: the "why no share is shown"
+        # caveat is now stated ONCE in `intro`, not repeated on every row.
+        assert "does not confirm the total change is more than noise" in to_hxz.intro
+        assert all(row.tag == "" for row in to_hxz.rows)
+
+    def test_agent_vs_hxz_verdict_bullet_is_appended(self):
+        # docs/step7-8.md "Step A": whether reimplementing HXZ's own
+        # standardized config reproduces the number HXZ themselves report.
+        bundle = _bundle_with_narrative_extras()
+        bundle["external_performance_comparison"] = {
+            "agent_vs_hxz": {"available": True, "verdict": "contradicted", "abs_spread_ratio": 1.3},
+        }
+        summaries = build_deterministic_summary([], bundle)
+        to_hxz = next(s for s in summaries if s.comparison_line == "to_hxz")
+        assert "OPPOSITE sign" in " ".join(to_hxz.narrative)
+
+    def test_agent_vs_hxz_verdict_bullet_omitted_when_unavailable(self):
+        bundle = _bundle_with_narrative_extras()
+        bundle["external_performance_comparison"] = {"agent_vs_hxz": {"available": False}}
+        summaries = build_deterministic_summary([], bundle)
+        to_hxz = next(s for s in summaries if s.comparison_line == "to_hxz")
+        assert "OPPOSITE sign" not in " ".join(to_hxz.narrative)
+
+
+class TestPaperVerdictAgreementSummary:
+    """docs/step7-8.md "Step B": do C&Z's and HXZ's own self-reported
+    numbers agree or conflict with EACH OTHER, independent of anything this
+    engine ran -- rendered as its own report-level banner."""
+
+    def test_conflict_headline(self):
+        bundle = {"paper_verdict_agreement": {"available": True, "verdict": "conflict"}}
+        summary = build_paper_verdict_agreement_summary(bundle)
+        assert summary.available is True
+        assert summary.verdict == "conflict"
+        assert "DISAGREE" in summary.headline
+
+    def test_agree_significant_headline(self):
+        bundle = {"paper_verdict_agreement": {"available": True, "verdict": "agree_significant"}}
+        summary = build_paper_verdict_agreement_summary(bundle)
+        assert "agree with each other" in summary.headline
+        assert "statistically significant effect in the same direction" in summary.headline
+
+    def test_unavailable_yields_no_headline(self):
+        bundle = {"paper_verdict_agreement": {"available": False, "verdict": "unavailable"}}
+        summary = build_paper_verdict_agreement_summary(bundle)
+        assert summary.available is False
+        assert summary.headline == ""
+
+    def test_missing_section_defaults_to_unavailable(self):
+        summary = build_paper_verdict_agreement_summary({})
+        assert summary.available is False
+        assert summary.verdict == "unavailable"
 
 
 class TestVsPaperSummary:
@@ -1814,8 +2038,8 @@ class TestVsPaperSummary:
         summary = build_vs_paper_summary(bundle)
         # docs/step7-8.md Part XI readability follow-up: readable label, not the
         # raw `accounting_lag_months` config-key identifier.
-        assert "accounting_lag_months" not in " ".join(summary.details)
-        assert "accounting lag" in " ".join(summary.details).lower()
+        assert "accounting_lag_months" not in " ".join(summary.narrative)
+        assert "accounting lag" in " ".join(summary.narrative).lower()
         assert summary.glossary["accounting lag"].startswith("how many months we wait")
         assert "cannot separate the two" in summary.footnote
         assert "Compared with the paper's own reported result" in summary.headline
@@ -1825,7 +2049,23 @@ class TestVsPaperSummary:
         bundle["menu_deviations"]["clamped_by_track"]["original_method"] = []
         summary = build_vs_paper_summary(bundle)
         assert summary.footnote == ""
-        assert summary.details == []
+        # docs/step7-8.md readability follow-up: the publication-decay clue
+        # is independent of `clamped_by_track` (paper-silent fields), so it
+        # still shows up here even with no clamped fields -- only the
+        # clamped-fields sentence/footnote is gone.
+        assert summary.narrative == [
+            "Our own replication's effect ALSO decays after the paper's own publication date "
+            "(in-sample t=3.50, post-publication t=0.50) -- consistent with part of the gap from "
+            "the paper being a genuinely fragile or decaying signal, not only a fixed "
+            "implementation or config difference."
+        ]
+
+    def test_no_publication_decay_data_omits_the_decay_clue(self):
+        bundle = _bundle_with_narrative_extras()
+        bundle["menu_deviations"]["clamped_by_track"]["original_method"] = []
+        bundle["publication_decay"]["tracks"] = {}
+        summary = build_vs_paper_summary(bundle)
+        assert summary.narrative == []
 
     def test_no_baseline_track_is_handled(self):
         bundle = _bundle_with_narrative_extras()
@@ -1842,9 +2082,10 @@ class TestSpecQualitySummary:
         bundle = _bundle_with_extras()
         summary = build_spec_quality_summary(bundle)
         assert summary.section == "spec_quality"
-        detail_text = " ".join(summary.details)
-        assert "evidence_status=unspecified" in detail_text
-        assert "needs_human_confirmation" in detail_text
+        assert len(summary.rows) == 1
+        row = summary.rows[0]
+        assert row.effect == "evidence_status=unspecified"
+        assert row.tag == "needs_human_confirmation"
         assert "1 setting(s) were flagged as weakly specified" in summary.headline
 
     def test_unsupported_paper_fields_are_listed(self):
@@ -1854,8 +2095,22 @@ class TestSpecQualitySummary:
             {"field_path": "portfolio.rebalance_frequency", "unsupported_value": "weekly"},
         ]
         summary = build_spec_quality_summary(bundle)
-        assert "weekly" in " ".join(summary.details)
+        assert "weekly" in " ".join(row.effect for row in summary.rows)
         assert "outside the engine's menu" in summary.headline
+
+    def test_weak_fields_sharing_the_same_reason_are_grouped_into_one_row(self):
+        # docs/step7-8.md readability redesign: 3 near-identical "evidence_
+        # status=inferred" fields used to render as 3 nearly-duplicate rows;
+        # now they collapse into one row listing all 3 labels.
+        bundle = _bundle_with_extras()
+        bundle["spec_quality"]["weak_fields"] = [
+            {"field_path": "data.fields[0].source_column", "reason": "evidence_status=inferred", "disposition": "needs_human_confirmation"},
+            {"field_path": "data.fields[1].source_column", "reason": "evidence_status=inferred", "disposition": "needs_human_confirmation"},
+            {"field_path": "data.fields[2].source_column", "reason": "evidence_status=inferred", "disposition": "needs_human_confirmation"},
+        ]
+        summary = build_spec_quality_summary(bundle)
+        assert len(summary.rows) == 1
+        assert summary.rows[0].label.count(",") == 2  # 3 field labels joined
 
     def test_nothing_flagged_yields_empty_summary(self):
         bundle = _bundle_with_extras()
@@ -1863,7 +2118,7 @@ class TestSpecQualitySummary:
         bundle["menu_deviations"]["unsupported_paper_fields"] = []
         summary = build_spec_quality_summary(bundle)
         assert summary.headline == ""
-        assert summary.details == []
+        assert summary.rows == []
         assert summary.section == "spec_quality"
 
 
@@ -1947,8 +2202,8 @@ class TestBuildDeterministicSummary:
     def test_llm_dominant_pick_agreeing_with_deterministic_ranking_adds_no_bullet(self):
         # `self.bundle`'s to_hxz line has only one switch ("weighting"), so
         # it's trivially both the LLM's pick and the deterministic largest-|t|.
-        details = _fold_claim_evidence_into_details(["existing bullet"], self.bundle, "to_hxz", ["weighting"])
-        assert details == ["existing bullet"]
+        narrative = _fold_claim_evidence_into_narrative(["existing bullet"], self.bundle, "to_hxz", ["weighting"])
+        assert narrative == ["existing bullet"]
 
     def test_llm_dominant_pick_disagreeing_with_deterministic_ranking_adds_a_conflict_note(self):
         bundle = _bundle_with_attribution_extras()
@@ -1957,10 +2212,10 @@ class TestBuildDeterministicSummary:
         bundle["paired_tests"]["to_hxz"]["per_switch"]["lag"] = {
             "available": True, "track": "factorial_lag", "mean_diff": 0.01, "t_stat": 5.0, "n_overlap_months": 400,
         }
-        details = _fold_claim_evidence_into_details([], bundle, "to_hxz", ["weighting"])
-        assert len(details) == 1
-        assert "differs from the setting with the largest measured effect" in details[0]
-        assert "accounting_lag_months" not in details[0]  # raw config-key identifiers never in prose
+        narrative = _fold_claim_evidence_into_narrative([], bundle, "to_hxz", ["weighting"])
+        assert len(narrative) == 1
+        assert "differs from the setting with the largest measured effect" in narrative[0]
+        assert "accounting_lag_months" not in narrative[0]  # raw config-key identifiers never in prose
 
     def test_joint_supported_is_none_not_false_when_not_tested(self):
         claims = self._claims([

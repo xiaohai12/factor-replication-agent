@@ -15,8 +15,25 @@ from __future__ import annotations
 import re
 from typing import Any, Iterable
 
-from src.infra.models.diagnosis import DiagnosisClaim, DiagnosisSummary
-from src.steps.step7_replication_diff.bundle import OAT_INTERACTION_CAVEAT, SIGNIFICANCE_T_THRESHOLD
+from src.infra.models.diagnosis import DiagnosisClaim, DiagnosisSummary, SummaryRow
+from src.steps.step7_replication_diff.bundle import (
+    MAGNITUDE_TIER_BANDS,
+    OAT_INTERACTION_CAVEAT,
+    SIGNIFICANCE_T_THRESHOLD,
+)
+
+#: Config keys that always show up in `config_diff` alongside `breakpoint_
+#: quantiles` whenever it changes, but are NOT themselves an independent
+#: decision -- `registry.py`'s `_build_config_from_resolved`/`_remap_
+#: extreme_portfolios_for_quantile_override` derive them mechanically
+#: (`short_portfolios=[old_or_new_quantile_count]`); they are not even a
+#: valid override key (`registry.py`: "not a valid override key"). Counting
+#: them as a SEPARATE divergence duplicates the `breakpoint_quantiles` row
+#: and, worse, can misclassify a mechanically-explained difference as
+#: "unresolved" just because these two derived keys have no house-
+#: convention/paper-ambiguity classification of their own. Excluded from
+#: every per-key walk in this module.
+_DERIVED_CONFIG_KEYS = frozenset({"long_portfolios", "short_portfolios"})
 
 _SWITCH_FROM_SHAPLEY_OR_PAIRED = re.compile(r"\.(?:shapley_effects|per_switch)\.([^.]+)(?:\.|$)")
 
@@ -61,9 +78,21 @@ CZ_HOUSE_CONVENTION_KEYS = frozenset(
 # `missing_action` is deliberately absent (2026-08-19): it can never actually
 # differ between any two tracks this pipeline produces (see step6's own
 # comment on `_ABLATION_SWITCH_TO_CONFIG_KEY`), so it is not a real
-# attribution switch.
+# attribution switch. `breakpoint_quantiles: "quantiles"` was MISSING here
+# until 2026-08-22 despite being a real, tracked switch in step6's own
+# `_ABLATION_SWITCH_TO_CONFIG_KEY` (added there 2026-08-22) -- the gap meant
+# `_format_paired_effect`/`_abs_t` could never find `paired_tests.*.per_
+# switch.quantiles` for a `breakpoint_quantiles` divergence (they looked up
+# the wrong, nonexistent switch name "breakpoint_quantiles" instead of
+# "quantiles"), silently reporting "no paired-test evidence" for a switch
+# that actually had real, sometimes statistically significant, data --
+# which could flip a headline's "none individually significant" claim to be
+# wrong. Fixed by adding the missing entry below; found via a real
+# MeanRankRevGrowth batch where `quantiles` had t=2.02 (significant) that
+# every card was silently dropping.
 _CONFIG_KEY_TO_SWITCH_NAME = {
     "breakpoint_source": "breakpoint",
+    "breakpoint_quantiles": "quantiles",
     "weighting_rule": "weighting",
     "accounting_lag_months": "lag",
     "rebalance_frequency": "rebalance",
@@ -294,8 +323,8 @@ def _readable_value(key: str, value: Any) -> str:
     would otherwise print as an unreadable Python repr), `breakpoint_
     quantiles` (a raw group count), and menu-governed keys (`_VALUE_LABELS`,
     e.g. raw `"vw"` -> "value-weighted"). This is the FALLBACK path for
-    universe_filters -- `_universe_filters_clause` prefers the paper's own
-    extracted description when one is available."""
+    universe_filters -- `_row_value` prefers the paper's own extracted
+    description when one is available."""
     if key == "universe_filters" and isinstance(value, list):
         parts = [_readable_filter(f) if isinstance(f, dict) else str(f) for f in value]
         return " and ".join(parts) if parts else "no filters"
@@ -312,38 +341,6 @@ def _readable_value(key: str, value: Any) -> str:
         return labels[value]
     return str(value)
 
-
-# `universe_filters`' readable value is already a full verb clause ("excludes
-# financial companies..."), unlike a plain scalar ("0", "annual") -- so it
-# needs "our version {clause}" instead of "we use {value}", or the sentence
-# reads as broken English ("we use excludes financial companies").
-_CLAUSE_VALUED_KEYS = frozenset({"universe_filters"})
-
-
-def _value_clause(key: str, value: Any, *, ours: bool) -> str:
-    rendered = _readable_value(key, value)
-    if key in _CLAUSE_VALUED_KEYS:
-        return f"our version {rendered}" if ours else f"C&Z's version {rendered}"
-    return f"we use {rendered}" if ours else f"C&Z uses {rendered}"
-
-
-def _universe_filters_clause(bundle: dict[str, Any], detail: dict[str, Any], *, ours: bool) -> str:
-    """docs/step7-8.md Part XIII: prefers the paper's own extracted universe
-    description (`bundle["universe_description"]`, straight from the
-    MethodSpec's `SourcedValue[str]`) for OUR side -- this generalizes to
-    any future paper automatically, since extraction always populates this
-    field, unlike a hardcoded per-value lookup table. C&Z's side is a fixed
-    constant (`_CZ_HOUSE_UNIVERSE_DESCRIPTION`), never per-paper. Falls back
-    to `_value_clause`'s generic filter decoding only when no resolved spec
-    was supplied to `build_evidence_bundle` (`universe_description`
-    unavailable).
-    """
-    if not ours:
-        return f"C&Z's version is {_CZ_HOUSE_UNIVERSE_DESCRIPTION}"
-    paper_text = (bundle.get("universe_description") or {}).get("text")
-    if paper_text:
-        return f'the paper describes its universe as: "{paper_text}"'
-    return _value_clause("universe_filters", detail.get("baseline_value"), ours=True)
 
 
 def _is_weak_in_paper(config_key: str, spec_quality: dict[str, Any] | None) -> bool:
@@ -401,6 +398,62 @@ def _format_paired_effect(switch_name: str, paired_tests_line: dict[str, Any]) -
     return f"{sign}{mean_diff:.5f}/month (t={t:.2f}), {sig}"
 
 
+def _format_reference_verdict(entry: dict[str, Any] | None, reference_label: str) -> str:
+    """docs/step7-8.md "Step A": one sentence on whether running an external
+    implementer's OWN config through our engine reproduces the number THEY
+    themselves report -- distinct from `_cz_level_and_gap_bullets` (which
+    compares two AGENT tracks against each other) and from the paper-vs-us
+    comparison (`build_vs_paper_summary`). Returns `""` when the underlying
+    `external_performance_comparison.agent_vs_*` entry is unavailable,
+    exactly like every other builder in this module.
+    """
+    if entry is None or not entry.get("available"):
+        return ""
+    ratio = entry.get("abs_spread_ratio")
+    ratio_text = f"{ratio:.2f}x their spread" if ratio is not None else "an unknown ratio to their spread"
+    verdict = entry.get("verdict")
+    if verdict == "reproduced":
+        return (
+            f"Running {reference_label}'s exact config through our engine reproduces their own "
+            f"published number closely ({ratio_text}, same sign, both statistically significant) "
+            "-- our reimplementation of their protocol is trustworthy."
+        )
+    if verdict == "not_reproduced":
+        return (
+            f"Running {reference_label}'s exact config through our engine gives a much weaker result "
+            f"than what they themselves report ({ratio_text}; their number is statistically "
+            "significant, ours is not) -- worth checking whether this engine faithfully reproduces "
+            "their setup."
+        )
+    if verdict == "contradicted":
+        return (
+            f"Running {reference_label}'s exact config through our engine gives the OPPOSITE sign "
+            f"from what they themselves report, and both numbers are statistically significant -- "
+            "a real discrepancy in how their config was translated into this engine, not noise."
+        )
+    return (
+        f"Running {reference_label}'s exact config through our engine lands on a different result "
+        f"from what they themselves report ({ratio_text}), but neither number is statistically "
+        "significant, so this comparison cannot confirm or rule out a faithful reimplementation."
+    )
+
+
+def _row_value(key: str, detail: dict[str, Any], bundle: dict[str, Any], *, ours: bool) -> str:
+    """The bare, readable VALUE for one side of a `SummaryRow` -- no "we
+    use"/"C&Z uses" subject prefix, since that's now implied by the row's
+    `ours`/`theirs` column position instead of repeated in every cell's
+    text (docs/step7-8.md readability redesign)."""
+    if key == "universe_filters":
+        if not ours:
+            return _CZ_HOUSE_UNIVERSE_DESCRIPTION
+        paper_text = (bundle.get("universe_description") or {}).get("text")
+        if paper_text:
+            return f'the paper describes it as: "{paper_text}"'
+        return _readable_value(key, detail.get("baseline_value"))
+    value = detail.get("baseline_value") if ours else detail.get("track_value")
+    return _readable_value(key, value)
+
+
 def _cz_level_and_gap_bullets(bundle: dict[str, Any]) -> list[str]:
     """docs/step7-8.md Part XVI: the two bullets a plain config-diff walk
     never gave -- the actual LEVEL on each side (not just per-setting
@@ -408,7 +461,9 @@ def _cz_level_and_gap_bullets(bundle: dict[str, Any]) -> list[str]:
     to the total gap. Reads `derived.tracks.*.vs_paper` (previously unused
     by this module entirely) and the new `gap_closure.to_cz` (bundle.py).
     Returns `[]` when either track's spread is unresolvable, rather than
-    printing a broken sentence.
+    printing a broken sentence. These are aggregate, report-wide facts --
+    not about any one config key -- so they belong in `narrative`, not the
+    per-key `rows` table.
     """
     derived = bundle.get("derived") or {}
     baseline_track = derived.get("baseline_track")
@@ -447,24 +502,115 @@ def _cz_level_and_gap_bullets(bundle: dict[str, Any]) -> list[str]:
                 f"{total_gap:+.5f}/month, so a residual of {residual:+.5f}/month is not produced "
                 f"by any of them -- {OAT_INTERACTION_CAVEAT}."
             )
+
+    agent_vs_cz = (bundle.get("external_performance_comparison") or {}).get("agent_vs_cz")
+    verdict_bullet = _format_reference_verdict(agent_vs_cz, "C&Z")
+    if verdict_bullet:
+        bullets.append(verdict_bullet)
     return bullets
 
 
-def _build_cz_summary(bundle: dict[str, Any]) -> tuple[str, list[str], str, dict[str, str]]:
-    """docs/step7-8.md Part XII: `(headline, details, footnote, glossary)` for
-    the PRIMARY comparison -- the project's core research question (AGENTS.md)
-    is inter-implementer agreement between our agent and C&Z, not sensitivity
-    to implementation choices in general. `headline` names the comparison
-    target itself ("Compared with C&Z's independent replication...") so no
-    separate "vs. C&Z" title is needed. One `details` entry per diverging
-    config key, each with WHY it diverged (`_divergence_reason`) and its
-    effect size/significance; `footnote` carries joint-test availability;
+#: Per-row tag text for each `_divergence_reason` classification -- kept
+#: short (2-4 words) since it's a table-cell badge, not a sentence; the full
+#: explanation is stated ONCE in the card's `intro` (house_convention/
+#: paper_ambiguous) or, for the rarer `unresolved` case, in that row's own
+#: `note` (docs/step7-8.md readability redesign: the old version repeated
+#: the FULL explanation on every single row).
+_DIVERGENCE_REASON_TAG = {
+    "house_convention": "C&Z convention",
+    "paper_ambiguous": "paper ambiguous",
+    "unresolved": "unresolved",
+}
+
+_HOUSE_CONVENTION_INTRO = (
+    "Rows tagged \"C&Z convention\" are overridden by C&Z the same way for every factor, "
+    "regardless of what this paper itself says -- not paper ambiguity, and not a likely "
+    "implementation error."
+)
+_PAPER_AMBIGUOUS_INTRO = (
+    "Rows tagged \"paper ambiguous\" were flagged by our own review as weakly specified in "
+    "the paper -- plausibly explained by the paper itself, not a real implementation "
+    "disagreement."
+)
+
+
+def _shapley_coverage_narrative(bundle: dict[str, Any], changed_keys: list[str]) -> str:
+    """docs/step7-8.md readability redesign: when a full-factorial Shapley
+    grid exists for `to_cz`, report its EXACT per-switch split for the
+    switch(es) it covers -- but only as its OWN narrative sentence, never
+    folded into a row's `effect` field. `shapley_attribution`'s own sign
+    convention (`compute_shapley_effects`: flipped-track MINUS baseline) is
+    the OPPOSITE of `paired_tests`' (`paired_switch_significance`: baseline
+    MINUS track), which every row's `effect` text already uses via
+    `_format_paired_effect` -- silently mixing the two into the same field
+    would produce a plausible-looking but sign-flipped number. Negated here
+    (`-effect`) to match the "our spread minus C&Z's spread" convention
+    `_cz_level_and_gap_bullets` already uses.
+
+    Also states, explicitly, which of `changed_keys` are NOT covered by the
+    grid (e.g. `formation_lag_months`/`formation_month`, which aren't in
+    step6's `_ABLATION_SWITCH_TO_CONFIG_KEY` switch vocabulary at all).
+    `shapley_sum_check == total_gap` is an exact identity for the COVERED
+    switches only -- `total_gap` there is baseline vs whichever track
+    supplied the "every covered switch flipped" grid corner (often
+    `cz_actual_config` itself), which may ALSO differ from baseline in
+    OTHER, untracked keys. Presenting the exact-sum property without this
+    caveat would read as "100% of the gap is explained", when any
+    uncovered real config difference's effect is invisibly folded into the
+    covered switches' own numbers, not excluded from them.
+    """
+    shapley = (bundle.get("shapley_attribution") or {}).get("to_cz") or {}
+    if not shapley.get("available"):
+        return ""
+    effects: dict[str, float] = shapley.get("shapley_effects") or {}
+    if not effects:
+        return ""
+    covered_config_keys = {k for k in changed_keys if _CONFIG_KEY_TO_SWITCH_NAME.get(k, k) in effects}
+    uncovered_config_keys = [k for k in changed_keys if k not in covered_config_keys]
+    if not covered_config_keys:
+        return ""
+
+    parts = [
+        f"{_readable_key(_SWITCH_NAME_TO_CONFIG_KEY.get(switch, switch))} {-effect:+.5f}/month"
+        for switch, effect in sorted(effects.items(), key=lambda kv: abs(kv[1]), reverse=True)
+    ]
+    sentence = (
+        f"For the setting(s) a full-factorial design covers ({'; '.join(parts)}), a Shapley "
+        "decomposition (exact, averaged over introduction order -- unlike the one-at-a-time "
+        "figures above) attributes the entire combined effect of just those settings to the "
+        "shares shown."
+    )
+    if uncovered_config_keys:
+        uncovered_labels = ", ".join(_readable_key(k) for k in uncovered_config_keys)
+        sentence += (
+            f" This does NOT cover {len(uncovered_config_keys)} other real difference(s) listed "
+            f"above ({uncovered_labels}) -- they fall outside this attribution mechanism's tracked-"
+            "switch vocabulary, so their own effect is neither included in nor excluded from this "
+            'split; read this Shapley split as exact only among the settings it names, not as "100% '
+            'of the total gap explained."'
+        )
+    return sentence
+
+
+def _build_cz_summary(
+    bundle: dict[str, Any],
+) -> tuple[str, str, list[SummaryRow], list[str], str, dict[str, str]]:
+    """docs/step7-8.md Part XII/readability redesign: `(headline, intro,
+    rows, narrative, footnote, glossary)` for the PRIMARY comparison -- the
+    project's core research question (AGENTS.md) is inter-implementer
+    agreement between our agent and C&Z, not sensitivity to implementation
+    choices in general. `headline` names the comparison target itself
+    ("Compared with C&Z's independent replication...") so no separate
+    "vs. C&Z" title is needed. One `SummaryRow` per diverging config key
+    (WHY it diverged as a short `tag`, shared reasoning stated once in
+    `intro`, per-row `note` reserved for the rarer `unresolved`/individually-
+    significant cases); `footnote` carries joint-test availability;
     `glossary` is the tooltip text for every setting mentioned by short name.
     """
     pairs = (bundle.get("config_diff") or {}).get("pairs") or {}
     cz_pair = pairs.get(CZ_ACTUAL_CONFIG_TRACK)
     if not cz_pair or not cz_pair.get("changed_keys"):
-        return "", [], "", {}
+        return "", "", [], [], "", {}
 
     spec_quality = bundle.get("spec_quality")
     paired_tests_line = (bundle.get("paired_tests") or {}).get("to_cz") or {}
@@ -478,9 +624,17 @@ def _build_cz_summary(bundle: dict[str, Any]) -> tuple[str, list[str], str, dict
         entry = (paired_tests_line.get("per_switch") or {}).get(switch_name)
         t = entry.get("t_stat") if entry and entry.get("available") is True else None
         return abs(t) if t is not None else -1.0
-    changed_keys = sorted(cz_pair.get("changed_keys") or [], key=_abs_t, reverse=True)
+    changed_keys = sorted(
+        (k for k in (cz_pair.get("changed_keys") or []) if k not in _DERIVED_CONFIG_KEYS),
+        key=_abs_t,
+        reverse=True,
+    )
 
-    details: list[str] = _cz_level_and_gap_bullets(bundle)
+    narrative: list[str] = _cz_level_and_gap_bullets(bundle)
+    shapley_sentence = _shapley_coverage_narrative(bundle, changed_keys)
+    if shapley_sentence:
+        narrative.append(shapley_sentence)
+    rows: list[SummaryRow] = []
     all_reasons: set[str] = set()
     for key in changed_keys:
         detail = detail_map.get(key) or {}
@@ -488,16 +642,7 @@ def _build_cz_summary(bundle: dict[str, Any]) -> tuple[str, list[str], str, dict
         all_reasons.add(reason)
         switch_name = _CONFIG_KEY_TO_SWITCH_NAME.get(key, key)
         effect_text = _format_paired_effect(switch_name, paired_tests_line)
-        if key == "universe_filters":
-            ours_clause = _universe_filters_clause(bundle, detail, ours=True)
-            theirs_clause = _universe_filters_clause(bundle, detail, ours=False)
-        else:
-            ours_clause = _value_clause(key, detail.get("baseline_value"), ours=True)
-            theirs_clause = _value_clause(key, detail.get("track_value"), ours=False)
-        entry = (
-            f"{_sentence_case(_readable_key(key))}: {ours_clause}, {theirs_clause} -- "
-            f"{_DIVERGENCE_REASON_TEXT[reason]}. Effect: {effect_text}."
-        )
+
         # Cross-line callout: does the SAME choice, examined on the HXZ line,
         # survive post-publication (docs/step7-8.md Part VII example 6)? --
         # only worth reporting when THIS switch's own effect is itself
@@ -505,15 +650,31 @@ def _build_cz_summary(bundle: dict[str, Any]) -> tuple[str, list[str], str, dict
         # effect (e.g. t=0.56) has nothing to say.
         this_switch_t = (paired_tests_line.get("per_switch") or {}).get(switch_name, {}).get("t_stat")
         this_switch_significant = this_switch_t is not None and abs(this_switch_t) >= SIGNIFICANCE_T_THRESHOLD
+        note_parts: list[str] = []
+        if reason == "unresolved":
+            note_parts.append(
+                "Not explained by paper ambiguity or a catalogued C&Z convention -- an open "
+                "question warranting human review."
+            )
         hxz_track = f"factorial_{switch_name}"
         decay_entry = publication_decay.get(hxz_track)
         if this_switch_significant and decay_entry is not None and decay_entry.get("decayed") is not None:
             stability = "does NOT decay" if not decay_entry["decayed"] else "DOES decay"
-            entry += (
-                f" On the standardized-HXZ comparison, this same setting's isolated effect "
+            note_parts.append(
+                f"On the standardized-HXZ comparison, this same setting's isolated effect "
                 f"{stability} after publication."
             )
-        details.append(entry)
+
+        rows.append(
+            SummaryRow(
+                label=_sentence_case(_readable_key(key)),
+                ours=_row_value(key, detail, bundle, ours=True),
+                theirs=_row_value(key, detail, bundle, ours=False),
+                effect=effect_text,
+                tag=_DIVERGENCE_REASON_TAG[reason],
+                note=" ".join(note_parts),
+            )
+        )
 
     joint_test_line = (bundle.get("joint_test") or {}).get("to_cz") or {}
     any_individually_significant = any(
@@ -547,6 +708,13 @@ def _build_cz_summary(bundle: dict[str, Any]) -> tuple[str, list[str], str, dict
             "-- this warrants human review rather than being written off as expected variation."
         )
 
+    intro_parts = []
+    if "house_convention" in all_reasons:
+        intro_parts.append(_HOUSE_CONVENTION_INTRO)
+    if "paper_ambiguous" in all_reasons:
+        intro_parts.append(_PAPER_AMBIGUOUS_INTRO)
+    intro = " ".join(intro_parts)
+
     footnote = (
         f"Joint test unavailable on this line: {joint_test_line.get('reason', 'n/a')}."
         if joint_test_line.get("available") is False
@@ -560,21 +728,23 @@ def _build_cz_summary(bundle: dict[str, Any]) -> tuple[str, list[str], str, dict
         "difference in data or sample -- this report cannot separate the two."
     )
     glossary = _glossary_for_keys(changed_keys)
-    return headline, details, footnote, glossary
+    return headline, intro, rows, narrative, footnote, glossary
 
 
-def _build_sensitivity_summary(line: str, bundle: dict[str, Any]) -> tuple[str, list[str], str, dict[str, str]]:
-    """docs/step7-8.md Part XII: `(headline, details, footnote, glossary)`
-    for a SUPPORTING comparison line (in practice, `to_hxz`) -- how
-    sensitive the result is to implementation choices in general, not why
-    two implementers disagreed (that question is `to_cz`-specific,
-    `_build_cz_summary`). Folded into the "robustness" section
-    (`_build_robustness_summary`) rather than shown as its own top-level
-    card.
+def _build_sensitivity_summary(
+    line: str, bundle: dict[str, Any]
+) -> tuple[str, str, list[SummaryRow], list[str], str, dict[str, str]]:
+    """docs/step7-8.md Part XII/readability redesign: `(headline, intro,
+    rows, narrative, footnote, glossary)` for a SUPPORTING comparison line
+    (in practice, `to_hxz`) -- how sensitive the result is to implementation
+    choices in general, not why two implementers disagreed (that question is
+    `to_cz`-specific, `_build_cz_summary`). Folded into the "robustness"
+    section (`_build_robustness_summary`) rather than shown as its own
+    top-level card.
     """
     shapley = (bundle.get("shapley_attribution") or {}).get(line) or {}
     if shapley.get("available") is not True:
-        return "", [], "", {}
+        return "", "", [], [], "", {}
     effects: dict[str, float] = shapley.get("shapley_effects") or {}
     total_gap = shapley.get("total_gap")
     paired_tests_line = (bundle.get("paired_tests") or {}).get(line) or {}
@@ -600,29 +770,50 @@ def _build_sensitivity_summary(line: str, bundle: dict[str, Any]) -> tuple[str, 
     # Per-switch contribution SHARES are only reported when the joint test
     # actually confirms the total change is more than noise -- a "158% of
     # the change" figure is false precision when the change itself isn't
-    # statistically distinguishable from zero (docs/step7-8.md Part XVI).
+    # statistically distinguishable from zero. Stated ONCE in `intro` now,
+    # instead of appending "contribution share not shown (...)" to every
+    # single row (docs/step7-8.md readability redesign).
     show_shares = joint_significant
-    details = []
-    for key, effect in ordered:
-        if show_shares and total_gap:
-            pct_text = f"accounts for {(effect / total_gap) * 100:.0f}% of the change"
-        else:
-            pct_text = "contribution share not shown (the total change is not statistically confirmed)"
-        label = _readable_key(_SWITCH_NAME_TO_CONFIG_KEY.get(key, key))
-        details.append(f"{_sentence_case(label)}: {pct_text}. Effect: {_format_paired_effect(key, paired_tests_line)}.")
+    intro = (
+        ""
+        if show_shares
+        else "Per-setting contribution shares are not shown below: the joint significance test "
+        "does not confirm the total change is more than noise."
+    )
+    rows = [
+        SummaryRow(
+            label=_sentence_case(_readable_key(_SWITCH_NAME_TO_CONFIG_KEY.get(key, key))),
+            effect=_format_paired_effect(key, paired_tests_line),
+            tag=f"{(effect / total_gap) * 100:.0f}% of change" if show_shares and total_gap else "",
+        )
+        for key, effect in ordered
+    ]
+
+    # docs/step7-8.md "Step A": only meaningful for the to_hxz line, since
+    # `agent_vs_hxz` is specifically the standardized_hxz track vs HXZ's own
+    # self-reported number -- other lines (e.g. a future non-cz/hxz line)
+    # have no corresponding external-reference verdict to append.
+    narrative: list[str] = []
+    if line == "to_hxz":
+        agent_vs_hxz = (bundle.get("external_performance_comparison") or {}).get("agent_vs_hxz")
+        verdict_bullet = _format_reference_verdict(agent_vs_hxz, "HXZ")
+        if verdict_bullet:
+            narrative.append(verdict_bullet)
 
     footnote = "Used as sensitivity context, not itself the reproducibility question."
     if not joint_available:
         footnote += f" Joint test unavailable: {joint_test_line.get('reason', 'n/a')}."
     glossary = _glossary_for_keys(_SWITCH_NAME_TO_CONFIG_KEY.get(k, k) for k in effects)
-    return headline, details, footnote, glossary
+    return headline, intro, rows, narrative, footnote, glossary
 
 
-def _build_robustness_summary(bundle: dict[str, Any]) -> tuple[str, list[str], str, dict[str, str]]:
-    """docs/step7-8.md Part XVI: how STABLE the result is under reasonable
-    implementation variation in general -- NOT why two implementers
-    disagreed (that's `_build_cz_summary`'s job, the separate "vs_cz"
-    section). Folds together `robustness_summary` (ablation sign/
+def _build_robustness_summary(
+    bundle: dict[str, Any],
+) -> tuple[str, str, list[SummaryRow], list[str], str, dict[str, str]]:
+    """docs/step7-8.md Part XVI/readability redesign: how STABLE the result
+    is under reasonable implementation variation in general -- NOT why two
+    implementers disagreed (that's `_build_cz_summary`'s job, the separate
+    "vs_cz" section). Folds together `robustness_summary` (ablation sign/
     significance flips), the fully standardized HXZ protocol as one NAMED
     case within this section (previously its own separate top-level card),
     the baseline's own in-sample-vs-post-publication decay, and whether a
@@ -632,7 +823,9 @@ def _build_robustness_summary(bundle: dict[str, Any]) -> tuple[str, list[str], s
     because no Shapley grid was run, as long as ANY of these has evidence.
     """
     headline_parts: list[str] = []
-    details: list[str] = []
+    rows: list[SummaryRow] = []
+    narrative: list[str] = []
+    intro_parts: list[str] = []
     footnotes: list[str] = []
     glossary: dict[str, str] = {}
 
@@ -646,11 +839,16 @@ def _build_robustness_summary(bundle: dict[str, Any]) -> tuple[str, list[str], s
             f"(t-stat range {robustness['t_stat_range']:.2f})."
         )
 
-    hxz_headline, hxz_details, hxz_footnote, hxz_glossary = _build_sensitivity_summary("to_hxz", bundle)
+    hxz_headline, hxz_intro, hxz_rows, hxz_narrative, hxz_footnote, hxz_glossary = _build_sensitivity_summary(
+        "to_hxz", bundle
+    )
     if hxz_headline:
         lead = hxz_headline[0].lower() + hxz_headline[1:]
-        details.append(f"Standardized HXZ protocol (a named case, not a competing replication): {lead}")
-        details.extend(hxz_details)
+        narrative.append(f"Standardized HXZ protocol (a named case, not a competing replication): {lead}")
+        if hxz_intro:
+            intro_parts.append(hxz_intro)
+        rows.extend(hxz_rows)
+        narrative.extend(hxz_narrative)
         if hxz_footnote:
             footnotes.append(hxz_footnote)
         glossary.update(hxz_glossary)
@@ -660,13 +858,13 @@ def _build_robustness_summary(bundle: dict[str, Any]) -> tuple[str, list[str], s
     decay = ((bundle.get("publication_decay") or {}).get("tracks") or {}).get(baseline_track)
     if decay is not None and decay.get("decayed") is not None:
         if not decay.get("insamp_significant"):
-            details.append(
+            narrative.append(
                 "Post-publication decay is not identifiable here: our own replication was "
                 "already not statistically significant in-sample."
             )
         else:
             verdict = "DOES decay after publication" if decay["decayed"] else "does NOT decay after publication"
-            details.append(
+            narrative.append(
                 f"Our own replication {verdict} (in-sample t={decay['insamp_t_stat']:.2f}, "
                 f"post-publication t={decay['postpub_t_stat']:.2f})."
             )
@@ -680,27 +878,30 @@ def _build_robustness_summary(bundle: dict[str, Any]) -> tuple[str, list[str], s
             "volatility": "the volatility channel",
             "sample_size": "the sample-size channel",
         }.get(dominant, dominant)
-        details.append(
+        narrative.append(
             f"The t-stat gap vs the standardized HXZ protocol is driven mainly by {label}, "
             "not the others -- so it is not simply an artefact of a misaligned sample window."
         )
 
-    if not headline_parts and not details:
-        return "", [], "", {}
+    if not headline_parts and not rows and not narrative:
+        return "", "", [], [], "", {}
 
     headline = " ".join(headline_parts) if headline_parts else "Sensitivity/stability evidence for this replication:"
+    intro = " ".join(intro_parts)
     footnote = " ".join(footnotes) if footnotes else "Used as sensitivity context, not itself the reproducibility question."
-    return headline, details, footnote, glossary
+    return headline, intro, rows, narrative, footnote, glossary
 
 
-def _dispatch_summary_parts(line: str | None, bundle: dict[str, Any]) -> tuple[str, list[str], str, dict[str, str]]:
+def _dispatch_summary_parts(
+    line: str | None, bundle: dict[str, Any]
+) -> tuple[str, str, list[SummaryRow], list[str], str, dict[str, str]]:
     if line == "to_cz":
         return _build_cz_summary(bundle)
     if line == "to_hxz":
         return _build_robustness_summary(bundle)
     if line is not None:
         return _build_sensitivity_summary(line, bundle)
-    return "", [], "", {}
+    return "", "", [], [], "", {}
 
 
 #: Reader-facing name per `three_term_identity` reference key and per named
@@ -741,23 +942,39 @@ def build_three_term_summaries(bundle: dict[str, Any]) -> list[DiagnosisSummary]
         reference_label = _THREE_TERM_REFERENCE_LABELS.get(reference, reference)
         largest = section.get("largest_term")
 
-        details = [
-            f"{_sentence_case(_THREE_TERM_COMPONENT_LABELS.get(name, name))}: {value:+.4f} per month"
+        rows = [
+            SummaryRow(
+                label=_sentence_case(_THREE_TERM_COMPONENT_LABELS.get(name, name)),
+                effect=f"{value:+.4f} per month",
+                tag="largest" if name == largest else "",
+            )
             for name, value in sorted(terms.items(), key=lambda kv: abs(kv[1]), reverse=True)
         ]
+        narrative: list[str] = []
         if largest:
-            details.append(
-                f"The largest single component is {_THREE_TERM_COMPONENT_LABELS.get(largest, largest)}. "
+            narrative.append(
                 "This is an exact arithmetic split of the total distance, not a controlled experiment: "
                 "it shows where the distance sits, not what caused it."
             )
+        # docs/step7-8.md readability follow-up: distinguish "not
+        # computable for this reference" (a hand-filled manual number, no
+        # underlying series to recompute over a different window) from
+        # "computable, and happens to show near-zero sensitivity" -- both
+        # previously rendered as a silently-missing sentence, which reads
+        # identically to a reader as "this was never checked".
         window = section.get("window_basis") or {}
         sensitivity = window.get("window_sensitivity_spread")
         if sensitivity is not None:
-            details.append(
+            narrative.append(
                 f"Recomputing {reference_label} over its own paper's sample window instead of this "
                 f"paper's moves it by {sensitivity:+.4f} per month -- a measure of how much the "
                 "choice of sample window alone matters here."
+            )
+        elif window.get("external_window_adjustable") is False:
+            narrative.append(
+                f"{_sentence_case(reference_label)} is a fixed, hand-filled reference number (no "
+                "underlying return series on file) -- its sensitivity to the choice of sample "
+                "window cannot be checked, not because it was found to be zero."
             )
 
         summaries.append(
@@ -769,7 +986,8 @@ def build_three_term_summaries(bundle: dict[str, Any]) -> list[DiagnosisSummary]
                     f"{reference_label} differs from the paper's own reported spread by "
                     f"{section.get('total_gap', 0.0):+.4f} per month."
                 ),
-                details=details,
+                rows=rows,
+                narrative=narrative,
                 footnote=(
                     "The three components are not equally clean: only the settings component holds the "
                     "signal fixed on both sides. The first also absorbs data-vintage and engine "
@@ -783,34 +1001,45 @@ def build_three_term_summaries(bundle: dict[str, Any]) -> list[DiagnosisSummary]
 
 
 def build_spec_quality_summary(bundle: dict[str, Any]) -> DiagnosisSummary:
-    """docs/step7-8.md Part XVI: how clearly the paper specified its own
-    method -- one bullet per field `spec_quality.weak_fields` flagged,
-    quoting the review's OWN reason (not just a pass/fail boolean, which
-    gives a reader no way to judge whether the ambiguity call was
-    reasonable), plus any setting the paper required that the engine's menu
-    cannot express at all (`menu_deviations.unsupported_paper_fields`).
+    """docs/step7-8.md Part XVI/readability redesign: how clearly the paper
+    specified its own method -- one row per DISTINCT `(reason, disposition)`
+    pair among `spec_quality.weak_fields` (fields sharing the exact same
+    reason are grouped into ONE row listing all of them, rather than
+    repeating the same reason text on 2-3 nearly-identical rows), quoting
+    the review's OWN reason (not just a pass/fail boolean, which gives a
+    reader no way to judge whether the ambiguity call was reasonable), plus
+    any setting the paper required that the engine's menu cannot express at
+    all (`menu_deviations.unsupported_paper_fields`).
     """
     weak_fields = ((bundle.get("spec_quality") or {}).get("weak_fields")) or []
     unsupported = ((bundle.get("menu_deviations") or {}).get("unsupported_paper_fields")) or []
     if not weak_fields and not unsupported:
         return DiagnosisSummary(section="spec_quality")
 
-    details: list[str] = []
+    rows: list[SummaryRow] = []
+    grouped: dict[tuple[str, str], list[str]] = {}
     for wf in weak_fields:
-        field_path = wf.get("field_path", "")
-        reason = wf.get("reason", "")
-        disposition = wf.get("disposition", "")
-        entry = f"{_sentence_case(_readable_key(field_path))}: {reason}"
-        if disposition:
-            entry += f" (resolved as: {disposition})"
-        details.append(entry + ".")
+        grouped.setdefault((wf.get("reason", ""), wf.get("disposition", "")), []).append(
+            wf.get("field_path", "")
+        )
+    for (reason, disposition), field_paths in grouped.items():
+        rows.append(
+            SummaryRow(
+                label=_sentence_case(", ".join(_readable_key(fp) for fp in field_paths)),
+                effect=reason,
+                tag=disposition or "weak",
+            )
+        )
     for u in unsupported:
         field_path = u.get("field_path", "")
         value = u.get("unsupported_value")
-        details.append(
-            f"{_sentence_case(_readable_key(field_path))}: the paper's stated value "
-            f"({value!r}) could not be expressed by the engine's fixed menu; clamped to "
-            "the menu default rather than code-generated."
+        rows.append(
+            SummaryRow(
+                label=_sentence_case(_readable_key(field_path)),
+                effect=f"paper's stated value ({value!r}) not expressible by the engine's fixed menu",
+                tag="unsupported",
+                note="Clamped to the menu default rather than code-generated.",
+            )
         )
 
     headline = (
@@ -822,7 +1051,7 @@ def build_spec_quality_summary(bundle: dict[str, Any]) -> DiagnosisSummary:
     glossary = _glossary_for_keys(
         [wf.get("field_path", "") for wf in weak_fields] + [u.get("field_path", "") for u in unsupported]
     )
-    return DiagnosisSummary(section="spec_quality", headline=headline, details=details, glossary=glossary)
+    return DiagnosisSummary(section="spec_quality", headline=headline, rows=rows, glossary=glossary)
 
 
 def build_vs_paper_summary(bundle: dict[str, Any]) -> "VsPaperSummary":
@@ -850,14 +1079,61 @@ def build_vs_paper_summary(bundle: dict[str, Any]) -> "VsPaperSummary":
         f"{ratio:.2f}x the paper's own reported spread" if ratio is not None else "an unknown ratio to the paper's own spread"
     )
     headline = f"Compared with the paper's own reported result, {_readable_track(baseline_track)} {sign_text} it; its magnitude is {ratio_text}."
+    # docs/step7-8.md readability follow-up: `overall_tag` (the badge) is
+    # sign+significance only, blind to magnitude -- name the magnitude tier
+    # explicitly in the headline itself so a 0.22x spread never reads as an
+    # unqualified "reproduced" (bundle.MAGNITUDE_TIER_BANDS defines the cuts).
+    tier = vs_paper.get("magnitude_tier")
+    tier_text = {
+        "clean": "a clean reproduction by magnitude",
+        "partial": "only a partial reproduction by magnitude",
+        "failed": "not a reproduction by magnitude",
+    }.get(tier)
+    if tier_text:
+        clean_lo, clean_hi = MAGNITUDE_TIER_BANDS["clean"]
+        partial_lo, partial_hi = MAGNITUDE_TIER_BANDS["partial"]
+        headline += (
+            f" By this project's magnitude bands (clean: {clean_lo}x-{clean_hi}x; partial: "
+            f"{partial_lo}x-{partial_hi}x; outside that, or opposite sign: failed), this counts "
+            f"as {tier_text}."
+        )
+
+    narrative: list[str] = []
+    # docs/step7-8.md readability follow-up ("residual is a black box"):
+    # a single-factor, no-new-computation data point on whether the gap
+    # from the paper is more likely a fixed bias (implementation/reading of
+    # the paper) or a genuinely fragile/decaying signal -- reuses
+    # `publication_decay` (already computed for the ROBUSTNESS card) rather
+    # than adding a new mechanism. This does NOT split the residual into
+    # vintage/engine-bug/paper-ambiguity components (that needs a positive-
+    # control factor or finer-grained data this project doesn't have yet,
+    # see the discussion this followed) -- it is one honest, already-
+    # available clue, stated once here where the residual is actually
+    # discussed instead of only appearing in a separate card.
+    decay = ((bundle.get("publication_decay") or {}).get("tracks") or {}).get(baseline_track) or {}
+    if decay.get("decayed") is not None and decay.get("insamp_significant"):
+        if decay["decayed"]:
+            narrative.append(
+                "Our own replication's effect ALSO decays after the paper's own publication date "
+                f"(in-sample t={decay['insamp_t_stat']:.2f}, post-publication t="
+                f"{decay['postpub_t_stat']:.2f}) -- consistent with part of the gap from the paper "
+                "being a genuinely fragile or decaying signal, not only a fixed implementation or "
+                "config difference."
+            )
+        else:
+            narrative.append(
+                "Our own replication's effect does NOT decay after the paper's own publication "
+                f"date (in-sample t={decay['insamp_t_stat']:.2f}, post-publication t="
+                f"{decay['postpub_t_stat']:.2f}) -- the gap from the paper's own number does not "
+                "look like a short-lived, sample-period-specific artifact."
+            )
 
     clamped = ((bundle.get("menu_deviations") or {}).get("clamped_by_track") or {}).get(baseline_track) or []
     paper_silent = [c for c in clamped if c.get("paper_value") in (None, "unspecified")]
-    details = []
     footnote = ""
     if paper_silent:
         keys = ", ".join(_readable_key(c["config_key"]) for c in paper_silent)
-        details.append(
+        narrative.append(
             f"{len(paper_silent)} setting(s) were never specified by the paper at all and "
             f"were filled by an engine default: {keys}."
         )
@@ -867,7 +1143,44 @@ def build_vs_paper_summary(bundle: dict[str, Any]) -> "VsPaperSummary":
             "cannot separate the two."
         )
     glossary = _glossary_for_keys(c["config_key"] for c in paper_silent)
-    return VsPaperSummary(headline=headline, details=details, footnote=footnote, glossary=glossary)
+    return VsPaperSummary(headline=headline, narrative=narrative, footnote=footnote, glossary=glossary)
+
+
+_PAPER_VERDICT_HEADLINES = {
+    "agree_significant": (
+        "C&Z's and HXZ's own published results for this factor agree with each other: both "
+        "report a statistically significant effect in the same direction."
+    ),
+    "agree_insignificant": (
+        "C&Z's and HXZ's own published results for this factor agree with each other: neither "
+        "reports a statistically significant effect."
+    ),
+    "conflict": (
+        "C&Z's and HXZ's own published results for this factor DISAGREE with each other -- this "
+        "is independent of anything our engine ran."
+    ),
+}
+
+
+def build_paper_verdict_agreement_summary(bundle: dict[str, Any]) -> "PaperVerdictAgreement":
+    """docs/step7-8.md "Step B": one banner-level fact, ahead of everything
+    else -- do C&Z's and HXZ's own self-reported numbers for this factor
+    even agree with each other? Built straight from `bundle["paper_verdict_
+    agreement"]` (`src.steps.step7_replication_diff.bundle.build_paper_
+    verdict_agreement`), zero LLM involvement, same discipline as
+    `build_vs_paper_summary`.
+    """
+    from src.infra.models.diagnosis import PaperVerdictAgreement
+
+    section = bundle.get("paper_verdict_agreement") or {}
+    verdict = section.get("verdict", "unavailable")
+    if not section.get("available"):
+        return PaperVerdictAgreement(available=False, verdict="unavailable")
+    return PaperVerdictAgreement(
+        available=True,
+        verdict=verdict,
+        headline=_PAPER_VERDICT_HEADLINES.get(verdict, ""),
+    )
 
 
 def _deterministic_dominant_switch(bundle: dict[str, Any], line: str | None) -> str | None:
@@ -889,8 +1202,8 @@ def _deterministic_dominant_switch(bundle: dict[str, Any], line: str | None) -> 
     return max(ranked, key=lambda kv: kv[1])[0]
 
 
-def _fold_claim_evidence_into_details(
-    details: list[str],
+def _fold_claim_evidence_into_narrative(
+    narrative: list[str],
     bundle: dict[str, Any],
     line: str | None,
     dominant_switches: list[str],
@@ -899,24 +1212,24 @@ def _fold_claim_evidence_into_details(
     `joint_supported` (LLM-claim-derived) are kept as their own
     `DiagnosisSummary` fields for evidence_keys/citation, but are no longer
     restated as prose here -- they only repeated numbers the deterministic
-    per-setting bullets (their own "Effect: ..." text) and the joint-test
+    per-setting rows (their own `effect` text) and the joint-test
     headline/footnote already show, and the restatement's "LLM-reviewed"
     phrasing implied the LLM was judging significance, which it never does
     (AGENTS.md: the LLM never decides a number that enters a conclusion).
     The only prose added here is a CONFLICT flag: if the LLM's own
     dominant-driver pick disagrees with the single largest-\\|t\\| switch on
     this line, that disagreement is worth a reader's attention; agreement
-    is not, since it would just repeat the per-setting bullet above it.
+    is not, since it would just repeat the per-setting row above it.
     """
     if not dominant_switches:
-        return details
+        return narrative
     llm_pick = dominant_switches[0]
     deterministic_pick = _deterministic_dominant_switch(bundle, line)
     if deterministic_pick is None or llm_pick == deterministic_pick:
-        return details
+        return narrative
     llm_label = _readable_key(_SWITCH_NAME_TO_CONFIG_KEY.get(llm_pick, llm_pick))
     det_label = _readable_key(_SWITCH_NAME_TO_CONFIG_KEY.get(deterministic_pick, deterministic_pick))
-    return details + [
+    return narrative + [
         f'Note: the LLM flagged "{llm_label}" as the dominant driver, which differs from the '
         f'setting with the largest measured effect on this line ("{det_label}") -- worth a '
         "second look."
@@ -1010,8 +1323,8 @@ def build_deterministic_summary(
         line_effects = ((shapley.get(line) or {}).get("shapley_effects") or {}) if line else {}
         dominant_switches.sort(key=lambda s: abs(line_effects.get(s, 0.0)), reverse=True)
 
-        headline, details, footnote, glossary = _dispatch_summary_parts(line, bundle)
-        details = _fold_claim_evidence_into_details(details, bundle, line, dominant_switches)
+        headline, intro, rows, narrative, footnote, glossary = _dispatch_summary_parts(line, bundle)
+        narrative = _fold_claim_evidence_into_narrative(narrative, bundle, line, dominant_switches)
 
         summaries.append(
             DiagnosisSummary(
@@ -1022,7 +1335,9 @@ def build_deterministic_summary(
                 joint_supported=joint_supported,
                 dominant_switches=dominant_switches,
                 headline=headline,
-                details=details,
+                intro=intro,
+                rows=rows,
+                narrative=narrative,
                 footnote=footnote,
                 glossary=glossary,
             )

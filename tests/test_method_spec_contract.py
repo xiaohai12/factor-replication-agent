@@ -659,6 +659,42 @@ class TestFilterDerivation:
         assert filt.derivation is None
 
 
+class TestHumanConfirmedApplied:
+    """`FilterSpec.human_confirmed_applied`/`applied_reason` -- symmetric
+    audit-trail escape hatch to `accepted_unapplied`/`unapplied_reason`:
+    records a human's confirmation that a filter SHOULD be enforced at
+    runtime (does not change runtime behavior, only records the review)."""
+
+    def test_defaults_to_false(self):
+        filt = FilterSpec(concept_id="listing_exchange", op=FilterOp.IN, value=["NYSE"])
+        assert filt.human_confirmed_applied is False
+        assert filt.applied_reason == ""
+
+    def test_round_trips_through_json(self):
+        filt = FilterSpec(
+            concept_id="listing_exchange",
+            op=FilterOp.IN,
+            value=["NYSE"],
+            human_confirmed_applied=True,
+            applied_reason="reviewed inferred evidence, confirmed correct",
+        )
+        reloaded = FilterSpec.model_validate_json(filt.model_dump_json())
+        assert reloaded.human_confirmed_applied is True
+        assert reloaded.applied_reason == "reviewed inferred evidence, confirmed correct"
+
+    def test_mutually_exclusive_with_accepted_unapplied(self):
+        with pytest.raises(ValueError, match="cannot be both"):
+            FilterSpec(
+                concept_id="listing_exchange",
+                op=FilterOp.IN,
+                value=["NYSE"],
+                accepted_unapplied=True,
+                unapplied_reason="not resolvable",
+                human_confirmed_applied=True,
+                applied_reason="reviewed and confirmed",
+            )
+
+
 class TestInRangesFilter:
     def test_accepts_numeric_range_union(self):
         filt = FilterSpec(concept_id="sic", op=FilterOp.INTERVALS, value=[[1, 3999], [5000, 5999]])

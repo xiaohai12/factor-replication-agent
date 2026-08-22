@@ -92,6 +92,43 @@ class _no_warnings_context:
         self._catcher.__exit__(exc_type, exc, tb)
 
 
+class TestBreakpointQuantilesOverrideRemapsExtremePortfolios:
+    """`breakpoint_quantiles` override must remap `long_portfolios`/
+    `short_portfolios` -- otherwise a leg still pointing at the OLD quantile
+    count's edge bucket (e.g. `short_portfolios=[10]` under 10 groups)
+    references a bucket that doesn't exist once the group count changes,
+    silently producing zero rows for the whole track (`extreme_group_spread`
+    with an always-empty short leg). Real bug hit by `cz_actual_config` on a
+    factor where C&Z's reported quantile count (5) differs from the paper's
+    own (10); see docs/decision-log.md 2026-08-22."""
+
+    def test_lower_quantile_count_remaps_both_legs(self):
+        # `_minimal_spec` resolves to 10 groups, long=bucket 10 (leg "high"),
+        # short=bucket 1 (leg "low") -- see `minimal_resolved_spec`'s legs.
+        spec = _minimal_spec()
+        baseline = build_config(spec, overrides=None)
+        assert baseline["breakpoint_quantiles"] == 10
+        assert baseline["long_portfolios"] == [10]
+        assert baseline["short_portfolios"] == [1]
+
+        config = build_config(spec, overrides={"breakpoint_quantiles": 5})
+        assert config["breakpoint_quantiles"] == 5
+        assert config["long_portfolios"] == [5]
+        assert config["short_portfolios"] == [1]
+
+    def test_higher_quantile_count_remaps_both_legs(self):
+        spec = _minimal_spec()
+        config = build_config(spec, overrides={"breakpoint_quantiles": 20})
+        assert config["long_portfolios"] == [20]
+        assert config["short_portfolios"] == [1]
+
+    def test_non_extreme_leg_raises_instead_of_silently_mismapping(self):
+        spec = minimal_resolved_spec("t", weighting="vw")
+        spec.paper.portfolio.legs[1].selector["sort1"] = 3  # bucket 4 -- not an edge bucket
+        with pytest.raises(ConfigOverrideError, match="Cannot remap"):
+            build_config(spec, overrides={"breakpoint_quantiles": 5})
+
+
 class TestStageTaxonomySingleSourceOfTruth:
     """registry.CONFIG_KEY_STAGE is now the single source of truth; bundle.py
     re-imports it. See docs/multi-config-evidence-plan.md Decision 2."""

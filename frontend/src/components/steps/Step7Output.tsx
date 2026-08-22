@@ -49,6 +49,9 @@ export function Step7Output({ bundle }: { bundle: Record<string, unknown> }) {
   const shapleyLines = linesOf(bundle.shapley_attribution as Record<string, unknown> | undefined)
   const pairedLines = new Map(linesOf(bundle.paired_tests as Record<string, unknown> | undefined))
   const jointLines = new Map(linesOf(bundle.joint_test as Record<string, unknown> | undefined))
+  const externalPerformanceComparison = bundle.external_performance_comparison as
+    | { cz?: { available?: boolean; mean_return?: number | null; t_stat?: number | null; source?: string | null }; hxz?: { available?: boolean; mean_return?: number | null; t_stat?: number | null; source?: string | null } }
+    | undefined
   const configDiff =
     (bundle.config_diff as { baseline_track?: string; pairs?: Record<string, ConfigDiffPair> }) ?? {}
   const tracks =
@@ -123,6 +126,11 @@ export function Step7Output({ bundle }: { bundle: Record<string, unknown> }) {
         <ForestPlot
           tracks={derived.tracks as Record<string, { vs_paper?: Record<string, unknown> }>}
           baselineTrack={baselineTrack}
+          externalPerformance={
+            externalPerformanceComparison
+              ? { cz: externalPerformanceComparison.cz, hxz: externalPerformanceComparison.hxz }
+              : undefined
+          }
         />
       </div>
       <GapWaterfallChart

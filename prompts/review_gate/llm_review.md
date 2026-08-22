@@ -49,8 +49,9 @@ diff of exactly what you touched.
 Pay extra attention to these fields -- they drive the actual backtest
 numbers, so an unnecessary or wrong change here has outsized impact:
 `signal.direction`, `timing.formation_rule`, `timing.rebalance_frequency`,
-`timing.holding_period`, `portfolio.weighting`, `portfolio.return_combination`,
-`portfolio.construction_type`, `universe.description`, every
+`timing.holding_period`, `timing.data_availability`, `portfolio.weighting`,
+`portfolio.return_combination`, `portfolio.construction_type`,
+`portfolio.legs`, `universe.description`, every
 `portfolio.sorts[].breakpoints.basis`, every `portfolio.sorts[].group_type`,
 every `portfolio.sorts[].mode`, and every `portfolio.missing_policies[].action`.
 
@@ -90,8 +91,74 @@ the pipeline move faster.
 You must also check **cross-field consistency**: do the variables referenced
 in `signal.formula.steps[].expression` actually appear in `data.fields`/
 `signal.formula.inputs`? Do the three sample periods (`sample.data_coverage`
-/ `sample.formation` / `sample.reported_returns`) make sense together? Does
-`portfolio.legs`' long/short direction match `signal.direction`? Does
+/ `sample.formation` / `sample.reported_returns`) make sense together?
+**Watch specifically for `sample.reported_returns` copied unchanged from a
+table caption's FORMATION-period statement**: a caption often states only
+formation periods (e.g. "portfolios formed 1968-1989"), and the extractor
+sometimes writes that same range into `reported_returns` too. For a holding
+period >= 12 months, the LAST formation keeps generating returns for that
+many more months, so `reported_returns.end_year` must be AT LEAST one year
+later than `formation.end_year` -- if the two are byte-identical despite a
+>=12-month hold, that's a real extraction error, not a coincidence; look for
+the paper's own explicit data-coverage statement (often a separate sentence
+from the table caption) to fix it, or derive `formation.end_year +
+ceil(holding_period_months / 12)` if the paper never states it explicitly.
+A downstream deterministic check (`_reported_returns_holding_period_
+mismatch_finding`) will flag this same pattern for human review if it
+survives to this point, but fixing it here (with a page/section citation)
+means a human doesn't have to.
+
+**Check `portfolio.legs`' long/short direction against `signal.direction`
+explicitly -- do not skim this one.** The engine computes the executed
+spread as `long - short`, so `long` must be the group with the HIGHER
+expected return per the paper: if `signal.direction = "positive"`, `long` =
+the highest-value group and `short` = the lowest-value group; if
+`signal.direction = "negative"`, it's the reverse -- `long` = the
+LOWEST-value group, `short` = the HIGHEST-value group. A common extraction
+mistake is defaulting to "long = top decile" regardless of direction, or
+copying the order a table sentence happens to name the deciles in (e.g.
+"the high-growth firms have an alpha of -0.46%...and the spread is -0.70%"
+names the high-value decile first, which is NOT evidence that it's the
+`long` leg). If `signal.direction` says higher signal values predict LOWER
+returns, the low-value decile is the one with the higher expected return and
+must be `long`, no matter which decile a "Spread (10-1)"-style table column
+lists first -- that column is a reporting convention for the table, not a
+statement about which side of the trade is `long`. If you find this swapped,
+fix `portfolio.legs` (swap both `side` and `selector`) and say so in
+`value_corrections`.
+
+**Check `timing.data_availability` against what the engine actually does
+with it -- this field is easy to get wrong because its `anchor` sub-field
+looks meaningful but currently is not.** The engine computes
+`time_avail_m = fiscal_period_end_date + lag_value (in lag_unit)` --
+`anchor` is NOT read by this calculation no matter what value it holds
+(`formation_date`, `report_date`, `observation_date` all silently behave
+exactly like `fiscal_period_end`). So:
+- `lag_value`/`lag_unit` must be the number of months from the fiscal
+  period's END DATE to when that data becomes usable -- NOT the gap to the
+  portfolio formation date, and NOT a restatement of "fiscal year t-1 data
+  used in year t" as `1 year` (`12` months). A paper following the standard
+  Fama-French (1992) convention ("form accounting variables at the end of
+  June in year t using fiscal year-end t-1 data") is describing a December
+  fiscal year-end firm: `Dec 31(t-1)` to `June 30(t)` is 6 months. A common
+  extraction mistake is writing `lag_value: 1, lag_unit: "year"` instead --
+  that overshoots the paper's own formation date by 6 months and makes the
+  engine use a whole fiscal year's worth of stale data (verify by checking
+  whether `fiscal_period_end + lag_value` lands ON OR BEFORE the paper's
+  stated formation month; if it lands after, the lag is too large). When the
+  paper doesn't give enough to compute an exact figure, `6` months is this
+  codebase's own standing default for the Fama-French convention -- prefer
+  it over a round-number guess like `12`.
+- `anchor` should always read `"fiscal_period_end"`; correct it if it holds
+  any of the other three enum values, since those are not distinguishable
+  from `fiscal_period_end` at runtime and leaving one of them in place
+  masks the fact that the actual timing rule was never encoded.
+- Because `DataAvailability` has no `status` field, you cannot flag
+  low-confidence uncertainty here the way you would elsewhere -- if the
+  paper doesn't give an exact month count, note your assumption in this
+  field's own `evidence[].interpretation` instead of silently guessing.
+
+Does
 `reported_results.metrics[primary_metric_id].weighting` (when tagged) match
 `portfolio.weighting` -- if the paper reports both EW and VW headline
 spreads, `primary_metric_id` must point at the one matching
@@ -149,10 +216,36 @@ be corrected to `intervals`.
 For every paper-stated inclusion or exclusion rule that changes which
 firm-month observations may enter the analysis, verify that the spec has a
 `universe.filters[]` entry carrying the same citation. Do not leave an
-executable restriction only in `universe.description`. Exchange eligibility,
-share class, industry, size/price, listing-age, geography, and data-quality
-screens are illustrative categories only; do not infer a rule the paper does
-not state.
+executable restriction only in `universe.description` -- or anywhere else in
+free text (`data.coverage_notes`, `notes`, etc.). Free text is not read by
+resolution or codegen: a restriction that exists only as prose is
+functionally invisible downstream, identical to a restriction the paper
+never mentioned at all. If you find one during review (extraction sometimes
+narrates a restriction in `coverage_notes`/`notes` instead of encoding it),
+promote it into a real `data.fields[]` + `universe.filters[]` pair yourself,
+per the rule below. Exchange eligibility, share class, industry, size/price,
+listing-age, geography, and data-quality screens are illustrative categories
+only; do not infer a rule the paper does not state.
+
+**When the paper states the restriction but never gives an executable
+value** (e.g. "non-financial firms" with no SIC range, "excluding
+utilities," "ordinary common shares only" with no share-code list): still
+add the `data.fields[]` + `universe.filters[]` pair (see extraction prompt
+1.8e). Fill `value` with the standard, well-established value used
+throughout this literature for that exact restriction (e.g. SIC 6000-6999
+for "non-financial"/excluding financial firms), not a paper-specific guess.
+Because the paper itself never states that number, set
+`universe.filters[].accepted_unapplied = true` with a one-sentence
+`unapplied_reason` explaining that the value is a standard convention, not
+something read directly off the page -- do not leave the filter/field pair
+out entirely just because the exact number isn't in the paper. If you can
+independently confirm the standard value is correct for this paper (not
+merely restate the same "the paper doesn't give a number" reasoning), you
+may instead set `human_confirmed_applied = true` with a matching
+`applied_reason`; `accepted_unapplied` and `human_confirmed_applied` are
+mutually exclusive, so use exactly one, not both, and never flip
+`accepted_unapplied` to `human_confirmed_applied` (or vice versa) without a
+genuinely new piece of evidence or reasoning beyond what's already recorded.
 
 For an explicit CRSP NYSE/AMEX/Nasdaq restriction that matches the panel
 `reported_results.metrics` was actually taken from (see the panel-matching
@@ -219,8 +312,13 @@ Pay particular attention to these commonly error-prone areas:
 - `reported_results.comparison_derivation` -- if present, are its two cited
   endpoint metrics compatible table cells and do the configured legs reproduce
   its requested high-minus-low comparison?
-- `portfolio.legs` -- do the long/short leg selectors match the paper's
-  stated long-short direction (not accidentally swapped)?
+- `portfolio.legs` -- does `long` correspond to the higher-expected-return
+  group implied by `signal.direction` (see the explicit rule above), not
+  just to whichever decile a table sentence names first?
+- `timing.data_availability` -- is `anchor` set to `"fiscal_period_end"`
+  (see the explicit rule above -- the other three values have no effect),
+  and is `lag_value` the months from fiscal period end to data availability,
+  not to the formation date?
 - `weighting` / `construction_type` / `breakpoints.basis` /
   `missing_policies[].action` / `return_combination` / `sorts[].group_type` /
   `sorts[].mode` -- is the classification correct, and (when

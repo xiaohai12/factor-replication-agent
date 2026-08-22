@@ -42,7 +42,7 @@ from scipy import stats
 # Purely a sanity valve against pathological/malformed data (e.g. a bug
 # upstream produces many more distinct `switches_flipped` combinations than
 # any real batch should) -- NOT the same knob as step6's
-# `MAX_FACTORIAL_SWITCHES` (currently 4), which caps how many switches a
+# `MAX_FACTORIAL_SWITCHES` (currently 3), which caps how many switches a
 # REAL batch is allowed to vary. Kept independent and deliberately more
 # generous so this module doesn't silently need updating every time that
 # constant changes.

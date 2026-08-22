@@ -59,7 +59,12 @@ from src.steps.step7_replication_diff.bundle import (
     SIGNIFICANCE_T_THRESHOLD,
     stage_of,
 )
-from src.steps.step8_diagnosis.summary import build_deterministic_summary, build_spec_quality_summary, build_vs_paper_summary
+from src.steps.step8_diagnosis.summary import (
+    build_deterministic_summary,
+    build_paper_verdict_agreement_summary,
+    build_spec_quality_summary,
+    build_vs_paper_summary,
+)
 
 
 _PROMPT_PATH = (
@@ -198,6 +203,7 @@ class ReplicationDiagnoser:
         report.summary = build_deterministic_summary(accepted, bundle)
         report.vs_paper_summary = build_vs_paper_summary(bundle)
         report.spec_quality_summary = build_spec_quality_summary(bundle)
+        report.paper_verdict_agreement = build_paper_verdict_agreement_summary(bundle)
         return report
 
     def _build_prompt(self, bundle: dict[str, Any], tool_results: list[ToolResult]) -> str:
@@ -325,6 +331,16 @@ THREE_TERM_IDENTITY_TOOL = _bundle_section_tool(
     "an external implementer's (C&Z / HXZ) distance from the PAPER's own reported spread, split into signal+environment, config, and agent-replication residual, nested by reference (cz/hxz)",
     "an accounting split, not an experiment: the endpoints do not share a sample window (see window_basis.caveat) and the three terms carry different noise (see term_purity_notes); unavailable when the external reference or either track's spread is missing",
 )
+EXTERNAL_PERFORMANCE_COMPARISON_TOOL = _bundle_section_tool(
+    "external_performance_comparison",
+    "every agent track's own mean_return/t_stat laid next to C&Z's and HXZ's own self-reported numbers, plus agent_vs_cz/agent_vs_hxz -- a deterministic sign/ratio/significance verdict on whether running that implementer's OWN config through this engine (cz_actual_config / standardized_hxz) reproduces the number THEY themselves report",
+    "context only, not a claim target: no claim_type cites this section directly -- its agent_vs_cz/agent_vs_hxz verdicts are already rendered into the vs_cz/robustness summary cards by summary.py, so do not re-derive or restate them via sign_agreement/significance (those claim types require a derived.tracks.* citation, not this section)",
+)
+PAPER_VERDICT_AGREEMENT_TOOL = _bundle_section_tool(
+    "paper_verdict_agreement",
+    "whether C&Z's and HXZ's own self-reported numbers for this factor agree or conflict with EACH OTHER, independent of anything this engine ran",
+    "context only, not a claim target: already rendered as its own banner ahead of the reproduction card by summary.py; no claim_type cites this section",
+)
 
 
 def _field_evidence_detail_fn(ctx: Step8ToolContext) -> ToolResult:
@@ -377,6 +393,8 @@ STEP8_TOOLS: list[Tool[Step8ToolContext]] = [
     PAIRED_TESTS_TOOL,
     JOINT_TEST_TOOL,
     THREE_TERM_IDENTITY_TOOL,
+    EXTERNAL_PERFORMANCE_COMPARISON_TOOL,
+    PAPER_VERDICT_AGREEMENT_TOOL,
     FIELD_EVIDENCE_DETAIL_TOOL,
 ]
 

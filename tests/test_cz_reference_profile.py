@@ -13,16 +13,18 @@ import pytest
 
 from src.infra.reference import (
     CZReferenceProfile,
+    CzFilterParseError,
     cz_profile_to_config_override,
     fetch_cz_reference_profile_live,
     load_cz_reference_profile,
 )
+from src.infra.reference import _parse_cz_filter_expr
 
 
 _HEADER = [
     "Acronym", "Return", "T-Stat", "Sign", "Stock Weight", "LS Quantile",
     "Quantile Filter", "Portfolio Period", "Start Month",
-    "SampleStartYear", "SampleEndYear",
+    "SampleStartYear", "SampleEndYear", "Filter",
 ]
 
 
@@ -43,6 +45,7 @@ class TestLoadCzReferenceProfile:
             "Stock Weight": "VW", "LS Quantile": "0.1",
             "Quantile Filter": "NYSE", "Portfolio Period": "12",
             "Start Month": "6", "SampleStartYear": "1963", "SampleEndYear": "2003",
+            "Filter": "exchcd%in%c(1,2)",
         }])
         profile = load_cz_reference_profile("BM", signaldoc_path=path)
         assert profile is not None
@@ -57,6 +60,7 @@ class TestLoadCzReferenceProfile:
         assert profile.start_month == 6
         assert profile.sample_start_year == 1963
         assert profile.sample_end_year == 2003
+        assert profile.filter_expr == "exchcd%in%c(1,2)"
 
     def test_unknown_acronym_returns_none(self, tmp_path):
         path = _write_signaldoc(tmp_path, [{"Acronym": "BM", "Return": "0.45"}])
@@ -70,6 +74,7 @@ class TestLoadCzReferenceProfile:
         profile = load_cz_reference_profile("X", signaldoc_path=path)
         assert profile.t_stat is None
         assert profile.sign is None
+        assert profile.filter_expr is None
 
 
 class TestCzProfileToConfigOverride:
@@ -138,6 +143,80 @@ class TestCzProfileToConfigOverride:
         profile = CZReferenceProfile(acronym="X", quantile_filter="SP500")
         with pytest.raises(ValueError, match="quantile_filter"):
             cz_profile_to_config_override(profile)
+
+    def test_filter_expr_appends_to_backbone_universe_filters(self):
+        """docs/step6.md §10's documented, previously-unimplemented gap:
+        MeanRankRevGrowth's real SignalDoc row has Filter='exchcd%in%c(1,2)'
+        -- must be APPENDED after the global backbone filter, not replace
+        it."""
+        profile = CZReferenceProfile(acronym="MeanRankRevGrowth", filter_expr="exchcd%in%c(1,2)")
+        override = cz_profile_to_config_override(profile)
+        assert override["universe_filters"] == [
+            {"field": "shrcd", "op": "in", "value": [10, 11, 12]},
+            {"field": "exchcd", "op": "in", "value": [1, 2, 3]},
+            {"field": "exchcd", "op": "in", "value": [1, 2]},
+        ]
+
+    def test_no_filter_expr_leaves_universe_filters_at_backbone_only(self):
+        profile = CZReferenceProfile(acronym="X")
+        override = cz_profile_to_config_override(profile)
+        assert override["universe_filters"] == [
+            {"field": "shrcd", "op": "in", "value": [10, 11, 12]},
+            {"field": "exchcd", "op": "in", "value": [1, 2, 3]},
+        ]
+
+    def test_unparseable_filter_expr_raises(self):
+        profile = CZReferenceProfile(acronym="X", filter_expr="some_weird_r_expression(foo, bar)")
+        with pytest.raises(CzFilterParseError, match="Cannot translate"):
+            cz_profile_to_config_override(profile)
+
+
+class TestParseCzFilterExpr:
+    """`_parse_cz_filter_expr`: SignalDoc `Filter` column -> `universe_filters`
+    entries. Patterns drawn from real rows in `data/CZ code/SignalDoc.csv`."""
+
+    def test_in_clause(self):
+        assert _parse_cz_filter_expr("exchcd%in%c(1,2)") == [
+            {"field": "exchcd", "op": "in", "value": [1, 2]},
+        ]
+
+    def test_in_clause_with_spaces(self):
+        assert _parse_cz_filter_expr("exchcd %in% c(1, 2, 3)") == [
+            {"field": "exchcd", "op": "in", "value": [1, 2, 3]},
+        ]
+
+    def test_eq_clause(self):
+        assert _parse_cz_filter_expr("exchcd==1") == [{"field": "exchcd", "op": "eq", "value": 1}]
+
+    def test_lte_clause(self):
+        assert _parse_cz_filter_expr("shrcd <= 11") == [{"field": "shrcd", "op": "lte", "value": 11}]
+
+    def test_comma_separated_multiple_clauses(self):
+        # Real SignalDoc row, CoskewACX.
+        assert _parse_cz_filter_expr("shrcd<=11, exchcd==1") == [
+            {"field": "shrcd", "op": "lte", "value": 11},
+            {"field": "exchcd", "op": "eq", "value": 1},
+        ]
+
+    def test_abs_greater_than_translates_to_not_between(self):
+        # Real SignalDoc pattern (e.g. Accruals, BetaLiquidityPS): abs(prc)>5
+        # <=> NOT(-5 <= prc <= 5), exactly `not_between`'s semantics.
+        assert _parse_cz_filter_expr("abs(prc)>5") == [
+            {"field": "prc", "op": "not_between", "value": [-5, 5]},
+        ]
+
+    def test_abs_greater_than_with_spaces(self):
+        assert _parse_cz_filter_expr("abs(prc) > 1") == [
+            {"field": "prc", "op": "not_between", "value": [-1, 1]},
+        ]
+
+    def test_unrecognized_pattern_raises_not_silently_dropped(self):
+        with pytest.raises(CzFilterParseError, match="Cannot translate"):
+            _parse_cz_filter_expr("some_weird_r_expression(foo, bar)")
+
+    def test_one_bad_clause_in_a_multi_clause_expr_still_raises(self):
+        with pytest.raises(CzFilterParseError):
+            _parse_cz_filter_expr("exchcd==1, totally_unrecognized_thing")
 
 
 class TestFetchCzReferenceProfileLive:

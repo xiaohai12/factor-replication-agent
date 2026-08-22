@@ -17,7 +17,7 @@ import { Step5HeadlineCard } from "@/components/steps/Step5Output"
 import { MethodSpecBoard } from "@/components/MethodSpecBoard"
 import { JsonTree } from "@/components/JsonTree"
 import { CodeView } from "@/components/CodeView"
-import { sessionApi } from "@/lib/sessionApi"
+import { sessionApi, type Step6PreviewTrack } from "@/lib/sessionApi"
 import { stepDefinition } from "@/lib/steps"
 import { useJobStream } from "@/lib/useJobStream"
 import { ApiError, api } from "@/lib/api"
@@ -264,6 +264,14 @@ export function SessionDetailPage() {
   // config has ALSO been queried and confirmed there (see
   // Step6CzConfigPreview). Unchecking always clears any confirmed override.
   const [step6CzEnabled, setStep6CzEnabled] = useState(true)
+  // Step6's pre-run confirmation: "Run" first previews the track count/names
+  // (`preview_tracks`, no execution) instead of submitting the job directly;
+  // the actual run only fires once the human clicks the second "Confirm &
+  // Run" button that appears with the preview. Any edit to the request body
+  // invalidates a stale preview (see the effect near `runMutation`).
+  const [step6Preview, setStep6Preview] = useState<
+    { track_count: number; tracks: Step6PreviewTrack[]; fromUpstream: boolean } | null
+  >(null)
   // Lifted out of Step6CzConfigPreview so the ①②③ config diff AND the raw
   // C&Z query output can be shown ONLY in the Result panel (not duplicated
   // under "Run against C&Z's actual configuration") -- every value here is
@@ -452,6 +460,38 @@ export function SessionDetailPage() {
       setRequestError(err instanceof ApiError ? `${err.status}: ${err.message}` : String(err))
     },
   })
+
+  // Step6 only: computes the track count/names the plan currently in
+  // `requestText` would run, WITHOUT executing anything -- gates the actual
+  // `runMutation` behind a "Confirm & Run" step showing that count.
+  const step6PreviewMutation = useMutation({
+    mutationFn: async (opts?: { fromUpstream?: boolean }) => {
+      const body = opts?.fromUpstream
+        ? withLlmSelection(
+            await buildAutoFilledRequest(sessionId, step, await sessionApi.get(sessionId), def.requestTemplate),
+          )
+        : JSON.parse(requestText)
+      const response = await sessionApi.previewStep6Experiment(sessionId, body)
+      return { ...response, fromUpstream: Boolean(opts?.fromUpstream) }
+    },
+    onSuccess: (response) => {
+      setRequestError(null)
+      setStep6Preview(response)
+    },
+    onError: (err) => {
+      setStep6Preview(null)
+      setRequestError(err instanceof ApiError ? `${err.status}: ${err.message}` : String(err))
+    },
+  })
+
+  // Any edit to the request body (switch toggles, C&Z-config confirmation,
+  // hand-editing the textarea, etc.) invalidates a previously-fetched step6
+  // preview -- otherwise a stale "Confirm & Run N experiments" could run a
+  // DIFFERENT plan than the one it was previewed against.
+  useEffect(() => {
+    setStep6Preview(null)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [requestText])
 
   // True from the moment Run/Re-run is clicked until a fresh result lands --
   // gates the Result/Step-output panels below so they show a "running"
@@ -799,6 +839,9 @@ export function SessionDetailPage() {
                             <Step6HxzConfigPreview
                               sessionId={sessionId}
                               sessionFactorId={sessionQuery.data?.factor_id}
+                              specFactorId={
+                                (current.spec as { paper?: { factor_id?: string } } | undefined)?.paper?.factor_id
+                              }
                               sampleWindow={extractPaperSampleWindow(current.spec as Record<string, unknown> | undefined)}
                               onDataChange={setStep6HxzReported}
                             />
@@ -866,25 +909,67 @@ export function SessionDetailPage() {
                         // leave step6Blocked false; a malformed request body is caught elsewhere
                       }
                     }
+                    if (step === 6) {
+                      return (
+                        <>
+                          {step6Blocked && (
+                            <p className="text-xs text-amber-600">
+                              ② is checked above -- query C&amp;Z's config and confirm it below before running, or
+                              uncheck ② to run without it.
+                            </p>
+                          )}
+                          <div className="flex gap-2">
+                            <Button
+                              onClick={() => step6PreviewMutation.mutate(undefined)}
+                              disabled={step6PreviewMutation.isPending || runMutation.isPending || step6Blocked}
+                            >
+                              {step6PreviewMutation.isPending ? "Counting…" : "Preview experiment count"}
+                            </Button>
+                            <Button
+                              variant="outline"
+                              onClick={() => step6PreviewMutation.mutate({ fromUpstream: true })}
+                              disabled={step6PreviewMutation.isPending || runMutation.isPending || step6Blocked}
+                              title="Re-fetch the upstream step's latest output and preview a run against it, discarding whatever's in the request box above."
+                            >
+                              Preview from upstream output
+                            </Button>
+                            {step6Preview && (
+                              <Button
+                                onClick={() => runMutation.mutate({ fromUpstream: step6Preview.fromUpstream })}
+                                disabled={runMutation.isPending}
+                              >
+                                Confirm & run {step6Preview.track_count} experiment
+                                {step6Preview.track_count === 1 ? "" : "s"}
+                              </Button>
+                            )}
+                          </div>
+                          {step6Preview && (
+                            <div className="flex flex-col gap-2">
+                              <p className="text-xs font-medium">
+                                This will run {step6Preview.track_count} experiment
+                                {step6Preview.track_count === 1 ? "" : "s"}:
+                              </p>
+                              {step6Preview.tracks.map((track) => (
+                                <Step6PreviewTrackCard key={track.name} track={track} />
+                              ))}
+                            </div>
+                          )}
+                        </>
+                      )
+                    }
                     return (
                       <>
-                        {step6Blocked && (
-                          <p className="text-xs text-amber-600">
-                            ② is checked above -- query C&amp;Z's config and confirm it below before running, or
-                            uncheck ② to run without it.
-                          </p>
-                        )}
                         <div className="flex gap-2">
                           <Button
                             onClick={() => runMutation.mutate(undefined)}
-                            disabled={runMutation.isPending || step6Blocked}
+                            disabled={runMutation.isPending}
                           >
                             Run {def.label}
                           </Button>
                           <Button
                             variant="outline"
                             onClick={() => runMutation.mutate({ fromUpstream: true })}
-                            disabled={runMutation.isPending || step6Blocked}
+                            disabled={runMutation.isPending}
                             title="Re-fetch the upstream step's latest output and re-run this step with it, discarding whatever's in the request box above."
                           >
                             Re-run from upstream output
@@ -1046,7 +1131,20 @@ function MethodSpecWorkflowPanel({
   const navigate = useNavigate()
   const queryClient = useQueryClient()
   const [state, setState] = useState<MethodSpecWorkflowState>(() => getMethodSpecWorkflowState(sessionId))
-  const rangeUnionSuggestions = useMemo(() => disjointUniverseRangeSuggestions(state.paper), [state.paper])
+  //: Staged whole-paper structural edits -- add/remove a universe filter,
+  //: convert a disjoint range to `intervals`, add the default target sort,
+  //: edit a sort's group_count/breakpoints_basis, edit a filter's
+  //: derivation. These used to call `patch()` immediately on click
+  //: (mutating `state.paper` AND clearing `review`/`resolved` on the very
+  //: first click), so a human couldn't make several structural edits in one
+  //: pass without the findings panel resetting after each one.
+  //: `stagedPaperOverride` is the composable "next paper" these edits build
+  //: on top of each other (each function reads `effectivePaper` below, not
+  //: `state.paper`, so edits compose); nothing commits to `state.paper` or
+  //: clears `review`/`resolved` until `applyPendingCorrections` runs.
+  const [stagedPaperOverride, setStagedPaperOverride] = useState<Record<string, unknown> | undefined>(undefined)
+  const effectivePaper = (stagedPaperOverride ?? state.paper) as Record<string, unknown> | undefined
+  const rangeUnionSuggestions = useMemo(() => disjointUniverseRangeSuggestions(effectivePaper), [effectivePaper])
   const [file, setFile] = useState<File | null>(null)
   const [targetName, setTargetName] = useState(defaultTargetName)
   // Restore from persisted state on mount -- otherwise navigating away from
@@ -1072,6 +1170,26 @@ function MethodSpecWorkflowPanel({
   //: endpoint; `state.paper` is resent wholesale on the next /resolve call).
   const [unappliedReasonDrafts, setUnappliedReasonDrafts] = useState<Record<number, string>>({})
   const [unappliedError, setUnappliedError] = useState<string | null>(null)
+  //: universe.filters index -> drafted `applied_reason` text, for the
+  //: symmetric `human_confirmed_applied` escape hatch -- same client-side-
+  //: only pattern as `unappliedReasonDrafts` (no dedicated backend
+  //: endpoint; `state.paper` is resent wholesale on the next /resolve call).
+  const [appliedReasonDrafts, setAppliedReasonDrafts] = useState<Record<number, string>>({})
+  const [appliedError, setAppliedError] = useState<string | null>(null)
+  //: universe.filters index -> staged accepted_unapplied/human_confirmed_applied
+  //: decision. Deliberately staged, not applied immediately on click: the
+  //: previous immediate-`patch()` behavior cleared `review`/`resolved` on the
+  //: very first click, so the whole findings panel reset out from under a
+  //: human still working through several filters. Now these fold into the
+  //: SAME single "Apply N correction(s)" button as `filterFieldDrafts`/
+  //: `valuePatchDrafts` below -- one commit, one review reset, after every
+  //: decision on this page is made.
+  type FilterStatusDraft =
+    | { action: "mark_unapplied"; reason: string }
+    | { action: "undo_unapplied" }
+    | { action: "mark_applied"; reason: string }
+    | { action: "undo_applied" }
+  const [filterStatusDrafts, setFilterStatusDrafts] = useState<Record<number, FilterStatusDraft>>({})
   //: universe.filters index -> drafted {concept_id, op, value} text for that
   //: filter's own scalar fields. Same client-side-only pattern as
   //: `derivationDrafts` -- concept_id/op/value live on `FilterSpec`, not a
@@ -1165,6 +1283,21 @@ function MethodSpecWorkflowPanel({
         reviewRunning: true,
         reviewJobId: undefined,
       })
+      // A full restart makes every staged-but-uncommitted edit from the
+      // previous spec meaningless (wrong shape, wrong indices) -- clear
+      // them all rather than let them silently resurface against the new
+      // spec once it loads (`effectivePaper` would otherwise keep
+      // overriding it with stale `stagedPaperOverride` content).
+      setStagedPaperOverride(undefined)
+      setFilterFieldDrafts({})
+      setFilterReasonDrafts({})
+      setFilterStatusDrafts({})
+      setUnappliedReasonDrafts({})
+      setAppliedReasonDrafts({})
+      setDerivationDrafts({})
+      setValuePatchDrafts({})
+      setUnsupportedValueDrafts({})
+      setSortDefaultError(null)
     },
     onSuccess: (res) => {
       setReviewJobId(res.job_id)
@@ -1293,6 +1426,12 @@ function MethodSpecWorkflowPanel({
       setUnsupportedValueDrafts({})
       setFilterFieldDrafts({})
       setFilterReasonDrafts({})
+      setFilterStatusDrafts({})
+      setUnappliedReasonDrafts({})
+      setAppliedReasonDrafts({})
+      setDerivationDrafts({})
+      setStagedPaperOverride(undefined)
+      setSortDefaultError(null)
       queryClient.invalidateQueries({ queryKey: ["session-events", sessionId] })
     },
     onError: (err) => setError(err instanceof ApiError ? `${err.status}: ${err.message}` : String(err)),
@@ -1304,34 +1443,19 @@ function MethodSpecWorkflowPanel({
   // Purely a client-side edit of `state.paper` instead: every /review and
   // /resolve call already resends `state.paper` wholesale, so there's
   // nothing to persist server-side until the human re-runs review anyway.
-  const applyDerivationEdits = () => {
-    setDerivationError(null)
-    const paper = state.paper as { universe?: { filters?: Array<Record<string, unknown>> } } | undefined
-    const filters = paper?.universe?.filters
-    if (!filters) return
-    const nextFilters = [...filters]
-    try {
-      for (const [indexStr, text] of Object.entries(derivationDrafts)) {
-        const i = Number(indexStr)
-        nextFilters[i] = { ...nextFilters[i], derivation: text.trim() === "" ? null : JSON.parse(text) }
-      }
-    } catch (e) {
-      setDerivationError(e instanceof Error ? `Invalid derivation JSON: ${e.message}` : String(e))
-      return
-    }
-    patch({
-      paper: { ...paper, universe: { ...paper!.universe, filters: nextFilters } },
-      review: undefined,
-      reviewSource: undefined,
-      resolved: undefined,
-    })
-    setDerivationDrafts({})
-  }
+  // `universe.filters[i].derivation` (a `FormulaSpec`) isn't a
+  // `SourcedValue` -- `apply_value_patches`/`/patch-value` only patch
+  // scalar high-impact fields, so this can't go through that endpoint.
+  // No longer its own immediate-commit/own-button pair: parsing happens
+  // inline in `computeFilterEditsPaper` below, folded into the SAME single
+  // "Apply N correction(s)" button as every other pending edit on this
+  // page -- `derivationDrafts` (the raw textarea text) is the only draft
+  // state kept here.
 
-  // `accepted_unapplied`/`unapplied_reason` (docs/todo.md item 2): same
-  // client-side-edit pattern as `applyDerivationEdits` above -- these two
-  // plain fields on `FilterSpec` have no dedicated backend endpoint either,
-  // `state.paper` is resent wholesale on the next /resolve call.
+  // `accepted_unapplied`/`unapplied_reason` (docs/todo.md item 2): staged
+  // into `filterStatusDrafts`, not committed immediately -- see that
+  // state's comment. Actually applied by `applyPendingCorrections` below,
+  // alongside every other pending correction on this page.
   const applyAcceptedUnapplied = (index: number) => {
     setUnappliedError(null)
     const reason = (unappliedReasonDrafts[index] ?? "").trim()
@@ -1339,36 +1463,27 @@ function MethodSpecWorkflowPanel({
       setUnappliedError("Provide a reason before marking accepted_unapplied.")
       return
     }
-    const paper = state.paper as { universe?: { filters?: Array<Record<string, unknown>> } } | undefined
-    const filters = paper?.universe?.filters
-    if (!filters) return
-    const nextFilters = [...filters]
-    nextFilters[index] = { ...nextFilters[index], accepted_unapplied: true, unapplied_reason: reason }
-    patch({
-      paper: { ...paper, universe: { ...paper!.universe, filters: nextFilters } },
-      review: undefined,
-      reviewSource: undefined,
-      resolved: undefined,
-    })
-    setUnappliedReasonDrafts((prev) => {
-      const next = { ...prev }
-      delete next[index]
-      return next
-    })
+    setFilterStatusDrafts((prev) => ({ ...prev, [index]: { action: "mark_unapplied", reason } }))
   }
 
   const undoAcceptedUnapplied = (index: number) => {
-    const paper = state.paper as { universe?: { filters?: Array<Record<string, unknown>> } } | undefined
-    const filters = paper?.universe?.filters
-    if (!filters) return
-    const nextFilters = [...filters]
-    nextFilters[index] = { ...nextFilters[index], accepted_unapplied: false, unapplied_reason: "" }
-    patch({
-      paper: { ...paper, universe: { ...paper!.universe, filters: nextFilters } },
-      review: undefined,
-      reviewSource: undefined,
-      resolved: undefined,
-    })
+    setFilterStatusDrafts((prev) => ({ ...prev, [index]: { action: "undo_unapplied" } }))
+  }
+
+  // `human_confirmed_applied`/`applied_reason`: symmetric staged escape
+  // hatch to `accepted_unapplied`/`unapplied_reason` above.
+  const applyHumanConfirmedApplied = (index: number) => {
+    setAppliedError(null)
+    const reason = (appliedReasonDrafts[index] ?? "").trim()
+    if (!reason) {
+      setAppliedError("Provide a reason before marking human_confirmed_applied.")
+      return
+    }
+    setFilterStatusDrafts((prev) => ({ ...prev, [index]: { action: "mark_applied", reason } }))
+  }
+
+  const undoHumanConfirmedApplied = (index: number) => {
+    setFilterStatusDrafts((prev) => ({ ...prev, [index]: { action: "undo_applied" } }))
   }
 
   //: Same `EvidenceCitation` shape as every citation elsewhere in the spec
@@ -1382,7 +1497,7 @@ function MethodSpecWorkflowPanel({
   })
 
   // concept_id/op/value editing for existing `universe.filters[]` entries --
-  // same client-side-edit pattern as `applyDerivationEdits` above (these
+  // same client-side-edit pattern as the `derivation` drafts above (these
   // scalar `FilterSpec` fields aren't `SourcedValue`s either, so there's no
   // `/patch-value` path for them; `state.paper` is resent wholesale on the
   // next /review or /resolve call). Pure computation only -- no `patch()`
@@ -1390,10 +1505,25 @@ function MethodSpecWorkflowPanel({
   // decides where the result goes (straight to local state, or into the
   // `/patch-value` request body when value corrections are pending too).
   const computeFilterEditsPaper = (): Record<string, unknown> | undefined => {
-    const paper = state.paper as { universe?: { filters?: Array<Record<string, unknown>> } } | undefined
+    const paper = effectivePaper as { universe?: { filters?: Array<Record<string, unknown>> } } | undefined
     const filters = paper?.universe?.filters
-    if (!filters || Object.keys(filterFieldDrafts).length === 0) return paper as Record<string, unknown> | undefined
+    const hasFieldDrafts = Object.keys(filterFieldDrafts).length > 0
+    const hasStatusDrafts = Object.keys(filterStatusDrafts).length > 0
+    const hasDerivationDrafts = Object.keys(derivationDrafts).length > 0
+    if (!filters || (!hasFieldDrafts && !hasStatusDrafts && !hasDerivationDrafts)) {
+      return paper as Record<string, unknown> | undefined
+    }
     const nextFilters = [...filters]
+    setDerivationError(null)
+    try {
+      for (const [indexStr, text] of Object.entries(derivationDrafts)) {
+        const i = Number(indexStr)
+        nextFilters[i] = { ...nextFilters[i], derivation: text.trim() === "" ? null : JSON.parse(text) }
+      }
+    } catch (e) {
+      setDerivationError(e instanceof Error ? `Invalid derivation JSON: ${e.message}` : String(e))
+      return undefined
+    }
     try {
       for (const [indexStr, draft] of Object.entries(filterFieldDrafts)) {
         const i = Number(indexStr)
@@ -1408,6 +1538,32 @@ function MethodSpecWorkflowPanel({
         next.evidence = [...existingEvidence, humanCorrectionCitation(filterReasonDrafts[i] ?? "")]
         nextFilters[i] = next
       }
+      // `accepted_unapplied`/`human_confirmed_applied` are mutually exclusive
+      // server-side (see `FilterSpec`'s validator) -- marking one always
+      // clears the other here too, so a stray leftover `true` from a prior
+      // decision can't trip that validator on submit.
+      for (const [indexStr, draft] of Object.entries(filterStatusDrafts)) {
+        const i = Number(indexStr)
+        const next = { ...nextFilters[i] }
+        if (draft.action === "mark_unapplied") {
+          next.accepted_unapplied = true
+          next.unapplied_reason = draft.reason
+          next.human_confirmed_applied = false
+          next.applied_reason = ""
+        } else if (draft.action === "undo_unapplied") {
+          next.accepted_unapplied = false
+          next.unapplied_reason = ""
+        } else if (draft.action === "mark_applied") {
+          next.human_confirmed_applied = true
+          next.applied_reason = draft.reason
+          next.accepted_unapplied = false
+          next.unapplied_reason = ""
+        } else if (draft.action === "undo_applied") {
+          next.human_confirmed_applied = false
+          next.applied_reason = ""
+        }
+        nextFilters[i] = next
+      }
     } catch (e) {
       setFilterFieldError(e instanceof Error ? `Invalid filter value JSON: ${e.message}` : String(e))
       return undefined
@@ -1415,30 +1571,45 @@ function MethodSpecWorkflowPanel({
     return { ...paper, universe: { ...paper!.universe, filters: nextFilters } }
   }
 
-  // One "Apply" action for both pending correction kinds -- scalar
-  // `valuePatchDrafts` (goes through `/patch-value`) and local
-  // `universe.filters[]` edits (`filterFieldDrafts`, no backend endpoint).
-  // Deliberately a single button rather than two: `patchValueMutation`'s
-  // `onSuccess` replaces `state.paper` wholesale with the server's
-  // response, so if the two were applied separately, whichever ran second
-  // would silently drop the other's edit. Folding the filter edits into
-  // the paper sent to `/patch-value` (when both are pending) keeps both in
-  // the round trip.
+  // The ONE "Apply" action for every pending correction kind on this page:
+  // scalar `valuePatchDrafts` (goes through `/patch-value`), local
+  // `universe.filters[]` field/derivation/status edits (`filterFieldDrafts`/
+  // `derivationDrafts`/`filterStatusDrafts`, no backend endpoint), and any
+  // staged structural edit (`stagedPaperOverride` -- add/remove a filter,
+  // convert a range union, add/edit a sort). Deliberately a single button
+  // rather than several: `patchValueMutation`'s `onSuccess` replaces
+  // `state.paper` wholesale with the server's response, so if these were
+  // applied separately, whichever ran second would silently drop the
+  // other's edit. Folding everything into the paper sent to `/patch-value`
+  // (when a scalar value correction is ALSO pending) keeps it all in the
+  // one round trip; otherwise it commits straight to local state.
   const applyPendingCorrections = () => {
     setFilterFieldError(null)
     const nextPaper = computeFilterEditsPaper()
     if (nextPaper === undefined) return
+    const hasStatusDrafts = Object.keys(filterStatusDrafts).length > 0
+    const hasDerivationDrafts = Object.keys(derivationDrafts).length > 0
+    const hasStructuralEdits = stagedPaperOverride !== undefined
     if (Object.keys(valuePatchDrafts).length > 0) {
+      // Cleared in `patchValueMutation.onSuccess`, not here -- the mutation
+      // is async and can fail; clearing eagerly on `mutate()` would discard
+      // a human's pending edits if the request errors out.
       patchValueMutation.mutate(nextPaper)
-    } else if (Object.keys(filterFieldDrafts).length > 0) {
+    } else if (Object.keys(filterFieldDrafts).length > 0 || hasStatusDrafts || hasDerivationDrafts || hasStructuralEdits) {
       patch({ paper: nextPaper, review: undefined, reviewSource: undefined, resolved: undefined })
       setFilterFieldDrafts({})
       setFilterReasonDrafts({})
+      setFilterStatusDrafts({})
+      setUnappliedReasonDrafts({})
+      setAppliedReasonDrafts({})
+      setDerivationDrafts({})
+      setStagedPaperOverride(undefined)
+      setSortDefaultError(null)
     }
   }
 
   const addUniverseFilter = () => {
-    const paper = state.paper as { universe?: { filters?: Array<Record<string, unknown>> } } | undefined
+    const paper = effectivePaper as { universe?: { filters?: Array<Record<string, unknown>> } } | undefined
     if (!paper?.universe) return
     const nextFilters = [
       ...(paper.universe.filters ?? []),
@@ -1446,14 +1617,10 @@ function MethodSpecWorkflowPanel({
         concept_id: "", op: "nonmissing", value: null,
         evidence: [humanCorrectionCitation(addFilterReason)],
         derivation: null, accepted_unapplied: false, unapplied_reason: "",
+        human_confirmed_applied: false, applied_reason: "",
       },
     ]
-    patch({
-      paper: { ...paper, universe: { ...paper.universe, filters: nextFilters } },
-      review: undefined,
-      reviewSource: undefined,
-      resolved: undefined,
-    })
+    setStagedPaperOverride({ ...paper, universe: { ...paper.universe, filters: nextFilters } })
     setAddFilterReason("")
   }
 
@@ -1477,7 +1644,7 @@ function MethodSpecWorkflowPanel({
   //: ambiguous and left for a human to author manually.
   const addDefaultTargetSort = () => {
     setSortDefaultError(null)
-    const paper = state.paper as
+    const paper = effectivePaper as
       | {
           portfolio?: { sorts?: Array<Record<string, unknown>>; legs?: Array<Record<string, unknown>> }
           signal?: { formula?: { output_concept?: string }; direction?: { value?: string } }
@@ -1531,18 +1698,13 @@ function MethodSpecWorkflowPanel({
         evidence: [citation],
       },
     ]
-    patch({
-      paper: {
-        ...paper,
-        portfolio: {
-          ...paper.portfolio,
-          sorts: [sort],
-          legs: [...(paper.portfolio.legs ?? []), ...legs],
-        },
+    setStagedPaperOverride({
+      ...paper,
+      portfolio: {
+        ...paper.portfolio,
+        sorts: [sort],
+        legs: [...(paper.portfolio.legs ?? []), ...legs],
       },
-      review: undefined,
-      reviewSource: undefined,
-      resolved: undefined,
     })
   }
 
@@ -1556,7 +1718,7 @@ function MethodSpecWorkflowPanel({
   //: the new top bucket, or a leg silently references a bucket that no
   //: longer exists once the count shrinks).
   const updateSingleSort = (index: number, changes: { group_count?: number; breakpoints_basis?: string }) => {
-    const paper = state.paper as
+    const paper = effectivePaper as
       | { portfolio?: { sorts?: Array<Record<string, unknown>>; legs?: Array<Record<string, unknown>> } }
       | undefined
     const sorts = paper?.portfolio?.sorts
@@ -1586,16 +1748,11 @@ function MethodSpecWorkflowPanel({
             if (!isHighBucket) return leg
             return { ...leg, selector: { ...selector, [sortId]: nextGroupCount - 1 } }
           })
-    patch({
-      paper: { ...paper, portfolio: { ...paper.portfolio, sorts: nextSorts, legs: nextLegs } },
-      review: undefined,
-      reviewSource: undefined,
-      resolved: undefined,
-    })
+    setStagedPaperOverride({ ...paper, portfolio: { ...paper.portfolio, sorts: nextSorts, legs: nextLegs } })
   }
 
   const removeUniverseFilter = (index: number) => {
-    const paper = state.paper as
+    const paper = effectivePaper as
       | { notes?: string; universe?: { filters?: Array<Record<string, unknown>> } }
       | undefined
     const filters = paper?.universe?.filters
@@ -1607,12 +1764,10 @@ function MethodSpecWorkflowPanel({
     })}`
     const nextFilters = filters.filter((_, i) => i !== index)
     const nextNotes = paper!.notes ? `${paper!.notes}\n${noteLine}` : noteLine
-    patch({
-      paper: { ...paper, notes: nextNotes, universe: { ...paper!.universe, filters: nextFilters } },
-      review: undefined,
-      reviewSource: undefined,
-      resolved: undefined,
-    })
+    setStagedPaperOverride({ ...paper, notes: nextNotes, universe: { ...paper!.universe, filters: nextFilters } })
+    // Every OTHER index-keyed draft for this same filters array must shift
+    // down too, or a later `computeFilterEditsPaper` reads a draft meant
+    // for a now-different filter (or one that no longer exists).
     const remapIndexed = <T,>(prev: Record<number, T>): Record<number, T> => {
       const next: Record<number, T> = {}
       for (const [k, v] of Object.entries(prev)) {
@@ -1624,10 +1779,14 @@ function MethodSpecWorkflowPanel({
     }
     setFilterFieldDrafts(remapIndexed)
     setFilterReasonDrafts(remapIndexed)
+    setFilterStatusDrafts(remapIndexed)
+    setUnappliedReasonDrafts(remapIndexed)
+    setAppliedReasonDrafts(remapIndexed)
+    setDerivationDrafts(remapIndexed)
   }
 
   const convertToRangeUnion = (suggestion: RangeUnionSuggestion) => {
-    const paper = state.paper as { universe?: { filters?: Array<Record<string, unknown>> } } | undefined
+    const paper = effectivePaper as { universe?: { filters?: Array<Record<string, unknown>> } } | undefined
     const filters = paper?.universe?.filters
     if (!filters) return
     const firstIndex = Math.min(...suggestion.indexes)
@@ -1643,12 +1802,7 @@ function MethodSpecWorkflowPanel({
       value: suggestion.ranges,
       evidence,
     })
-    patch({
-      paper: { ...paper, universe: { ...paper.universe, filters: nextFilters } },
-      review: undefined,
-      reviewSource: undefined,
-      resolved: undefined,
-    })
+    setStagedPaperOverride({ ...paper, universe: { ...paper.universe, filters: nextFilters } })
   }
 
   const resolveMutation = useMutation({
@@ -1708,7 +1862,7 @@ function MethodSpecWorkflowPanel({
     const match = fieldPath.match(/^data\.fields\[(\d+)\]\.source_column$/)
     if (!match) return null
     const idx = Number(match[1])
-    const fields = (state.paper as { data?: { fields?: Array<Record<string, unknown>> } } | undefined)?.data?.fields
+    const fields = (effectivePaper as { data?: { fields?: Array<Record<string, unknown>> } } | undefined)?.data?.fields
     const tableDraft = valuePatchDrafts[`data.fields[${idx}].source_table`]
     const tableValue =
       tableDraft ?? (fields?.[idx]?.source_table as { value?: string } | undefined)?.value ?? null
@@ -1923,8 +2077,8 @@ function MethodSpecWorkflowPanel({
           restarts the full LLM review loop from Step 1's raw extraction.
         </p>
         {(() => {
-          const sorts = ((state.paper as { portfolio?: { sorts?: Array<Record<string, unknown>> } })
-            .portfolio?.sorts ?? [])
+          const sorts = ((effectivePaper as { portfolio?: { sorts?: Array<Record<string, unknown>> } } | undefined)
+            ?.portfolio?.sorts ?? [])
           if (sorts.length === 0) {
             return (
               <div className="flex flex-col gap-2 rounded-md border border-amber-500/50 bg-amber-500/10 p-2 text-xs">
@@ -2029,9 +2183,16 @@ function MethodSpecWorkflowPanel({
               // These get their OWN inline concept_id/op/value editor below
               // (right where every other field's correction UI lives, not a
               // separate card) instead of the generic value-patch input.
+              // `sample.reported_returns` (bare, no .start_year/.end_year
+              // suffix) is `_reported_returns_holding_period_mismatch_
+              // finding`'s own diagnostic pointer -- not itself a single
+              // patchable field (the actual patchable years are the two
+              // ALWAYS-shown rows at `.start_year`/`.end_year` right
+              // alongside it); patching this bare path would 422 server-side.
               const canPatch =
                 !["missing_mapping", "universe_filter", "incomplete"].includes(String(f.kind))
                 && !/^universe\.filters\[\d+\]/.test(fieldPath)
+                && fieldPath !== "sample.reported_returns"
               const filterIndexMatch = /^universe\.filters\[(\d+)\]/.exec(fieldPath)
               const filterIndex = filterIndexMatch ? Number(filterIndexMatch[1]) : null
               const info = schemaFieldInfo(fieldPath)
@@ -2099,7 +2260,7 @@ function MethodSpecWorkflowPanel({
                     const conceptOptions = Array.from(
                       new Set(
                         (
-                          ((state.paper as { data?: { fields?: Array<Record<string, unknown>> } } | undefined)
+                          ((effectivePaper as { data?: { fields?: Array<Record<string, unknown>> } } | undefined)
                             ?.data?.fields ?? []) as Array<Record<string, unknown>>
                         ).map((field) => String(field.concept_id)),
                       ),
@@ -2161,6 +2322,90 @@ function MethodSpecWorkflowPanel({
                         <Button size="sm" variant="ghost" onClick={() => removeUniverseFilter(filterIndex)}>
                           Remove
                         </Button>
+                      </div>
+                    )
+                  })()}
+                  {!canPatch && filterIndex !== null && (() => {
+                    const currentFilter = (
+                      (
+                        ((effectivePaper as { universe?: { filters?: Array<Record<string, unknown>> } } | undefined)
+                          ?.universe?.filters ?? []) as Array<Record<string, unknown>>
+                      )[filterIndex] ?? {}
+                    ) as Record<string, unknown>
+                    // Staged decision (if any) overrides the last-committed value for
+                    // display -- clicking a button here only stages a draft (see
+                    // `filterStatusDrafts`' comment); nothing commits until the single
+                    // "Apply N correction(s)" button below runs.
+                    const draft = filterStatusDrafts[filterIndex]
+                    const isPending = draft !== undefined
+                    const effectiveUnapplied =
+                      draft?.action === "mark_unapplied" ? true
+                      : draft?.action === "undo_unapplied" ? false
+                      : Boolean(currentFilter.accepted_unapplied)
+                    const effectiveUnappliedReason =
+                      draft?.action === "mark_unapplied" ? draft.reason : String(currentFilter.unapplied_reason ?? "")
+                    const effectiveApplied =
+                      draft?.action === "mark_applied" ? true
+                      : draft?.action === "undo_applied" ? false
+                      : Boolean(currentFilter.human_confirmed_applied)
+                    const effectiveAppliedReason =
+                      draft?.action === "mark_applied" ? draft.reason : String(currentFilter.applied_reason ?? "")
+                    return (
+                      <div className="flex flex-col gap-1 pl-1">
+                        {effectiveUnapplied ? (
+                          <div className="flex items-center gap-2 border-t border-border/40 pt-1">
+                            <Badge variant={isPending ? "secondary" : "outline"}>
+                              {isPending ? "accepted_unapplied (pending)" : "accepted_unapplied"}
+                            </Badge>
+                            <span className="text-muted-foreground">{effectiveUnappliedReason}</span>
+                            <Button size="sm" variant="ghost" onClick={() => undoAcceptedUnapplied(filterIndex)}>
+                              Undo
+                            </Button>
+                          </div>
+                        ) : (
+                          <div className="flex items-center gap-2 border-t border-border/40 pt-1">
+                            <Input
+                              className="h-7 text-[11px]"
+                              placeholder="Reason this filter is accepted as unapplied (e.g. engine can't join non-CRSP columns yet)"
+                              value={unappliedReasonDrafts[filterIndex] ?? ""}
+                              onChange={(e) => setUnappliedReasonDrafts((prev) => ({ ...prev, [filterIndex]: e.target.value }))}
+                            />
+                            <Button size="sm" variant="outline" onClick={() => applyAcceptedUnapplied(filterIndex)}>
+                              Mark accepted_unapplied
+                            </Button>
+                          </div>
+                        )}
+                        {effectiveApplied ? (
+                          <div className="flex items-center gap-2 border-t border-border/40 pt-1">
+                            <Badge variant={isPending ? "secondary" : "outline"}>
+                              {isPending ? "human_confirmed_applied (pending)" : "human_confirmed_applied"}
+                            </Badge>
+                            <span className="text-muted-foreground">{effectiveAppliedReason}</span>
+                            <Button size="sm" variant="ghost" onClick={() => undoHumanConfirmedApplied(filterIndex)}>
+                              Undo
+                            </Button>
+                          </div>
+                        ) : (
+                          <div className="flex items-center gap-2 border-t border-border/40 pt-1">
+                            <Input
+                              className="h-7 text-[11px]"
+                              placeholder="Reason this filter is confirmed to apply (e.g. reviewed the inferred evidence, it's correct)"
+                              value={appliedReasonDrafts[filterIndex] ?? ""}
+                              onChange={(e) => setAppliedReasonDrafts((prev) => ({ ...prev, [filterIndex]: e.target.value }))}
+                            />
+                            <Button size="sm" variant="outline" onClick={() => applyHumanConfirmedApplied(filterIndex)}>
+                              Approve & Apply
+                            </Button>
+                          </div>
+                        )}
+                        {isPending && (
+                          <p className="text-muted-foreground">
+                            Staged -- click "Apply N correction(s)" below to commit (this and every other pending
+                            decision on this page apply together, in one step).
+                          </p>
+                        )}
+                        {unappliedError && <p className="text-destructive">{unappliedError}</p>}
+                        {appliedError && <p className="text-destructive">{appliedError}</p>}
                       </div>
                     )
                   })()}
@@ -2238,20 +2483,30 @@ function MethodSpecWorkflowPanel({
                 </div>
               )
             })}
-            {(Object.keys(valuePatchDrafts).length > 0 || Object.keys(filterFieldDrafts).length > 0) && (
-              <Button size="sm" variant="outline" disabled={patchValueMutation.isPending} onClick={applyPendingCorrections}>
-                {patchValueMutation.isPending
-                  ? "Patching…"
-                  : `Apply ${Object.keys(valuePatchDrafts).length + Object.keys(filterFieldDrafts).length} correction(s) -- re-run review after`}
-              </Button>
-            )}
+            {(() => {
+              const pendingCount =
+                Object.keys(valuePatchDrafts).length +
+                Object.keys(filterFieldDrafts).length +
+                Object.keys(filterStatusDrafts).length +
+                Object.keys(derivationDrafts).length +
+                (stagedPaperOverride !== undefined ? 1 : 0)
+              return (
+                pendingCount > 0 && (
+                  <Button size="sm" variant="outline" disabled={patchValueMutation.isPending} onClick={applyPendingCorrections}>
+                    {patchValueMutation.isPending ? "Patching…" : `Apply ${pendingCount} correction(s) -- re-run review after`}
+                  </Button>
+                )
+              )
+            })()}
             <p className="text-xs text-muted-foreground">
               Every high-impact field above can be corrected this way, regardless of its disposition --
               "missing_mapping" findings are the only exception (fix `data.fields`/`universe.filters` and
-              re-extract instead). A value correction replaces the extracted content itself (marks it "clear"
-              and records your reason as evidence) and clears
-              the current review -- re-run review afterward. A universe filter edit/add/remove works the same
-              way, recorded as an evidence citation (or a `notes` line for a removal) instead.
+              re-extract instead). Every decision above (value corrections, filter add/remove/edit,
+              accepted_unapplied/human_confirmed_applied, sort edits, derivations) is staged, not applied
+              immediately -- nothing changes `state.paper` or clears the current review until you click
+              "Apply N correction(s)"; that one click commits everything pending at once, then clears the
+              review (re-run review afterward). Corrections are recorded as an evidence citation (or a
+              `notes` line for a removal).
             </p>
           </div>
         )}
@@ -2387,6 +2642,14 @@ function MethodSpecWorkflowPanel({
                 unmapped concept, or an unsupported universe filter above -- fix the paper's `data.fields`/
                 `universe.filters` and re-extract, or pick a value correction in the review panel above.
               </p>
+            </div>
+          )}
+          {/* Filter editor (derivation / accepted_unapplied / human_confirmed_applied) is
+              deliberately NOT gated on `!is_ready`: an `accepted_unapplied` filter is designed
+              to not block readiness, so gating this under the "not ready" block above made the
+              accepted_unapplied/human_confirmed_applied controls unreachable for exactly the
+              filters they exist to handle. Only requires that a resolve attempt has happened. */}
+          {resolveMutation.data && (
               <div className="flex flex-col gap-2 rounded-md border border-border/60 bg-background p-2">
                 <p className="font-medium">
                   Or: register a `derivation` (a `FormulaSpec`) on the filter instead of a direct column
@@ -2395,7 +2658,7 @@ function MethodSpecWorkflowPanel({
                   resolve.
                 </p>
                 {(
-                  ((state.paper as { universe?: { filters?: Array<Record<string, unknown>> } } | undefined)
+                  ((effectivePaper as { universe?: { filters?: Array<Record<string, unknown>> } } | undefined)
                     ?.universe?.filters ?? []) as Array<Record<string, unknown>>
                 ).map((filt, i) => (
                   <div key={i} className="flex flex-col gap-1 rounded border border-border/60 p-2">
@@ -2411,38 +2674,19 @@ function MethodSpecWorkflowPanel({
                       value={derivationDrafts[i] ?? ""}
                       onChange={(e) => setDerivationDrafts((prev) => ({ ...prev, [i]: e.target.value }))}
                     />
-                    {filt.accepted_unapplied ? (
-                      <div className="flex items-center gap-2 border-t border-border/40 pt-1">
-                        <Badge variant="outline">accepted_unapplied</Badge>
-                        <span className="text-muted-foreground">{String(filt.unapplied_reason)}</span>
-                        <Button size="sm" variant="ghost" onClick={() => undoAcceptedUnapplied(i)}>
-                          Undo
-                        </Button>
-                      </div>
-                    ) : (
-                      <div className="flex items-center gap-2 border-t border-border/40 pt-1">
-                        <Input
-                          className="h-7 text-[11px]"
-                          placeholder="Reason this filter is accepted as unapplied (e.g. engine can't join non-CRSP columns yet)"
-                          value={unappliedReasonDrafts[i] ?? ""}
-                          onChange={(e) => setUnappliedReasonDrafts((prev) => ({ ...prev, [i]: e.target.value }))}
-                        />
-                        <Button size="sm" variant="outline" onClick={() => applyAcceptedUnapplied(i)}>
-                          Mark accepted_unapplied
-                        </Button>
-                      </div>
-                    )}
+                    {/* accepted_unapplied/human_confirmed_applied now live in the review
+                        panel above, right next to each filter's own finding -- available
+                        as soon as review runs, not gated behind a resolve attempt. */}
                   </div>
                 ))}
                 {derivationError && <p className="text-destructive">{derivationError}</p>}
-                {unappliedError && <p className="text-destructive">{unappliedError}</p>}
                 {Object.keys(derivationDrafts).length > 0 && (
-                  <Button size="sm" variant="outline" onClick={applyDerivationEdits}>
-                    Apply {Object.keys(derivationDrafts).length} derivation edit(s) -- re-run resolve after
-                  </Button>
+                  <p className="text-muted-foreground">
+                    Staged -- click "Apply N correction(s)" in the review panel above to commit this
+                    alongside every other pending decision on this page, in one step.
+                  </p>
                 )}
               </div>
-            </div>
           )}
           {state.resolved && (
             <>
@@ -2619,6 +2863,53 @@ function formatCzValue(value: unknown): string {
   return String(value)
 }
 
+/** One track's resolved-config diff in the step6 pre-run preview -- the
+ * SAME `resolved_diff` shape the Result/comparison panel otherwise only
+ * shows once the batch has actually finished, surfaced here BEFORE running
+ * anything (per-track `preview_tracks`, no execution). The baseline track
+ * (`original_method`) has an empty diff by construction (it IS the
+ * baseline), shown as a plain label instead of an empty table. */
+function Step6PreviewTrackCard({ track }: { track: Step6PreviewTrack }) {
+  const diffKeys = Object.keys(track.resolved_diff).sort()
+  return (
+    <div className="rounded-md border border-border p-2 text-xs">
+      <div className="flex items-center gap-2">
+        <span className="font-mono font-medium">{track.name}</span>
+        {track.family !== "baseline" && (
+          <>
+            <Badge variant="outline">{track.family}</Badge>
+            <Badge variant="outline">{track.identification_level}</Badge>
+          </>
+        )}
+      </div>
+      {diffKeys.length === 0 ? (
+        <p className="mt-1 text-muted-foreground">
+          {track.family === "baseline" ? "Baseline -- nothing to diff." : "No config difference from baseline."}
+        </p>
+      ) : (
+        <table className="mt-1 w-full border-collapse">
+          <thead>
+            <tr className="border-b border-border text-muted-foreground">
+              <th className="py-1 pr-3 text-left font-medium">Config key</th>
+              <th className="py-1 pr-3 text-left font-medium">Baseline value</th>
+              <th className="py-1 text-left font-medium">This track's value</th>
+            </tr>
+          </thead>
+          <tbody>
+            {diffKeys.map((key) => (
+              <tr key={key} className="border-b border-border/50">
+                <td className="py-1 pr-3 font-mono">{key}</td>
+                <td className="py-1 pr-3 text-muted-foreground">{formatCzValue(track.resolved_diff[key].baseline_value)}</td>
+                <td className="py-1">{formatCzValue(track.resolved_diff[key].track_value)}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      )}
+    </div>
+  )
+}
+
 /** The ①②③ resolved-config comparison itself, extracted so it can be
  * rendered in BOTH the request card (right after querying ②, unchanged)
  * AND the Result panel -- the latter shows it the INSTANT "Run" is
@@ -2752,8 +3043,11 @@ function Step6CzConfigPreview({
     setPreview(null)
     onDataChange(null)
     try {
+      const specFactorId = (spec as { paper?: { factor_id?: string } } | undefined)?.paper?.factor_id
+      const czConfigParams = new URLSearchParams({ acronym: selected })
+      if (specFactorId) czConfigParams.set("factor_id", specFactorId)
       const result = await api.get<CzConfigPreview>(
-        `/api/sessions/${sessionId}/steps/6/cz-config?acronym=${encodeURIComponent(selected)}`,
+        `/api/sessions/${sessionId}/steps/6/cz-config?${czConfigParams.toString()}`,
       )
       setPreview(result)
       setStep6PreviewState(sessionId, { czSelected: selected, czPreview: result })
@@ -2865,11 +3159,13 @@ interface HxzReportedPreview {
 function Step6HxzConfigPreview({
   sessionId,
   sessionFactorId,
+  specFactorId,
   sampleWindow,
   onDataChange,
 }: {
   sessionId: string
   sessionFactorId: string | undefined
+  specFactorId: string | undefined
   sampleWindow: { startYear: number; endYear: number } | null
   onDataChange: (data: { originalInsample: HxzReportedPreview | null; hxzPaperSample: HxzReportedPreview | null } | null) => void
 }) {
@@ -2899,6 +3195,7 @@ function Step6HxzConfigPreview({
         params.set("sample_start_year", String(sampleWindow.startYear))
         params.set("sample_end_year", String(sampleWindow.endYear))
       }
+      if (specFactorId) params.set("factor_id", specFactorId)
       const result = await api.get<{
         acronym: string
         original_insample: HxzReportedPreview | null

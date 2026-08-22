@@ -67,8 +67,8 @@ def _schema_skeleton_fn(ctx: Step1ToolContext) -> ToolResult:
 
 SCHEMA_SKELETON_TOOL: Tool[Step1ToolContext] = Tool(
     name="schema_skeleton",
-    description="MethodSpec 的 JSON 骨架结构（从 Pydantic 模型自动生成）",
-    produces="完整骨架内嵌在系统提示的 Required JSON Shape 示例里，跟当前论文内容无关，是结构约束不是分析结果",
+    description="MethodSpec's JSON skeleton structure (auto-generated from the Pydantic model)",
+    produces="Full skeleton is inlined in the system prompt's Required JSON Shape example; unrelated to the current paper's content, this is a structural constraint, not an analysis result",
     fn=_schema_skeleton_fn,
     tier="always",
 )
@@ -86,8 +86,8 @@ def _catalog_menu_fn(ctx: Step1ToolContext) -> ToolResult:
 
 CATALOG_MENU_TOOL: Tool[Step1ToolContext] = Tool(
     name="data_catalog",
-    description="当前已注册的数据源清单：每个数据源 + 每一列 + 列的WRDS定义",
-    produces="纯信息性列表，用于填 RequiredField.source_table/source_column；跟当前论文内容无关",
+    description="Menu of currently registered data sources: each source + each column + the column's WRDS definition",
+    produces="Purely informational list, used to fill RequiredField.source_table/source_column; unrelated to the current paper's content",
     fn=_catalog_menu_fn,
     tier="always",
 )

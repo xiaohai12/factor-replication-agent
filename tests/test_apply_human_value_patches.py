@@ -100,3 +100,50 @@ class TestValuePatchTypeCoercion:
         paper = _base_spec()
         with pytest.raises(ValueError, match="expects one of"):
             apply_value_patches(paper, {"signal.direction": "sideways"})
+
+
+class TestReportedReturnsYearPatches:
+    """`sample.reported_returns.start_year`/`end_year` -- `Period` fields,
+    not `SourcedValue`s, so they go through `_PATCHABLE_PERIOD_YEAR_FIELDS`
+    rather than the normal `high_impact_sourced_values` lookup (see
+    docs/decision-log.md 2026-08-22)."""
+
+    def test_patches_end_year_and_marks_status_clear(self):
+        paper = _base_spec()
+        paper.sample.reported_returns.status = EvidenceStatus.TABLE_ONLY
+
+        patched = apply_value_patches(
+            paper, {"sample.reported_returns.end_year": "1990"},
+            reason="paper's own data-coverage statement + C&Z SampleEndYear both say 1990",
+        )
+
+        assert patched.sample.reported_returns.end_year == 1990
+        assert patched.sample.reported_returns.status == EvidenceStatus.CLEAR
+        assert "human correction" in patched.sample.reported_returns.evidence[-1].interpretation
+        # start_year untouched by an end_year-only patch.
+        assert patched.sample.reported_returns.start_year == paper.sample.reported_returns.start_year
+
+    def test_patches_start_year(self):
+        paper = _base_spec()
+        patched = apply_value_patches(paper, {"sample.reported_returns.start_year": "1969"})
+        assert patched.sample.reported_returns.start_year == 1969
+
+    def test_both_years_in_one_call(self):
+        paper = _base_spec()
+        patched = apply_value_patches(
+            paper,
+            {"sample.reported_returns.start_year": "1969", "sample.reported_returns.end_year": "1991"},
+        )
+        assert patched.sample.reported_returns.start_year == 1969
+        assert patched.sample.reported_returns.end_year == 1991
+
+    def test_original_paper_not_mutated(self):
+        paper = _base_spec()
+        original_end_year = paper.sample.reported_returns.end_year
+        apply_value_patches(paper, {"sample.reported_returns.end_year": "1990"})
+        assert paper.sample.reported_returns.end_year == original_end_year
+
+    def test_invalid_int_string_fails_loud(self):
+        paper = _base_spec()
+        with pytest.raises(ValueError, match="expects an integer"):
+            apply_value_patches(paper, {"sample.reported_returns.end_year": "not a year"})

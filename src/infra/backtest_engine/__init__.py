@@ -755,21 +755,43 @@ class BacktestExecutor:
 
     @staticmethod
     def _resample_annual_signal_asof(signal: pd.DataFrame, df: pd.DataFrame, config: dict) -> pd.DataFrame:
-        """Align accounting signals to an explicit annual formation month by
-        taking each stock's most recent already-available signal as of that
-        formation month.
+        """Align a signal onto one annual formation month by taking each
+        stock's most recent already-available value as of that month.
 
         This separates data availability (`signal.yyyymm`, produced upstream
-        from accounting lag / report availability) from the portfolio formation
-        calendar (`config["formation_month"]`). For monthly/quarterly factors,
-        or annual specs without an explicit formation month, this is a no-op.
-        For already-aligned annual signals (all cohorts already in the stated
-        month), it is also a no-op so existing golden-number paths stay on the
-        original code path.
+        from accounting lag / report availability, or -- for a CRSP-cadence
+        signal -- simply "every month") from the portfolio formation calendar
+        (`config["formation_month"]`). Gated ONLY on `rebalance_frequency ==
+        "annual"` -- NOT on whether `formation_month` was stated explicitly
+        by the paper vs. defaulted by the engine (`registry._resolve_
+        formation_month`'s own default is still a real formation calendar
+        the engine is about to hold portfolios against; `formation_month_
+        explicit` records provenance for `docs/step6.md`-style auditing, not
+        whether resampling is needed). Not gated on `signal_cadence` either
+        -- unlike `_forward_fill_low_frequency_signal`'s config-label check,
+        this reads the signal's OWN month values (`cohort_months` below), so
+        it self-detects a monthly-cadence signal (e.g. a CRSP-only factor
+        like turnover/momentum) riding along on an `annual` override
+        (`HXZ_STANDARD_CONFIG`/a C&Z `cz_config_override`) exactly the same
+        way it detects an annual accounting signal not yet aligned to the
+        stated month -- both need this collapse-to-one-formation-per-year
+        step, or `apply_signal_holding_period`'s per-row hold-window
+        expansion (below) holds EVERY one of the signal's monthly snapshots
+        for `hold` months each, producing massively overlapping cohorts (a
+        correctness bug -- multiple simultaneous holdings per stock instead
+        of one clean annual formation) and an O(signal_rows * hold) blowup
+        in memory/runtime (2026-08-22: a CRSP-cadence signal spanning a full
+        history, forced annual by `standardized_hxz`/`cz_actual_config`,
+        crashed the process rather than merely running slow).
+
+        For monthly/quarterly rebalance, this is a no-op (first check
+        below). For an already-aligned annual signal (every cohort already
+        in the stated month, e.g. `formation_month_explicit=True` cases that
+        exercised this path before 2026-08-22), it's ALSO a no-op via the
+        `cohort_months` check just below -- so this broadened gate cannot
+        change output for any config that already reached this function.
         """
         if str(config.get("rebalance_frequency", "unspecified")).lower() != "annual":
-            return signal
-        if not config.get("formation_month_explicit"):
             return signal
         formation_month = config.get("formation_month")
         if formation_month is None or signal is None or signal.empty or "yyyymm" not in signal.columns:

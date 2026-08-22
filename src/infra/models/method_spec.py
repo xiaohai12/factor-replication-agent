@@ -404,6 +404,26 @@ class FilterSpec(BaseModel):
     #: recorded, reviewable gap (see `registry._unapplied_universe_filters`).
     accepted_unapplied: bool = False
     unapplied_reason: str = ""
+    #: Human-approved audit trail for the opposite decision: this filter
+    #: (typically one whose evidence `status` is `inferred`/derived rather
+    #: than a directly-quoted paper value) has been reviewed and confirmed
+    #: it SHOULD be enforced at runtime. Never set by `build_config` itself
+    #: -- only a human decision, always paired with `applied_reason` -- so
+    #: "reviewed and approved" is distinguishable from "nobody looked at it
+    #: yet" (both currently apply identically at runtime; this field only
+    #: adds the audit trail, see `registry._applied_universe_filters`).
+    #: Mutually exclusive with `accepted_unapplied` (see validator below).
+    human_confirmed_applied: bool = False
+    applied_reason: str = ""
+
+    @model_validator(mode="after")
+    def _accepted_unapplied_xor_human_confirmed_applied(self) -> FilterSpec:
+        if self.accepted_unapplied and self.human_confirmed_applied:
+            raise ValueError(
+                "FilterSpec cannot be both accepted_unapplied and human_confirmed_applied "
+                "-- a filter can't be both confirmed-skip and confirmed-apply"
+            )
+        return self
 
     @model_validator(mode="after")
     def _validate_intervals_value(self) -> FilterSpec:

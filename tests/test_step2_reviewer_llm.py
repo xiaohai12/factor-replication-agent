@@ -95,9 +95,13 @@ def _minimal_raw_spec(**overrides) -> dict:
             "coverage_notes": [],
         },
         "sample": {
-            "data_coverage": {"start_year": 1962, "end_year": 2003},
+            "data_coverage": {"start_year": 1962, "end_year": 2004},
             "formation": {"start_year": 1968, "end_year": 2003},
-            "reported_returns": {"start_year": 1968, "end_year": 2003},
+            # end_year=2004, NOT 2003: identical to `formation` would trip
+            # `_reported_returns_holding_period_mismatch_finding` given the
+            # 12-month holding_period below (see docs/decision-log.md
+            # 2026-08-22) -- this fixture is meant to already validate clean.
+            "reported_returns": {"start_year": 1968, "end_year": 2004},
         },
         "timing": {
             "formation_rule": {"value": "every June", "evidence": [], "status": "clear"},

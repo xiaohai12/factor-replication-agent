@@ -56,6 +56,18 @@ weak field needs its full paper-quote citations, not just the summary.
   attribution` requires the complete 2^n factorial grid for that line; `paired_tests`/
   `joint_test` require the on-disk monthly return series. Any of the three may be
   `unavailable` — never fabricate this evidence, use `evidence_limitation` instead.
+- `external_performance_comparison` / `paper_verdict_agreement` — **context only, not a
+  claim target.** `external_performance_comparison` lays every agent track's own
+  `mean_return`/`t_stat` next to C&Z's and HXZ's own self-reported numbers, and its
+  `agent_vs_cz`/`agent_vs_hxz` sub-fields already carry a deterministic sign/ratio/
+  significance verdict on whether running that implementer's own config through this
+  engine reproduced the number they themselves report. `paper_verdict_agreement` says
+  whether C&Z's and HXZ's own numbers agree or conflict with EACH OTHER, independent of
+  anything this engine ran. Both are rendered directly into the report from the bundle
+  before you ever see it — there is no claim type for either, so do not attempt a
+  `sign_agreement`/`significance`/`config_divergence` claim citing these keys (it will be
+  rejected: those claim types require a `derived.tracks.*` citation). Read them only for
+  background when writing optional `text` on an unrelated claim.
 - `evidence_keys` — a flat dotted-key → value whitelist. This is the complete set of
   facts you are permitted to cite.
 

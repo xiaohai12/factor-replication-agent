@@ -117,6 +117,22 @@ _ABLATION_SWITCH_TO_CONFIG_KEY: dict[str, str] = {
     # config key renamed from "universe" (a display-only string, never read
     # by the engine) to "universe_filters" (the real, enforced key) 2026-08-16.
     "universe": "universe_filters",
+    # Added 2026-08-22: how many groups the extreme portfolios are cut into
+    # (deciles vs quintiles, ...) materially changes which stocks land in the
+    # extreme legs -- a first-order driver of long-short spread size/
+    # significance, same order of magnitude as `breakpoint_source`/
+    # `weighting_rule`, not a minor detail. Previously untracked: a
+    # `cz_config_override`/`HXZ_STANDARD_CONFIG` quantile-count difference
+    # silently rode along inside whatever endpoint track carried it
+    # (`cz_actual_config`/`standardized_hxz`) with no dedicated
+    # ablation_quantiles/factorial_quantiles track to isolate its own
+    # contribution. Safe to add now that `registry.build_config`'s override
+    # merge re-derives `long_portfolios`/`short_portfolios`/`sort_dims` for a
+    # `breakpoint_quantiles` override (`_remap_extreme_portfolios_for_
+    # quantile_override`) -- before that fix, a single-switch flip of just
+    # this key would have produced an empty-result track exactly like the
+    # `cz_actual_config` failure that motivated adding it.
+    "quantiles": "breakpoint_quantiles",
 }
 
 # A switch's config key sometimes needs a second, non-switch config key
@@ -127,8 +143,30 @@ _ABLATION_SWITCH_TO_CONFIG_KEY: dict[str, str] = {
 # column to the returns panel; overriding one without the other produces a
 # runtime `ValueError` ("Universe filter references field 'ceq', which the
 # loaded returns panel does not have"), not a config mismatch.
+#
+# `rebalance_frequency` similarly needs `holding_period_months` carried
+# along: `BacktestExecutor.apply_signal_holding_period` computes
+# `hold = min(holding_period_months, rebalance_step_months(rebalance_
+# frequency))` -- flipping ONLY `rebalance_frequency` to "annual" while
+# leaving `holding_period_months` at the baseline's value (typically 1, for
+# a paper with its own monthly rebalance) silently caps `hold` back down to
+# 1 via that `min()`. The resulting track isn't "annual rebalance in
+# isolation" -- it's "annual FORMATION calendar, but each formed portfolio
+# is held for only 1 of its 12 months, empty the other 11" -- a strategy
+# nobody asked for, with ~1/12th the observations of a real annual
+# strategy, whose return/t-stat/n_months are consequently not attributable
+# to "the rebalance switch" at all (2026-08-22, found via ShareVol's
+# `ablation_rebalance`/`cz_ablation_rebalance` tracks reporting n_months=100
+# vs `cz_actual_config`'s correctly-linked 1193 for the same annual
+# calendar). `standardized_hxz`/`cz_actual_config` were never affected --
+# they apply `HXZ_STANDARD_CONFIG`/a `cz_config_override` WHOLESALE (see
+# `_plan_to_matrix`), which already sets both keys together; only the
+# single-switch `ablation_rebalance`/`cz_ablation_rebalance` (and any future
+# factorial combo whose flipped-switch set includes "rebalance") went
+# through this companion-less path.
 _CONFIG_KEY_COMPANIONS: dict[str, tuple[str, ...]] = {
     "universe_filters": ("universe_filter_join_sources",),
+    "rebalance_frequency": ("holding_period_months",),
 }
 
 # Inverse of `_ABLATION_SWITCH_TO_CONFIG_KEY`, used by `run_from_matrix` to
@@ -154,13 +192,17 @@ def _switches_flipped_from_diff(resolved_diff: dict[str, dict[str, Any]]) -> dic
 
 # docs/step6.md §4a's decision (2026-08-16, threshold lowered 5->4 on
 # 2026-08-17 after adding Shapley-value attribution -- see docs/step7-8.md
-# Part V): <=4 differing fields -> full factorial (exact, residual always
-# 0, cheap at this size: 2^4=16 runs); >4 -> OAT fallback (linear cost,
-# assumes no interaction between fields). Used by `_plan_to_matrix`'s
-# auto-attribution default -- see that method. Also the ceiling for
-# `attribution.compute_shapley_effects`'s "is the factorial grid complete"
-# check, since Shapley needs the exact same 2^n grid.
-MAX_FACTORIAL_SWITCHES = 4
+# Part V; lowered again 4->3 on 2026-08-22 to bound worst-case batch size --
+# with both the standardized_hxz AND cz_actual_config comparisons hitting the
+# ceiling at once, 2*(2^n-2) tracks stack on top of the baseline/endpoints,
+# which was 2*(2^4-2)=28 at n=4 vs 2*(2^3-2)=12 at n=3): <=3 differing
+# fields -> full factorial (exact, residual always 0, cheap at this size:
+# 2^3=8 runs); >3 -> OAT fallback (linear cost, assumes no interaction
+# between fields). Used by `_plan_to_matrix`'s auto-attribution default --
+# see that method. Also the ceiling for `attribution.compute_shapley_effects`'s
+# "is the factorial grid complete" check, since Shapley needs the exact same
+# 2^n grid.
+MAX_FACTORIAL_SWITCHES = 3
 
 
 def _diff_switches(baseline_config: dict[str, Any], target_config: dict[str, Any]) -> list[str]:
@@ -242,6 +284,40 @@ class MultiTrackController:
         # once a plugin has been re-frozen after a repair, no further
         # per-track code drift is allowed for the rest of that attempt.
         self._frozen_repair_loop = RepairLoop(runner, sandbox, _NoRepairMetaCoder())
+
+    def preview_tracks(self, plan: ExperimentPlan, spec: ResolvedMethodSpec) -> list[dict[str, Any]]:
+        """Per-track name + resolved config diff `run_experiment` would
+        execute for this plan, without running anything: `_plan_to_matrix`
+        only resolves configs/diffs a track list from (no backtest
+        execution), so this is cheap enough to call on every plan edit for a
+        pre-run confirmation UI that shows the SAME config-diff detail the
+        Result panel otherwise only shows after the batch finishes. Order
+        matches `run_from_matrix`'s (baseline first, gated by
+        `plan.run_original`); the baseline entry has an empty `resolved_diff`
+        (it IS the baseline, nothing to diff against)."""
+        matrix = self._plan_to_matrix(plan, spec)
+        tracks = [
+            {
+                "name": e.name,
+                "family": e.family,
+                "identification_level": e.identification_level,
+                "config_overrides": e.config_overrides,
+                "resolved_diff": e.resolved_diff,
+            }
+            for e in matrix.experiments
+        ]
+        if plan.run_original:
+            tracks = [
+                {
+                    "name": "original_method",
+                    "family": "baseline",
+                    "identification_level": "baseline",
+                    "config_overrides": {},
+                    "resolved_diff": {},
+                },
+                *tracks,
+            ]
+        return tracks
 
     def run_experiment(
         self,

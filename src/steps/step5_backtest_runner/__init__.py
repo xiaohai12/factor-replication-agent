@@ -38,7 +38,7 @@ from src.infra.models.method_spec import ResolvedMethodSpec
 from src.infra.models.plugin import PluginRecord
 from src.infra.models.run_record import RunMetrics, RunRecord
 from src.infra.provenance import collect_runtime_provenance
-from src.infra.reference import external_reference_endpoints
+from src.infra.reference import external_references_for_results_dir
 from src.steps.step3_codegen.registry import build_config
 from src.steps.step3_codegen.script_generator import (
     generate_backtest_script,
@@ -416,7 +416,8 @@ class BacktestRunner:
                 diff_result,
                 spec=spec,
                 results_dir=results_dir,
-                external_references=external_reference_endpoints(
+                external_references=external_references_for_results_dir(
+                    results_dir,
                     spec.resolution.cz_acronym,
                     paper_reported.get("sample_start_year"),
                     paper_reported.get("sample_end_year"),

@@ -2,6 +2,578 @@
 
 ## [Unreleased]
 
+### fix: silently-dropped `breakpoint_quantiles` paired-test effect + honest Shapley-coverage caveat + magnitude-tiered reproduction verdict + decay clue on the residual (2026-08-22)
+
+Found while reviewing a real MeanRankRevGrowth batch's vs-C&Z card:
+
+1. **`_CONFIG_KEY_TO_SWITCH_NAME` was missing `breakpoint_quantiles ->
+   "quantiles"`** (`step8_diagnosis/summary.py`) even though step6's own
+   `_ABLATION_SWITCH_TO_CONFIG_KEY` has carried that switch since
+   2026-08-22 earlier today. Every `breakpoint_quantiles` divergence row
+   was silently reporting "no paired-test evidence available" instead of
+   its real (here, statistically significant, t=2.02) effect -- and, worse,
+   this fed directly into the card's headline: `any_individually_
+   significant` never found it either, so the headline claimed "none has a
+   statistically significant effect" when one actually did. Fixed by adding
+   the missing entry.
+2. **`shapley_attribution.to_cz`'s exact `shapley_sum_check == total_gap`
+   identity only covers the switches step6's vocabulary tracks** (here,
+   `quantiles`/`universe`) -- `cz_actual_config` can differ from baseline in
+   OTHER real config keys (`formation_lag_months`/`formation_month`) that
+   aren't in that vocabulary at all, so their effect is invisibly folded
+   into the covered switches' Shapley numbers, not excluded from them.
+   Presenting the exact-sum property without saying so reads as "100% of
+   the gap explained by these settings", which is false precision. New
+   `_shapley_coverage_narrative` (`summary.py`) adds this as its own
+   `narrative` sentence (never folded into a row's `effect`, since
+   `shapley_effects`'s sign convention, `compute_shapley_effects`:
+   flipped-track MINUS baseline, is the OPPOSITE of `paired_tests`'
+   `paired_switch_significance`: baseline MINUS track -- confirmed by
+   reading both functions directly, not inferred; mixing them into the
+   same field un-negated would have silently flipped a sign). Extending
+   step6's switch vocabulary to close the coverage gap was considered and
+   rejected: it would push this line's tracked-switch count past
+   `MAX_FACTORIAL_SWITCHES=3` (lowered from 4 specifically to bound track
+   count, see the "尽量少跑" entry below), falling back to OAT and losing
+   the Shapley exactness for ALL switches on this line, not just the newly
+   added ones -- a structural conflict with the existing track-count
+   ceiling, not a one-line fix.
+3. **New `bundle.MAGNITUDE_TIER_BANDS`/`_magnitude_tier`/
+   `vs_paper.magnitude_tier`** (`bundle.py`): `overall_tag` is sign+
+   significance only and blind to magnitude -- the same MeanRankRevGrowth
+   batch showed a track tagged "reproduced" whose spread was only 0.22x the
+   paper's own. `magnitude_tier` (`"clean"` 0.5x-2.0x / `"partial"` 0.2x-5x
+   / `"failed"` outside that or opposite sign) is a new PARALLEL field,
+   same non-destructive precedent as Q7's tiered significance alongside the
+   existing boolean -- `overall_tag`/`classify_overall` unchanged.
+   `build_vs_paper_summary`'s headline now states the tier explicitly next
+   to the raw ratio.
+4. **`build_vs_paper_summary` now cites `publication_decay.tracks.
+   <baseline>`** (already computed for the ROBUSTNESS card, no new
+   mechanism) as a narrative clue on the "our own replication distance"
+   residual -- whether our baseline's own effect decays post-publication
+   speaks to whether the gap from the paper looks like a fragile/decaying
+   signal or a persistent bias. Does NOT decompose the residual into
+   vintage/engine-bug/paper-ambiguity components (that needs a positive-
+   control factor this project doesn't have run yet); stated in the
+   discussion that led here as an explicit, accepted scope limit.
+
+New tests: `TestMagnitudeTier` (4 cases), 2 `TestVsPaperSummary` cases (decay
+clue present/absent), 3 `TestCzNarrative` cases (quantiles effect no longer
+dropped + headline flip, Shapley coverage narrative with an uncovered key,
+narrative omitted when no Shapley grid). `runs/backtest_scripts/results/
+4a483a60aae1c941/comparison.json` (MeanRankRevGrowth, session
+`11c2aab1e8e74ceb93dcfb776d76b4a9`) recomputed in place via `build_evidence_
+bundle` (no backtest rerun -- `spec_quality`/`universe_description`/`menu_
+deviations` preserved from the prior file since recomputing needs a `spec`
+this script didn't have -- see the "Step A"/"Step B" and `external_
+performance_comparison` entries below for that earlier work).
+
+### feat: step8 summary cards restructured for readability -- shared caveats stated once, per-item prose reserved for what's actually notable (2026-08-22)
+
+User feedback on a real rendered report (MeanRankRevGrowth): the same
+boilerplate explanation was repeated verbatim 2-3 times on a single card
+(e.g. the full "C&Z always overrides this regardless of the paper" sentence
+on every one of 3 house-convention rows; "contribution share not shown
+(the total change is not statistically confirmed)" on every one of 3
+insignificant switches; the `three_term_identity` purity-notes paragraph
+duplicated across the `to_cz`/`to_hxz` cards). Reading it, also found a
+real logic bug: `short_portfolios`/`long_portfolios` (mechanically derived
+from `breakpoint_quantiles`, not an independent decision -- `registry.py`:
+not even a valid override key) showed up as their OWN "unresolved, warrants
+human review" row, duplicating an already-explained `breakpoint_quantiles`
+divergence and inventing a spurious open question.
+
+Structural fix, not just prose trimming (`src/infra/models/diagnosis.py`,
+`src/steps/step8_diagnosis/summary.py`, `render.py`,
+`frontend/src/components/steps/Step8Output.tsx`):
+
+1. **New `SummaryRow` model** (`label`/`ours`/`theirs`/`effect`/`tag`/
+   `note`) -- one compact row per item in a homogeneous set (config
+   divergences, per-switch effects, weak spec fields). `note` is the ONLY
+   per-row prose, reserved for rows that genuinely need it (`unresolved`
+   classification, or an individually significant effect); a routine/
+   explained/insignificant row leaves it empty.
+2. **`DiagnosisSummary`/`VsPaperSummary` restructured**: `details: list[str]`
+   replaced by `intro: str` (a shared caveat/classification note stated
+   ONCE for the whole card -- e.g. "rows tagged 'C&Z convention' are
+   overridden by C&Z the same way for every factor...") + `rows:
+   list[SummaryRow]` (the compact table) + `narrative: list[str]`
+   (standalone sentences not about any one row -- aggregate facts, "Step A"
+   verdicts, cross-line callouts).
+3. **`_build_cz_summary`**: one `SummaryRow` per diverging config key,
+   `tag` = "C&Z convention"/"paper ambiguous"/"unresolved"; the shared
+   reasoning for the first two moves to `intro` (stated once); `unresolved`
+   keeps its explanation as that row's own `note` (rare enough to warrant
+   it). `_DERIVED_CONFIG_KEYS = {"long_portfolios", "short_portfolios"}`
+   excluded from every per-key walk -- the bug fix above.
+4. **`_build_sensitivity_summary`**: per-switch rows with `tag` = the
+   contribution-share percentage (only when the joint test confirms it);
+   the "share not shown, not confirmed" caveat moves to `intro`, stated
+   once instead of on every row.
+5. **`build_three_term_summaries`**: the three components become rows
+   (`tag="largest"` on the biggest one) instead of a paragraph; the
+   "largest component"/window-sensitivity sentences move to `narrative`.
+6. **`build_spec_quality_summary`**: weak fields sharing the exact same
+   `(reason, disposition)` pair are GROUPED into one row listing all their
+   labels, instead of repeating the same reason text on 2-3 nearly-
+   identical rows.
+7. **Frontend**: new `SummaryRows`/`NarrativeList`/`SummaryCardBody`
+   components; `SummaryCard`/`ReproductionCard` now share one body renderer
+   instead of duplicating the same rendering logic.
+8. **`render.py`**: `_render_row`/`_render_summary_body` render `intro`
+   once, then the compact row list, then `narrative`, then `footnote`.
+
+`_fold_claim_evidence_into_details` renamed `_fold_claim_evidence_into_
+narrative` (operates on the renamed field, same logic). No new claim
+types, no LLM involvement change -- this is purely a template-generation
+restructuring.
+
+Re-verified against the real `MeanRankRevGrowth` `comparison.json` that
+prompted this: "Short portfolios: we use [10], C&Z uses [5]" (the false
+"unresolved" duplicate) no longer appears as its own row; only "Number of
+portfolio groups" (tagged "C&Z convention") remains.
+
+7 new/rewritten tests in `tests/test_replication_diagnosis.py` covering the
+row/intro/narrative split, the grouped spec-quality rows, and a dedicated
+regression test for the `long_portfolios`/`short_portfolios` exclusion.
+164/164 passing in that file. Frontend `npx tsc --noEmit` + `npx oxlint`
+clean.
+
+### fix: `external_performance_comparison`/"Step A" could silently compare an alpha to C&Z's/HXZ's raw spread (2026-08-22)
+
+User caught this immediately after the "Step A"/"Step B" feature below shipped:
+paper-extracted headline results aren't always a raw mean return -- some
+papers' own headline is a factor-model alpha (FF3/CAPM/FF5), and
+`_resolve_track_spread` already substitutes `alpha_ff3`/`alpha_capm`/
+`alpha_ff5` for `vs_paper.track_spread` whenever `paper_reported.return_type`
+is alpha-based. `external_performance_comparison.agent_tracks[*].mean_return`
+was sourced from exactly that field, so for any alpha-headline paper it would
+have silently held an alpha value while being compared against C&Z's/HXZ's
+own numbers -- confirmed via `CZReferenceProfile.mean_return`'s docstring and
+`hxz_bridge`'s recomputation from raw decile-portfolio returns to ALWAYS be
+the raw long-short spread, never an alpha. `t_stat` was already safe
+(RunMetrics never stores an alpha's own t-stat).
+
+Fix: `derived.tracks.*` gains a genuinely-raw `raw_mean_return`/`raw_t_stat`
+pair (`build_evidence_bundle`, always `vs_paper_metrics.get("mean_return"/
+"t_stat")`, independent of what `_resolve_track_spread` picked for the
+paper comparison). `build_external_performance_comparison`'s `agent_tracks`
+now reads these instead of `vs_paper.track_spread`/`track_raw_t_stat`, and
+gains an explicit `spread_basis: "raw_mean_return"` field so a reader never
+has to guess. No other consumer changed: `_cz_level_and_gap_bullets`/
+`gap_decomposition`/`shapley_attribution` etc. compare two AGENT tracks
+against each other through the SAME paper-comparison basis on both sides,
+so they were never affected by this bug in the first place -- only the
+agent-vs-EXTERNAL-reference comparison (`agent_vs_cz`/`agent_vs_hxz`) was.
+
+New regression test (`test_agent_tracks_mean_return_uses_the_raw_spread_
+not_the_papers_alpha_basis`, `tests/test_external_reference_persistence.
+py`) constructs a fixture where `vs_paper.track_spread` deliberately holds
+an alpha value different from `raw_mean_return`, asserting `agent_tracks`
+reports the raw one. 4 other existing fixtures in that test file updated to
+carry the new `raw_mean_return`/`raw_t_stat` fields (mirroring what
+`build_evidence_bundle` now actually produces). Re-verified against real
+`MeanRankRevGrowth` numbers -- unchanged (that factor's own headline is
+`mean_return`, not alpha, so this bug never fired for it; the fix only
+changes behavior for alpha-headline papers). 179/179 passing in the
+affected test files.
+
+### feat: "Step A"/"Step B" -- verdict on reimplementing C&Z's/HXZ's own config, and whether C&Z's and HXZ's own numbers agree with each other (2026-08-22)
+
+Discussed with the user (docs/step7-8.md "Step A"/"Step B"): `external_
+performance_comparison` (added earlier the same day) laid agent tracks and
+C&Z's/HXZ's own self-reported numbers side by side with no verdict; nothing
+anywhere compared C&Z's own number against HXZ's own number directly. Two
+additions, both pure step7 arithmetic (no LLM involvement), following the
+same reuse/rename pattern as everything else in `bundle.py`:
+
+1. **"Step A" -- `external_performance_comparison.agent_vs_cz`/
+   `.agent_vs_hxz`** (`bundle._verdict_vs_external_reference`): does running
+   C&Z's/HXZ's own config through this engine (`cz_actual_config`/
+   `standardized_hxz`) reproduce the number THEY themselves report? Reuses
+   `build_track_vs_paper`/`classify_overall` verbatim by packaging the
+   external reference as a synthetic `paper_reported`-shaped dict -- same
+   sign/ratio/significance math, a different endpoint. Verified against real
+   `MeanRankRevGrowth` numbers (`runs/backtest_scripts/results/
+   4a483a60aae1c941/comparison.json`, session `11c2aab1e8e74ceb93dcfb776
+   d76b4a9`): `agent_vs_cz` = `reproduced` (ratio 0.70x, both significant,
+   same sign), `agent_vs_hxz` = `inconclusive` (opposite sign, neither side
+   significant).
+2. **"Step B" -- new top-level `paper_verdict_agreement`**
+   (`bundle.build_paper_verdict_agreement`): a plain sign+significance
+   comparison of C&Z's own number against HXZ's own number, independent of
+   anything this engine ran -- `agree_significant` / `agree_insignificant` /
+   `conflict` / `unavailable`. Same `MeanRankRevGrowth` numbers: `conflict`
+   (C&Z significant positive t=3.94, HXZ insignificant and oppositely
+   signed t=1.08).
+3. **step8 wiring**: new `PaperVerdictAgreement` model
+   (`src/infra/models/diagnosis.py`) + `ReplicationDiagnosisReport.
+   paper_verdict_agreement`, built by `summary.build_paper_verdict_
+   agreement_summary` (same zero-LLM discipline as `build_vs_paper_
+   summary`) and wired in `ReplicationDiagnoser.diagnose()`. `_build_cz_
+   summary`/`_build_sensitivity_summary` (the latter gated to the `to_hxz`
+   line) each gain one new bullet via `_format_reference_verdict`, so
+   "Step A" surfaces inside the existing vs_cz/robustness cards rather than
+   needing a new section. `render.py::_summary_section` prints the "Step B"
+   headline first, ahead of everything else, as a blockquote.
+4. **New context-only tools** (`EXTERNAL_PERFORMANCE_COMPARISON_TOOL`/
+   `PAPER_VERDICT_AGREEMENT_TOOL`, `step8_diagnosis/__init__.py`): no claim
+   type cites either section (deliberately -- both are pure classification,
+   following the same trend as `build_vs_paper_summary` away from
+   claim-gated content), so the prompt's new "What you receive" paragraph
+   explicitly tells the LLM not to attempt a claim citing these keys.
+5. **Frontend**: `Step8Output.tsx` gains a `PaperVerdictBanner`, rendered
+   ahead of every section card (amber for `conflict`, blue for either
+   `agree_*` verdict) -- the "Step A" bullets need no new UI code since they
+   flow through the existing per-card `details` string list.
+
+New tests: 4 in `tests/test_external_reference_persistence.py`
+(`TestBuildExternalPerformanceComparison`'s `agent_vs_cz`/`agent_vs_hxz`
+cases) + 6 in the new `TestBuildPaperVerdictAgreement` class there, plus 6
+in `tests/test_replication_diagnosis.py` (2 `TestCzNarrative`, 2
+`TestSensitivitySummary`, 4 `TestPaperVerdictAgreementSummary`). Frontend
+`npx tsc --noEmit` + `npx oxlint` on the changed file both clean.
+
+### feat: persist step6's cz/hxz preview at click time; new `external_performance_comparison` bundle section (2026-08-22)
+
+Follow-up to the `three_term_identity` discussion above: the user pointed
+out `MANUAL_PAPER_RETURN_FALLBACK`'s `MeanRankRevGrowth` entry is itself
+sourced from the ORIGINAL PAPER's text (not an independent C&Z measurement
+-- `data/CZ code/SignalDoc.csv`'s own Notes column says as much), which
+means `three_term_identity`'s `X - P` identity is comparing two numbers
+from the same paper for that factor, not "paper vs an independent
+implementer". Rather than gate `three_term_identity` on an
+independent/paper-derived distinction (rejected by the user -- "cz和hxz的
+外部数据都在step6时候已经得到，你就当可信的"), added a second, simpler
+mechanism that sidesteps `paper_reported` (and its sometimes-wrong-shape/
+missing-t-stat problem) entirely:
+
+1. **Persist step6's preview at click time, not at run-experiments time**
+   (user: "点击preview后" not "跑实验的时候"). `GET /{session}/steps/6/
+   cz-config` and `/hxz-config` (`backend/routers/replication.py`) now take
+   an optional `factor_id` query param (`spec.paper.factor_id`, the
+   resolved-spec hash `results_dir` is keyed by -- NOT the session's own
+   human-readable `factor_id`, a distinct value); when present, the
+   endpoint's own response is written via `_persist_reference_preview` to
+   `results_dir/cz_reference.json` / `hxz_reference.json` (same directory
+   as `comparison.json`) as a side effect, before any track ever runs.
+   Frontend: `Step6CzConfigPreview`/`Step6HxzConfigPreview`
+   (`frontend/src/pages/SessionDetailPage.tsx`) now extract `spec.paper.
+   factor_id` and pass it along; `Step6HxzConfigPreview` gained a new
+   `specFactorId` prop for this (it previously had no `spec` access at
+   all, only the session's own `sessionFactorId`).
+2. **step7 reads the persisted files instead of re-querying**:
+   `src/infra/reference/__init__.py`'s new `external_references_for_
+   results_dir(results_dir, acronym, ...)` prefers `_load_persisted_cz_
+   reference`/`_load_persisted_hxz_reference` (parses the persisted JSON
+   back into the same shape `external_reference_endpoints` already
+   produces) and falls back to a fresh `external_reference_endpoints`
+   query per-endpoint (cz/hxz resolved independently) only when the
+   corresponding file is missing -- old sessions/batches that never
+   previewed keep working unchanged. `step5_backtest_runner.write_
+   comparison_summary` now calls this instead of `external_reference_
+   endpoints` directly.
+3. **New `external_performance_comparison` bundle section**
+   (`build_external_performance_comparison`, `src/steps/step7_replication_
+   diff/bundle.py`): every agent track's own `mean_return`/`t_stat`
+   (already computed) laid directly alongside C&Z's/HXZ's own reported
+   numbers -- no `X - P` subtraction, no identity, no requirement that
+   every field be present. Exists specifically because `paper_reported` is
+   sometimes the wrong statistic or missing a t-stat entirely (the
+   complaint that started this), so a mechanism that never routes through
+   it was needed alongside (not instead of) `three_term_identity`, which
+   is left unchanged and still useful when `paper_reported` is complete.
+4. **Frontend**: `ForestPlot` (`frontend/src/components/AttributionPanel.
+   tsx`) gained an optional `externalPerformance` prop -- C&Z's/HXZ's own
+   t-stat now plot as extra rows on the same chart as the agent's tracks
+   (distinct fill color, "external reference" tooltip note), sorted into
+   the same `|t|`-descending order rather than a separate table. Wired in
+   `Step7Output.tsx` from `bundle.external_performance_comparison`.
+
+Backfilled `runs/backtest_scripts/results/4a483a60aae1c941/{cz,hxz}_
+reference.json` for session `11c2aab1e8e74ceb93dcfb776d76b4a9`
+(`MeanRankRevGrowth`) by calling the same functions the preview endpoints
+call, since that session's multi-track batch had already run before this
+persistence mechanism existed (re-running it was out of scope -- the user
+explicitly didn't want to re-run). Recomputed `comparison.json`'s `three_
+term_identity`/`external_performance_comparison`/`evidence_keys` in place
+from those files, no backtest rerun.
+
+New tests: `tests/test_external_reference_persistence.py` (7 cases --
+persisted-preferred, live-fallback per-endpoint independence, missing
+`results_dir`, `build_external_performance_comparison` shape).
+
+### fix: `three_term_identity`'s C&Z endpoint no longer silently unavailable when `SignalDoc.csv` isn't downloaded (2026-08-22)
+
+Found while discussing session `11c2aab1e8e74ceb93dcfb776d76b4a9`
+(`MeanRankRevGrowth`, docs/step7-8.md Part VII example 7): `comparison.json`
+had `three_term_identity.cz.available=false` ("missing: external cz
+reference spread") even though `src/infra/reference/__init__.py`'s
+`MANUAL_PAPER_RETURN_FALLBACK` has held `MeanRankRevGrowth`'s number
+(mean_return=0.0055, t_stat=3.94, from the paper's own text) since before
+this session ran.
+
+Root cause: `load_cz_reference_profile` read `SignalDoc.csv` from a
+hardcoded default path (`data/osap/SignalDoc.csv`, populated by
+`scripts/download_osap.py`) that isn't present in this checkout -- a
+`FileNotFoundError` returned `None` immediately, never reaching
+`_apply_manual_return_fallback`, which only fires once a row has already
+been found. A real copy of the same file exists at `data/CZ code/
+SignalDoc.csv`, but the loader never looked there and wasn't passed that
+path either.
+
+Fix (per user: don't wire up the CSV path, the fallback dict is already the
+source of truth for these acronyms): `load_cz_reference_profile` now treats
+"file missing" and "acronym not in the file" the same way -- both fall
+through to a new `_manual_fallback_profile(acronym)` that builds a
+`CZReferenceProfile` from `MANUAL_PAPER_RETURN_FALLBACK` alone (only
+`mean_return`/`t_stat` populated; every other field, e.g. weighting/
+breakpoint/sample window, needs a real CSV row and stays `None`).
+`external_reference_endpoints`'s `source` string now says
+`"MANUAL_PAPER_RETURN_FALLBACK (hand-filled..."` instead of always claiming
+`SignalDoc.csv`, so provenance stays honest either way. `runs/
+backtest_scripts/results/4a483a60aae1c941/comparison.json` was recomputed
+in place (`three_term_identity` + `evidence_keys` only, via
+`build_three_term_identities`/`flatten` -- no backtest rerun needed, the
+per-track `.metrics.json`/`.csv` were already on disk) to reflect the fix.
+
+### frontend: `ThreeTermIdentityPanel` redesign -- general reading guidance, cross-line verdict, grouped bar chart (2026-08-22)
+
+Same discussion flagged the old table-only rendering as hard to read and
+lacking any general guidance on how to interpret the three terms. Redesign,
+still deterministic (no LLM, no per-factor hardcoding):
+
+- Fixed "how to read this" paragraph explaining what each term is and,
+  specifically, that `agent_replication_residual` caps how much the other
+  two terms can be read as saying about the paper -- prefer investigating
+  the baseline replication itself over a config/signal story when it's the
+  largest term.
+- `crossLineVerdict()`: one sentence derived purely from each line's
+  `largest_term` -- names it for a single available line, states agreement
+  for two lines sharing the same largest term (with a canned interpretation
+  for each of the three terms), or says the lines disagree and points back
+  to the per-line tables. Works for any factor/number of available lines,
+  asserts nothing beyond what `largest_term` already encodes.
+- New grouped horizontal diverging bar chart (recharts, same conventions as
+  `AttributionPanel.tsx`'s other charts): one row per term, cz/hxz as two
+  bars per row, so the two lines are compared directly instead of needing
+  to flip between two separate per-line tables.
+- Per-line detail kept (table + window-basis footer + residual check) but
+  now in a responsive 2-column grid instead of stacked full-width cards, and
+  the `largest_term` row gets a small "largest" badge instead of just bold
+  text.
+
+### feat: catch `reported_returns`/`formation` extraction mismatches, human-editable in step2 UI (2026-08-22)
+
+Found while auditing `MeanRankRevGrowth` (Lakonishok/Shleifer/Vishny 1994):
+step1 had extracted `sample.reported_returns` as byte-identical to
+`sample.formation` (1968-1989, copied from a Table 4 caption describing only
+FORMATION periods), when the paper's 12-month holding period means the last
+formation's returns actually extend through April 1990 -- confirmed by the
+paper's own separate data-coverage statement and by C&Z's independently-
+reported `SampleEndYear=1990`.
+
+Four changes, all discussed with the user before implementing:
+
+1. **`prompts/extractor/method_spec_extractor.md` §1.9**: added a concrete
+   worked example of this exact trap (table caption states formation periods
+   only; don't copy that range into `reported_returns` unchanged for a
+   holding period >= 12 months -- derive `formation.end_year +
+   ceil(holding_period_months/12)` or mark the field `table_only`/`inferred`
+   if genuinely uncertain).
+2. **Deterministic step2 check** (`src/steps/step2_reviewer/review.py`):
+   `_reported_returns_holding_period_mismatch_finding` -- fires a
+   `NEEDS_HUMAN_CONFIRMATION` Finding when `formation` and `reported_returns`
+   are byte-identical (both start AND end year) despite a >=12-month holding
+   period. Deterministic, not LLM-based (this project's empirical numbers
+   stay deterministic, see AGENTS.md) -- catches the mismatch regardless of
+   whether step1's prompt guidance actually worked on a given paper. Only
+   fires on genuinely identical windows, so strategies where the two windows
+   legitimately coincide (e.g. rolling monthly rebalance, holding < 12
+   months) aren't false-positived.
+3. **`sample.reported_returns.start_year`/`end_year` now human-editable**:
+   added `_reported_returns_year_findings` (always-shown entries, since
+   `Period` isn't a `SourcedValue` and wasn't covered by the existing
+   `high_impact_sourced_values` machinery) and `_PATCHABLE_PERIOD_YEAR_FIELDS`
+   in `apply_value_patches` (a second small fixed field registry, same
+   "never attacker-chosen attribute" posture as the existing one). No new
+   frontend code needed for the edit UI itself -- `SessionDetailPage.tsx`'s
+   existing generic finding-editor loop already renders a free-text input
+   for any `field_path` outside its couple of structured-object exclusions;
+   only had to add `sample.reported_returns` (the bare mismatch-finding
+   pointer, not a directly patchable field) to that exclusion list so it
+   doesn't render its own (would-422) edit box next to the two real
+   patchable rows.
+4. **`prompts/review_gate/llm_review.md`**: added the same worked example
+   to the "cross-field consistency" section's `sample.*` sentence -- the
+   step2 LLM review loop has full-trust write access to the spec it returns
+   (unlike the deterministic checker, it can actually FIX the value, not
+   just flag it), so it benefits from the same concrete rule, not just the
+   pre-existing vague "do the three sample periods make sense together?"
+   prompt.
+
+Tests: `tests/test_step2_reviewer.py::TestReportedReturnsHoldingPeriodMismatch`,
+`tests/test_apply_human_value_patches.py::TestReportedReturnsYearPatches`.
+Fixed two now-stale test fixtures (`test_step2_reviewer.py::_base_spec`,
+`test_step2_reviewer_llm.py::_minimal_raw_spec`) whose `formation`/
+`reported_returns` were identical under a 12-month hold, which the new
+check now (correctly) flags -- both changed to a realistic non-identical
+pair instead of suppressing the check.
+
+### feat: `breakpoint_quantiles` added as a tracked step6 switch (2026-08-22)
+
+`src/steps/step6_dual_track_controller/__init__.py`'s
+`_ABLATION_SWITCH_TO_CONFIG_KEY` gained a 6th entry: `"quantiles":
+"breakpoint_quantiles"`. Previously the number of groups the extreme
+portfolios are cut into (deciles vs quintiles, ...) was never tracked as its
+own switch -- a `cz_config_override`/`HXZ_STANDARD_CONFIG` quantile-count
+difference silently rode along inside whatever endpoint track carried it
+(`cz_actual_config`/`standardized_hxz`) with no dedicated
+`ablation_quantiles`/`factorial_quantiles` track, so step7's attribution
+could never isolate how much of a replication gap the group-count choice
+alone explains. Decided this materially moves extreme-leg composition
+(same order of magnitude as `breakpoint_source`/`weighting_rule`, which are
+already tracked), not a minor detail worth leaving out.
+
+Only safe to add now that `_remap_extreme_portfolios_for_quantile_override`
+(this same day's `breakpoint_quantiles` fix, see above) makes a single-switch
+`breakpoint_quantiles` flip resolve `long_portfolios`/`short_portfolios`/
+`sort_dims` correctly -- before that fix, `ablation_quantiles`/
+`factorial_quantiles` would have hit the exact same empty-result failure
+`cz_actual_config` did.
+
+No API/schema change -- `_diff_switches`/`_factorial_track_specs`/
+`_get_ablation_override` are all switch-name-generic, so this is a pure data
+addition. Trade-off: a factor whose ①→② or ①→③ comparison now differs on
+`breakpoint_quantiles` in addition to other switches has one more switch in
+play, making the 3-switch `MAX_FACTORIAL_SWITCHES` OAT-fallback ceiling
+easier to hit (more tracks total, but each individual batch stays bounded).
+Verified end to end on this session's real factor (`MeanRankRevGrowth`):
+`cz_actual_config`'s auto-attribution now correctly produces 2 tracks
+(`cz_factorial_quantiles`, `cz_factorial_universe`) instead of 0, since
+`quantiles` and `universe` both differ between ① and ②. New tests:
+`tests/test_experiment_plan_matrix_merge.py::TestQuantilesSwitch`.
+
+### feat: `cz_actual_config` now applies SignalDoc's per-predictor `Filter` (2026-08-22)
+
+Closes the `docs/step6.md` §10 gap: `cz_profile_to_config_override`
+(`src/infra/reference/__init__.py`) previously only set the GLOBAL C&Z
+universe backbone (`shrcd∈{10,11,12}`, `exchcd∈{1,2,3}`, from
+`SignalMasterTable.py`), never SignalDoc's `Filter` column -- a per-predictor
+extra restriction layered on top (e.g. `MeanRankRevGrowth`'s
+`exchcd%in%c(1,2)`, excluding NASDAQ). Found while auditing this session's
+`cz_actual_config` result against the real C&Z R source
+(`data/CZ code/Portfolios/Code/01_PortfolioFunction.R`) for correctness.
+
+Added `CZReferenceProfile.filter_expr` (parsed from SignalDoc's `Filter`),
+`CzFilterParseError`, and `_parse_cz_filter_expr` -- translates the R idioms
+actually observed in `SignalDoc.csv`: `field%in%c(...)`, `==`/`!=`/`<=`/
+`>=`/`<`/`>` comparisons, and `abs(field)>N` (exact translation to
+`not_between`, since `abs(x)>N ⟺ NOT(-N<=x<=N)`). Comma-separated clauses
+(e.g. `'shrcd<=11, exchcd==1'`) are all applied (AND). Parsed clauses are
+APPENDED to the global backbone filter, not a replacement. Unrecognized
+patterns raise `CzFilterParseError` -- never silently dropped or
+approximated, matching `apply_universe_filters`'s existing fail-loud policy
+for a missing field.
+
+**Real coverage**: 76/78 of the 331-predictor SignalDoc's non-null `Filter`
+values parse successfully. The 2 failures (`Mom6mJunk`, `BetaBDLeverage`)
+use a threshold relative to a dynamic NYSE-percentile variable
+(`me_nyse20`/`me_nyse10`), not a literal number -- correctly rejected rather
+than mis-parsed.
+
+`backend/routers/replication.py`'s `/steps/6/cz-config` preview endpoint now
+surfaces `raw.filter_expr` for human review and returns 422 (with the raw
+expression + parse error) instead of a 500 if a factor's `Filter` can't be
+translated. Tests: `tests/test_cz_reference_profile.py`
+(`TestParseCzFilterExpr`, `TestCzProfileToConfigOverride`'s new cases) and
+`tests/test_backend_cz_config_api.py`'s two new endpoint tests.
+
+### fix: `breakpoint_quantiles` override now remaps `long_portfolios`/`short_portfolios` (2026-08-22)
+
+Real bug found via a failed step6 run (`experiment.failed No columns to
+parse from file` on a `cz_actual_config` track): `_build_config_from_resolved`
+(`src/steps/step3_codegen/registry.py`) bakes `long_portfolios`/
+`short_portfolios` in against the paper's OWN `breakpoint_quantiles` (e.g.
+`short_portfolios=[10]` under 10 groups), but the override-merge step
+(`config.update(overrides)`) only overlaid the new `breakpoint_quantiles`
+value -- it never re-derived which bucket number is the new "extreme" edge.
+`cz_profile_to_config_override` (`src/infra/reference/__init__.py`) sets
+`breakpoint_quantiles` from C&Z's own reported quantile count, which can
+differ from the paper's; whenever it did (e.g. paper deciles, C&Z quintiles),
+`short_portfolios` kept pointing at bucket 10 under a 5-group sort -- a
+bucket that doesn't exist -- so that leg was always empty, the whole track's
+`extreme_group_spread` came back with zero rows, and the empty-result CSV
+step7 tried to read raised `No columns to parse from file` (pandas on an
+effectively-empty file).
+
+Added `_remap_extreme_portfolios_for_quantile_override` (`registry.py`),
+called right after `config.update(overrides)` whenever `breakpoint_quantiles`
+is in the override dict: re-maps each of `long_portfolios`/
+`short_portfolios` to `[1]` or `[new_quantiles]` based on the already-resolved
+`long_leg`/`short_leg` ("low"/"high") label. Raises `ConfigOverrideError`
+instead of silently mis-mapping if a leg isn't the single-edge-bucket shape
+this pipeline always produces (multi-bucket or non-extreme leg). Covered by
+new tests in `tests/test_config_override_validation.py`
+(`TestBreakpointQuantilesOverrideRemapsExtremePortfolios`).
+
+Same function also fixes a SECOND, previously-latent instance of the exact
+same bug class, found while auditing step6 for other `breakpoint_quantiles`-
+override fallout: for a double/conditional-sort factor (`len(sorts) >= 2`),
+`config["sort_dims"]`'s `role == "target"` entry's own `quantiles` field is
+built once at resolution time from the paper's OLD `breakpoint_quantiles`,
+independently of `long_portfolios`/`short_portfolios` -- left stale, the
+engine would sort the target dimension into the OLD bucket count while the
+(now correctly remapped) short/long leg asks for a bucket that only exists
+under the NEW count, i.e. the same empty-result failure but for double-sort
+factors. No real run has hit this yet (no double-sort factor has had its
+`breakpoint_quantiles` overridden in this repo so far), but it's the same
+root cause and now fixed in the same place. Covered by
+`tests/test_registry_resolved_method_spec.py::TestBuildConfigDoubleSort::
+test_breakpoint_quantiles_override_remaps_target_sort_dim`.
+
+Also worth noting: `standardized_hxz` (③) is exposed to the SAME bug for any
+paper whose own `breakpoint_quantiles` isn't already 10 --
+`data/reference/hxz_standard_config.yaml` hardcodes `breakpoint_quantiles:
+10`, so a quintile paper's ③ track would previously have hit the identical
+empty-result failure `cz_actual_config` did here (this particular session's
+paper happens to already use deciles, so ③ was a no-op override and never
+surfaced it). Both `standardized_hxz` and `cz_actual_config` go through the
+same `build_config` override path, so this fix covers both.
+
+### step6: lower `MAX_FACTORIAL_SWITCHES` from 4 to 3 (2026-08-22)
+
+`src/steps/step6_dual_track_controller/__init__.py`'s `MAX_FACTORIAL_SWITCHES`
+lowered 4 -> 3 to bound worst-case batch size: when both the ①→③ and ①→②
+auto-attribution comparisons hit the ceiling at once, `2*(2^n-2)` factorial
+tracks stack on top of baseline/②/③, which was `2*(2^4-2)=28` at n=4 vs
+`2*(2^3-2)=12` at n=3. Trade-off: batches with >3 differing known switches
+now fall back to OAT (linear track count, no interaction/Shapley attribution)
+one field earlier than before. Docstring/comment/test references to the old
+value of 4 updated in the same module, `src/steps/step7_replication_diff/
+attribution.py`, `tests/test_experiment_plan_matrix_merge.py`, and
+`docs/step7-8.md`.
+
+### step6 UI: pre-run experiment count + per-track config preview, gated behind a confirm step (2026-08-22)
+
+Added `POST /api/sessions/{session_id}/steps/6/experiment/preview`
+(`backend/routers/experiments.py`) and `MultiTrackController.preview_tracks`
+(`src/steps/step6_dual_track_controller/__init__.py`) -- runs the SAME
+`_plan_to_matrix` resolution `run_experiment` uses, but only to compute each
+track's name/family/identification_level/resolved config diff, without
+executing any backtest. Lets the step6 UI show "this will run N experiments"
+plus every track's resolved-config-diff detail (previously only visible in
+the Result panel after the batch finished) BEFORE submitting the job.
+
+`frontend/src/pages/SessionDetailPage.tsx`'s step6 request card now has a
+two-phase flow: "Preview experiment count" (or "...from upstream output")
+computes and displays the plan, then a "Confirm & run N experiments" button
+(only shown once a preview exists) submits the actual job. Editing the
+request body invalidates a stale preview. No per-track selection UI --
+Confirm always runs every track the preview showed, matching the existing
+single-shared-apply-action pattern used elsewhere in the review UI.
+
 ### reference: add `ShareVol` to the step6 UI factor picker + manual C&Z/HXZ fallback (2026-08-21)
 
 Added `ShareVol` (Datar/Naik/Radcliffe 1998) to

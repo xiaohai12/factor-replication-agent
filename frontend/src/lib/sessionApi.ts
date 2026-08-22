@@ -19,6 +19,14 @@ export interface StepResponse {
 
 export type MethodSpecStage = "drafts" | "reviews" | "resolutions" | "resolved"
 
+export interface Step6PreviewTrack {
+  name: string
+  family: string
+  identification_level: string
+  config_overrides: Record<string, unknown>
+  resolved_diff: Record<string, { baseline_value: unknown; track_value: unknown }>
+}
+
 export const sessionApi = {
   create: (factor_id: string, paper_id?: string) =>
     api.post<SessionManifest>("/api/sessions", { factor_id, paper_id }),
@@ -192,4 +200,17 @@ export const sessionApi = {
     api.post<{ job_id: string }>("/api/codegen", { spec, llm_provider: llmProvider }),
 
   listSnapshots: () => api.get<{ snapshot_id: string }[]>("/api/backtest/snapshots"),
+
+  /** Track count + per-track resolved config diff step6's
+   * `POST .../experiment` would run for the given plan, with no execution --
+   * lets the UI show "N experiments" plus each track's config detail (the
+   * same shape the Result panel otherwise only shows after the batch
+   * finishes) ahead of a confirm step. `body` is the same shape as
+   * `runStep`'s step6 request minus `expected_revision`/`plugin`/
+   * `snapshot_id` (irrelevant to counting tracks). */
+  previewStep6Experiment: (sessionId: string, body: unknown) =>
+    api.post<{ track_count: number; tracks: Step6PreviewTrack[] }>(
+      `/api/sessions/${sessionId}/steps/6/experiment/preview`,
+      body,
+    ),
 }

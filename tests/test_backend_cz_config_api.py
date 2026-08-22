@@ -47,6 +47,43 @@ def test_cz_config_preview_succeeds(monkeypatch):
         assert body["cz_reported"]["t_stat"] == 8.45
 
 
+def test_cz_config_preview_includes_filter_expr_and_appends_universe_filter(monkeypatch):
+    profile = CZReferenceProfile(
+        acronym="MeanRankRevGrowth", mean_return=None, t_stat=None, sign=1,
+        stock_weight="ew", ls_quantile=0.2, quantile_filter=None,
+        portfolio_period=12, start_month=6, sample_start_year=1968, sample_end_year=1990,
+        filter_expr="exchcd%in%c(1,2)",
+    )
+    monkeypatch.setattr(
+        "backend.routers.replication.fetch_cz_reference_profile_live", lambda acronym: profile
+    )
+    with TestClient(app) as client:
+        sid = _new_session(client)
+        resp = client.get(f"/api/sessions/{sid}/steps/6/cz-config", params={"acronym": "MeanRankRevGrowth"})
+        assert resp.status_code == 200
+        body = resp.json()
+        assert body["raw"]["filter_expr"] == "exchcd%in%c(1,2)"
+        assert body["config_override"]["universe_filters"] == [
+            {"field": "shrcd", "op": "in", "value": [10, 11, 12]},
+            {"field": "exchcd", "op": "in", "value": [1, 2, 3]},
+            {"field": "exchcd", "op": "in", "value": [1, 2]},
+        ]
+
+
+def test_cz_config_preview_unparseable_filter_expr_is_422(monkeypatch):
+    profile = CZReferenceProfile(
+        acronym="Weird", stock_weight="ew", filter_expr="some_unrecognized_r_expr(x)",
+    )
+    monkeypatch.setattr(
+        "backend.routers.replication.fetch_cz_reference_profile_live", lambda acronym: profile
+    )
+    with TestClient(app) as client:
+        sid = _new_session(client)
+        resp = client.get(f"/api/sessions/{sid}/steps/6/cz-config", params={"acronym": "Weird"})
+        assert resp.status_code == 422
+        assert "Cannot translate" in resp.json()["detail"]
+
+
 def test_cz_config_preview_unknown_acronym_is_404(monkeypatch):
     monkeypatch.setattr(
         "backend.routers.replication.fetch_cz_reference_profile_live", lambda acronym: None

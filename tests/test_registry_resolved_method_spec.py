@@ -529,6 +529,29 @@ class TestBuildConfigDoubleSort:
         assert config["long_portfolios"] == [1]
         assert config["short_portfolios"] == [2]
 
+    def test_breakpoint_quantiles_override_remaps_target_sort_dim(self):
+        """`sort_dims`'s target entry (`quantiles: 2`, from `_double_sort_
+        spec`'s target `group_count`) is built once at resolution time from
+        the paper's OWN `breakpoint_quantiles` -- must be re-derived
+        alongside `long_portfolios`/`short_portfolios` when an override
+        changes it, or the engine would sort the target dimension into the
+        OLD bucket count while the (correctly remapped) short leg asks for a
+        bucket number that only exists under the NEW count -- same
+        empty-result failure as the single-sort case, for double-sort
+        factors. The `conditioning` dim (`me`, unrelated to
+        `breakpoint_quantiles`) must NOT change. See docs/decision-log.md
+        2026-08-22."""
+        resolved = _resolved(
+            _double_sort_spec(),
+            {"at": SourceColumn(source="compustat_fundamental_annual", column="at"), "me": SourceColumn(source="crsp_msf", column="me")},
+        )
+        config = build_config(resolved, overrides={"breakpoint_quantiles": 4})
+        assert config["long_portfolios"] == [1]
+        assert config["short_portfolios"] == [4]
+        by_role = {d["role"]: d for d in config["sort_dims"]}
+        assert by_role["target"]["quantiles"] == 4
+        assert by_role["conditioning"]["quantiles"] == 2
+
 
 class TestBuildConfigEndToEnd:
     """A real BacktestExecutor.run_with_config() call, config built entirely

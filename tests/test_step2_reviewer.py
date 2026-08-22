@@ -106,7 +106,15 @@ def _base_spec(**portfolio_overrides) -> MethodSpec:
                 )
             ],
         ),
-        sample=SampleSpec(data_coverage=_period(), formation=_period(), reported_returns=_period()),
+        # `reported_returns` deliberately differs from `formation` (end_year
+        # +1) -- holding_period=12 below means the last formation's returns
+        # extend a year past formation.end_year; an IDENTICAL pair here would
+        # trip `_reported_returns_holding_period_mismatch_finding` and break
+        # this fixture's "fully clear, zero findings" contract.
+        sample=SampleSpec(
+            data_coverage=_period(), formation=_period(),
+            reported_returns=Period(start_year=1968, end_year=2004, status=EvidenceStatus.CLEAR),
+        ),
         timing=TimingSpec(
             formation_rule=SourcedValue(value="every June", status=EvidenceStatus.CLEAR),
             rebalance_frequency=SourcedValue(value=TimeUnit.YEAR, status=EvidenceStatus.CLEAR),
@@ -182,10 +190,15 @@ class TestReviewCleanBaseline:
     def test_fully_clear_spec_still_lists_every_high_impact_field(self):
         # `findings` stays empty (nothing needs attention), but
         # `all_high_impact_fields` unconditionally lists every field
-        # `high_impact_sourced_values` checks, all AUTO_APPROVE here.
+        # `high_impact_sourced_values` checks, all AUTO_APPROVE here --
+        # plus `sample.reported_returns.start_year`/`end_year`, which are
+        # `Period` fields `high_impact_sourced_values` doesn't cover (see
+        # `_reported_returns_year_findings`).
         paper = _base_spec()
         review = review_method_spec(paper)
-        expected_paths = {path for path, _ in high_impact_sourced_values(paper)}
+        expected_paths = {path for path, _ in high_impact_sourced_values(paper)} | {
+            "sample.reported_returns.start_year", "sample.reported_returns.end_year",
+        }
         actual_paths = {f.field_path for f in review.all_high_impact_fields}
         assert actual_paths == expected_paths
         assert all(f.disposition == Disposition.AUTO_APPROVE for f in review.all_high_impact_fields)
@@ -535,6 +548,59 @@ class TestEngineMenuUnconditionalFindings:
         assert matches[0].disposition == Disposition.NEEDS_HUMAN_CONFIRMATION
         assert "intervals" in matches[0].reason
 
+
+class TestReportedReturnsHoldingPeriodMismatch:
+    """Deterministic cross-check (docs/decision-log.md 2026-08-22): a
+    >=12-month holding period means the last formation's returns extend past
+    `formation.end_year`, so an IDENTICAL `formation`/`reported_returns`
+    window is suspicious -- likely a step1 extraction that copied a table
+    caption's FORMATION-period range into `reported_returns` unchanged
+    (real example: Lakonishok/Shleifer/Vishny 1994's MeanRankRevGrowth)."""
+
+    def test_identical_windows_with_annual_hold_is_flagged(self):
+        paper = _base_spec()
+        paper.sample.formation = Period(start_year=1968, end_year=1989, status=EvidenceStatus.CLEAR)
+        paper.sample.reported_returns = Period(start_year=1968, end_year=1989, status=EvidenceStatus.CLEAR)
+        paper.timing.holding_period.value = 12
+
+        review = review_method_spec(paper)
+
+        matches = [f for f in review.findings if f.field_path == "sample.reported_returns"]
+        assert len(matches) == 1
+        assert matches[0].disposition == Disposition.NEEDS_HUMAN_CONFIRMATION
+        assert matches[0].kind == "inconsistent"
+        assert "1968-1989" in matches[0].reason
+
+    def test_differing_windows_not_flagged(self):
+        # _base_spec()'s own reported_returns already differs from formation
+        # by design (see _base_spec's comment) -- this is the "fully clear,
+        # zero findings" baseline itself, not a special case.
+        review = review_method_spec(_base_spec())
+        assert not any(f.field_path == "sample.reported_returns" for f in review.findings)
+
+    def test_short_holding_period_not_flagged_even_if_identical(self):
+        """A holding period < 12 months doesn't guarantee the return window
+        crosses a calendar-year boundary -- identical windows here are NOT
+        necessarily suspicious (e.g. monthly rebalance), so this must NOT
+        false-positive."""
+        paper = _base_spec()
+        paper.sample.formation = Period(start_year=1968, end_year=1989, status=EvidenceStatus.CLEAR)
+        paper.sample.reported_returns = Period(start_year=1968, end_year=1989, status=EvidenceStatus.CLEAR)
+        paper.timing.holding_period.value = 1
+
+        review = review_method_spec(paper)
+
+        assert not any(f.field_path == "sample.reported_returns" for f in review.findings)
+
+    def test_missing_years_not_flagged(self):
+        paper = _base_spec()
+        paper.sample.formation = Period(status=EvidenceStatus.CLEAR)
+        paper.sample.reported_returns = Period(status=EvidenceStatus.CLEAR)
+        paper.timing.holding_period.value = 12
+
+        review = review_method_spec(paper)
+
+        assert not any(f.field_path == "sample.reported_returns" for f in review.findings)
 
 
 class TestResolutionBuilder:

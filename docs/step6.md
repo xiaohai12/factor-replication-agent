@@ -524,7 +524,7 @@ HXZ∩C&Z 交集里另选一个 `continuous` 因子替换。
 | `breakpoint_quantiles` | `LS Quantile` (0.1→10组, 0.2→5组) | ✅ 干净 |
 | `breakpoint_source` | `Quantile Filter` (NYSE/空=全样本) | ✅（但 99% 是默认） |
 | `rebalance_frequency` | `Portfolio Period` | ✅ 干净 |
-| `universe` | `Filter`（自由文本 R 表达式，per-predictor 额外筛选） | ⚠️ 需解析，覆盖低，**未实现**（每个 predictor 自己的 `filterstr` 写法不统一，没有做通用解析；跟 §9 长短腿分配那条不同——这条是真实遗留缺口） |
+| `universe` | `Filter`（自由文本 R 表达式，per-predictor 额外筛选） | ✅ 2026-08-22 已实现（`_parse_cz_filter_expr`，`src/infra/reference/__init__.py`）——覆盖 `field%in%c(...)`、`==`/`!=`/`<=`/`>=`/`<`/`>`、`abs(field)>N`（精确翻译成 `not_between`）这几类 SignalDoc 里实际出现的写法，逗号分隔的多条件按 AND 叠加在全局底座筛选之后。**实测覆盖率 76/78**（331 个 predictor 里有 78 个非空 `Filter`）；剩下 2 个（`Mom6mJunk`: `abs(prc)>5, me>me_nyse20`、`BetaBDLeverage`: `me > me_nyse10`）阈值是"相对 NYSE 分位断点"这种动态变量（`me_nyse20`/`me_nyse10`），不是字面数值，解析器目前不支持这类，查询②时会报 `CzFilterParseError`（422，人工可见），不会静默丢弃或猜错 |
 | `universe_filters`（全局 shrcd/exchcd） | ❌ SignalDoc 无 → **从代码读**（`shrcd∈{10,11,12}`, `exchcd∈{1,2,3}`, `Signals/pyCode/SignalMasterTable.py`）| ✅ 间接，2026-08-16 已实现 |
 | 样本期 | `SampleStartYear/EndYear` | ✅ 100% 覆盖 |
 | formation 月 | `Start Month` | ✅ |

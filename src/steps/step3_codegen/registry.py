@@ -290,6 +290,59 @@ def _validate_overrides(resolved_config: dict, overrides: dict) -> None:
             )
 
 
+def _remap_extreme_portfolios_for_quantile_override(config: dict, old_quantiles: int | None) -> None:
+    """When an override changes `breakpoint_quantiles`, two things baked in
+    against the ORIGINAL (`old_quantiles`) quantile count go stale and must
+    be re-derived for the NEW count (already merged into
+    `config["breakpoint_quantiles"]` by the caller):
+
+    1. `long_portfolios`/`short_portfolios` (from `_resolve_legs`) -- a leg
+       still pointing at the old edge bucket silently references a bucket
+       that no longer exists under the new grouping (e.g. old count 10,
+       override to 5: `short_portfolios=[10]` never gets populated,
+       `extreme_group_spread` produces zero rows for the whole track -- real
+       bug hit by `cz_actual_config` on a factor where C&Z's reported
+       quantile count differs from the paper's own).
+    2. `sort_dims`'s `role == "target"` entry's `quantiles` (only present for
+       a double/conditional sort, `len(sorts) >= 2`) -- built once at
+       resolution time from the OLD `breakpoint_quantiles` (`registry.py`'s
+       `config["sort_dims"] = [...]` comprehension), independently of
+       `long_portfolios`/`short_portfolios`. Left stale, the engine sorts
+       the target dimension into the OLD bucket count while (1) above now
+       correctly asks for a NEW-count edge bucket -- same "bucket doesn't
+       exist" empty-result failure, just for double-sort factors instead of
+       single-sort ones. Confirmed via `TestBuildConfigDoubleSort` fixture,
+       2026-08-22 (see docs/decision-log.md).
+
+    Only handles the single-bucket "extreme long/short leg" shape every
+    config this pipeline actually produces (`config["long_leg"]`/
+    `["short_leg"]` are always "low"/"high", set immediately above
+    `long_portfolios`/`short_portfolios` in `_build_config_from_resolved`,
+    and the buckets are always a single edge bucket: `1` or the old quantile
+    count) -- raises rather than silently mis-mapping a non-extreme or
+    multi-bucket leg, which this pipeline has never produced but the schema
+    doesn't technically forbid.
+    """
+    new_quantiles = config["breakpoint_quantiles"]
+    if old_quantiles is None or new_quantiles == old_quantiles:
+        return
+    for key, leg_side in (("long_portfolios", config.get("long_leg")), ("short_portfolios", config.get("short_leg"))):
+        buckets = config.get(key) or []
+        if not buckets:
+            continue
+        if len(buckets) != 1 or buckets[0] not in (1, old_quantiles):
+            raise ConfigOverrideError(
+                f"Cannot remap {key}={buckets!r} for breakpoint_quantiles "
+                f"override {old_quantiles} -> {new_quantiles}: not a single "
+                "extreme bucket at the old quantile count -- pass an explicit "
+                f"{key!r} override alongside 'breakpoint_quantiles' instead."
+            )
+        config[key] = [1] if leg_side == "low" else [new_quantiles]
+    for dim in config.get("sort_dims") or []:
+        if dim.get("role") == "target":
+            dim["quantiles"] = new_quantiles
+
+
 def build_config(spec: ResolvedMethodSpec, overrides: dict | None) -> dict:
     """Build run config from an approved `ResolvedMethodSpec` -- see
     `_build_config_from_resolved` below for the full resolution logic.
@@ -395,7 +448,14 @@ def _applied_universe_filters(paper) -> list:
     it literally would silently run a different (and often broken, e.g.
     comparing a date column to an integer) condition than the paper states.
     Neither case plays a runtime role at all; `_unapplied_universe_filters`
-    below records both instead of silently dropping them."""
+    below records both instead of silently dropping them.
+
+    A filter with `human_confirmed_applied=True` is NOT special-cased here --
+    it already applies today by virtue of not being `accepted_unapplied` (a
+    human confirming "yes, enforce this" doesn't change runtime behavior, it
+    only records that someone reviewed it -- see `FilterSpec.
+    human_confirmed_applied`'s docstring). Do not treat the two booleans as
+    equivalent or let `human_confirmed_applied` short-circuit this filter."""
     return [f for f in paper.universe.filters if not f.accepted_unapplied and f.derivation is None]
 
 
@@ -833,5 +893,13 @@ def _build_config_from_resolved(resolved: ResolvedMethodSpec, overrides: dict | 
 
     if overrides:
         _validate_overrides(config, overrides)
+        old_quantiles = config.get("breakpoint_quantiles")
         config.update(overrides)
+        # Must run AFTER the update above (needs long_leg/short_leg/the NEW
+        # breakpoint_quantiles all merged in). `long_portfolios`/
+        # `short_portfolios` aren't themselves in `KNOWN_CONFIG_KEYS` (not a
+        # valid override key -- `_validate_overrides` would already have
+        # raised above), so there's no explicit-override case to defer to.
+        if "breakpoint_quantiles" in overrides:
+            _remap_extreme_portfolios_for_quantile_override(config, old_quantiles)
     return config

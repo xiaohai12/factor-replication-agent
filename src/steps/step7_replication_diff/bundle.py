@@ -73,6 +73,40 @@ def _significance_tier(t: float | None) -> int | None:
 # a "close" replication rather than merely sign-agreeing.
 CLOSE_REPLICATION_RATIO_BAND = (0.5, 2.0)
 
+# docs/step7-8.md readability follow-up (2026-08-22): `overall_tag`/
+# `classify_overall` is sign+significance only and BLIND to magnitude -- a
+# real MeanRankRevGrowth batch showed a track tagged "reproduced" whose
+# spread was only 0.22x the paper's own, which reads as misleadingly
+# generous. `magnitude_tier` is a SEPARATE, parallel field (never replaces
+# `overall_tag`, same non-destructive precedent as Q7's tiered significance
+# alongside the existing boolean) purely on `abs_spread_ratio` + sign:
+# `"clean"` reuses the existing `CLOSE_REPLICATION_RATIO_BAND` (0.5x-2.0x,
+# already an established, tested constant, not a new number); `"partial"`
+# widens symmetrically to 0.2x-5x (this project's own cutoff, not sourced
+# from an external standard -- flagged here as needing to be argued for
+# explicitly wherever it's cited in the paper's methodology section, not
+# just asserted as an engineering default); anything wider than that, or an
+# opposite sign, is `"failed"`.
+MAGNITUDE_TIER_BANDS = {"clean": CLOSE_REPLICATION_RATIO_BAND, "partial": (0.2, 5.0)}
+
+
+def _magnitude_tier(ratio: float | None, sign_agrees: bool | None) -> str | None:
+    """`"clean"` (same sign, ratio inside `MAGNITUDE_TIER_BANDS["clean"]`) /
+    `"partial"` (same sign, ratio inside the wider `["partial"]` band but
+    outside `["clean"]`) / `"failed"` (opposite sign, or ratio outside even
+    the wider band) / `None` when the ratio or sign itself is unknown."""
+    if ratio is None or sign_agrees is None:
+        return None
+    if not sign_agrees:
+        return "failed"
+    clean_lo, clean_hi = MAGNITUDE_TIER_BANDS["clean"]
+    if clean_lo <= ratio <= clean_hi:
+        return "clean"
+    partial_lo, partial_hi = MAGNITUDE_TIER_BANDS["partial"]
+    if partial_lo <= ratio <= partial_hi:
+        return "partial"
+    return "failed"
+
 # `CONFIG_KEY_STAGE`/`stage_of` moved to `src.steps.step3_codegen.registry`
 # 2026-08-03 (single source of truth for the per-key stage taxonomy, now also
 # consumed by `registry.build_config`'s override validation) -- re-imported
@@ -251,6 +285,7 @@ def build_track_vs_paper(
         "significance_thresholds_tiered": SIGNIFICANCE_T_THRESHOLDS,
         "paper_significance_tier": _significance_tier(paper_t),
         "track_significance_tier": _significance_tier(track_t),
+        "magnitude_tier": _magnitude_tier(abs_spread_ratio, sign_agrees),
     }
 
 
@@ -924,6 +959,179 @@ def build_three_term_identities(
     }
 
 
+def _external_performance_entry(reference: dict[str, Any] | None) -> dict[str, Any]:
+    if reference is None:
+        return {"available": False, "reason": "no external reference resolved for this acronym"}
+    return {
+        "available": True,
+        "mean_return": reference.get("spread"),
+        "t_stat": reference.get("t_stat"),
+        "sample_start_year": reference.get("sample_start_year"),
+        "sample_end_year": reference.get("sample_end_year"),
+        "source": reference.get("source"),
+    }
+
+
+def _verdict_vs_external_reference(
+    track_entry: dict[str, Any] | None, reference_entry: dict[str, Any], track_name: str | None
+) -> dict[str, Any]:
+    """Deterministic sign/ratio/significance verdict for one agent TRACK's
+    own measured result against an EXTERNAL implementer's (C&Z/HXZ) own
+    self-reported number for the SAME factor -- docs/step7-8.md "Step A":
+    "we ran C&Z's/HXZ's exact config through our engine; does the number we
+    got match the number THEY got?" A different question from both
+    `build_track_vs_paper` (agent vs the PAPER's own text) and
+    `three_term_identity` (an accounting split of X - P, not a verdict).
+
+    Reuses `build_track_vs_paper`/`classify_overall` verbatim by packaging
+    the external reference as a synthetic `paper_reported`-shaped dict --
+    identical sign/ratio/significance math, a different endpoint. Field
+    names in the returned dict are renamed away from the reused function's
+    `paper_*` vocabulary (which would misleadingly say "paper" for what is
+    actually C&Z's or HXZ's own number) to `reference_*`.
+    """
+    if (
+        track_entry is None
+        or track_entry.get("mean_return") is None
+        or track_entry.get("t_stat") is None
+        or reference_entry.get("available") is not True
+    ):
+        return {"available": False, "reason": "agent track or external reference missing mean_return/t_stat"}
+    fake_paper_reported = {
+        "return_type": "mean_return",
+        "main_spread": reference_entry.get("mean_return"),
+        "main_t_stat": reference_entry.get("t_stat"),
+    }
+    fake_metrics = {"mean_return": track_entry.get("mean_return"), "t_stat": track_entry.get("t_stat")}
+    vs_reference = build_track_vs_paper(fake_paper_reported, fake_metrics)
+    return {
+        "available": True,
+        "track": track_name,
+        "track_spread": vs_reference["track_spread"],
+        "track_t_stat": vs_reference["track_raw_t_stat"],
+        "reference_spread": vs_reference["paper_main_spread"],
+        "reference_t_stat": vs_reference["paper_main_t_stat"],
+        "sign_agrees": vs_reference["sign_agrees"],
+        "abs_spread_ratio": vs_reference["abs_spread_ratio"],
+        "reference_significant": vs_reference["paper_significant"],
+        "track_significant": vs_reference["track_significant"],
+        "significance_agrees": vs_reference["significance_agrees"],
+        "verdict": classify_overall(vs_reference),
+    }
+
+
+def build_external_performance_comparison(
+    derived: dict[str, Any], external_references: dict[str, dict[str, Any]] | None
+) -> dict[str, Any]:
+    """Direct multi-way comparison of every agent track's OWN `mean_return`/
+    `t_stat` against C&Z's and HXZ's own reported numbers (`external_
+    references`, see `src.infra.reference.external_references_for_results_
+    dir`) -- deliberately NOT routed through `paper_reported` the way
+    `three_term_identity` is.
+
+    Exists because `paper_reported` is sometimes an incomplete or
+    non-comparable statistic (not `mean_return`, missing a t-stat, or
+    describing a different specification than what this engine tracks) --
+    forcing everything through a `X - paper` identity either breaks or
+    silently degrades. This section just lays the numbers side by side: no
+    subtraction, no identity, nothing requires all fields to be present at
+    once. `mean_return`/`t_stat` missing on either side simply means that
+    field is `None` for that point -- the whole section still renders.
+
+    `agent_vs_cz`/`agent_vs_hxz` (docs/step7-8.md "Step A") go one step
+    further than the raw side-by-side: a deterministic verdict on whether
+    running that implementer's OWN config through this engine (the
+    `cz_actual_config`/`standardized_hxz` tracks) reproduces what they
+    themselves report, using the same sign/ratio/significance machinery as
+    `derived.tracks.*.vs_paper`.
+
+    Deliberately reads `derived.tracks.*.raw_mean_return`/`raw_t_stat`, NOT
+    `vs_paper.track_spread`/`track_raw_t_stat` -- the former is always the
+    raw long-short spread, the latter's `track_spread` half may silently be
+    an ALPHA when `paper_reported.return_type` is alpha-based (see
+    `_resolve_track_spread`). C&Z's/HXZ's own numbers this section compares
+    against are always the raw spread (never alpha), so using the
+    paper-comparison basis here would silently compare an alpha to a raw
+    return for any alpha-headline paper. `spread_basis` names this
+    explicitly so a reader never has to guess.
+    """
+    agent_tracks = {
+        name: {
+            "mean_return": track.get("raw_mean_return"),
+            "t_stat": track.get("raw_t_stat"),
+            "n_months": track.get("n_months"),
+            "significance_tier": (track.get("vs_paper") or {}).get("track_significance_tier"),
+            "spread_basis": "raw_mean_return",
+        }
+        for name, track in (derived.get("tracks") or {}).items()
+    }
+    external_references = external_references or {}
+    cz_entry = _external_performance_entry(external_references.get("cz"))
+    hxz_entry = _external_performance_entry(external_references.get("hxz"))
+    return {
+        "agent_tracks": agent_tracks,
+        "cz": cz_entry,
+        "hxz": hxz_entry,
+        "agent_vs_cz": _verdict_vs_external_reference(
+            agent_tracks.get(CZ_ACTUAL_CONFIG_TRACK), cz_entry, CZ_ACTUAL_CONFIG_TRACK
+        ),
+        "agent_vs_hxz": _verdict_vs_external_reference(
+            agent_tracks.get(STANDARDIZED_HXZ_TRACK), hxz_entry, STANDARDIZED_HXZ_TRACK
+        ),
+    }
+
+
+def build_paper_verdict_agreement(external_references: dict[str, dict[str, Any]] | None) -> dict[str, Any]:
+    """docs/step7-8.md "Step B": do C&Z's and HXZ's own self-reported
+    numbers for this factor agree or conflict with EACH OTHER -- a question
+    entirely upstream of "did WE replicate", answerable before this engine
+    ran a single track. A plain sign+significance comparison of two
+    external numbers (same `SIGNIFICANCE_T_THRESHOLD` cut as everywhere
+    else in this module), not an accounting split like `three_term_
+    identity` and not itself a claim about this project's own replication.
+
+    `verdict`:
+    - `agree_significant`   -- both sides clear the significance bar, same sign.
+    - `agree_insignificant` -- neither side clears the significance bar.
+    - `conflict`            -- exactly one side is significant, or both are
+                               significant with opposite signs.
+    - `unavailable`         -- one or both external references are missing.
+    """
+    external_references = external_references or {}
+    cz = external_references.get("cz")
+    hxz = external_references.get("hxz")
+    if not cz or not hxz:
+        return {"available": False, "reason": "requires both a resolved C&Z and HXZ external reference", "verdict": "unavailable"}
+    cz_spread, cz_t = cz.get("spread"), cz.get("t_stat")
+    hxz_spread, hxz_t = hxz.get("spread"), hxz.get("t_stat")
+    if cz_spread is None or cz_t is None or hxz_spread is None or hxz_t is None:
+        return {"available": False, "reason": "one side is missing a spread or t-stat", "verdict": "unavailable"}
+
+    cz_significant = abs(cz_t) >= SIGNIFICANCE_T_THRESHOLD
+    hxz_significant = abs(hxz_t) >= SIGNIFICANCE_T_THRESHOLD
+    sign_agrees = _sign(cz_spread) == _sign(hxz_spread)
+
+    if cz_significant and hxz_significant:
+        verdict = "agree_significant" if sign_agrees else "conflict"
+    elif not cz_significant and not hxz_significant:
+        verdict = "agree_insignificant"
+    else:
+        verdict = "conflict"
+
+    return {
+        "available": True,
+        "cz_spread": cz_spread,
+        "cz_t_stat": cz_t,
+        "cz_significant": cz_significant,
+        "hxz_spread": hxz_spread,
+        "hxz_t_stat": hxz_t,
+        "hxz_significant": hxz_significant,
+        "sign_agrees": sign_agrees,
+        "significance_threshold": SIGNIFICANCE_T_THRESHOLD,
+        "verdict": verdict,
+    }
+
+
 def build_evidence_bundle(
     paper_reported: dict[str, Any],
     tracks: dict[str, dict],
@@ -937,9 +1145,9 @@ def build_evidence_bundle(
     Returns the `derived` / `config_diff` / `gap_decomposition` sections plus
     the newer `spec_quality` / `menu_deviations` /
     `publication_decay` / `robustness_summary` / `shapley_attribution` /
-    `paired_tests` / `joint_test` / `gap_closure` / `three_term_identity`
-    sections, plus `evidence_keys`, the flat whitelist of every citable
-    scalar.
+    `paired_tests` / `joint_test` / `gap_closure` / `three_term_identity` /
+    `external_performance_comparison` / `paper_verdict_agreement` sections,
+    plus `evidence_keys`, the flat whitelist of every citable scalar.
 
     `spec`, when supplied, is the `ResolvedMethodSpec` this comparison was
     built from -- required for `spec_quality`/`menu_deviations` (both read
@@ -966,6 +1174,20 @@ def build_evidence_bundle(
         derived["tracks"][name] = {
             "vs_paper": build_track_vs_paper(paper_reported, vs_paper_metrics),
             "n_months": vs_paper_metrics.get("n_months"),
+            # ALWAYS the raw long-short mean_return/t_stat -- unlike
+            # `vs_paper.track_spread`, which `_resolve_track_spread` swaps
+            # for an alpha (alpha_ff3/alpha_capm/alpha_ff5) whenever
+            # `paper_reported.return_type` is alpha-based. C&Z's/HXZ's own
+            # self-reported numbers (`CZReferenceProfile.mean_return`'s own
+            # docstring; `hxz_bridge`'s recomputation from raw
+            # decile-portfolio returns) are ALWAYS the raw long-short
+            # spread, never an alpha -- so any comparison against them
+            # (`external_performance_comparison`) must read THIS pair, not
+            # `vs_paper.track_spread`/`track_raw_t_stat`. (`track_raw_
+            # t_stat` happens to already be safe -- RunMetrics never stores
+            # an alpha's own t-stat -- but `track_spread` is not.)
+            "raw_mean_return": _as_float(vs_paper_metrics.get("mean_return")),
+            "raw_t_stat": _as_float(vs_paper_metrics.get("t_stat")),
         }
 
     baseline = BASELINE_TRACK if BASELINE_TRACK in tracks else (
@@ -987,6 +1209,8 @@ def build_evidence_bundle(
     shapley_and_significance = build_shapley_and_significance(tracks, results_dir, baseline)
     gap_closure = {"to_cz": build_gap_closure(derived, shapley_and_significance["paired_tests"])}
     three_term_identity = build_three_term_identities(derived, paper_reported, external_references)
+    external_performance_comparison = build_external_performance_comparison(derived, external_references)
+    paper_verdict_agreement = build_paper_verdict_agreement(external_references)
 
     citable = {
         "paper_reported": paper_reported,
@@ -1002,6 +1226,8 @@ def build_evidence_bundle(
         "robustness_summary": robustness_summary,
         "gap_closure": gap_closure,
         "three_term_identity": three_term_identity,
+        "external_performance_comparison": external_performance_comparison,
+        "paper_verdict_agreement": paper_verdict_agreement,
         **shapley_and_significance,
     }
     return {
@@ -1016,6 +1242,8 @@ def build_evidence_bundle(
         "robustness_summary": robustness_summary,
         "gap_closure": gap_closure,
         "three_term_identity": three_term_identity,
+        "external_performance_comparison": external_performance_comparison,
+        "paper_verdict_agreement": paper_verdict_agreement,
         **shapley_and_significance,
         "evidence_keys": flatten(citable),
     }

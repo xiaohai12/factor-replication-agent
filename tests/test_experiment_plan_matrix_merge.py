@@ -8,6 +8,7 @@ merge) as a real full-factorial expansion.
 
 from __future__ import annotations
 
+from src.infra.models.method_spec import TimeUnit
 from src.infra.models.plugin import PluginRecord, ValidationReport
 from src.infra.models.run_record import RunMetrics, RunRecord
 from src.steps.step6_dual_track_controller import MultiTrackController, ExperimentPlan, HXZ_STANDARD_CONFIG
@@ -277,6 +278,116 @@ class TestSwitchesFlipped:
         assert not tracks["original_method"]["switches_flipped"]
 
 
+class TestRebalanceSwitchCompanion:
+    """2026-08-22 fix: `rebalance_frequency` alone, flipped without its
+    companion `holding_period_months`, produces a strategy nobody asked for
+    -- `BacktestExecutor.apply_signal_holding_period` caps
+    `hold = min(holding_period_months, rebalance_step_months(...))`, so an
+    "annual" flip riding on a still-monthly `holding_period_months=1`
+    baseline silently holds each annually-formed portfolio for only 1 of
+    its 12 months. Found via ShareVol's `ablation_rebalance` track
+    reporting n_months=100 (~1/12th of `cz_actual_config`'s correctly-
+    linked 1193) for what was supposed to be an isolated "just the
+    rebalance frequency" comparison. `_CONFIG_KEY_COMPANIONS` now carries
+    `holding_period_months` along with `rebalance_frequency` the same way
+    it already carries `universe_filter_join_sources` along with
+    `universe_filters`."""
+
+    def test_ablation_override_carries_holding_period_months(self):
+        controller = MultiTrackController(runner=FakeRunner(), meta_coder=FakeMetaCoder(), sandbox=FakeSandbox())
+
+        override = controller._get_ablation_override("rebalance", HXZ_STANDARD_CONFIG)
+
+        assert override["rebalance_frequency"] == HXZ_STANDARD_CONFIG["rebalance_frequency"] == "annual"
+        assert override["holding_period_months"] == HXZ_STANDARD_CONFIG["holding_period_months"] == 12
+
+    def test_ablation_rebalance_end_to_end_flips_holding_period_too(self):
+        """Same `ablation_switches` end-to-end pattern as
+        `TestQuantilesSwitch` -- a spec whose OWN rebalance is monthly (not
+        HXZ's annual) so the flip is non-degenerate, mirroring
+        `_spec_ew()`'s "must differ from HXZ to prove anything" pattern."""
+        runner = FakeRunner()
+        controller = MultiTrackController(runner=runner, meta_coder=FakeMetaCoder(), sandbox=FakeSandbox())
+        spec = _spec()
+        spec.paper.timing.rebalance_frequency.value = TimeUnit.MONTH
+        spec.paper.timing.holding_period.value = 1
+        plan = ExperimentPlan(
+            factor_id="t", run_original=True, run_standardized=False,
+            ablation_switches=["rebalance"],
+        )
+
+        controller.run_experiment(_plugin(), spec, plan, snapshot_id="snap1")
+
+        ablation_call = next(
+            c for c in runner.build_calls if c["track_name"] == "ablation_rebalance"
+        )
+        assert ablation_call["config_overrides"]["rebalance_frequency"] == "annual"
+        assert ablation_call["config_overrides"]["holding_period_months"] == 12
+
+
+class TestQuantilesSwitch:
+    """`breakpoint_quantiles` added to `_ABLATION_SWITCH_TO_CONFIG_KEY`
+    2026-08-22 -- previously untracked, so a `cz_config_override`/HXZ
+    quantile-count difference never got its own ablation_quantiles/
+    factorial_quantiles track to isolate its contribution (see
+    docs/decision-log.md). Safe now that `registry.build_config` re-derives
+    `long_portfolios`/`short_portfolios` for a `breakpoint_quantiles`
+    override; these tests exercise the switch END TO END (through
+    `run_experiment`, not just the raw override dict) so a regression in
+    that remap would surface here as a `ConfigOverrideError` from
+    `build_config`, not just a wrong number."""
+
+    def test_ablation_quantiles_flips_only_breakpoint_quantiles(self):
+        """`ablation_switches` always flips against `HXZ_STANDARD_CONFIG`
+        (never `cz_config_override`, see `_plan_to_matrix`) -- HXZ's own
+        `breakpoint_quantiles` is 10, so the spec here must resolve to a
+        DIFFERENT count (5) for the flip to be non-degenerate, same pattern
+        `_spec_ew()` uses for `weighting_rule`."""
+        runner = FakeRunner()
+        controller = MultiTrackController(runner=runner, meta_coder=FakeMetaCoder(), sandbox=FakeSandbox())
+        spec = _spec_ew()
+        spec.paper.portfolio.sorts[0].group_count = 5
+        # `minimal_resolved_spec`'s long leg selector (9, 0-based -> bucket
+        # 10) assumes 10 groups -- must move to the new group count's own
+        # max bucket (selector 4 -> bucket 5) to stay internally consistent,
+        # same "single extreme bucket" shape `_resolve_legs` always produces.
+        for leg in spec.paper.portfolio.legs:
+            if leg.side == "long":
+                leg.selector["sort1"] = 4
+        plan = ExperimentPlan(
+            factor_id="t", run_original=True, run_standardized=False,
+            ablation_switches=["quantiles"],
+        )
+
+        runs = controller.run_experiment(_plugin(), spec, plan, snapshot_id="snap1")
+
+        by_track = {r.track: r for r in runs}
+        assert set(by_track) == {"original_method", "ablation_quantiles"}
+        assert by_track["ablation_quantiles"].switches_flipped == {"quantiles": 10}
+
+    def test_quantiles_participates_in_auto_attribution_factorial(self):
+        """Two known switches differing (universe + quantiles) -> exact
+        2^2-2=2-track factorial, same shape as any other 2-switch pair --
+        `quantiles` is not treated specially by the factorial-vs-OAT logic,
+        just by name."""
+        runner = FakeRunner()
+        controller = MultiTrackController(runner=runner, meta_coder=FakeMetaCoder(), sandbox=FakeSandbox())
+        plan = ExperimentPlan(
+            factor_id="t", run_original=False, run_standardized=False,
+            cz_config_override={
+                "breakpoint_quantiles": 5,
+                "universe_filters": [{"field": "exchcd", "op": "in", "value": [1]}],
+            },
+        )
+
+        runs = controller.run_experiment(_plugin(), _spec_ew(), plan, snapshot_id="snap1")
+
+        tracks = {r.track for r in runs}
+        cz_factorial_tracks = [t for t in tracks if t.startswith("cz_factorial_")]
+        assert len(cz_factorial_tracks) == 2
+        assert {t.replace("cz_factorial_", "") for t in cz_factorial_tracks} == {"quantiles", "universe"}
+
+
 class TestAutoAttribution:
     """docs/step6.md §4a's default (2026-08-16): when the caller leaves
     BOTH `ablation_switches`/`factorial_switches` empty (the step6 UI's own
@@ -382,10 +493,10 @@ class TestAutoAttribution:
         assert tracks == {"cz_actual_config"}
 
     def test_auto_attribution_falls_back_to_oat_above_four_switches(self):
-        """More than MAX_FACTORIAL_SWITCHES (4) differing fields must fall
+        """More than MAX_FACTORIAL_SWITCHES (3) differing fields must fall
         back to one-at-a-time (ablation_*) instead of a full 2^n factorial --
         exercised directly against `_auto_attribution_specs` with a
-        hand-built target differing on all 5 known switches (`missing_action`
+        hand-built target differing on all 6 known switches (`missing_action`
         is deliberately not one, see step6's `_ABLATION_SWITCH_TO_CONFIG_KEY`:
         it can never actually differ between tracks this pipeline produces),
         since a real spec/HXZ diff practically never reaches that many."""
@@ -398,6 +509,7 @@ class TestAutoAttribution:
             "accounting_lag_months": (baseline_config["accounting_lag_months"] or 0) + 1,
             "rebalance_frequency": "quarterly",
             "universe_filters": [{"field": "exchcd", "op": "in", "value": [1]}],
+            "breakpoint_quantiles": (baseline_config["breakpoint_quantiles"] or 10) + 1,
         })
 
         specs = controller._auto_attribution_specs(
@@ -405,5 +517,5 @@ class TestAutoAttribution:
             factorial_prefix="factorial", ablation_prefix="ablation",
         )
 
-        assert len(specs) == 5
+        assert len(specs) == 6
         assert all(s.name.startswith("ablation_") for s in specs)
