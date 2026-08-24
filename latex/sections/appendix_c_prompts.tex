@@ -1,5 +1,8 @@
-\section{Prompt Templates}
+\section{Prompt Text}
 \label{app:prompts}
-% Reproduce (or summarize) the extractor prompt (prompts/extractor/
-% method_spec_extractor.md) and review-gate prompt (prompts/review_gate/
-% llm_review.md) actually used, so extraction is auditable/reproducible.
+
+What each LLM-facing prompt (Steps~1, 2, 3, and 8) is given and constrained
+to return is described alongside each step in \S\ref{sec:pipeline}. The
+prompt text itself, and the code that assembles its inputs and validates its
+output, is not reproduced here; it is versioned in the project repository
+under \texttt{prompts/} and \texttt{src/steps/}.\footnote{\url{https://github.com/xiaohai12/factor-replication-agent}.}

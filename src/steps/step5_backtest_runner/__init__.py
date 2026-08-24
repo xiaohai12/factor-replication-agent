@@ -34,7 +34,7 @@ import pandas as pd
 
 from src.infra.data_layer import DataLayer
 from src.infra.hashing import snapshot_manifest_hash
-from src.infra.models.method_spec import ResolvedMethodSpec
+from src.infra.models.method_spec import ResolvedMethodSpec, SortRole
 from src.infra.models.plugin import PluginRecord
 from src.infra.models.run_record import RunMetrics, RunRecord
 from src.infra.provenance import collect_runtime_provenance
@@ -67,6 +67,109 @@ def _spec_stable_hash(spec: ResolvedMethodSpec) -> str:
     return spec.paper.content_hash()
 
 
+def _target_sort_id(portfolio) -> str | None:
+    """The `sort_id` of the ONE `SortDimension` whose `role` is `target`
+    (the paper's own signal sort), if there is exactly one. `None` for a
+    portfolio with no sorts, no target sort, or more than one target sort
+    (e.g. a double sort) -- those cases can't be pinned to a single decile
+    axis without guessing, so sign reconciliation below is left undetermined
+    for them rather than forced."""
+    sorts = getattr(portfolio, "sorts", None) or []
+    targets = [s for s in sorts if getattr(s, "role", None) == SortRole.TARGET]
+    if len(targets) != 1:
+        return None
+    return targets[0].sort_id
+
+
+def _engine_long_short_deciles(portfolio, sort_id: str | None) -> tuple[int, int] | None:
+    """`(long_decile_index, short_decile_index)` the engine actually trades
+    on `sort_id`, read straight off `spec.paper.portfolio.legs` -- the SAME
+    field `step3_codegen.registry.build_config` reads to set
+    `config["long_leg"]`/`config["short_leg"]` (see `_resolve_legs` there),
+    so this can never disagree with what the engine actually ran.
+
+    `None` when there isn't exactly one `side="long"` leg and one
+    `side="short"` leg each selecting a single index on `sort_id` -- e.g. a
+    multi-leg or long-only construction -- left undetermined rather than
+    guessed."""
+    if sort_id is None:
+        return None
+    legs = getattr(portfolio, "legs", None) or []
+    long_idxs = [leg.selector[sort_id] for leg in legs if leg.side == "long" and sort_id in leg.selector]
+    short_idxs = [leg.selector[sort_id] for leg in legs if leg.side == "short" and sort_id in leg.selector]
+    if len(long_idxs) != 1 or len(short_idxs) != 1:
+        return None
+    return long_idxs[0], short_idxs[0]
+
+
+def _paper_high_low_deciles(
+    metric, by_id: dict, derivation, sort_id: str | None
+) -> tuple[int, int] | None:
+    """`(high_decile_index, low_decile_index)` implied by ONE reported
+    metric's own orientation on `sort_id` -- "high"/"low" here means
+    whichever decile the PAPER's own table labels that way (e.g. a "Value"
+    decile can be table-labelled "high" even though it is bucket index 0;
+    see MeanRankRevGrowth's Decile-1-is-Value convention), never
+    decile-index magnitude.
+
+    Two patterns are recognized, both already present in extracted
+    MethodSpecs -- no new data is invented:
+
+    - `metric` IS the materialized `comparison_derivation` metric (its
+      `metric_id` equals `derivation.metric_id`): read the two endpoint
+      deciles off the underlying `high_metric_id`/`low_metric_id` metrics'
+      own `portfolio_selector`.
+    - `metric` carries BOTH endpoints itself, as `{sort_id}_high` /
+      `{sort_id}_low` keys in its own `portfolio_selector` (the
+      AssetGrowth-style single "Spread (10-1)" table cell).
+
+    `None` for anything else -- a single-leg decile return, a regression
+    coefficient, or a `portfolio_selector` that doesn't name this exact
+    `sort_id` -- so no sign correction is attempted where it can't be
+    established from the data.
+    """
+    if sort_id is None:
+        return None
+    if derivation is not None and metric.metric_id == derivation.metric_id:
+        high = by_id.get(derivation.high_metric_id)
+        low = by_id.get(derivation.low_metric_id)
+        if high is None or low is None:
+            return None
+        high_sel = high.portfolio_selector or {}
+        low_sel = low.portfolio_selector or {}
+        if sort_id in high_sel and sort_id in low_sel:
+            return high_sel[sort_id], low_sel[sort_id]
+        return None
+    sel = metric.portfolio_selector or {}
+    high_key, low_key = f"{sort_id}_high", f"{sort_id}_low"
+    if high_key in sel and low_key in sel:
+        return sel[high_key], sel[low_key]
+    return None
+
+
+def _sign_multiplier(paper_hl: tuple[int, int], engine_ls: tuple[int, int]) -> int | None:
+    """`+1` when the paper's (high, low) decile pair is the SAME pair, in
+    the SAME order, as the engine's (long, short) decile pair -- the paper's
+    reported spread and the engine's `track_spread` (long minus short) are
+    already directly comparable, no correction needed.
+
+    `-1` when it's the same two deciles in the OPPOSITE order -- the
+    paper's "high" endpoint is the engine's SHORT leg (the AssetGrowth case:
+    a negative-direction signal where the engine's long leg is the
+    low-characteristic decile, but the paper's own headline metric is
+    framed "high minus low") -- the paper's reported spread must be negated
+    before comparison.
+
+    `None` when the two metrics don't even reference the same two deciles
+    -- undetermined, never guessed.
+    """
+    paper_high, paper_low = paper_hl
+    engine_long, engine_short = engine_ls
+    if {paper_high, paper_low} != {engine_long, engine_short}:
+        return None
+    return 1 if paper_high == engine_long else -1
+
+
 def _spec_paper_reported(spec: ResolvedMethodSpec) -> dict:
     """Flattens a `ResolvedMethodSpec`'s `ReportedResults` (primary + up to
     3 secondary typed metrics, D5) into the
@@ -78,24 +181,104 @@ def _spec_paper_reported(spec: ResolvedMethodSpec) -> dict:
     HEADLINE numbers actually cover (not `sample.formation`; see
     `registry.build_config`'s same choice) -- so the three-term identity can
     state which window its `paper_reported_spread` endpoint sits on instead
-    of leaving the mismatch undeclared."""
+    of leaving the mismatch undeclared.
+
+    Sign reconciliation: a paper's headline "high minus low" spread and the
+    engine's `track_spread` (always long minus short, per
+    `portfolio.legs`/`signal.direction` -- see `registry.build_config`'s
+    `long_leg`/`short_leg`) are the SAME economic quantity only when the
+    paper's "high" endpoint is also the engine's long leg. When a
+    negative-direction signal makes the engine's long leg the
+    LOW-characteristic decile while the paper's own metric is framed "high
+    minus low" (e.g. AssetGrowth), the two are numerically opposite-signed
+    even though nothing about the underlying replication disagrees --  a
+    pure sign-convention artifact that would otherwise show up downstream
+    as a false `sign_agrees=False`. This block detects that case from data
+    already on the MethodSpec (`portfolio.legs` for the engine's own
+    orientation; `portfolio_selector`/`comparison_derivation` for the
+    paper's) and negates `main_spread`/`main_t_stat` and any `spreads`/
+    `t_stats` entry with the SAME determinable orientation before they are
+    used downstream (`build_track_vs_paper`, `build_three_term_identity`,
+    and the persisted `comparison.json`'s own `paper_reported` block all
+    read this ALREADY-corrected dict, so there is exactly one place this
+    happens). Never applied when the orientation can't be established
+    (single-leg returns, regression coefficients, multi-leg/no-target-sort
+    portfolios) -- the existing uncorrected value is left as-is."""
     rr = spec.paper.reported_results
     primary = rr.primary_comparison_metric()
     reported_window = spec.paper.sample.reported_returns
+    by_id = {m.metric_id: m for m in rr.metrics}
+
+    spreads = {
+        **{m.metric_id: m.estimate for m in rr.metrics},
+        **({primary.metric_id: primary.estimate} if primary and primary.metric_id not in by_id else {}),
+    }
+    t_stats = {m.metric_id: m.statistic.value for m in rr.metrics if m.statistic}
+
+    portfolio = getattr(spec.paper, "portfolio", None)
+    sort_id = _target_sort_id(portfolio) if portfolio is not None else None
+    engine_ls = _engine_long_short_deciles(portfolio, sort_id) if sort_id else None
+
+    sign_correction: dict[str, int] = {}
+    if engine_ls is not None:
+        derivation = (
+            rr.comparison_derivation
+            if (rr.comparison_derivation and rr.comparison_derivation.use_as_primary_comparison)
+            else None
+        )
+        candidates = dict(by_id)
+        if primary is not None and primary.metric_id not in candidates:
+            candidates[primary.metric_id] = primary
+        for metric_id, metric in candidates.items():
+            paper_hl = _paper_high_low_deciles(metric, by_id, derivation, sort_id)
+            if paper_hl is None:
+                continue
+            mult = _sign_multiplier(paper_hl, engine_ls)
+            if mult is None:
+                continue
+            sign_correction[metric_id] = mult
+
+    for metric_id, mult in sign_correction.items():
+        if mult != -1:
+            continue
+        if spreads.get(metric_id) is not None:
+            spreads[metric_id] = -spreads[metric_id]
+        if t_stats.get(metric_id) is not None:
+            t_stats[metric_id] = -t_stats[metric_id]
+
+    main_spread = primary.estimate if primary else None
+    main_t_stat = primary.statistic.value if primary and primary.statistic else None
+    if primary is not None and sign_correction.get(primary.metric_id) == -1:
+        main_spread = -main_spread if main_spread is not None else None
+        main_t_stat = -main_t_stat if main_t_stat is not None else None
+
+    flipped_ids = sorted(mid for mid, mult in sign_correction.items() if mult == -1)
     return {
         "return_type": primary.estimand.value if primary else "",
-        "spreads": {
-            **{m.metric_id: m.estimate for m in rr.metrics},
-            **({primary.metric_id: primary.estimate} if primary and primary.metric_id not in {m.metric_id for m in rr.metrics} else {}),
-        },
-        "t_stats": {m.metric_id: m.statistic.value for m in rr.metrics if m.statistic},
-        "main_spread": primary.estimate if primary else None,
-        "main_t_stat": primary.statistic.value if primary and primary.statistic else None,
+        "spreads": spreads,
+        "t_stats": t_stats,
+        "main_spread": main_spread,
+        "main_t_stat": main_t_stat,
         "comparison_derivation": rr.comparison_derivation.model_dump(mode="json")
         if rr.comparison_derivation and rr.comparison_derivation.use_as_primary_comparison
         else None,
         "sample_start_year": reported_window.start_year,
         "sample_end_year": reported_window.end_year,
+        "sign_correction": {
+            "applied": bool(flipped_ids),
+            "flipped_metric_ids": flipped_ids,
+            "orientation_checked_metric_ids": sorted(sign_correction.keys()),
+            "note": (
+                "Paper's own headline metric names a 'high' decile that is the "
+                "engine's SHORT leg (portfolio.legs), while the engine's track_spread "
+                "is long-minus-short -- main_spread/main_t_stat (and the listed "
+                "spreads/t_stats entries) were negated here so they are directly "
+                "comparable to track_spread; this is a sign-CONVENTION reconciliation, "
+                "not a change to any reported estimate's magnitude."
+            )
+            if flipped_ids
+            else None,
+        },
     }
 
 

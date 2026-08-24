@@ -254,6 +254,10 @@ export function Step5Output({
               <tr className="border-b border-border/50 bg-sky-50 dark:bg-sky-950/20">
                 <td className="py-1 pr-3 font-medium" title={paperMetric.label}>
                   Paper reported
+                  <span className="ml-1 font-normal text-muted-foreground">
+                    ({paperMetric.estimand}
+                    {paperMetric.estimand === "alpha" ? `/${paperMetric.adjustment_model}` : ""})
+                  </span>
                 </td>
                 <td className="py-1 pr-3">
                   {paperMetric.sample_period?.start_year != null && paperMetric.sample_period?.end_year != null

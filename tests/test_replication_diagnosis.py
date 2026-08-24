@@ -164,6 +164,18 @@ class TestMagnitudeTier:
         assert vs["paper_significant"] is None
         assert vs["significance_agrees"] is None
 
+    def test_coefficient_headline_does_not_silently_fall_back_to_mean_return(self):
+        """A Fama-MacBeth/regression-slope headline (e.g. ShareVol) is not a
+        portfolio-sort spread -- comparing it against our raw `mean_return`
+        would produce a number that looks real but isn't. `track_spread`
+        must come back unresolved, not silently defaulted."""
+        paper = {"return_type": "coefficient", "main_spread": -0.04, "main_t_stat": -8.86}
+        metrics = {"mean_return": 0.001, "t_stat": 0.75}
+        vs = build_track_vs_paper(paper, metrics)
+        assert vs["track_spread_metric"] == "unavailable"
+        assert vs["track_spread"] is None
+        assert vs["sign_agrees"] is None
+
 
 class TestClassifyOverall:
     def test_unknown_sign_is_inconclusive(self):
@@ -664,6 +676,20 @@ class TestThreeTermIdentity:
         )
         assert section["available"] is False
         assert "standardized_hxz" in section["reason"]
+
+    def test_coefficient_headline_is_unavailable_not_silently_computed(self):
+        """A paper whose own headline is a regression coefficient (e.g.
+        ShareVol's Fama-MacBeth slope) has no portfolio-sort spread endpoint
+        comparable to `agent_baseline_spread` -- the whole identity must
+        report `available=False` with a reason, not a number that looks
+        real but isn't."""
+        coefficient_paper = {"return_type": "coefficient", "main_spread": -0.04, "main_t_stat": -8.86}
+        section = build_three_term_identity(
+            self.DERIVED, coefficient_paper, self.EXTERNAL, "cz_actual_config", "cz"
+        )
+        assert section["available"] is False
+        assert "regression coefficient" in section["reason"]
+        assert "terms" not in section
 
     def test_both_endpoints_always_present_even_when_unresolvable(self):
         sections = build_three_term_identities(self.DERIVED, PAPER, {"cz": self.EXTERNAL})

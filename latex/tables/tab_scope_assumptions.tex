@@ -3,17 +3,23 @@
   \centering
   \caption{Scope and assumptions: what this pipeline supports.}
   \label{tab:scope}
-  \begin{tabular}{lll}
+  \begin{tabular}{@{}p{2.6cm}>{\raggedright\arraybackslash}p{6.3cm}>{\raggedright\arraybackslash}p{6.3cm}@{}}
     \toprule
     Dimension & Supported & Not supported \\
     \midrule
-    Market & US common equity (CRSP shrcd 10--12) & International, bonds, futures, crypto \\
-    Returns panel & CRSP monthly (CIZ) + delisting returns & Daily portfolio returns, intraday \\
-    Accounting data & Compustat annual (26 registered fields) & Fields not yet registered in \texttt{sources.py} \\
+    Market & US common equity (CRSP) & International, bonds, futures, crypto \\
+    \addlinespace
+    Returns panel & CRSP monthly + delisting returns & Daily portfolio returns, intraday \\
+    \addlinespace
+    Accounting data & Compustat annual (29 registered fields) & Fields not yet registered in \texttt{sources.py} \\
+    \addlinespace
     Analyst data & IBES annual EPS summary only & IBES actuals, quarterly, recommendations \\
+    \addlinespace
     Estimator & Portfolio sort only & Fama--MacBeth regression \\
-    Sorts & Univariate; independent bivariate & Sequential bivariate; within-group \\
-    Universe filters & Single-value categorical; numeric range (\texttt{between}/\texttt{not\_between}) & Derived-column filters; asymmetric quantile splits \\
+    \addlinespace
+    Sorts & Univariate; independent or sequential bivariate (2 dimensions, quantile grouping only) & Within-group-conditioned sorts; 3+ dimensions \\
+    \addlinespace
+    Universe filters & Categorical (single- or multi-value); numeric comparisons, ranges, and interval unions & Derived-column filters; asymmetric quantile splits \\
     \bottomrule
   \end{tabular}
 \end{table}

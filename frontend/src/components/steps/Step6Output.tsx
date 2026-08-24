@@ -70,21 +70,45 @@ function defaultedKeys(config: Record<string, unknown> | undefined): Map<string,
   return new Map(entries.map((d) => [d.config_key, d.reason]))
 }
 
-/** Each track's RESOLVED config (`registry.build_config()`'s output) --
- * read from `comparison.json` via a step6-scoped preview endpoint, since
- * that file is already written as a side effect of step6's own run (see
+/** `comparison.json`'s `paper_reported` block, forwarded verbatim by
+ * `GET /steps/6/track-configs` -- `main_spread`/`main_t_stat` are already
+ * sign-corrected against the engine's own long/short convention (see
+ * `_spec_paper_reported` in src/steps/step5_backtest_runner/__init__.py),
+ * unlike `extractPaperReported`'s independent re-derivation below, which
+ * predates that fix and has no sign correction. */
+type SignCorrection = {
+  applied: boolean
+  flipped_metric_ids: string[]
+  orientation_checked_metric_ids: string[]
+  note: string
+}
+type PaperReportedBundle = {
+  return_type?: string
+  main_spread?: number | null
+  main_t_stat?: number | null
+  sign_correction?: SignCorrection
+}
+type TrackConfigsResponse = {
+  tracks: Record<string, Record<string, unknown>>
+  paper_reported: PaperReportedBundle | null
+}
+
+/** Each track's RESOLVED config (`registry.build_config()`'s output), plus
+ * the paper's own sign-corrected headline number -- both read from
+ * `comparison.json` via a step6-scoped preview endpoint, since that file
+ * is already written as a side effect of step6's own run (see
  * `GET /steps/6/track-configs` in backend/routers/replication.py) and
  * doesn't require step7 to have ever been triggered for this session. */
 function useTrackConfigs(sessionId: string, experimentBatchId: string | undefined) {
   const query = useQuery({
     queryKey: ["step6-track-configs", sessionId, experimentBatchId],
     queryFn: () =>
-      api.get<Record<string, Record<string, unknown>>>(
+      api.get<TrackConfigsResponse>(
         `/api/sessions/${sessionId}/steps/6/track-configs?experiment_batch_id=${encodeURIComponent(experimentBatchId!)}`,
       ),
     enabled: !!experimentBatchId,
   })
-  return { configs: query.data, isLoading: query.isLoading }
+  return { configs: query.data?.tracks, paperReported: query.data?.paper_reported, isLoading: query.isLoading }
 }
 
 /** Renders in the request/result grid's "Result" slot for step6 -- live job
@@ -128,7 +152,19 @@ export function Step6Output({
   const { runs, isLoading } = useStep6Runs(attempt)
   const ordered = orderWithBaseline(runs)
   const baselineTrack = ordered[0]?.track
-  const { configs } = useTrackConfigs(sessionId, attempt?.output_refs.experiment_batch_id)
+  const { configs, paperReported: paperReportedFromBundle } = useTrackConfigs(
+    sessionId,
+    attempt?.output_refs.experiment_batch_id,
+  )
+  // Prefer comparison.json's sign-corrected number (available once step6
+  // has actually run); fall back to the caller's uncorrected `paperReported`
+  // prop (derived straight from the raw MethodSpec, see
+  // `extractPaperReported` in SessionDetailPage.tsx) only if the bundle
+  // hasn't loaded yet or has no primary metric for this factor.
+  const effectivePaperReported =
+    paperReportedFromBundle?.main_spread != null
+      ? { mean_return: paperReportedFromBundle.main_spread, t_stat: paperReportedFromBundle.main_t_stat ?? undefined }
+      : paperReported
   // Which tracks to show -- shared between "Config per track" and the chart
   // below, since a batch with auto-attribution's factorial_*/ablation_*
   // tracks can easily reach 10+ tracks and the user may only want a
@@ -266,7 +302,7 @@ export function Step6Output({
               // never re-run) next to ②, HXZ's own reported number (from a
               // downloaded testing-portfolio CSV, also reference only) next
               // to ③.
-              const reported = isBaseline ? paperReported : isCzTrack ? czReported : isHxzTrack ? hxzReported?.originalInsample : undefined
+              const reported = isBaseline ? effectivePaperReported : isCzTrack ? czReported : isHxzTrack ? hxzReported?.originalInsample : undefined
               return (
                 <tr
                   key={run.run_id}
@@ -304,6 +340,14 @@ export function Step6Output({
                     {reported
                       ? `${isBaseline ? "paper" : isCzTrack ? "C&Z" : "HXZ"}: ${formatMetric(reported.mean_return)} / t=${formatMetric(reported.t_stat)}`
                       : "—"}
+                    {isBaseline && paperReportedFromBundle?.return_type && (
+                      <span className="ml-1 text-muted-foreground">({paperReportedFromBundle.return_type})</span>
+                    )}
+                    {isBaseline && paperReportedFromBundle?.sign_correction?.applied && (
+                      <Badge variant="outline" className="ml-1" title={paperReportedFromBundle.sign_correction.note}>
+                        sign-corrected
+                      </Badge>
+                    )}
                   </td>
                 </tr>
               )

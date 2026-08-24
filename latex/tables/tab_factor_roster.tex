@@ -1,25 +1,23 @@
-% Factor roster (docs/paper-outline.md \S5.3, 2026-08-19 revision --
-% supersedes the earlier AssetGrowth/GP/PS/BrandInvest/OperProfRD/grcapx3y
-% list). FailureProbability's inclusion is still undecided (heavy
-% engineering: mktrf as a signal input, quarterly fields) -- update this
-% table and \S\ref{sec:data}'s "The factor sample" together once locked.
+% Factor roster for the 3-factor sample (see \S\ref{sec:data}'s "The factor
+% sample"). C&Z figures are each factor's own row in data/CZ code/SignalDoc.csv
+% (Return/T-Stat/Stock Weight columns). HXZ figures are
+% src/infra/reference/hxz_bridge.py's
+% MANUAL_HXZ_REPORTED_FALLBACK for ShareVol/MeanRankRevGrowth; AssetGrowth's
+% is the CSV-derived I/A annual decile spread already used as this project's
+% enriched anchor-case reference (docs/paper-outline.md).
 \begin{table}[htbp]
   \centering
-  \caption{The factor sample.}
+  \caption{The factor sample: each team's own reported result.}
   \label{tab:roster}
-  \begin{tabular}{llccl}
+  \begin{tabular}{@{}p{2.3cm}p{2.6cm}p{3.1cm}p{3.1cm}p{3.1cm}@{}}
     \toprule
-    Factor & Source & Ret/T (C\&Z) & Weighting & HXZ-vs-C\&Z verdict \\
+    Factor & Source & C\&Z (own) & HXZ (own) & Verdict \\
     \midrule
-    AssetGrowth & Cooper, Gulen \& Schill (2008) & 1.73 / 8.45 & EW & Anchor case (already run) \\
-    GP          & Novy-Marx (2013)              & 0.30 / 2.38 & VW & Both teams agree (rare) \\
-    PS          & Piotroski (2000)               & 0.92 / 3.29 & VW & HXZ fails; C\&Z succeeds \\
-    fgr5yrLag   & La Porta (1996)                & 0.83 / 2.06 & -- & Data-vintage divergence (IBES) \\
-    OScore      & Dichev (1998)                  & TBD          & EW & HXZ fails; C\&Z succeeds (severe) \\
-    FailureProbability$^\dagger$ & Campbell, Hilscher \& Szilagyi (2008) & TBD & VW & Both teams fail \\
+    AssetGrowth & Cooper, Gulen \& Schill (2008) & EW LS: 1.73\%/mo, $t=8.45$ & I/A annual, NYSE--VW: $t\approx 2.89$ & Both teams agree -- sample anchor \\
+    \addlinespace
+    Mean\-Rank\-Rev\-Growth & Lakonishok, Shleifer \& Vishny (1994) & EW LS: $0.55\%$/mo, $t=3.94$ & EW LS: $-0.19\%$/mo, $t=1.08$ (sign reversed, insignificant) & Opposite verdicts; compounded by a menu-clamped delisting-return policy \\
+    \addlinespace
+    ShareVol (share turnover) & Datar, Naik \& Radcliffe (1998) & EW LS: $t=8.86$ & EW LS: $-0.11\%$/mo, $t=0.46$ (insignificant) & Opposite verdicts; original test is a univariate regression, not a portfolio sort \\
     \bottomrule
   \end{tabular}
-  \\[4pt]
-  {\footnotesize $^\dagger$Inclusion pending -- see TODO in \S\ref{sec:data}.}
 \end{table}
-

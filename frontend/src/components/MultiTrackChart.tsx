@@ -1,5 +1,6 @@
 import {
   CartesianGrid,
+  Label,
   Legend,
   Line,
   LineChart,
@@ -98,7 +99,9 @@ function SingleChart({ series }: { series: TrackSeries[] }) {
         <LineChart data={merged}>
           <CartesianGrid strokeDasharray="3 3" className="stroke-border" />
           <XAxis dataKey="period" tick={{ fontSize: 11 }} interval="preserveStartEnd" />
-          <YAxis tickFormatter={(v: number) => `${(v * 100).toFixed(0)}%`} tick={{ fontSize: 11 }} />
+          <YAxis tickFormatter={(v: number) => `${(v * 100).toFixed(0)}%`} tick={{ fontSize: 11 }}>
+            <Label value="Cumulative return" angle={-90} position="insideLeft" style={{ fontSize: 11 }} />
+          </YAxis>
           <Tooltip formatter={(value) => `${(Number(value) * 100).toFixed(2)}%`} />
           <Legend wrapperStyle={{ fontSize: 11 }} />
           {byTrack.map(({ track }, i) => (

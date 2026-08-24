@@ -1,163 +1,237 @@
 \section{Results}
 \label{sec:results}
 
-Results are organized along the divergence evidence each factor in
-\S\ref{sec:data} was selected to demonstrate, not alphabetically: an anchor
-case, a case where the two teams agree, two cases where they reach opposite
-verdicts, a case of divergence attributable to data vintage rather than
-method, and (tentatively) a case where both teams agree the factor fails.
-Cross-factor material -- the RQ2 autonomy results, the gap-decomposition
-summary, the flagship sensitivity-band figure, and the outcome
-classification -- is reported once, in a single table or figure spanning
-every factor, rather than repeated inside each per-factor subsection.
+The results are organized around three distinct empirical cases: one factor
+for which the external teams agree, one whose paper-anchored comparison is
+available but whose endpoints diverge, and one whose original estimand is not
+comparable to the portfolio-sort output of this engine. Throughout, a reported
+gap is not itself treated as evidence of a configuration effect: only a
+complete factorial grid supports controlled Shapley attribution, while OAT
+evidence and external comparisons retain their lower identification levels.
 
 \subsection{RQ2: agent autonomy and capability boundary (cross-factor)}
 
-Table~\ref{tab:autonomy} reports, for every factor, the fraction of
-high-impact MethodSpec fields the agent resolved without a human
-correction, the end-to-end completion rate (whether the pipeline reached an
-executable $\Aref$ with zero manual code edits), and where human correction
-concentrated -- split into purely technical corrections (a type mismatch, an
-out-of-menu value) versus corrections that supplied a genuine empirical
-judgment the paper itself left unstated. This second split matters for
-\S\ref{sec:discussion}: only the latter category threatens the leakage-proof
-boundary in \S\ref{sec:framework}, since a technical correction carries no
-information about how the underlying factor should be implemented.
-\input{tables/tab_autonomy_footprint}
+All three factors reached executable frozen-signal tracks, so the pipeline
+produced auditable outputs for the reviewed MethodSpecs. This is a completion
+result, not an extraction-accuracy claim. The resolved MethodSpecs retain
+their evidence status field by field: the resulting audit flags one weak field
+for AssetGrowth, four for MeanRankRevGrowth, and thirteen for ShareVol. These
+flags identify where human confirmation remains important; they do not
+silently alter a backtest result. Because this study does not repeat
+extraction from the same paper, it does not estimate within-agent sampling
+variation, and the audit counts should not be interpreted as a probability
+that the extracted method is correct.
 
-\subsection{Per-factor deep dives}
+The flags have two distinct meanings. An \emph{inferred} field is one for
+which the paper gives an economic concept or a data source but not the native
+database field or operational rule required by the engine. AssetGrowth's lone
+flag is an inferred signal-input source column. MeanRankRevGrowth has an
+inferred portfolio-sort mode and three inferred signal-input source columns.
+ShareVol has inferred holding-period and signal-source details, alongside
+three \emph{unspecified} portfolio-sort fields: the breakpoint basis, group
+type, and sorting mode. ``Unspecified'' means that the paper itself does not
+state the required implementation choice. The distinction matters: inference
+is a documented mapping decision that can be checked against the source,
+whereas an unspecified field requires a reviewer to supply a convention or
+accept the engine default.
 
-\subsubsection{AssetGrowth (anchor case)}
+Figure~\ref{fig:assetgrowth-audit-trace} provides a representative audit
+trace rather than reproducing every artifact for every factor. It links the
+paper-evidence-backed MethodSpec from Steps~1--2, the frozen
+\texttt{compute\_signal} formula generated in Step~3, the Step~4 validation
+record, and the Step~5 executable-track metrics. The complete MethodSpecs,
+source quotations, generated scripts, and realized signal series remain
+versioned run artifacts; showing them in full in the results chapter would
+obscure the empirical comparisons rather than make them more auditable.
 
-AssetGrowth \citep{CooperGulenSchill2008} is the already-run anchor
-case (13 tracks) and is used here to walk through how the paper-anchored
-three-term identity and the field-level gap decomposition are read before
-the remaining factors, each of which isolates a narrower piece of the same
-picture, are discussed more briefly.
-
-\subsubsection{GP: a rare case of agreement}
-
-Gross profitability \citep{NovyMarx2013} is one of the few factors in the
-sample where Hou-Xue-Zhang and Chen-Zimmermann's own reported numbers do
-not disagree in direction or in economic magnitude. Its role in this paper
-is as a control: if the paper-anchored decomposition (\S\ref{sec:framework})
-attributes GP's small residual gap to configuration noise rather than to a
-one-sided departure from the paper, that is itself evidence that the
-decomposition does not manufacture disagreement where none exists.
-
-\subsubsection{PS: a clean, opposite verdict}
-
-Piotroski's \citep{Piotroski2000} F-score is the case introduced in \S\ref{sec:intro}: \citet{HouXueZhang2020} report it fails under their standardized protocol,
-while Chen and Zimmermann, using the paper's own stated method, replicate it
-at $t=3.29$. This factor also carries a declared, disclosed deviation: the
-paper's original test restricts to the highest book-to-market quintile, a
-subset condition this engine's universe-filter machinery cannot express
-(\S\ref{sec:scope}), so the reported $\Aref$ is a full-sample F-score sort
-rather than the paper's high-BM-subset sort, marked
-\texttt{accepted\_unapplied} rather than silently approximated.
-
-\subsubsection{fgr5yrLag: divergence this framework cannot attribute}
-
-La Porta's \citep{LaPorta1996} long-term analyst growth-forecast factor is included
-specifically because its HXZ-versus-C\&Z divergence is not, on the
-available evidence, explainable by a portfolio-construction choice at all:
-it is consistent instead with the two teams having pulled IBES consensus
-forecast data at different vintages, a database that is itself revised
-retroactively. This is stated as a limitation of the present design, not
-downplayed: the paper-anchored identity in \S\ref{sec:framework} attributes
-gaps to signal, configuration, or agent residual, and has no term for "the
-underlying database changed between two pulls." fgr5yrLag is reported here
-precisely to make that gap in the framework visible rather than to resolve
-it (\S\ref{sec:discussion}).
-
-\subsubsection{OScore: severe divergence, a known engineering gap}
-
-Ohlson's \citep{Ohlson1980} O-score, as implemented by \citet{Dichev1998}, is a second case
-where Hou, Xue, and Zhang report failure and Chen and Zimmermann report
-success under the paper's own method -- more severe than PS's gap. Its
-signal is a straightforward logit combination of Compustat fields, so the
-divergence is unlikely to be a data-availability issue; what it does
-require, and what this engine does not yet support, is the paper's
-asymmetric long-low-70\%/short-high-10\% portfolio split, which cannot be
-expressed by an equal-quantile breakpoint menu (\S\ref{sec:scope}). Results
-reported for OScore in this section are therefore [TODO: state explicitly,
-once run, whether OScore's numbers reflect the paper's asymmetric split or
-an equal-decile approximation, and flag accordingly].
-
-\subsubsection{FailureProbability: both teams report failure (tentative)}
-
-% TODO (2026-08-19): inclusion of this factor is still undecided pending its
-% engineering cost -- see docs/paper-outline.md \S5.1 (mktrf as a signal
-% input, ltq/cheq quarterly fields, daily volatility aggregation). If
-% dropped, remove this subsection and its rows from every cross-factor
-% table/figure below and adjust the factor count throughout the paper.
-Campbell, Hilscher, and Szilagyi's \citep{CampbellHilscherSzilagyi2008} failure probability is the
-sample's second control case: both teams report that it fails to predict
-returns under their respective protocols. Together with GP, it anchors the
-sensitivity band in \S\ref{sec:sensitivity} at both ends -- a factor neither
-team's convention can rescue, and a factor neither team's convention can
-break.
-
-\subsection{Cross-factor gap decomposition: why divergence happens}
-
-Table~\ref{tab:gap-decomposition} places every factor's dominant
-gap-decomposition term side by side, answering directly whether the same
-configuration field drives disagreement across factors or whether the
-dominant cause is factor-specific. This table is itself the primary
-evidence for this paper's central claim -- that HXZ-versus-C\&Z divergence
-has attributable, field-level causes -- rather than a supporting appendix
-item.
-\input{tables/tab_gap_decomposition}
 \begin{figure}[htbp]
   \centering
-  \fbox{\parbox{0.9\linewidth}{\centering \vspace{4cm} F3: per-config-field contribution tornado plot \vspace{4cm}}}
-  \caption{Field-level gap decomposition, all factors in the sample.}
-  \label{fig:tornado}
+  \includegraphics[width=\linewidth]{Figures/representative-audit-trace.png}
+  \caption{Representative audit trace from reviewed MethodSpec to frozen
+    signal, validation, and executable AssetGrowth baseline result.}
+  \label{fig:assetgrowth-audit-trace}
 \end{figure}
 
-\subsection{$t$-channel decomposition}
+\subsection{Per-factor results}
 
-Table~\ref{tab:t-channels} reports, for each factor and track pair, the
-three log-$t$ channels of Equation~\eqref{eq:t-channel} -- how much of a
-$t$-statistic change is attributable to the mean-return channel, the
-volatility channel, or the sample-size channel.
-\input{tables/tab_t_channels}
+\subsubsection{AssetGrowth: agreement in external verdicts, but a material
+configuration effect}
 
-\subsection{Sensitivity band vs.\ HXZ and paper point estimates (headline result)}
-\label{sec:sensitivity}
+AssetGrowth \citep{CooperGulenSchill2008} is the sample's agreement case:
+both C\&Z and HXZ report a positive, statistically significant result. In
+the engine, the paper-faithful baseline has an in-sample $t$-statistic of
+$4.12$; the C\&Z-configuration endpoint is $7.11$, while the standardized
+HXZ endpoint is $3.60$. Table~\ref{tab:assetgrowth-endpoints} shows the
+external references beside the three frozen-signal tracks. Relative to the
+baseline, the HXZ-style configuration leaves the in-sample long--short return
+positive but reduces it from $0.93\%$ to $0.71\%$/month and lowers the
+$t$-statistic from $4.12$ to $3.60$; the C\&Z configuration instead raises
+the return to $1.54\%$/month and the $t$-statistic to $7.11$. The C\&Z
+paper-anchored identity attributes its
+$1.03\%$/month total gap principally to the configuration term
+($0.91\%$/month), with a $0.31\%$/month signal-and-environment residual and
+a $-0.19\%$/month agent residual. These quantities are an accounting
+identity across heterogeneous external endpoints; only the configuration term
+is a controlled within-engine contrast.
 
-Table~\ref{tab:sensitivity-band} and Figure~\ref{fig:tband} together report
-this paper's headline result: for each factor, the range of $t$-statistics
-reachable across the menu of configurations $\Aref$ admits, plotted against
-the paper's own reported $t$ and the $\HXZ$-standardized $t$. Where the
-paper's point falls outside this band, or the $\HXZ$ point falls inside it,
-the figure alone states the factor's conclusion without further argument.
-\input{tables/tab_sensitivity_band}
+Both configuration comparisons admit complete factorial grids. For the
+C\&Z endpoint, the controlled Shapley decomposition assigns
+$0.71\%$/month of the $0.61\%$/month within-engine difference to weighting,
+offset by $-0.10\%$/month from the universe switch. For the standardized
+endpoint, the breakpoint switch accounts for $-0.17\%$/month of the
+$-0.22\%$/month difference, with the universe accounting for the remainder.
+Thus, even in this agreement case, the configuration effect is economically
+material and factor-specific rather than a generic implementation constant.
+\input{tables/tab_assetgrowth_endpoints}
+
 \begin{figure}[htbp]
   \centering
-  \fbox{\parbox{0.9\linewidth}{\centering \vspace{5cm} F4: per-factor $t$-stat disagreement band vs.\ paper/HXZ points (flagship figure) \vspace{5cm}}}
-  \caption{For each factor, the band spans the menu-reachable $t$-statistics;
-    markers show the paper's own reported $t$ and the HXZ-standardized $t$.}
-  \label{fig:tband}
+  \fbox{\parbox{0.92\linewidth}{\centering\vspace{4.2cm}
+    Placeholder: Step~7 AssetGrowth Shapley-attribution screenshot for the
+    \texttt{to\_cz} line. Show the weighting and universe contributions,
+    the total-gap check, and the \texttt{controlled} evidence label.
+    \vspace{4.2cm}}}
+  \caption{Controlled Shapley attribution for the AssetGrowth C\&Z
+    configuration comparison.}
+  \label{fig:assetgrowth-shapley}
 \end{figure}
 
-\subsection{Post-publication decay}
-\label{sec:postpub}
+\subsubsection{MeanRankRevGrowth: a residual-dominated paper comparison}
 
-The \texttt{insamp}/\texttt{between}/\texttt{postpub} split
-(\S\ref{sec:pipeline}) is applied to test whether a factor's spread decays
-after its publication date. [TODO: confirm per-factor sample coverage
-before reporting this split -- fgr5yrLag's IBES-based sample and any factor
-with a short overall window may not have enough post-publication months to
-support the \texttt{between}/\texttt{postpub} comparison; report the exact
-factor count used for this specific test explicitly if it differs from the
-count used elsewhere in this section, rather than omitting the affected
-factor silently.]
+For MeanRankRevGrowth \citep{LakonishokShleiferVishny1994}, the baseline,
+C\&Z-configuration, and standardized-HXZ tracks have in-sample $t$-statistics
+of $3.00$, $2.83$, and $1.33$, respectively. The paper-anchored identity is
+available for both external references, but its largest term is the agent
+replication residual: $-1.72\%$/month, compared with total gaps of
+$-1.65\%$/month to C\&Z and $-2.39\%$/month to HXZ. This result should not
+be read as a pure language-model error. The resolved baseline applies
+documented defaults for accounting lag and missing returns where the reviewed
+specification leaves fields unresolved or the menu cannot express them, so the
+residual combines extraction, implementation, and finite-menu scope.
 
-\subsection{Cross-factor outcome classification}
+The two endpoint comparisons nevertheless have complete factorial grids.
+For the standardized-HXZ endpoint, breakpoint, universe, and weighting each
+make negative Shapley contributions, together accounting exactly for the
+$-0.23\%$/month configuration difference. For the C\&Z endpoint, the
+quantile switch contributes $-0.12\%$/month and the universe switch offsets
+it by $0.02\%$/month. These are controlled attributions of the engine's own
+configuration contrast; they do not identify the external teams' signal or
+data-vintage differences.
+\input{tables/tab_meanrank_endpoints}
 
-Table~\ref{tab:outcomes} closes the results section by classifying every
-factor's replication outcome, completing the connection back to
-\S\ref{sec:intro}'s contributions.
-\input{tables/tab_outcomes}
+\subsubsection{ShareVol: an intentionally non-comparable estimand}
 
+ShareVol \citep{DatarNaikRadcliffe1998} is the boundary case. The paper's
+headline result is a Fama--MacBeth coefficient, whereas the engine and the
+external portfolio-sort references report long--short spreads. The system
+therefore correctly marks both paper-anchored three-term identities as
+unidentified rather than subtracting incomparable quantities. This is a
+substantive result about the scope of the experiment, not a missing number to
+be filled by approximation.
+
+Its endpoint differences involve four and five fields, respectively, so the
+controller uses OAT runs rather than a complete factorial grid. Accordingly,
+no controlled Shapley attribution is available. The four standardized-side
+OAT runs yield a $t$-statistic range of $0.79$ and one sign flip; this is
+harmonized evidence of sensitivity, not an additive decomposition of the
+endpoint gap. The baseline also has an off-menu weighting instruction and
+other documented defaults, which further limits any paper-faithful reading.
+\input{tables/tab_sharevol_endpoints}
+
+\begin{figure}[htbp]
+  \centering
+  \fbox{\parbox{0.92\linewidth}{\centering\vspace{4.2cm}
+    Placeholder: Step~7 ShareVol OAT/robustness screenshot. Show the OAT
+    identification or unavailable-factorial notice, $t$-statistic range,
+    sign-flip count, and the non-comparable paper-versus-track limitation.
+    \vspace{4.2cm}}}
+  \caption{ShareVol sensitivity evidence and its attribution boundary. The
+    OAT design supports a harmonized sensitivity reading, not an exact
+    factorial decomposition.}
+  \label{fig:sharevol-oat}
+\end{figure}
+
+\subsection{What the cross-factor comparison establishes}
+
+The three cases do not support a single universal cause of replication
+disagreement. AssetGrowth's C\&Z-side configuration difference is dominated
+by weighting; MeanRankRevGrowth's controlled configuration effects are small
+relative to its paper-comparison residual; and ShareVol cannot support the
+same decomposition because its paper estimand differs and its field count
+exceeds the factorial budget. The common finding is methodological: the
+pipeline distinguishes controlled configuration evidence from external or
+underidentified residuals instead of assigning every observed difference to a
+single label.
+
+Table~\ref{tab:cross-factor-endpoints} provides the compact comparison needed
+to read the three cases side by side. The factor-specific endpoint tables
+above retain the reported return and alpha values; Appendix~E supplies the
+complete track grids underlying those endpoints.
+\input{tables/tab_cross_factor_endpoints}
+
+\subsection{$t$-channel and post-publication evidence}
+
+For AssetGrowth and MeanRankRevGrowth, eligible positive-return comparisons
+permit the $t$-channel decomposition of Section~\ref{sec:design}. In the
+AssetGrowth C\&Z endpoint comparison, the mean-return channel is the dominant
+positive component of the log-$t$ change; its volatility component is also
+positive and its sample-size component is near zero. ShareVol's mean returns
+do not satisfy the positive-return requirement, so its $t$-channel outputs
+are correctly marked degenerate and report only absolute-$t$ changes.
+
+The post-publication split provides a separate descriptive check. AssetGrowth's
+baseline moves from in-sample $t=4.12$ to post-publication $t=0.16$ and loses
+significance. MeanRankRevGrowth's baseline remains significant
+($t=3.00$ in sample and $t=2.53$ post-publication). ShareVol is insignificant
+in both periods. These comparisons describe realized track histories; they do
+not establish a causal publication effect.
+
+\begin{figure}[htbp]
+  \centering
+  \fbox{\parbox{0.92\linewidth}{\centering\vspace{4.2cm}
+    Placeholder: AssetGrowth publication-decay or cumulative-return
+    screenshot. Show the in-sample and post-publication periods and the
+    original-method track's loss of significance after publication.
+    \vspace{4.2cm}}}
+  \caption{AssetGrowth before- and after-publication evidence. This display
+    is descriptive and does not identify a causal publication effect.}
+  \label{fig:assetgrowth-decay}
+\end{figure}
+
+\subsection{Evidence-constrained LLM diagnosis}
+
+Step~8 was run as an optional explanation layer for all three completed
+comparison bundles. It produced 25 persisted diagnosis claims (nine for
+AssetGrowth, nine for MeanRankRevGrowth, and seven for ShareVol), with no
+claim rejected by the evidence validator. Each accepted claim names one or
+more keys from the deterministic bundle and inherits its identification level
+and evidence strength. For example, the AssetGrowth proposal identifies the
+weighting switch as the controlled Shapley attribution on the C\&Z line,
+separately records its paired-switch and joint-test evidence, and labels
+post-publication decay as observational. For ShareVol, the proposal reports
+the unavailable paper-versus-track comparison as an evidence limitation rather
+than inventing a comparable spread.
+
+This demonstrates a bounded analytical capability: the model can select and
+organize supported diagnostic claims across a heterogeneous evidence bundle.
+It is not an independent empirical result or a validation of the model's
+economic reasoning. Numeric statements in the rendered diagnosis are
+reinserted deterministically from the bundle, and the artifacts retain the
+status \texttt{llm\_assisted\_proposal}. The appropriate comparison is
+therefore not ``AI versus deterministic results''--the latter are the source
+of truth--but whether the proposal surfaces the same evidence, limitations,
+and identification level as a human analyst. A blinded expert evaluation of
+that question remains future work.
+
+\begin{figure}[htbp]
+  \centering
+  \fbox{\parbox{0.92\linewidth}{\centering\vspace{4.2cm}
+    Placeholder: Step~8 AssetGrowth diagnosis screenshot. Show the
+    \texttt{llm\_assisted\_proposal} status, an evidence-cited Shapley claim,
+    its identification/evidence-strength labels, and the linked evidence key.
+    \vspace{4.2cm}}}
+  \caption{Evidence-constrained LLM diagnosis for AssetGrowth. The language
+    model proposes an interpretation, while the deterministic evidence bundle
+    supplies every number and constrains every admissible claim.}
+  \label{fig:assetgrowth-diagnosis}
+\end{figure}

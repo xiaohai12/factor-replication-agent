@@ -22,6 +22,7 @@ from __future__ import annotations
 import math
 from typing import Any, TYPE_CHECKING
 
+from src.infra.models.method_spec import Estimand
 from src.steps.step3_codegen.registry import (
     CONFIG_KEY_STAGE,  # noqa: F401 -- re-exported for existing `from .bundle import CONFIG_KEY_STAGE` call sites
     stage_of,
@@ -191,8 +192,19 @@ def _resolve_track_spread(
     alphas, not against the raw mean spread. Preference order mirrors the
     usual headline in the anomaly literature (FF3 first). The chosen key is
     always recorded in the bundle so the comparison basis is auditable.
+
+    A paper reporting a *coefficient* headline (a Fama-MacBeth/regression
+    slope) is a structurally different statistic from any portfolio-sort
+    spread we compute -- there is no track metric that is comparable to it,
+    so this deliberately does NOT fall through to `mean_return` (which would
+    silently compare a regression coefficient against a long-short spread
+    and produce a number that looks real but isn't). Callers must treat
+    `"unavailable"` as "no comparable track metric exists", not as a normal
+    metric key.
     """
     rt = (paper_return_type or "").lower()
+    if rt == Estimand.COEFFICIENT.value:
+        return "unavailable", None
     if "alpha" in rt:
         for key in ("alpha_ff3", "alpha_capm", "alpha_ff5"):
             if _as_float(metrics.get(key)) is not None:
@@ -860,7 +872,26 @@ def build_three_term_identity(
     Identification is `observational`: nothing here is a controlled
     contrast between two runs of THIS engine except the config term, and
     even that is a single pair rather than an ablation grid.
+
+    When the paper's own headline is a regression coefficient
+    (`paper_reported["return_type"] == Estimand.COEFFICIENT.value`), none of
+    `agent_baseline_spread`/`agent_hybrid_spread` are comparable to it --
+    they are portfolio-sort spreads, a structurally different statistic --
+    so the whole identity (including `agent_replication_residual`) is
+    reported unavailable rather than silently computed against a
+    non-comparable endpoint.
     """
+    if (paper_reported.get("return_type") or "").lower() == Estimand.COEFFICIENT.value:
+        return {
+            "available": False,
+            "identification_level": MISSING_IDENTIFICATION,
+            "reference_label": reference_label,
+            "hybrid_track": hybrid_track,
+            "reason": (
+                "paper's own reported result is a regression coefficient, not a "
+                "portfolio-sort spread; agent_baseline_spread is not a comparable quantity"
+            ),
+        }
     tracks_derived = derived.get("tracks") or {}
     baseline_track = derived.get("baseline_track")
     baseline_spread = ((tracks_derived.get(baseline_track) or {}).get("vs_paper") or {}).get("track_spread")

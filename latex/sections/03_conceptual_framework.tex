@@ -34,6 +34,12 @@ as an empirical \emph{lower-bound} estimate of $\ImplSpace{P}$ (a lower
 bound because the true disagreement space can only be wider).
 \end{definition}
 
+The disagreement band operationalizes underdetermination: $\ImplSpace{P}$
+itself cannot be enumerated, since doing so would require running every
+implementation the paper's text admits, so the band substitutes what can
+actually be measured -- the gap between two real, independently-arrived-at
+points inside that space -- for the full space itself.
+
 \subsection{The paper-anchored three-term identity}
 \begin{equation}
   \label{eq:three-term}
@@ -54,6 +60,22 @@ configuration against an external party. Collapsing these into one number
 -- "the total gap" -- is exactly what existing replication studies do
 (\S\ref{sec:related}), and exactly what this identity is designed not to do.
 
+The second term is clean specifically because $\Acz$ (symmetrically,
+$\Ahxz$) and $\Aref$ are both computed by this engine, from the same
+signal $\SA$, rather than one side being C\&Z's -- or HXZ's -- own
+separately-coded output. Comparing $\CZ$ directly to $\HXZ$, by contrast,
+would confound whatever configuration difference separates the two teams
+with whatever infrastructure differences separate their two independently
+built codebases (data vintage, rounding, engine-level conventions); the
+three-term identity exists specifically so that this confound never enters
+the configuration term, at the cost of relegating it to the (unidentified,
+see \S\ref{sec:pipeline}) $\CZ - \Acz$ term instead. This does not make the
+engine's own finite configuration menu (\S\ref{sec:pipeline},
+Appendix~\ref{app:config-menu}) free of cost -- \S\ref{sec:scope} states
+that cost directly -- only that whatever the menu's limits are, they are
+applied identically to $\Aref$, $\Acz$, and $\Ahxz$, so the configuration
+term measures a configuration effect and nothing else.
+
 This identity only licenses the "who deviates from the paper" reading on
 fields $P$ \emph{explicitly states}; on fields $P$ is silent on, there is no
 ground truth to deviate from, and the analysis reverts to the
@@ -62,24 +84,6 @@ results (\S\ref{sec:results}): a stated field is scored as an attributable
 deviation, a silent field is scored as a point in an underdetermined space.
 They are not alternative framings of the same evidence -- they are the
 correct framing for two disjoint kinds of configuration field.
-
-\subsection{Window and vintage mismatch}
-
-Equation~\eqref{eq:three-term}'s four endpoints are not measured on a common
-footing. $\Pref$ reflects the paper's own sample window and the
-computational conventions available at the time it was written. $\Aref$ and
-$\Acz$ are measured on this engine's data coverage using a Newey-West
-correction. $\CZ$ is read from Chen and Zimmermann's static reference
-profile (\S\ref{sec:data}), whose window is fixed and not re-specifiable.
-$\HXZ$, by contrast, is computed through a bridge that can be asked for a
-specific window and is deliberately aligned to this engine's Newey-West
-convention. In practice, then, Equation~\eqref{eq:three-term} is measured
-with an explicit fourth term for whichever endpoints' windows do not align,
-rather than silently absorbed into one of the three named terms. This is
-not a compromise forced by imperfect data: the window-mismatch term is
-itself informative, since it answers, on its own, how much of a reported
-gap is attributable to comparing two different sample periods rather than
-to any methodological choice at all.
 
 \subsection{The LLM-assisted, not LLM-controlled, principle}
 
@@ -98,7 +102,12 @@ downstream number in \S\ref{sec:results} is reproducible by re-running the
 deterministic engine against a frozen \texttt{compute\_signal} with the
 language model switched off entirely.
 
-The same discipline defines this paper's leakage-proof boundary. Chen and
+The same discipline is what makes $\Cagent$ auditable rather than merely
+inspectable after the fact: every field the Step~1 extractor emits carries
+a cited quote and source location (\S\ref{sec:pipeline}), so a reviewer can
+check the model's reading against the paper's own text field by field
+instead of accepting its output on faith. One specific guarantee this
+auditability depends on is a leakage-proof boundary: Chen and
 Zimmermann's own metadata (\texttt{SignalDoc.csv}) is used only for
 post-hoc evaluation -- to compute $\CZ$ and to select which factors exhibit
 informative HXZ-versus-C\&Z divergence (\S\ref{sec:data}) -- and is never

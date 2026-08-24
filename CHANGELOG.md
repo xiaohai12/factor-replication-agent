@@ -2,6 +2,464 @@
 
 ## [Unreleased]
 
+### docs: align Results and Discussion with the current controlled evidence (2026-08-24)
+
+- Rewrote Chapters 7--8 around the current three-factor evidence bundles,
+  replacing stale six-factor/TODO claims and obsolete assertions about
+  unimplemented Shapley attribution.
+- Distinguished controlled factorial Shapley attribution, harmonized OAT
+  sensitivity evidence, observational external comparisons, and the
+  deliberately unidentified ShareVol estimand mismatch.
+- Updated the reported AssetGrowth, MeanRankRevGrowth, ShareVol, $t$-channel,
+  and post-publication conclusions to the persisted comparison outputs.
+- Synced the factor-roster table with Section 5.4's corrected attribution of
+  MeanRankRevGrowth's C\&Z result ($0.55\%$/month, $t=3.94$).
+- Added a Chapter 7 section on the optional Step 8 diagnosis layer, reporting
+  its three validated, evidence-cited proposal artifacts while explicitly
+  separating bounded claim selection from independent empirical inference.
+- Added Chapter 7 figure placeholders for the AssetGrowth track comparison,
+  controlled Shapley attribution, ShareVol OAT boundary, publication-decay
+  evidence, and the Step 8 evidence-constrained diagnosis view.
+- Expanded Section 7.1 with concrete inferred-versus-unspecified MethodSpec
+  audit examples for AssetGrowth, MeanRankRevGrowth, and ShareVol.
+- Added a representative Step 1--5 audit-trace figure placeholder to Section
+  7.1 and documented the \texttt{BacktestRunner}/\texttt{BacktestExecutor}
+  execution boundary and fixed lifecycle in Section 4.
+- Replaced the Section 7.1 audit-trace placeholder with
+  `latex/Figures/representative-audit-trace.png`.
+- Replaced the AssetGrowth Step 6 screenshot placeholder with a results table
+  showing the paper, C\&Z, HXZ, and all three frozen-signal endpoints on
+  their explicitly labelled reported bases.
+- Added analogous endpoint tables for MeanRankRevGrowth and ShareVol,
+  preserving their external reported bases and flagging ShareVol's estimator
+  mismatch rather than treating it as a comparable portfolio-sort result.
+- Added Appendix E tables listing every executed agent track, its changed
+  configuration dimensions, and its in-sample long--short return, FF3 alpha,
+  and $t$-statistic for all three factors.
+- Added a compact cross-factor endpoint table in Chapter 7, while retaining
+  factor-specific endpoint tables in the main text and the full executed-track
+  matrices in Appendix E.
+
+### docs: add the controlled track-grid figure (2026-08-24)
+
+- Replaced Section 6.1's placeholder with
+  `latex/Figures/controlled-track-grid.png`, clarifying the executable
+  baseline/endpoint/attribution tracks versus external comparison references.
+- Reconciled the Section 6 factorial threshold with the controller's current
+  `MAX_FACTORIAL_SWITCHES = 3`: full factorial is used for three or fewer
+  differing configuration fields, otherwise the design falls back to OAT.
+- Clarified in Section 6.3 that full factorial is the preferred attribution
+  design and that OAT is its computational-budget fallback, which does not
+  identify interaction effects.
+- Rewrote Section 6.3's decomposition in terms of the implemented
+  in-sample-mean-return Shapley attribution: complete factorial grids yield
+  exact, order-independent field contributions, while interaction effects
+  are allocated across those contributions rather than reported separately.
+- Defined $R(\varnothing)$ explicitly as the no-switch, all-baseline
+  ($\Cagent$) result.
+- Added an intuitive Shapley explanation: average each field's incremental
+  return effect across all switching orders, thereby allocating joint effects
+  without assigning them to an arbitrary first-switched field.
+- Reordered Section 6.3 for readability: it now introduces the attribution
+  objective and a two-field, four-track example before presenting the general
+  Shapley formula and the OAT fallback.
+- Aligned Section 6.4 with the implemented $t$-channel calculation: it
+  back-solves volatility from persisted metrics, performs the log
+  decomposition only for eligible positive-return comparisons, and otherwise
+  reports the absolute-$t$ change as a degenerate case.
+- Rewrote Section 6.5 as the implemented evidence/attribution hierarchy:
+  controlled factorial Shapley evidence supports high-strength claims, OAT
+  supports medium-strength claims with an interaction caveat, and
+  observational or unidentified evidence supports only low-strength claims.
+
+### docs: correct the C\&Z attribution for MeanRankRevGrowth (2026-08-23)
+
+- Section 5.4 now attributes the reported $0.55\%$/month long-short return
+  ($t=3.94$) for sales-growth reversal (\texttt{MeanRankRevGrowth}) directly
+  to C\&Z, rather than describing it as a manual transcription from the
+  original paper.
+
+### backend/frontend: surface step5/6's sign-corrected paper_reported + return_type in the UI (2026-08-23)
+
+Step5/Step6's "Paper reported" display never reflected the sign-correction
+fix made earlier this session to `_spec_paper_reported`
+(`src/steps/step5_backtest_runner/__init__.py`) -- both components
+independently re-derive the paper's headline metric straight from the raw
+resolved MethodSpec (`reportedPrimaryMetric` in `Step5Output.tsx`,
+`extractPaperReported` in `SessionDetailPage.tsx` for Step6), bypassing
+`comparison.json`/`_spec_paper_reported` entirely, so they showed the
+un-corrected (pre-sign-flip) estimate with no indication of what
+`return_type` it was.
+
+- `backend/routers/replication.py`'s `GET /steps/6/track-configs` now also
+  forwards `bundle["paper_reported"]` verbatim (already sign-corrected,
+  plus `sign_correction`/`return_type`) alongside the existing per-track
+  config map, response shape changed from `Record<track, config>` to
+  `{tracks: Record<track, config>, paper_reported: {...} | null}`.
+- `Step6Output.tsx`: `useTrackConfigs` updated for the new response shape;
+  the baseline row's "Reported (reference)" cell now prefers this
+  sign-corrected number (falling back to the old uncorrected prop only
+  before `comparison.json` exists), and shows the metric's `return_type`
+  plus a "sign-corrected" badge (tooltip = the note explaining why) when a
+  flip was applied.
+- `Step5Output.tsx`: left MethodSpec-only per the user's call (step5 may
+  render before `comparison.json` exists, and `reportedPrimaryMetric`
+  already correctly resolves `comparison_derivation`-synthesized metrics
+  like MeanRankRevGrowth's) -- only added an inline
+  `estimand`/`adjustment_model` label next to "Paper reported" (e.g.
+  "alpha/ff3"), no sign correction here.
+- Verified `npx tsc -b --noEmit` clean for both changed files (one
+  pre-existing, unrelated `Step7Output.tsx` type error confirmed present
+  on `main` via `git stash` before this change).
+
+### fix: false sign-convention mismatch in paper-vs-track comparison for negative-direction "high-minus-low" factors (2026-08-23)
+
+`build_track_vs_paper` (`src/steps/step7_replication_diff/bundle.py`) was comparing the engine's own
+`track_spread` (always `long - short`, per `portfolio.legs`/`signal.direction`) against
+`paper_reported["main_spread"]` copied VERBATIM from the paper's own headline estimate
+(`_spec_paper_reported`, `src/steps/step5_backtest_runner/__init__.py`) with no sign reconciliation.
+For **AssetGrowth** (`fae312b1730eefb6`): the signal's `direction` is `negative`, so
+`registry.build_config` correctly sets the engine's long leg to the LOW asset-growth decile
+(`portfolio.legs`: `low_asset_growth`/long, `high_asset_growth`/short) and `track_spread = low - high =
++0.005052` -- a genuine, economically sensible positive alpha. But the paper's own headline metric
+(`vw_ff3_alpha_high_minus_low`, `estimate=-0.007`) is framed the OPPOSITE way: `high - low`. Same
+economic fact, opposite sign convention -- not a real disagreement -- yet every track for this factor
+showed `sign_agrees: false` cascading into `magnitude_tier: "failed"`.
+
+Added general (not AssetGrowth-hardcoded) sign reconciliation to `_spec_paper_reported`: three new
+helpers (`_target_sort_id`, `_engine_long_short_deciles`, `_paper_high_low_deciles`,
+`_sign_multiplier`) determine, from data already on the resolved MethodSpec, whether the paper's own
+"high" endpoint (from a single metric's `portfolio_selector` carrying both `{sort_id}_high`/
+`{sort_id}_low` keys, OR from `comparison_derivation.high_metric_id`/`low_metric_id`'s own
+`portfolio_selector`s) is the SAME decile as the engine's long leg (`portfolio.legs`, side="long") or
+the OPPOSITE one. When it's the opposite decile, `main_spread`/`main_t_stat` and every `spreads`/
+`t_stats` entry with the same determinable orientation are negated before anything downstream
+(`build_track_vs_paper`, `build_three_term_identity`, and the persisted `comparison.json`'s own
+`paper_reported` block) reads them -- exactly one place this happens. Left unchanged (no flip) whenever
+orientation can't be established from the data: a single-leg decile return, a regression coefficient,
+or a multi-leg/no-single-target-sort portfolio -- never guessed. A `paper_reported.sign_correction`
+block (`applied`/`flipped_metric_ids`/`orientation_checked_metric_ids`/`note`) records whenever a flip
+was applied, auditable in `comparison.json` the same way `cz_reference.json`'s `sign: -1` field already
+records C&Z's own convention gap.
+
+For AssetGrowth's `original_method` track: `paper_reported.main_spread` `-0.007` -> `0.007`,
+`main_t_stat` `-3.84` -> `3.84`; `derived.tracks.original_method.vs_paper.sign_agrees` `false` -> `true`,
+`.magnitude_tier` `"failed"` -> `"clean"`, `.spread_delta` `0.012052` -> `-0.001948`;
+`three_term_identity.{cz,hxz}.terms.agent_replication_residual` `0.012052` -> `-0.001948`. Same pattern
+across all 7 tracks (`original_method`, `standardized_hxz`, `cz_actual_config`, `factorial_universe`,
+`factorial_breakpoint`, `cz_factorial_universe`, `cz_factorial_weighting`): `sign_agrees` flips
+`false` -> `true` for all 7; `magnitude_tier` improves from `"failed"` to `"clean"` for 5 of them and to
+`"partial"` for the other 2 (`cz_actual_config`, `cz_factorial_weighting`) -- a real magnitude gap
+remains there, now correctly measured on matching sign conventions instead of masked by a false one.
+MeanRankRevGrowth (`4a483a60aae1c941`) and ShareVol (`cc376f708c404f89`) are confirmed UNAFFECTED:
+MeanRankRevGrowth's `comparison_derivation`-materialized "high" endpoint (Table-labelled Value, decile
+index 0) is already the engine's long leg, so `_sign_multiplier` resolves to `+1` (no flip,
+`main_spread` stays `0.046`); ShareVol's headline is a regression coefficient with no
+`portfolio_selector`, so orientation is undetermined (no flip, `main_spread` stays `-0.04`) -- verified
+by rebuilding all three factors' `comparison.json` and diffing before/after.
+
+Scanned all ~18 `runs/method_specs/resolved/*.resolved.json` (most for factors not in the current
+3-paper roster; several fail to parse under the current schema -- stale artifacts from an older
+MethodSpec version, unrelated to this fix and not touched) for the same negative-direction +
+high-minus-low-paper-metric combination: of the specs that parse, only AssetGrowth triggers a flip.
+No other currently-unused factor was flagged as latently affected.
+
+Regenerated `comparison.json` for all three roster factors via the same direct,
+already-verified-safe call to `BacktestRunner.write_comparison_summary(spec, tracks_summary,
+snapshot_id, diff_result, batch_info)` over the existing on-disk `tracks`/`batch` data (no backtests
+re-executed; only `paper_reported`'s sign correction and everything derived from it changed). Added
+four regression tests to `tests/test_step5_comparison_derivation.py`: the AssetGrowth-shaped flip case
+(asserting both `_spec_paper_reported`'s sign correction AND the resulting `sign_agrees=True` via
+`build_track_vs_paper`), the MeanRankRevGrowth-shaped already-matching-orientation case (no flip), and
+two undetermined cases (a regression coefficient; the existing derivation test unchanged). Narrow suite
+(`test_step_diagnostics.py`, `test_replication_diagnosis.py`, `test_external_reference_persistence.py`,
+`test_step5_comparison_derivation.py`: 210 passed) plus full `pytest tests/` (850 passed, 19 skipped, 2
+pre-existing failures in `test_session_api.py` unrelated to this change and reproducible on `main`
+without this fix) both pass.
+
+### fix: three like-for-like `agent_replication_residual` gaps in the paper-anchored three-term identity (2026-08-23)
+
+`agent_replication_residual` (`three_term_identity.{cz,hxz}.terms`, `src/steps/step7_replication_diff/bundle.py`)
+was silently comparing non-like-for-like quantities for three roster factors:
+
+1. **AssetGrowth** (`fae312b1730eefb6`, session `d0420ee21ae14f98bbebdee9c9cd8f82`): the alpha-matching
+   code path (`compute_factor_alphas`, feeding `alpha_ff3`/`alpha_capm`/`alpha_ff5`) was silently
+   producing empty alpha fields because `statsmodels` was not installed in `.venv`, despite being a
+   pinned dependency in `pyproject.toml` -- installed `statsmodels==0.14.6` now. Regenerated all 7
+   `*.metrics.json` under `runs/backtest_scripts/results/fae312b1730eefb6/` and `comparison.json` via
+   the session's own `POST /steps/5/execute` (fresh `original_method` run) + `POST /steps/6/experiment`
+   (remaining 6 tracks) + `POST /steps/7/comparison`. `three_term_identity.cz.endpoints.agent_baseline_spread`
+   is now the alpha-basis `0.005052` (`alpha_ff3`, matching `paper_reported.return_type="alpha"`) instead
+   of the old apples-to-oranges raw `mean_return` (`~0.0093`); `agent_replication_residual` is now
+   `0.01205` against `paper_reported_spread=-0.007` -- a genuine, comparable magnitude/sign disagreement
+   (previously not even the right kind of number).
+2. **MeanRankRevGrowth** (`4a483a60aae1c941`, session `11c2aab1e8e74ceb93dcfb776d76b4a9`): the paper's
+   two already-extracted decile-leg metrics (`gs_decile_1_aab=0.022` "Value"/long,
+   `gs_decile_10_aab=-0.024` "Glamour"/short) were never combined into a spread --
+   `reported_results.comparison_derivation` was `null`, so `paper_reported.main_spread` was just the
+   single decile-1 leg. Added a `comparison_derivation` (`operation: "high_minus_low"`,
+   `high_metric_id="gs_decile_1_aab"`, `low_metric_id="gs_decile_10_aab"`, `use_as_primary_comparison:
+   true`) to `runs/method_specs/resolved/4a483a60aae1c941.resolved.json` -- decile 1 (Value) is this
+   engine's long leg and decile 10 (Glamour) its short leg per the MethodSpec's own `portfolio.legs`
+   sides, and `high - low = 0.022 - (-0.024) = +0.046` matches the sign of both this engine's own
+   `agent_baseline_spread` (+0.0048) and C&Z's external reference (+0.0055). `paper_reported.main_spread`
+   is now `0.046` (was `0.022`); `agent_replication_residual` is now `-0.0412` against
+   `total_gap=-0.0405` (was `-0.0172` against `total_gap=-0.0165`).
+3. **ShareVol** (`cc376f708c404f89`, session `fe522cc53fec441c9c79165d5c4a0608`): the paper's headline
+   is a Fama-MacBeth regression coefficient (`estimand="coefficient"`, e.g. -0.04, t=-8.86) -- a
+   structurally different statistic from a portfolio-sort spread, not fixable by unit conversion.
+   `_resolve_track_spread` and `build_three_term_identity` (`src/steps/step7_replication_diff/bundle.py`)
+   had no guard for this and silently fell back to `metrics["mean_return"]`, producing a number that
+   looked real but wasn't. Added a guard, gated on `paper_reported["return_type"] ==
+   Estimand.COEFFICIENT.value`: `_resolve_track_spread` now returns `("unavailable", None)` instead of
+   defaulting to `mean_return`, and `build_three_term_identity` now returns the whole identity as
+   `available: False` with reason `"paper's own reported result is a regression coefficient, not a
+   portfolio-sort spread; agent_baseline_spread is not a comparable quantity"`, following the same
+   unavailable-case shape as the existing `build_paper_verdict_agreement`. `three_term_identity.cz` is
+   now `available: False` with that reason (previously computed a spurious residual against the raw
+   `mean_return`; the stale number was overwritten in place and not preserved for a before/after diff).
+
+Added two regression tests to `tests/test_replication_diagnosis.py` covering the coefficient guard
+(`TestTrackVsPaper.test_coefficient_headline_does_not_silently_fall_back_to_mean_return`,
+`TestThreeTermIdentity.test_coefficient_headline_is_unavailable_not_silently_computed`); narrow suite
+(`test_matched_comparison.py`, `test_config_override_validation.py`, `test_replication_diagnosis.py`,
+`test_external_reference_persistence.py`, `test_attribution.py`) passes (232 passed, 1 skipped, then
+174 passed after the new tests were added). MeanRankRevGrowth's and ShareVol's `comparison.json` were
+each rebuilt with a direct (non-API) call to `BacktestRunner.write_comparison_summary` over the
+already-persisted `tracks`/`batch` data plus the freshly-edited spec/code, since neither factor's
+underlying track metrics changed -- only `paper_reported`/the new guard did, both of which
+`write_comparison_summary` recomputes from its inputs on every call.
+
+### latex: readability pass on intro's 4th paragraph (2026-08-23)
+
+Self-review at the user's request caught three more issues in
+`01_introduction.tex`'s "Applying this framework..." paragraph, after the
+notational-error fix above: (1) the disagreement-cases sentence was a
+90+-word run-on covering both MeanRankRevGrowth and ShareVol plus two
+interpretive clauses in one breath -- split into one sentence per factor;
+(2) "The same pattern is, if anything, sharper in both disagreement
+cases" overstated the parallel -- MeanRankRevGrowth's evidence is a
+three-term-identity residual magnitude, ShareVol's is ablation-track
+dispersion, two different diagnostics, not the same pattern intensified
+-- reworded to "related evidence... though of a different kind in each";
+(3) MeanRankRevGrowth's config-side cause (breakpoint-and-weighting,
+stated when the factor is introduced) and its residual-side cause (the
+missing-return-policy menu clamp, stated later in the same paragraph) sat
+side by side with no connecting clause, readable as two competing
+explanations rather than two terms of the same decomposition -- added "a
+residual effect layered on top of the breakpoint-and-weighting story
+already given above for its configuration side" to tie them together.
+Also fixed the "makes against HXZ's own protocol" grammar nit to "makes
+in this paper's opening example."
+
+### latex: fixed a notational error and de-bloated intro's 4th paragraph, moved the same-engine argument to §3 (2026-08-23)
+
+Self-review (prompted by the user asking me to critique the intro's
+4th paragraph for contradictions/bloat) caught a real error: a sentence
+I'd added to `01_introduction.tex` claimed "$\Acz$ and $\Ahxz$ are run
+through the identical engine... the gap between them isolates the
+configuration choice alone" -- but `03_conceptual_framework.tex`'s
+three-term identity never defines or uses a $\Acz$-vs-$\Ahxz$ gap; the
+actual clean comparisons are $\Acz - \Aref$ and $\Ahxz - \Aref$
+individually (each vs.\ the paper-faithful baseline, not vs.\ each
+other). Also flagged: stacking that sentence right after the
+menu-clamp-contaminates-residual sentence made two different uses of
+"the same fixed menu" (baseline-construction clamping vs.
+identical-engine-across-configs) read as contradictory without room in an
+intro paragraph to disambiguate them, and the paragraph had grown
+overloaded (introducing 3 factors + reporting headline numbers + 2 stacked
+methodological caveats in one paragraph), diluting the 67%-residual
+finding it leads with.
+
+Fix: removed the "trustworthy" sentence from `01_introduction.tex`
+entirely (per user: keep intro's mention of the menu limitation, but not
+this second methodological defense). Added a corrected version to
+`03_conceptual_framework.tex`, right after the paper-anchored identity's
+term-by-term explanation, with the right notation ($\Acz - \Aref$ /
+$\Ahxz - \Aref$, not $\Acz - \Ahxz$) and an explicit statement of what it
+does and doesn't claim: the finite menu still has a real cost (already
+covered in `\S\ref{sec:scope}`), but because that menu is applied
+identically to $\Aref$, $\Acz$, and $\Ahxz$, the configuration term isolates
+the configuration effect cleanly, unlike a direct $\CZ$-vs-$\HXZ$
+comparison (which would confound configuration choice with each team's own
+separate codebase/infrastructure).
+
+### latex: wrote up the menu-clamp-contaminates-residual finding in §7/§8, and swept the stale 6-factor roster out of §5/§7/§8 (2026-08-23)
+
+User feedback on the intro's residual discussion: the agent's fixed
+configuration menu (only a specific, in-menu set of weighting rules,
+missing-return policies, etc. is supported; an off-menu paper instruction
+is silently clamped to a documented default, per `registry.build_config`)
+is likely a real driver of the agent replication residual for some
+factors, not just agent reading error -- and this is structurally the same
+standardization tradeoff HXZ's own fixed protocol makes, which is worth
+stating rather than treating purely as a limitation. Verified this against
+the actual `menu_deviations`/`clamped_by_track` data in each factor's
+`comparison.json` before writing anything:
+- **AssetGrowth** (`fae312b1730eefb6`): `original_method` track has zero
+  clamps -- its 67%-of-total-gap residual (already cited in the intro) is
+  a clean read of agent imprecision.
+- **MeanRankRevGrowth** (`4a483a60aae1c941`): the paper's delisting-return
+  policy ("replace with a matched size-decile portfolio's return through
+  year-end") is off-menu; `original_method` clamps `missing_action` to
+  `drop`.
+- **ShareVol** (`cc376f708c404f89`): the paper's weighting ("both EW and
+  VW are applied") is off-menu; `original_method` clamps `weighting_rule`
+  to `vw`.
+
+Wrote this up in `07_results.tex`'s per-factor deep dives (now three
+subsections matching the real roster instead of the old
+GP/PS/fgr5yrLag/OScore/FailureProbability set) and as a new bullet in
+`08_discussion.tex`'s Limitations list, distinguishing AssetGrowth's clean
+residual from MeanRankRevGrowth's/ShareVol's clamp-contaminated ones.
+
+This required a consistency sweep beyond just adding the new point, since
+the old per-factor prose no longer matched the 3-factor roster and one
+existing claim directly contradicted it:
+- `07_results.tex`: replaced all five stale per-factor subsections
+  (GP/PS/fgr5yrLag/OScore/FailureProbability) with three accurate ones
+  (AssetGrowth/MeanRankRevGrowth/ShareVol), fixed the opening paragraph's
+  factor-count description, fixed AssetGrowth's stale "13 tracks" claim to
+  the actual 7 (verified `comparison.json.tracks`; ShareVol has 12,
+  MeanRankRevGrowth has 11), and removed a dangling `fgr5yrLag` mention in
+  the post-publication-decay TODO.
+- `08_discussion.tex`: replaced the PS/fgr5yrLag/OScore factor-specific
+  limitation bullets with MeanRankRevGrowth/ShareVol ones, and fixed the
+  "Estimator restriction" bullet, which previously claimed factor
+  selection "excludes papers whose headline result is a cross-sectional
+  regression coefficient" -- false as written, since ShareVol's own
+  headline result (Datar-Naik-Radcliffe 1998) *is* a Fama-MacBeth
+  coefficient and it's in the roster. Reworded to state the real
+  constraint (Aref/CZ/HXZ must be portfolio-sort spreads, not necessarily
+  the paper's own headline result) and named ShareVol as the deliberate
+  exception this makes possible.
+- `05_data_and_factors.tex` (`\S\ref{sec:selection}`): the same
+  contradiction existed at its source -- "a factor's headline result must
+  be a portfolio-sort spread... not a Fama-MacBeth coefficient" was stated
+  as non-negotiable. Fixed to clarify the constraint binds $\Aref$/$\CZ$/
+  $\HXZ$, not the paper's own result, with ShareVol cited as the
+  intentional exception. Also updated `\subsection{The factor sample}`'s
+  stale TODO (still listing the 6-candidate set) with real prose naming
+  the actual 3 factors, and removed a now-inapplicable "data vintage"
+  clause from the selection-criteria paragraph (that was fgr5yrLag's
+  story, which is no longer in the roster).
+
+**Still not done** (flagged, not fixed, since out of scope for this pass):
+`tab_factor_roster.tex` and the other cross-factor tables/figures
+(`tab_autonomy_footprint`, `tab_gap_decomposition`, `tab_sensitivity_band`,
+`tab_outcomes`, `tab_baseline_vs_paper`) and `appendix_e_per_factor.tex`
+still carry the old 6-factor set and need the same 3-factor pass.
+
+### latex: wrote out intro's Two Research Questions / Measurement Unit Convention / Roadmap subsections (2026-08-23)
+
+These three subsections of `01_introduction.tex` were comment-only
+placeholders (bullet outlines of RQ1/RQ2, the agent-system-as-unit-of-
+measurement point, and a one-paragraph roadmap) carried over from the
+original outline. Wrote them out in prose, consistent with the rest of the
+section's notation ($\Aref$, $\CZ$, $\HXZ$, $\Cagent$, $\ImplSpace{P}$) and
+cross-referencing the sections they describe (confirmed the actual
+`\label`s and `\input` order in `main.tex`: related literature ->
+conceptual framework -> pipeline -> data -> experimental design -> results
+-> discussion). The "Contributions" subsection already had real content
+(C1/C2/C3) and was left untouched.
+
+**Left as-is, still a placeholder:** the comment after Contributions
+("Explicit, proactive disclosure... tightening the leakage-proof
+boundary... see docs/paper-outline.md Ch.1") is a separate open TODO about
+disclosing a leakage-proof-boundary caveat, not one of the three
+subsections asked about here -- still needs its own pass.
+
+### latex: swapped intro's opening vignette from Piotroski (untested) to MeanRankRevGrowth (2026-08-23)
+
+User feedback: with only 3 factors actually tested, the introduction
+shouldn't spend its opening paragraph motivating the paper with a factor
+(Piotroski's F-score) that isn't in the test set at all -- it should open
+with one of the 3 factors actually run. `01_introduction.tex`'s opening
+paragraph previously used `\citet{Piotroski2000}`'s F-score (HXZ $t$ fails,
+C&Z $t=3.29$) purely as an external, general-literature hook. Replaced it
+with `MeanRankRevGrowth` (Lakonishok-Shleifer-Vishny 1994's sales-growth
+reversal signal, one of the 3 roster factors) -- it has the identical
+narrative shape (HXZ's standardized protocol misses significance at
+$t=1.08$, C&Z's paper-faithful implementation clears it at $t=3.94$) and is
+backed by this paper's own real numbers rather than an outside example.
+Trimmed the later "applying this framework" paragraph's MeanRankRevGrowth
+clause to avoid repeating the same $t$-stats verbatim now that they're
+established in the opening paragraph.
+
+### latex: retitled the thesis to lead with "auditable," rebalanced leakage-proof framing across sections (2026-08-23)
+
+User feedback: the previous title ("...A Controlled, Leakage-Proof LLM
+Agent...") over-weighted leakage-proofness, which gets comparatively little
+page-space in the paper; the agent's evidence-citation/auditability property
+(every extracted MethodSpec field carries a cited quote and source
+location, per Step 1) is the more central selling point. Changed
+`latex/main.tex`'s `\thesistitle` to "Underdetermination in Factor
+Replication: An Auditable LLM Agent as an Independent Second Implementer."
+
+Followed through across the sections that echoed the old headline framing,
+without deleting the leakage-proof content itself (it's a real, correct
+methodological guarantee -- `SignalDoc.csv` never reaches the Step 1
+extractor -- just no longer the lead adjective):
+- `01_introduction.tex`: the "controlled LLM agent enters" paragraph now
+  leads with "auditable" and spells out the evidence-citation property
+  before mentioning non-contamination; C3's contribution bullet now leads
+  "controlled, auditable" and folds leakage-proof in as a supporting clause.
+- `03_conceptual_framework.tex`: the paragraph that used to open "The same
+  discipline defines this paper's leakage-proof boundary" now opens by
+  naming auditability as what the MethodSpec-confinement discipline
+  produces, then introduces the leakage-proof `SignalDoc.csv` guarantee as
+  one specific auditability-supporting guarantee, not the top-level claim.
+- `08_discussion.tex`: C2's conclusion sentence changed from "a controlled,
+  leakage-proof agent pipeline" to "a controlled, auditable agent pipeline
+  -- leakage-proof by construction."
+- `07_results.tex` and `appendix_d_validator.tex` left unchanged: both use
+  "leakage-proof boundary" as a precise cross-reference to the term now
+  defined (as subordinate) in `03_conceptual_framework.tex`, not as
+  headline framing, so no edit was needed there.
+
+### latex: rewrote intro headline paragraph for the finalized 3-factor roster (2026-08-23)
+
+`latex/sections/01_introduction.tex` previously referenced a 6-factor roster
+and a `[TODO: headline numbers]` placeholder (see 2026-08-19 roster-
+reconciliation entry below). The user finalized the test set to 3 papers
+(`data/test_papers/test_papers_data_sources.xlsx`, updated by the user
+mid-task): share turnover (Datar-Naik-Radcliffe 1998), asset growth
+(Cooper-Gulen-Schill 2008), and sales-growth reversal /
+`MeanRankRevGrowth` (Lakonishok-Shleifer-Vishny 1994) -- not gross
+profitability, which was an earlier, incorrect assumption on my part
+(that paper has never been run past session creation -- see the tombstones
+under `runs/sessions/_tombstones/`, all 3 GP session attempts died at
+revision 0). All three actual roster factors do have a `comparison.json`
+under `runs/backtest_scripts/results/`: `cc376f708c404f89` (share
+turnover), `fae312b1730eefb6` (asset growth), and `4a483a60aae1c941`,
+which I'd initially misread as unrelated Lakonishok-Shleifer-Vishny (1993)
+leftover noise -- it is in fact `MeanRankRevGrowth`'s run (the paper was
+extracted from the 1993 NBER working-paper version of the same
+Lakonishok-Shleifer-Vishny piece; `resolved.factor_id.paper.target_name ==
+"MeanRankRevGrowth"`). Updated the "six factors" mentions (opening
+headline paragraph, C1, C2) to "three factors" and grounded the headline
+paragraph in real numbers from all three `comparison.json` files: asset
+growth's agent-replication-residual is 67% of its total gap to the C&Z
+reference spread (`three_term_identity.cz`, the one case where HXZ/C&Z
+verdicts agree); MeanRankRevGrowth's residual exceeds its total gap in
+magnitude, partially offset by an opposing config term
+(`three_term_identity.cz`, verdict conflict: HXZ t=1.08 vs. C&Z t=3.94);
+share turnover's own signal has a 0.79 t-stat range and 1 sign flip across
+its 4 ablation tracks (`robustness_summary`), consistent with its own
+HXZ/C&Z verdict conflict. Also added `DatarNaikRadcliffe1998` and
+`LakonishokShleiferVishny1994` BibLaTeX entries to `latex/refs.bib`
+(`NovyMarx2013`/GP's entry from the prior pass is now unused in the intro
+but left in the bib file in case another section still cites it).
+
+**Not yet done:** other LaTeX files (`tab_factor_roster.tex`,
+`tab_autonomy_footprint.tex`, `tab_sensitivity_band.tex`,
+`tab_outcomes.tex`, `tab_baseline_vs_paper.tex`,
+`tab_gap_decomposition.tex`, `appendix_e_per_factor.tex`,
+`05_data_and_factors.tex`, `07_results.tex`) still reference GP as a
+roster member -- out of scope for this pass (only the intro was
+requested) but will need the same GP-to-MeanRankRevGrowth correction
+before submission.
+
 ### fix: silently-dropped `breakpoint_quantiles` paired-test effect + honest Shapley-coverage caveat + magnitude-tiered reproduction verdict + decay clue on the residual (2026-08-22)
 
 Found while reviewing a real MeanRankRevGrowth batch's vs-C&Z card:

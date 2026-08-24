@@ -707,6 +707,7 @@ export function SessionDetailPage() {
                     sessionId={sessionId}
                     step={step}
                     defaultTargetName={sessionQuery.data.factor_id}
+                    manifest={sessionQuery.data}
                     onStateChange={setSpecState}
                   />
                   {requestError && <p className="text-xs text-destructive">{requestError}</p>}
@@ -1121,11 +1122,13 @@ function MethodSpecWorkflowPanel({
   sessionId,
   step,
   defaultTargetName,
+  manifest,
   onStateChange,
 }: {
   sessionId: string
   step: number
   defaultTargetName: string
+  manifest: SessionManifest
   onStateChange: (state: MethodSpecWorkflowState) => void
 }) {
   const navigate = useNavigate()
@@ -1263,6 +1266,84 @@ function MethodSpecWorkflowPanel({
       return next
     })
   }
+
+  // Steps 1/2's progress lives ONLY in this browser's localStorage (see
+  // methodSpecStore.ts's module docstring), not in the session manifest --
+  // so a cache miss here isn't necessarily "this step never ran": it can
+  // also be `evictOtherSessions()` clearing a session's cache to free quota
+  // while a DIFFERENT session was active, a cleared browser profile, or
+  // this session being opened for the first time on a new device/browser.
+  // Whenever that happens, the manifest's own step 1/2 attempts (backend-
+  // persisted, never evicted) still know the run succeeded and exactly
+  // which `MethodSpec` artifact it produced -- refetch that artifact once
+  // on mount so the stepper/board don't show "not_started" for a step that
+  // actually completed. Only fires when there's nothing local to lose
+  // (`state.rawSpec`/`state.paper` both unset) and never overwrites
+  // whatever the user is actively working on.
+  useEffect(() => {
+    if (state.rawSpec || state.paper) return
+    const step2Attempts = manifest.steps["2"]?.attempts ?? []
+    const latestStep2 = step2Attempts[step2Attempts.length - 1]
+    const unreviewedRef = latestStep2?.status === "success" ? latestStep2.output_refs.unreviewed_ref : undefined
+    if (!unreviewedRef) return
+    // `unreviewed_ref` is a local filesystem path
+    // (".../unreviewed/<factor_id>.paper.json") written by the backend,
+    // not a fetchable URL -- pull the factor_id out of it to hit the
+    // existing REST surface instead.
+    const factorId = unreviewedRef.split("/").pop()?.split(".")[0]
+    if (!factorId) return
+    let cancelled = false
+    ;(async () => {
+      try {
+        const paper = await sessionApi.getMethodSpec("drafts", factorId)
+        if (cancelled) return
+        let review: Record<string, unknown> | undefined
+        let resolved: Record<string, unknown> | undefined
+        try {
+          resolved = await sessionApi.getResolvedMethodSpec(factorId)
+          review = resolved.review as Record<string, unknown> | undefined
+        } catch {
+          // Resolution never ran (or its snapshot was deleted) -- fall back
+          // to the review artifact alone; `resolved` stays unset, which is
+          // exactly what a genuinely-not-yet-resolved spec looks like.
+          try {
+            review = await sessionApi.getMethodSpec("reviews", factorId)
+          } catch {
+            // No review artifact either -- leave `review` unset.
+          }
+        }
+        if (cancelled) return
+        // `rawSpec` (step1's true pre-review output) has no dedicated GET
+        // endpoint -- only its local file path is recorded, which the
+        // browser can't fetch. Standing in with the reviewed `paper` here
+        // is a deliberate approximation so step 1 correctly shows
+        // "success" (its own attempt in `manifest` already confirms it
+        // ran) rather than "not_started"; the Step1 result panel will show
+        // the post-review spec instead of the true raw extraction until a
+        // human re-runs Step1, or a backend endpoint for the raw artifact
+        // is added.
+        patch({
+          rawSpec: paper,
+          paper,
+          review,
+          reviewSource: review ? "llm" : undefined,
+          resolved,
+        })
+      } catch {
+        // Best-effort recovery only -- leave state as-is (still shows
+        // "not_started") if the backend artifact is unreachable/missing
+        // too; nothing here is worse than the pre-existing behavior.
+      }
+    })()
+    return () => {
+      cancelled = true
+    }
+    // Only re-check when the manifest itself changes (e.g. after a fresh
+    // Step1/2 run elsewhere updates it) -- `state.rawSpec`/`state.paper` are
+    // read as a guard, not a dependency, so this doesn't re-fire on every
+    // local `patch()` this effect or the user's own edits trigger.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [manifest])
 
   const reviewLoopMutation = useMutation({
     mutationFn: (vars: { rawSpec: Record<string, unknown>; documentId: string; targetName: string; paperText: string }) =>

@@ -1,5 +1,86 @@
-\section{MethodSpec Schema and Example}
+\section{MethodSpec Schema}
 \label{app:methodspec}
-% Full Pydantic schema summary (src/infra/models/method_spec.py) + one worked
-% example (e.g. AssetGrowth's resolved MethodSpec) with field-by-field
-% provenance (source quote vs. human correction vs. default).
+
+The \emph{MethodSpec} produced by Step~1 and reviewed in Step~2
+(\S\ref{sec:pipeline}) is implemented as roughly 35 nested Pydantic models in
+\texttt{src/infra/models/method\_spec.py}, up to five levels deep. Reproducing
+the full definition here would not aid legibility; this appendix instead
+gives the two recurring building blocks that carry provenance through the
+spec, the nine top-level sections of \texttt{MethodSpec} itself, and one
+representative deep branch (the portfolio-construction tree). The complete,
+authoritative schema is the source file itself.\footnote{\url{https://github.com/xiaohai12/factor-replication-agent},
+\texttt{src/infra/models/method\_spec.py}.}
+
+\subsection{Two recurring building blocks}
+
+Most leaf fields in \texttt{MethodSpec} are not plain values: they are
+wrapped so that a value can never appear without a record of whether, and
+how, it is supported by the paper.
+
+\begin{itemize}[nosep]
+  \item \texttt{EvidenceCitation}: \texttt{location}, \texttt{quote} (a
+    verbatim span of paper text), \texttt{table\_ref} (\texttt{table},
+    \texttt{row}, \texttt{column}, used instead of \texttt{quote} when the
+    value comes from a table rather than prose), \texttt{interpretation}.
+  \item \texttt{SourcedValue[T]}: \texttt{value} (of type \texttt{T}),
+    \texttt{evidence} (a list of \texttt{EvidenceCitation}), \texttt{status}
+    (one of the \texttt{EvidenceStatus} values -- e.g.\ directly supported,
+    table-only, human-resolved, or unsupported), and, when unsupported, an
+    \texttt{unsupported\_value} placeholder rather than a silently invented
+    one.
+\end{itemize}
+
+Not every field is \texttt{SourcedValue}-wrapped or carries its own evidence
+list -- a few structural or purely definitional fields (e.g.\ an enum
+selecting among a fixed menu of construction types) are plain values -- but
+every field that encodes an empirical choice read from the paper is.
+
+\subsection{Top-level structure}
+
+\begin{itemize}[nosep]
+  \item \texttt{paper} (\texttt{PaperRef}): document id, title, citation,
+    publication year.
+  \item \texttt{signal} (\texttt{SignalSpec}): the signal's definition,
+    economic intuition, and direction (all \texttt{SourcedValue}), a
+    signal-category enum, and a \texttt{FormulaSpec} decomposing the paper's
+    formula into discrete \texttt{CalculationStep}s with their own inputs,
+    constants, and evidence.
+  \item \texttt{data} (\texttt{DataSpec}): signal/return frequency, the
+    sources cited, and a list of \texttt{RequiredField}s -- each one a
+    concept referenced in the paper together with the \texttt{source\_table}
+    and \texttt{source\_column} it resolves to against the registered data
+    catalog (\S\ref{sec:pipeline}).
+  \item \texttt{sample} (\texttt{SampleSpec}): three independently tracked
+    periods -- data coverage, portfolio-formation, and reported-returns --
+    each a \texttt{Period} with its own evidence.
+  \item \texttt{timing} (\texttt{TimingSpec}): formation rule and month,
+    rebalance frequency, holding period, and a \texttt{DataAvailability}
+    record of the reporting lag applied before a signal can be used.
+  \item \texttt{universe} (\texttt{UniverseSpec}): a description plus a list
+    of \texttt{FilterSpec} inclusion/exclusion rules, each tied to a concept
+    and an evidence-backed operator/value.
+  \item \texttt{portfolio} (\texttt{PortfolioSpec}): construction type,
+    sort dimensions, portfolio legs, weighting scheme, return-combination
+    rule, missing-data policies, and signal transforms -- detailed below.
+  \item \texttt{reported\_results} (\texttt{ReportedResults}): the paper's
+    own headline numbers -- up to four \texttt{ReportedMetric}s (estimand,
+    adjustment model, weighting, estimate, statistic, sample period, each
+    with evidence) plus an optional \texttt{ComparisonDerivation} recording
+    how a high-minus-low spread is built from two of them. This is the
+    section the gap decomposition in \S\ref{sec:results} benchmarks against;
+    it is not incidental metadata.
+  \item \texttt{notes}: free-text, non-evidentiary.
+\end{itemize}
+
+\subsection{A representative deep branch: portfolio construction}
+
+\texttt{PortfolioSpec.sorts} is a list of \texttt{SortDimension}, each
+carrying a \texttt{concept\_id}, a role (independent/conditioning) and order,
+a sort mode and group-type (both \texttt{SourcedValue}), an optional
+\texttt{group\_count}, and a nested \texttt{BreakpointSpec} (basis --
+e.g.\ NYSE-only -- and the numeric breakpoint values themselves).
+\texttt{PortfolioSpec.legs} is a list of \texttt{PortfolioLeg}, each a
+long/short side and a selector mapping sort ids to the group index that
+composes it. This is the branch \texttt{registry.build\_config}
+(\S\ref{sec:pipeline}) reads to resolve breakpoint convention and weighting
+against the fixed engine menu (Appendix~\ref{app:config-menu}).

@@ -1,5 +1,6 @@
 import {
   CartesianGrid,
+  Label,
   Legend,
   Line,
   LineChart,
@@ -60,13 +61,17 @@ export function ReturnChart({ data }: { data: ReturnRow[] }) {
               yAxisId="cumulative"
               tickFormatter={(v: number) => `${(v * 100).toFixed(0)}%`}
               tick={{ fontSize: 11 }}
-            />
+            >
+              <Label value="Cumulative return" angle={-90} position="insideLeft" style={{ fontSize: 11 }} />
+            </YAxis>
             <YAxis
               yAxisId="monthly"
               orientation="right"
               tickFormatter={(v: number) => `${(v * 100).toFixed(1)}%`}
               tick={{ fontSize: 11 }}
-            />
+            >
+              <Label value="Monthly return" angle={90} position="insideRight" style={{ fontSize: 11 }} />
+            </YAxis>
             <Tooltip
               formatter={(value, name) => [
                 `${(Number(value) * 100).toFixed(2)}%`,

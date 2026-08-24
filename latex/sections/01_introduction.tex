@@ -1,16 +1,17 @@
 \section{Introduction}
 \label{sec:intro}
 
-Consider \citet{Piotroski2000}'s F-score. \citet{HouXueZhang2020} report that
-under their standardized replication protocol -- value-weighted portfolios,
-NYSE breakpoints -- the signal they call $F$ fails to clear the conventional
-significance bar. \citet{ChenZimmermann2022}, implementing the same
-paper's own stated method rather than a uniform external protocol, replicate
-it with a $t$-statistic of 3.29 (against the paper's originally reported
-5.59), and classify it as a clear predictor. Same factor, same underlying
-economic idea, the same published text to work from -- and opposite
-verdicts, from two teams that are each careful, well-resourced, and working
-independently.
+Consider the sales-growth reversal signal in
+\citet{LakonishokShleiferVishny1994} -- what Chen and Zimmermann code as
+$\mathit{MeanRankRevGrowth}$. \citet{HouXueZhang2020} report that under
+their standardized replication protocol -- value-weighted portfolios, NYSE
+breakpoints -- the signal fails to clear the conventional significance bar
+($t=1.08$). \citet{ChenZimmermann2022}, implementing the same paper's own
+stated method rather than a uniform external protocol, replicate it with a
+$t$-statistic of 3.94, and classify it as a clear predictor. Same factor,
+same underlying economic idea, the same published text to work from -- and
+opposite verdicts, from two teams that are each careful, well-resourced,
+and working independently.
 
 This is not an isolated case, and it does not require picking a side. Across
 several hundred overlapping anomalies, \citet{HouXueZhang2020} report
@@ -38,51 +39,125 @@ paper itself actually says, uncontaminated by prior exposure to either
 team's implementation, so that a given disagreement can be attributed to a
 specific side's departure from the text rather than merely to "different
 choices." This second requirement is where a controlled LLM agent enters --
-not as a labor-saving substitute for a human replicator, but as a
-leakage-proof, independently-arrived-at reading of the paper, one that can
-serve as a neutral referee between two existing, human-produced
-implementations.
+not as a labor-saving substitute for a human replicator, but as an
+auditable, independently-arrived-at reading of the paper -- every field it
+extracts traceable to a cited quote, and arrived at without ever seeing
+either team's implementation -- that can serve as a neutral referee between
+two existing, human-produced implementations.
 
-Applying this framework to six factors chosen specifically because
-Hou-Xue-Zhang and Chen-Zimmermann reach divergent, agreeing, or otherwise
-informative verdicts on them (\S\ref{sec:data}), we find [TODO: headline
-numbers once \S5.3's factors are run]. The remainder of this section states
-two research questions this design answers (\S\ref{sec:intro}.1), fixes the
-unit of evaluation (\S\ref{sec:intro}.2), and lists the paper's contributions
+Applying this framework to three factors chosen specifically because
+Hou-Xue-Zhang's and Chen-Zimmermann's own reported verdicts on them differ
+in kind rather than merely in degree (\S\ref{sec:data}): sales-growth
+reversal, this section's opening example, whose HXZ-versus-C\&Z conflict is
+attributed to a compounding breakpoint-and-weighting effect rather than to
+either choice alone; asset growth \citep{CooperGulenSchill2008}, the one
+case in this sample where both teams agree the signal is significant; and
+share turnover \citep{DatarNaikRadcliffe1998}, whose original test is a
+firm-level Fama-MacBeth regression rather than a portfolio sort at all, so
+that HXZ's and C\&Z's quantile-sort implementations are both
+equally-unauthorized reconstructions of the paper's actual method, not
+competing readings of a shared design. Running our controlled pipeline on
+these factors, we find that even in the one case where the published
+verdicts agree throughout (asset growth), the largest term in the agent's
+own three-way gap decomposition against the C\&Z reference spread is not
+the configuration difference between implementations but the agent's own
+replication residual, which accounts for 67\% of the total gap -- more
+than the configuration and signal/environment terms combined. Related
+evidence holds in both disagreement cases, though of a different kind in
+each. For sales-growth reversal, the agent's replication residual alone
+exceeds the total observed gap in magnitude (partially offset by an
+opposing configuration term) -- a residual effect layered on top of the
+breakpoint-and-weighting story already given above for its configuration
+side. For share turnover, the agent's own signal is not robust across the
+four alternative breakpoint/weighting configurations tested against it (a
+$t$-statistic range of 0.79 and one outright sign flip), indicating that
+at least part of the disagreement under study is intrinsic to the signal
+rather than attributable to either team's protocol. Together, both cases
+show that the agent's own replication precision, not just protocol
+choice, is a first-order determinant of the measured gap. Part of that
+replication residual, in turn, is itself a scope limitation rather than a
+reading error: this engine's fixed configuration menu cannot always
+express an off-menu instruction the paper actually gives -- the same
+standardization tradeoff HXZ's own protocol makes in this paper's opening
+example -- a distinction \S\ref{sec:results} and \S\ref{sec:discussion}
+draw out factor by factor. The remainder of this section states two
+research questions
+this design answers (\S\ref{sec:intro}.1), fixes the unit of evaluation
+(\S\ref{sec:intro}.2), and lists the paper's contributions
 (\S\ref{sec:intro}.3).
 
 \subsection{Two research questions}
-% RQ1: for a given factor, decompose the CZ-vs-paper and HXZ-vs-paper gaps
-%      into signal/environment, configuration, and agent-residual terms
-%      (the three-term identity, Ch.3/Ch.6).
-% RQ2: what is the agent's autonomy/capability boundary in producing \Aref
-%      itself (fraction of high-impact fields resolved without human
-%      correction, end-to-end completion rate, where human correction
-%      concentrates) -- an independent finding, not merely instrumental to RQ1.
+
+\textbf{RQ1 (attribution).} For a given factor, how much of the total gap
+between an external reference ($\CZ$ or $\HXZ$) and the paper's own
+reported result ($\Pref$) is attributable to a difference in signal
+construction (and environment), how much to a difference in portfolio-
+construction configuration, and how much to the agent's own inability to
+replicate the paper exactly? \S\ref{sec:framework}'s paper-anchored
+three-term identity answers this by construction rather than by inference:
+each of the three terms is an exact difference between two tracks this
+paper's controlled engine actually runs, not a residual assigned by
+assumption, and the identity holds for every factor whose own headline
+result is a portfolio-sort spread, regardless of whether $\CZ$ and $\HXZ$
+agree or conflict. Where the paper's own headline is instead a regression
+coefficient (share turnover, \S\ref{sec:discussion}), $\Pref$ is not a
+quantity the identity's terms can be taken against at all, and that
+definitional gap is reported directly rather than forced into the three
+terms.
+
+\textbf{RQ2 (capability boundary).} Producing the paper-faithful
+configuration that RQ1's baseline, $\Aref$, depends on is itself a
+nontrivial task for the agent system (\S\ref{sec:intro}.2): what fraction
+of high-impact MethodSpec fields does it resolve without a human
+correction, what fraction of runs reach an executable $\Aref$ end-to-end,
+and where does human correction concentrate -- on purely technical
+mismatches, or on fields where the paper leaves a genuine empirical
+judgment unstated? This is reported as an independent finding (C2), not
+merely as a caveat on RQ1: it costs nothing beyond what RQ1's own pipeline
+already produces, since every MethodSpec field the agent resolves (or
+fails to) while building $\Aref$ is logged regardless of whether it is
+ever used for RQ1's decomposition (\S\ref{sec:results}).
 
 \subsection{Measurement unit convention}
-% State explicitly: the unit under evaluation is the AGENT SYSTEM (LLM +
-% tool interface + review gate + validator + sandbox + human confirmation
-% step), not a bare LLM. Human confirmation is a designed component of the
-% agent, not an external intervention -- so autonomy is measured as "where do
-% the agent's own designed checkpoints trigger", not "did the LLM misread".
+
+The unit under evaluation throughout this paper is not a bare language
+model call; it is the agent system as a whole -- the LLM, the tool
+interface it uses to query paper text and prior evidence, the Step 2
+review gate, the Step 4 sandbox validator, and the human confirmation step
+that resolves any field the reviewer flags (\S\ref{sec:pipeline}). Human
+confirmation is a designed component of this system, not an external
+intervention that spoils the measurement: a real deployment of this
+pipeline always includes a human confirming ambiguous fields before
+$\Aref$ is built, so excluding that step from the unit of evaluation would
+understate, not idealize, what the deployed system actually does.
+Consequently, RQ2's autonomy footprint (\S\ref{sec:intro}.1) is measured
+as \emph{where the agent's own designed checkpoints trigger} -- which
+fields reach the reviewer, which of those the reviewer resolves without
+escalating to a human, and which require a human correction -- rather than
+as an estimate of raw LLM reading accuracy against some hypothetical
+unsupervised baseline. This distinction matters for how the capability
+results in \S\ref{sec:results} should be read: a high rate of human
+correction on a given field is evidence that this system's checkpoints are
+doing their job, not, by itself, evidence that the underlying model reads
+the paper poorly.
 
 \subsection{Contributions}
 \begin{itemize}
-  \item \textbf{C1 (RQ1, empirical, main thread).} For each of six factors,
+  \item \textbf{C1 (RQ1, empirical, main thread).} For each of three factors,
     decompose the total gap between $\CZ$ (or $\HXZ$) and $\Pref$ into a
     signal/environment term, a configuration term, and an agent-residual
     term via three controlled counterfactual tracks
-    ($\Aref$, $\Acz$, $\Ahxz$) -- an exact identity, plus a window/vintage
-    mismatch residual (see Ch.3).
+    ($\Aref$, $\Acz$, $\Ahxz$) -- an exact identity.
   \item \textbf{C2 (RQ2, agent capability, independent finding).} Report the
-    agent's autonomy footprint and capability boundary across the same six
-    factors, as a free byproduct of running RQ1 -- no separate annotation
+    agent's autonomy footprint and capability boundary across the same
+    three factors, as a free byproduct of running RQ1 -- no separate annotation
     corpus required.
   \item \textbf{C3 (methodological foundation for both).} A controlled,
-    leakage-proof, LLM-assisted-but-not-LLM-controlled replication pipeline;
-    every empirical number is deterministically reproducible with the LLM
-    switched off.
+    auditable, LLM-assisted-but-not-LLM-controlled replication pipeline --
+    every extracted field carries a cited quote and source location, the
+    extraction step is leakage-proof by construction (\S\ref{sec:framework}),
+    and every empirical number is deterministically reproducible with the
+    LLM switched off.
 \end{itemize}
 
 % Explicit, proactive disclosure (do not wait for a reviewer to find this):
@@ -91,4 +166,20 @@ unit of evaluation (\S\ref{sec:intro}.2), and lists the paper's contributions
 % 防泄漏边界的收紧" for the exact three-part mitigation to state here.
 
 \subsection{Roadmap}
-% One paragraph outline of Ch.2--Ch.8.
+
+\S\ref{sec:related} situates this paper against the existing
+replication-crisis literature and the specific HXZ-versus-C\&Z divergence
+it takes as its starting point. \S\ref{sec:framework} formalizes the
+notation used throughout and states the two identities the rest of the
+paper is built to measure: the paper-anchored three-term identity (RQ1)
+and the disagreement-band lower bound on $\ImplSpace{P}$.
+\S\ref{sec:pipeline} describes the controlled pipeline itself, step by
+step, including the LLM-assisted-but-not-LLM-controlled boundary that
+makes C3 hold. \S\ref{sec:data} covers data sources, the scope and
+assumptions that make the implementation menu enumerable at all, and the
+resulting three-factor sample. \S\ref{sec:design} lays out the
+experimental design -- the counterfactual tracks and ablations each factor
+is run through -- that produces the numbers \S\ref{sec:results} reports
+for RQ1 and RQ2. \S\ref{sec:discussion} states this design's limitations
+honestly, including the leakage-proof boundary's remaining dependence on
+human discipline (\S\ref{sec:framework}), and concludes.

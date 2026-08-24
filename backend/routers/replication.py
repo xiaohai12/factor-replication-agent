@@ -72,7 +72,13 @@ def get_step6_track_configs(session_id: str, experiment_batch_id: str) -> dict:
     exists once step6 succeeds -- this endpoint only reads it. Never
     records a step7 attempt or otherwise mutates session state (same
     batch/factor_id resolution + consistency check as the POST endpoint
-    below, minus the session write).
+    below, minus the session write). Also forwards `bundle["paper_reported"]`
+    verbatim (main_spread/main_t_stat already sign-corrected against the
+    engine's own long/short convention, plus `sign_correction`/`return_type`)
+    so the frontend can show the paper's own number the same way
+    `comparison.json` does, instead of re-deriving an uncorrected estimate
+    straight from the raw MethodSpec (see `extractPaperReported` in
+    SessionDetailPage.tsx, which predates this and has no sign correction).
     """
     _get_or_404(session_id)
     records = [r for r in pipeline.run_registry.list_all() if r.experiment_batch_id == experiment_batch_id]
@@ -97,7 +103,10 @@ def get_step6_track_configs(session_id: str, experiment_batch_id: str) -> dict:
             ),
         )
     tracks = bundle.get("tracks") or {}
-    return {track: (payload.get("config") or {}) for track, payload in tracks.items()}
+    return {
+        "tracks": {track: (payload.get("config") or {}) for track, payload in tracks.items()},
+        "paper_reported": bundle.get("paper_reported"),
+    }
 
 
 _MAX_CZ_CONFIG_FETCH_ATTEMPTS = 3

@@ -1,0 +1,73 @@
+\subsection{Complete executed-track results}
+
+Tables~\ref{tab:assetgrowth-all-tracks}--\ref{tab:sharevol-all-tracks}
+list every executed agent track. Returns and FF3 alphas are in-sample monthly
+percentages; $t$-statistics are for the in-sample long--short return. The
+``switches'' column records the configuration dimensions changed from
+\texttt{original\_method}; a dash denotes the baseline.
+
+\begin{table}[htbp]
+  \centering\small
+  \caption{All executed AssetGrowth tracks.}
+  \label{tab:assetgrowth-all-tracks}
+  \begin{tabular}{llrrr}
+    \toprule
+    Track & Switches & LS return & FF3 alpha & $t$-stat. \\
+    \midrule
+    original\_method & -- & 0.93 & 0.51 & 4.12 \\
+    standardized\_hxz & breakpoint, universe & 0.71 & 0.36 & 3.60 \\
+    cz\_actual\_config & universe, weighting & 1.54 & 1.42 & 7.11 \\
+    factorial\_breakpoint & breakpoint & 0.75 & 0.40 & 3.73 \\
+    factorial\_universe & universe & 0.88 & 0.46 & 4.09 \\
+    cz\_factorial\_universe & universe & 0.89 & 0.51 & 3.99 \\
+    cz\_factorial\_weighting & weighting & 1.69 & 1.55 & 7.39 \\
+    \bottomrule
+  \end{tabular}
+\end{table}
+
+\begin{table}[htbp]
+  \centering\small
+  \caption{All executed MeanRankRevGrowth tracks.}
+  \label{tab:meanrank-all-tracks}
+  \begin{tabular}{llrrr}
+    \toprule
+    Track & Switches & LS return & FF3 alpha & $t$-stat. \\
+    \midrule
+    original\_method & -- & 0.48 & 0.38 & 3.00 \\
+    standardized\_hxz & breakpoint, universe, weighting & 0.25 & 0.07 & 1.33 \\
+    cz\_actual\_config & quantiles, universe & 0.38 & 0.30 & 2.83 \\
+    factorial\_universe & universe & 0.37 & 0.27 & 2.30 \\
+    factorial\_weighting & weighting & 0.44 & 0.27 & 2.44 \\
+    factorial\_weighting\_universe & weighting, universe & 0.41 & 0.21 & 2.14 \\
+    factorial\_breakpoint & breakpoint & 0.46 & 0.37 & 3.01 \\
+    factorial\_breakpoint\_universe & breakpoint, universe & 0.33 & 0.23 & 2.17 \\
+    factorial\_breakpoint\_weighting & breakpoint, weighting & 0.34 & 0.18 & 1.85 \\
+    cz\_factorial\_quantiles & quantiles & 0.35 & 0.29 & 2.58 \\
+    cz\_factorial\_universe & universe & 0.48 & 0.38 & 3.01 \\
+    \bottomrule
+  \end{tabular}
+\end{table}
+
+\begin{table}[htbp]
+  \centering\small
+  \caption{All executed ShareVol tracks.}
+  \label{tab:sharevol-all-tracks}
+  \begin{tabular}{llrrr}
+    \toprule
+    Track & Switches & LS return & FF3 alpha & $t$-stat. \\
+    \midrule
+    original\_method & -- & 0.01 & 0.23 & 0.03 \\
+    standardized\_hxz & breakpoint, lag, rebalance, universe & 0.01 & 0.23 & 0.03 \\
+    cz\_actual\_config & lag, quantiles, rebalance, universe, weighting & 0.19 & 0.42 & 0.89 \\
+    ablation\_breakpoint & breakpoint & 0.01 & 0.23 & 0.03 \\
+    ablation\_lag & lag & 0.01 & 0.23 & 0.03 \\
+    ablation\_rebalance & rebalance & 0.08 & 0.35 & 0.24 \\
+    ablation\_universe & universe & 0.00 & 0.13 & 0.00 \\
+    cz\_ablation\_weighting & weighting & 0.27 & 0.40 & 1.03 \\
+    cz\_ablation\_lag & lag & 0.01 & 0.23 & 0.03 \\
+    cz\_ablation\_rebalance & rebalance & 0.08 & 0.35 & 0.24 \\
+    cz\_ablation\_universe & universe & 0.03 & 0.27 & 0.11 \\
+    cz\_ablation\_quantiles & quantiles & 0.00 & 0.20 & 0.01 \\
+    \bottomrule
+  \end{tabular}
+\end{table}

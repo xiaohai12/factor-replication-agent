@@ -3,15 +3,24 @@
 
 \subsection{Data sources}
 
-Portfolio returns are constructed from the CRSP Monthly Stock File (the
-WRDS ``CIZ'' export), including delisting returns; accounting inputs come
+Portfolio returns are constructed from the CRSP Monthly Stock File,
+including delisting returns; accounting inputs come
 from Compustat Fundamentals Annual, linked to CRSP through the CCM link
 table with a point-in-time accounting lag
-(\texttt{accounting\_lag\_months}). Every signal source and link table used
-is registered in a single data-source registry (\S\ref{sec:pipeline}), so
-the exact fields, join keys, and lags behind any number in
-\S\ref{sec:results} are traceable to one place rather than to ad hoc code
-scattered across factor-specific scripts.
+(\texttt{accounting\_lag\_months}). IBES's unadjusted summary
+statistics (annual EPS forecast consensus) are likewise registered, linked
+to CRSP via a dedicated IBES--CRSP link table, though none of the three
+factors in \S\ref{sec:selection} draws on it. Every source is declared once
+in a single catalog (\S\ref{sec:pipeline}) rather than accreted ad hoc: each
+entry states how that source's own native key links, through a
+point-in-time link table, to the CRSP \texttt{permno} backbone every source
+is ultimately merged onto. Adding a further source is a single declarative
+entry in this catalog, after which any paper drawing on it is handled the
+same way as CRSP/Compustat, rather than requiring new source-specific code;
+conversely, a paper whose required source has no such entry is hard-blocked
+at Step~2's review rather than silently improvised. This is also what makes
+every field, join key, and lag behind a number in \S\ref{sec:results}
+traceable to one place.
 
 Chen and Zimmermann's factor metadata (\texttt{SignalDoc.csv}) plays a
 strictly circumscribed role: it supplies $\CZ$ (each factor's reported
@@ -30,12 +39,18 @@ This paper's implementation menu (Appendix~\ref{app:config-menu}) is
 restricted along several dimensions that are worth stating positively
 rather than apologetically: restricting attention to US common equity,
 monthly portfolio returns, and CRSP--Compustat accounting fields, with
-portfolio construction limited to univariate and independent bivariate
-sorts estimated by portfolio sorting rather than cross-sectional
+portfolio construction limited to univariate and independent-or-sequential
+bivariate sorts estimated by portfolio sorting rather than cross-sectional
 regression, is precisely what makes $\ImplSpace{P}$
 (\S\ref{sec:framework}) something this paper can enumerate at all. A menu
 with no boundary would make every disagreement unattributable, since there
-would be no fixed list of candidate causes to attribute it to.
+would be no fixed list of candidate causes to attribute it to. The menu is a
+deliberate boundary at any given time, not a permanent ceiling on what the
+agent could support: unlike the data-source catalog of this section, where
+adding a source is a single declarative entry, extending the menu means
+implementing the corresponding logic in the engine itself, but nothing in
+the design prevents doing so, and the menu has in fact grown as new factors
+required it.
 \input{tables/tab_scope_assumptions}
 
 That said, the finite menu introduces a two-sided bias that must be stated
@@ -52,31 +67,47 @@ where they bear on a specific result in \S\ref{sec:results}.
 \subsection{Factor selection criteria}
 \label{sec:selection}
 
-Three constraints follow mechanically from \S\ref{sec:scope} and are
-non-negotiable: a factor's headline result must be a portfolio-sort
-long-short spread and $t$-statistic, not a Fama--MacBeth coefficient, since
-the engine implements only the former; its signal must be computable from
-CRSP monthly data and Compustat annual fields alone; and its universe
-filters must not require a derived column (e.g., years since a firm's first
-Compustat observation) or an asymmetric, non-equal-quantile split, neither
-of which this engine's universe-filter machinery supports.
+Factors are selected against one hard constraint and one sampling goal.
+The constraint follows mechanically from \S\ref{sec:scope}: the signal,
+universe, and estimator must all be computable from CRSP monthly data and
+Compustat annual fields alone, using a single plain portfolio sort -- no
+multi-way or within-group-conditioned sorts, no derived universe filters,
+and no other estimator such as Fama--MacBeth. ShareVol is the sole
+exception: its own headline test is a Fama-MacBeth coefficient, but
+Hou-Xue-Zhang's and Chen-Zimmermann's own portfolio-sort reconstructions of
+it satisfy the constraint, so it enters the sample on that basis.
 
-Within that feasible set, factors were then selected for the specific,
-verified divergence evidence they carry between Hou-Xue-Zhang and Chen and
-Zimmermann -- not merely for being underdetermined by their own paper in
-isolation. Candidates were drawn from a systematic cross-check against both
-teams' own reported verdicts (rather than inferred solely from C\&Z's
-\texttt{Notes} field), covering cases where the two teams agree, disagree in
-either direction, or disagree for a reason attributable to data vintage
-rather than methodology.
+Within that feasible set, the sampling goal is deliberately illustrative,
+not representative: two factors are chosen for verified divergence between
+Hou-Xue-Zhang's and Chen-Zimmermann's own reported verdicts, and one for
+their agreement. The agreement case (asset growth, below) is the sample's
+anchor -- a baseline where this pipeline's own gap decomposition should
+turn up a small, well-explained gap, so the two disagreement cases read as
+a genuine contrast rather than an artifact of a pipeline that only ever
+finds gaps.
 
 \subsection{The factor sample}
 
-% TODO (2026-08-19): roster still open -- confirmed: AssetGrowth (already
-% run, 13 tracks), GP, PS, fgr5yrLag, OScore; FailureProbability's inclusion
-% is undecided pending its engineering cost (mktrf as a signal input,
-% quarterly fields). Leverage was excluded (Test in OP = mv reg, no
-% portfolio-sort spread to compare against). Update this subsection and
-% tab_factor_roster.tex together once the count is locked.
-\input{tables/tab_factor_roster}
+The final sample is three factors, chosen so that Hou-Xue-Zhang's and
+Chen-Zimmermann's own reported verdicts on them differ in kind rather than
+merely in degree (\S\ref{sec:intro}).
 
+Asset growth \citep{CooperGulenSchill2008} is the sample's anchor: C\&Z's
+own equal-weighted long-short spread is $1.73\%$/month ($t=8.45$), and
+HXZ's own I/A-sorted, NYSE-VW spread is $t\approx 2.89$ -- both sides
+significant and same-signed, the sample's sole instance of agreement.
+
+Sales-growth reversal \citep{LakonishokShleiferVishny1994}
+(\texttt{MeanRankRevGrowth}) is an opposite-verdict case compounded by a
+menu-clamped delisting-return policy: C\&Z's own reported long-short return
+is $0.55\%$/month ($t=3.94$). HXZ's own reported spread, by contrast, is a
+clean $-0.19\%$/month
+($t=1.08$) -- sign-reversed and statistically insignificant.
+
+Share turnover \citep{DatarNaikRadcliffe1998} is an opposite-verdict case
+whose original test is not a portfolio sort at all, so both teams'
+comparison numbers are themselves reconstructions of the paper's method:
+C\&Z's own long-short spread is significant ($t=8.86$), while HXZ's own is
+$-0.11\%$/month ($t=0.46$) -- again sign-reversed and insignificant
+(\S\ref{sec:selection}, \S\ref{sec:discussion}; Table~\ref{tab:roster}).
+\input{tables/tab_factor_roster}

@@ -3,48 +3,105 @@
 
 Figure~\ref{fig:architecture} summarizes the eight-step agent pipeline that
 produces every quantity in \S\ref{sec:results}. The language model has a
-strictly limited role: it may extract a method from paper text (Step~1), write
-the signal formula (Step~3), and, only if requested, draft an explanation of
-already-computed evidence (Step~8). All empirical choices and every reported
-number are instead produced by reviewed specifications and deterministic,
-controlled components.
+strictly limited role: it may extract a method from paper text (Step~1),
+iteratively review and rewrite that extraction against the paper text before
+a human sees it (Step~2), write the signal formula (Step~3), and, only if
+requested, draft an explanation of already-computed evidence (Step~8). Each
+step below states what its prompt is given and constrained to return; the
+prompt text itself, and the code that assembles its inputs and validates its
+output, is versioned in the project repository rather than reproduced
+here.\footnote{\url{https://github.com/xiaohai12/factor-replication-agent},
+\texttt{prompts/} and \texttt{src/steps/}.} All empirical choices and
+every reported number are instead produced by reviewed specifications and
+deterministic, controlled components.
 
 \begin{figure}[htbp]
   \centering
-  \fbox{\parbox{0.9\linewidth}{\centering \vspace{4cm} F1: pipeline architecture diagram (TikZ or exported PDF) \vspace{4cm}}}
+  \includegraphics[width=\linewidth]{Figures/controlled-data-pipeline.png}
   \caption{The eight-step controlled replication pipeline. The LLM is used
-    only for bounded extraction (Step~1), \texttt{compute\_signal}
-    generation (Step~3), and an optional, evidence-constrained diagnosis
-    proposal (Step~8).}
+    for bounded extraction (Step~1), an iterative review-and-rewrite loop
+    against the paper text (Step~2), \texttt{compute\_signal} generation
+    (Step~3), and an optional, evidence-constrained diagnosis proposal
+    (Step~8); the human review gate that concludes Step~2, and every other
+    step, remain deterministic or designed checkpoints rather than model
+    calls.}
   \label{fig:architecture}
 \end{figure}
 
 \subsection{Step 1: extract a MethodSpec from the paper}
 
-Step~1 extracts a structured \emph{MethodSpec} from the paper's text alone
--- signal definition, universe, timing, and portfolio-construction fields,
-each tagged with the source sentence it was read from. No downstream step
-ever reads the paper directly; every later step's notion of "what the paper
-says" is mediated entirely through this one artifact, which makes the
-extraction auditable independently of everything that follows.
+Step~1 extracts a structured \emph{MethodSpec} from the paper's text (and,
+when available, the paper's raw PDF), together with a live registry of the
+data sources and columns this pipeline supports -- so a required field's
+\texttt{source\_table}/\texttt{source\_column} is resolved against what is
+actually registered rather than invented. The resulting specification covers
+paper identity, the signal definition, these data-catalog bindings, the
+sample periods, timing, universe, and portfolio-construction fields, and, not
+least, the paper's own reported headline results (its metrics, $t$-statistics,
+and risk-adjustment models), which later steps benchmark against. Wherever a
+field has direct textual support, it carries an evidence citation -- a
+verbatim quoted span for text, or a table/row/column reference for a value
+read off a table -- rather than every field carrying its own free-standing
+provenance.
 
-\subsection{Step 2: review and resolve empirical choices}
+Step~1's draft is not the last time the paper is read: Step~2's review loop
+(below) is explicitly permitted to consult the paper text again, and every
+change it makes is captured as a diff against Step~1's draft. No step beyond
+Step~2 ever reads the paper directly, so every later step's notion of "what
+the paper says" is mediated through the final, human-approved MethodSpec and
+its evidence trail, rather than through an unaudited, free-form re-reading of
+the paper.
 
-Step~2 is the review gate described above: a human confirms or corrects
-low-confidence or inconsistent fields, and each intervention is retained as
-field-level evidence. It also verifies source registration and blocks an
-unknown signal-input source. Only a specification with direct textual support
-or an explicit human resolution for every required field is marked
-\texttt{codegen\_ready}. This gate also produces the RQ2 extraction measure
-(\S\ref{sec:intro}): the fraction of high-impact fields resolved without
-assistance is read from this ordinary review record, not a separate annotation
-exercise.
+\subsection{Step 2: LLM-assisted review, then a human resolution gate}
+
+Step~2 opens with an LLM-assisted review loop, before any human sees the
+extracted MethodSpec. Each round validates the current specification, runs
+deterministic tool checks (schema validation and engine-menu/capability
+findings), and sends the paper text, the current specification, and those
+tool results to the LLM, which returns a rewritten specification together
+with structured notes on any value corrections it made. The loop repeats for
+up to a fixed number of rounds or until a round leaves the specification
+unchanged; every field-level change the LLM makes is captured as a mechanical
+before/after diff, so nothing it rewrites is applied silently. A small set of
+identifier fields (\texttt{factor\_id}, \texttt{schema\_version}, the paper's
+\texttt{document\_id}) is never taken from the LLM and is re-injected
+deterministically every round.
+
+Only once this loop converges does the human review gate take over: a human
+confirms or corrects any remaining low-confidence or inconsistent fields,
+each intervention is retained as field-level evidence, and the gate verifies
+source registration and blocks an unknown signal-input source.
+
+A universe filter whose concept must be derived -- e.g.\ mapping the paper's
+stated categories onto an underlying column's raw encoding, or computing a
+concept from other fields -- is reviewed together with that derivation
+rather than applied or dropped silently; if it cannot yet be resolved
+against any registered data source, a human must explicitly mark it
+\texttt{accepted\_unapplied} with a reason, rather than the stated
+restriction being silently ignored, and the converse decision is recorded
+just as explicitly: a filter inferred from indirect evidence can instead be
+marked \texttt{human\_confirmed\_applied} (the two are mutually exclusive).
+
+Only a specification with direct textual support or an explicit human
+resolution for every required field is marked \texttt{codegen\_ready}. This
+gate also produces the RQ2 extraction measure (\S\ref{sec:intro}): the
+fraction of high-impact fields resolved without assistance is read from this
+ordinary review record, not a separate annotation exercise. "High-impact" is
+a fixed, enumerated set of fields whose value materially changes the
+backtest -- the signal's direction; the formation rule, rebalance frequency,
+and holding period; the portfolio's construction type, weighting, and
+return-combination rule; the universe description; and, per sort dimension
+or required data field, the breakpoint basis, grouping, and sort mode, the
+missing-data policy, and the source-table/column binding -- rather than a
+per-field judgment made at review time; only fields in this set are scored,
+and every one of them counts as high-impact.
 
 \subsection{Step 3: generate the signal and freeze the configuration}
 
-Once a MethodSpec is codegen-ready, the LLM generates only a
-\texttt{compute\_signal} function and the pipeline assembles it into one
-complete standalone backtest script. It cannot generate lags, universe,
+Once a MethodSpec is codegen-ready, its generator prompt is given only that
+approved specification and returns only a \texttt{compute\_signal} function
+body; the pipeline assembles this into one complete standalone backtest
+script. The prompt has no access to, and cannot generate, lags, universe,
 breakpoint, weighting, or portfolio-construction logic.
 \texttt{registry.build\_config} then turns the approved MethodSpec
 into an executable configuration by resolving every relevant field against
@@ -72,55 +129,126 @@ signal inputs and link tables---are stated fully in \S\ref{sec:scope}.
 
 \subsection{Step 4: validate the generated artifact in a sandbox}
 
-Step~4 validates the generated \texttt{compute\_signal} plugin in a sandbox
--- syntax and schema checks, plus a static scan for look-ahead leakage --
-before it is allowed to run against real data. Only technical syntax or schema
-failures are repairable at this stage; empirical choices remain the reviewed
-MethodSpec's responsibility.
+Step~4 validates the generated \texttt{compute\_signal} plugin in a sandbox,
+before it is allowed to run against real data, through a fixed sequence of
+checks: syntax, schema, a static scan for forbidden look-ahead patterns
+(e.g.\ shifting a series into the future), and, last, an execution smoke
+test. That final check is not purely static: it imports the assembled
+backtest script and actually runs
+\texttt{compute\_signal} against a small, fixed slice of securities' full
+monthly history, checking for raised exceptions, the returned schema and
+dtype, missing-value rates, and degenerate portfolio groupings (e.g.\ an
+empty long or short leg) that only surface once the signal is actually
+computed.
+
+Any of these checks can trigger the same bounded repair loop. On a failure,
+an automated repairer is given only the validator's raw error report and
+rewrites the \texttt{compute\_signal} plugin itself -- never the surrounding,
+deterministically assembled script, and never an empirical parameter; the
+full script is then reassembled from this repaired plugin and validated
+again, for up to a fixed number of attempts before the batch is returned to a
+human. The loop does not distinguish where the failure came from -- a
+look-ahead finding, a degenerate portfolio grouping, and a runtime exception
+all trigger a plugin repair the same way a syntax error does -- so the
+accurate constraint is that only \emph{technical} or \emph{execution}
+failures are repairable at this stage, never an empirical formula choice.
 
 \subsection{Step 5: execute the frozen backtest script}
 
-Step~5 runs exactly the standalone script assembled in Step~3, in a controlled
-subprocess against the resolved data snapshot. The standardized engine supplies
-the approved universe, lags, breakpoints, weighting, portfolio construction,
-and return calculations; the plugin supplies only the signal formula.
-Execution therefore yields deterministic track-level metrics from a fixed
-script, configuration, and data snapshot rather than from a model-directed
-backtest.
+Step~5 runs the standalone script assembled in Step~3 in a fresh subprocess
+against the actual resolved data, as a single one-track run -- this is not
+the resource-limited smoke test of Step~4, but the real execution that
+produces the paper's replicated backtest. The standardized engine supplies the
+approved universe, lags, breakpoints, weighting, portfolio construction
+(including any winsorization or other transform Step~2's review configured,
+applied by the engine rather than by the plugin), and return calculation; the
+plugin supplies only the signal formula. Execution produces the run's
+track-level metrics: mean monthly return, a Newey-West $t$-statistic, Sharpe
+ratio, and month count, together with CAPM/FF3/FF5 alphas and their own
+$t$-statistics when factor data is available. The same mean/$t$-stat/Sharpe
+are additionally recomputed separately over three windows -- the paper's own
+in-sample period, the gap between the sample's end and the paper's
+publication, and the post-publication period -- so that any decay in the
+signal after the sample the paper studied, or after its publication, is
+visible rather than averaged away.
+
+The execution boundary is deliberately split between two components.
+\texttt{BacktestRunner} builds the standalone script from the reviewed
+MethodSpec, the frozen \texttt{compute\_signal} source, and a resolved
+configuration, then launches that exact file in a fresh subprocess.
+Inside the script, \texttt{BacktestExecutor} implements the fixed ten-step
+lifecycle: data loading, delisting-return treatment, missing-data policy,
+universe filtering, excess-return conversion, signal holding-period
+expansion, portfolio formation (including breakpoints), portfolio-return
+calculation, long--short construction, and metric calculation. Thus, the
+generated artifact contributes the signal formula only; it cannot replace or
+silently modify the standardized backtesting lifecycle. This separation is
+what makes a Step~6 comparison a configuration experiment over one frozen
+signal rather than a comparison of separately generated backtest programs.
 
 \subsection{Step 6: compare tracks and implementation variants}
 
-Step~6 orchestrates the original-specification, standardized (HXZ), and
-one-at-a-time or declarative-matrix sensitivity tracks. They share the same
-frozen signal code, while only their explicitly recorded configuration
-overrides differ. If a technical repair changes code during a batch, the
-controller re-runs the \emph{entire} batch under the repaired code with repair
-disabled, subject to \texttt{max\_refreeze\_attempts}. This guarantees that
-the frozen signal $\SA$ underlying $\Aref$, $\Acz$, and $\Ahxz$ is, by
-construction, the exact same artifact across all three tracks -- the identity
-in Equation~\eqref{eq:three-term} would not otherwise hold exactly.
+Step~6 orchestrates several tracks built from the same frozen signal code:
+the original-specification track (no overrides), a standardized track built
+against a fixed HXZ configuration, an optional track built from a
+human-supplied C\&Z configuration, and a set of attribution tracks that each
+isolate one or more configuration switches -- breakpoint source (NYSE-only
+vs.\ all-exchange), weighting rule (EW vs.\ VW), accounting lag, rebalance
+frequency (always changed together with holding period, so the number of
+observations does not silently change), universe filters, and breakpoint
+quantiles. When two tracks being compared differ on a small number of these
+switches, the controller runs the full factorial of baseline/target
+combinations across them; beyond that it falls back to flipping one switch
+at a time, so a batch's exact number of attribution runs depends on how many
+switches the comparison at hand actually touches, not a fixed count.
+Every track is built from the exact same plugin object, varying only its
+configuration overrides. The review UI overlays every track's cumulative
+long-short return on one chart per sample-period segment (in-sample, the gap
+between sample end and publication, and post-publication, mirroring the
+segmentation in \S\ref{sec:pipeline}'s Step~5 metrics), so a divergence
+between, say, $\Aref$ and $\Ahxz$ is visible directly rather than only as a
+difference in summary statistics.
 
 \subsection{Step 7: decompose the replication gap and preserve evidence}
 
-Every executed track is recorded as a \texttt{RunRecord}: its configuration
-hash, its plugin's code hash, and its resulting metrics, stored alongside
-both an artifact hash (of the physical output file) and a semantic hash (of
-its canonicalized content, invariant to representation details such as
-column order or float formatting). Step 7 assembles these records for a
-factor into a single evidence bundle -- the field-level configuration diff,
-the gap decomposition, and the identification level of each comparison
-(\S\ref{sec:design}) -- which is the only input the next step is permitted
-to read.
+Step~7 builds two decompositions from a factor's executed tracks. A
+field-level decomposition attributes the gap between $\Acz$ (or $\Ahxz$) and
+$\Aref$ to individual configuration fields -- exactly, via the full
+factorial, when few enough fields differ, and via the one-at-a-time design
+otherwise (Equation~\eqref{eq:gap-decomp}, \S\ref{sec:design}). A second,
+paper-anchored decomposition applies Equation~\eqref{eq:three-term} itself,
+splitting the gap between an external reference ($\CZ$ or $\HXZ$) and
+$\Pref$ into the same three named terms defined in \S\ref{sec:framework},
+together with a check that they sum to the total gap. Every comparison the
+bundle reports also carries the identification level \S\ref{sec:design}
+assigns it, so a reader can tell a controlled attribution from a merely
+descriptive one.
+
+The resulting evidence bundle is considerably larger than these two
+decompositions: it also carries the field-level configuration diff, a
+specification-quality summary, publication-decay and robustness sections,
+and an external-performance comparison, among others, all indexed under a
+single flat \texttt{evidence\_keys} whitelist -- which is what the next step
+is restricted to citing.
 
 \subsection{Step 8: optionally draft an evidence-constrained diagnosis}
 
-Step 8 is an optional, LLM-assisted explanation layer over an already-
-computed evidence bundle. It is deliberately not permitted to alter, or even
-see, any number the deterministic engine produced: each claim it drafts must
-cite one or more \texttt{evidence\_keys} already present in the bundle from
-Step 7, a validator rejects any claim that cites a key not present in the
-bundle or that contains a digit of its own, and every output is tagged
-\texttt{status: "llm\_assisted\_proposal"} rather than presented as a
-finding. This confines the language model, even in the one place it is
-permitted to comment on results, to drafting attribution language for
-numbers it did not compute and cannot alter.
+Step~8 is the one place in the pipeline where the LLM is asked to write
+about results rather than produce them. Its input is exactly the evidence
+bundle Step~7 already computed, plus the paper-evidence quotes already
+recorded in the reviewed MethodSpec. Its output is drawn from a small, fixed
+menu of claim types, each a natural-language rendering of one already-computed
+comparison: whether the paper's and the agent's sign agree; how large a
+magnitude or significance gap between two tracks is; how much of a gap a
+given configuration switch, or the joint set of switches, explains; whether
+the factor's own return pattern decays after the paper's publication; and,
+for the paper-anchored three-term identity, which of the three terms
+dominates an external party's distance from the paper. Every claim must cite
+the specific evidence behind it and is tagged as a proposal rather than a
+finding. The LLM does not compute, see the derivation of, or alter any
+number, and it does not decide the overall verdict -- it only selects which
+of these fixed, pre-defined things is true for this factor and phrases it in
+prose. This is what lets the pipeline surface a human-readable explanation
+for a factor's replication gap without reopening, at the one point the model
+is allowed to speak about the results, any guarantee the rest of the
+pipeline establishes.
