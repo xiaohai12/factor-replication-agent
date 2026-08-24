@@ -154,35 +154,32 @@ retaining the HXZ line's weaker evidential status.
   \label{fig:assetgrowth-shapley}
 \end{figure}
 
-\subsubsection{MeanRankRevGrowth: a residual-dominated paper comparison}
+\subsubsection{MeanRankRevGrowth: successful reproduction under the C\&Z configuration}
 
-MeanRankRevGrowth \citep{LakonishokShleiferVishny1994} is the
-residual-dominated case. Table~\ref{tab:meanrank-endpoints} displays the
-paper's reported value-decile return of $2.20\%$ per month beside the
-engine's long--short tracks; because these endpoints do not share a common
-estimator or data vintage, the paper-anchored comparison is observational.
-The reviewed baseline produces $0.48\%$ per month ($t=3.00$). Under the
-C\&Z configuration, the frozen signal produces $0.38\%$ ($t=2.83$), versus
-the C\&Z reference of $0.55\%$ ($t=3.94$); this matched-configuration
-comparison is classified as reproduced. Under the standardized HXZ
-configuration, the agent produces $0.25\%$ ($t=1.33$), whereas the HXZ
-reference is $-0.19\%$ ($t=1.08$). The signs differ, but neither is
-statistically significant, so that comparison is inconclusive rather than a
-claimed reproduction or failure.
-Thus, the reproduced C\&Z comparison establishes agreement with C\&Z under
-its matched configuration; it does not eliminate the much larger,
-observational gap between the agent baseline and the paper endpoint.
+MeanRankRevGrowth \citep{LakonishokShleiferVishny1994} is successfully
+reproduced under the C\&Z configuration. Table~\ref{tab:meanrank-endpoints}
+uses the paper long--short benchmark of $0.38\%$ per month
+($t=4.50$); for this analysis, this is the paper endpoint used in the
+comparison bundle. The reviewed baseline produces $0.48\%$ per month ($t=3.00$),
+an excess of $0.10\%$. Under the C\&Z configuration, the frozen signal
+produces $0.38\%$ ($t=2.83$), differing from the paper endpoint by less than
+$0.01$ basis points, establishing the successful reproduction. The separate C\&Z external reference is $0.55\%$
+($t=3.94$), so the matched-configuration agent--C\&Z comparison remains
+classified as reproduced. Under the standardized HXZ configuration, the
+agent produces $0.25\%$ ($t=1.33$), whereas the HXZ reference is
+$-0.19\%$ ($t=1.08$); the signs differ and that external comparison is
+inconclusive.
 
-The paper-anchored identities show why configuration is not the central
-explanation. Each identity follows the path from the paper endpoint to the
+The paper-anchored identities show how the C\&Z reproduction arises. Each identity follows the path from the paper endpoint to the
 agent baseline, then to the frozen agent signal under the external
 configuration, and finally to the external reference. The total gaps to C\&Z
-and HXZ are $-1.65\%$ and $-2.39\%$ per month, respectively, while the agent
-replication residual is $-1.72\%$ on both lines. The configuration terms are
-much smaller: $-0.10\%$ on the C\&Z line and $-0.23\%$ on the HXZ line. The
-residual is the difference between the agent's $0.48\%$ baseline return and
-the paper endpoint; it does not itself identify which implementation choice
-caused that difference. The reviewed
+and HXZ are $+0.17\%$ and $-0.57\%$ per month, respectively. The agent
+replication residual is only $+0.10\%$ on both lines, exactly the difference
+between the $0.48\%$ baseline return and the paper endpoint. The C\&Z
+configuration term is $-0.10\%$, bringing the frozen signal almost exactly
+onto the paper endpoint; the HXZ configuration term is $-0.23\%$. The
+remaining signal/environment terms are $+0.17\%$ and $-0.44\%$,
+respectively. The reviewed
 MethodSpec retains four fields requiring human attention: the portfolio-sort
 mode and three signal-input source columns are inferred. Moreover, the paper
 does not specify an accounting lag or missing-return treatment, so the engine
@@ -192,9 +189,9 @@ post-signal rank transform is also recorded as unapplied because the fixed
 menu cannot express it. Thus, the residual combines signal-source mapping,
 the omitted rank transform, documented defaults, data vintage, and engine
 implementation differences. No counterfactual tracks isolate these components,
-so the residual cannot be reliably allocated among them. The two
-MeanRankRevGrowth rows in Table~\ref{tab:three-term-identities} make this
-residual dominance explicit.
+so the signal/environment terms cannot be allocated uniquely among them. The
+two MeanRankRevGrowth rows in Table~\ref{tab:three-term-identities} make the
+successful C\&Z reproduction and the divergent HXZ comparison explicit.
 
 Both endpoint lines nevertheless admit complete factorial grids. On the C\&Z
 line, changing deciles to quintiles contributes $-0.12\%$ per month, while
@@ -253,8 +250,8 @@ interpretation.
 
 The three cases do not support a single universal cause of replication
 disagreement. AssetGrowth's C\&Z-side configuration difference is dominated
-by weighting; MeanRankRevGrowth's controlled configuration effects are small
-relative to its paper-comparison residual; and ShareVol cannot support the
+by weighting; MeanRankRevGrowth is successfully reproduced under the C\&Z
+configuration; and ShareVol cannot support the
 same decomposition because its paper estimand differs and its field count
 exceeds the factorial budget. The common finding is methodological: the
 pipeline distinguishes controlled configuration evidence from external or

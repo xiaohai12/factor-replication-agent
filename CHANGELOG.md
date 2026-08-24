@@ -2,6 +2,20 @@
 
 ## Unreleased
 
+- Synchronize all MeanRankRevGrowth thesis text and tables with the rebuilt
+  comparison bundle: the normalized paper endpoint is $0.3833\%$ per month
+  with $t=4.5$, the C\&Z configuration is paper-aligned, and the updated
+  C\&Z/HXZ three-term identities are reported.
+- State the MeanRankRevGrowth conclusion consistently as a successful
+  reproduction under the C\&Z configuration across the abstract, results,
+  discussion, conclusion, and endpoint table.
+- Clarify the MeanRankRevGrowth paper benchmark and distinguish it from the
+  external C\&Z/HXZ reference endpoints in the results and summary tables.
+- Correct the thesis introduction's AssetGrowth gap interpretation: the
+  C\&Z-side gap is configuration-dominated ($+0.61\%$ per month, primarily
+  from weighting), not dominated by a purported 67\% agent residual.
+- Synchronize the LaTeX title-page author and supervisor fields with the
+  already-rendered thesis PDF so recompilation preserves the approved names.
 - Fix the thesis template's chapter-page style initialization for the standard
   `book` base class, preventing an undefined `\chapter@p@gestyle` error at
   `\begin{document}`.

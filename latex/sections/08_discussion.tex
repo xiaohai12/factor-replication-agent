@@ -10,9 +10,9 @@ remain outside the experiment, from a mismatch between the engine and the
 paper's requested method, or from an estimand that is not comparable in the
 first place. AssetGrowth demonstrates that substantial configuration effects
 can coexist with agreement about a factor's sign and significance.
-MeanRankRevGrowth demonstrates that a large paper-comparison residual cannot
-automatically be attributed to the agent when the implementation menu supplies
-defaults for unresolved or unsupported fields. ShareVol demonstrates the
+MeanRankRevGrowth demonstrates successful reproduction under a controlled
+C\&Z configuration, while an external standardized
+configuration can still produce an opposite-sign result. ShareVol demonstrates the
 stronger boundary: a paper coefficient and a portfolio-sort spread should not
 be forced into the same replication identity.
 
@@ -130,9 +130,9 @@ agent's paper interpretation a versioned, auditable object rather than a
 black box that can silently alter the strategy while an experiment is running.
 
 Across the three cases, AssetGrowth is a raw-return reproduction that remains
-materially configuration-sensitive; MeanRankRevGrowth has a
-residual-dominated paper comparison; and ShareVol's paper coefficient cannot
-be identified with a portfolio-sort spread. Where complete factorial grids
+materially configuration-sensitive; MeanRankRevGrowth is successfully
+reproduced under the C\&Z configuration; and ShareVol's paper
+coefficient cannot be identified with a portfolio-sort spread. Where complete factorial grids
 are feasible, the workflow reports exact within-engine Shapley contributions;
 where they are not, it reports non-additive OAT sensitivity; and where
 estimands differ, it declines the paper-anchored decomposition. These

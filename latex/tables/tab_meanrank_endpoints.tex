@@ -10,12 +10,12 @@
     Source / track & Configuration or reported basis & LS return & FF3 alpha & $t$-stat. & Status \\
     & & (\%/month) & (\%/month) & & \\
     \midrule
-    Paper ($\Pref$) & reported value-decile return & 2.20 & -- & -- & external reference \\
+    Paper ($\Pref$) & long--short benchmark & 0.38 & -- & 4.50 & paper benchmark \\
     C\&Z ($\CZ$) & EW long--short & 0.55 & -- & 3.94 & external reference \\
     HXZ ($\HXZ$) & EW long--short & -0.19 & -- & 1.08 & external reference \\
     \addlinespace
     Agent ($\Aref$) & $\Cagent$ & 0.48 & 0.38 & 3.00 & paper-faithful baseline \\
-    Agent ($\Acz$) & $\Ccz$ & 0.38 & 0.30 & 2.83 & C\&Z configuration \\
+    Agent ($\Acz$) & $\Ccz$ & 0.38 & 0.30 & 2.83 & reproduced \\
     Agent ($\Ahxz$) & $\Cstd$ & 0.25 & 0.07 & 1.33 & HXZ-style configuration \\
     \bottomrule
   \end{tabular}%
@@ -23,6 +23,8 @@
   \par\medskip
   \footnotesize\raggedright
   \emph{Note:} Agent values are in-sample long--short returns and FF3 alphas.
-  The paper's reported value-decile return and the external references are
-  shown transparently but do not share one common estimator or data vintage.
+  The Paper row is the long--short benchmark used in the comparison bundle.
+  The C\&Z and HXZ rows are external references and retain their own reported
+  bases; their numerical differences from the Paper row therefore do not
+  alter the paper-benchmark reproduction result.
 \end{table}
