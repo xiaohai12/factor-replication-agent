@@ -56,6 +56,11 @@
 \PassOptionsToClass{a4paper, 12pt, oneside}{\baseclass}
 \LoadClass{\baseclass}
 
+% The base `book` class does not define this KOMA-Script internal command.
+% Give chapter pages a safe default before the scrlayer-scrpage setup below
+% replaces it with `scrheadings` at begin-document time.
+\providecommand{\chapter@p@gestyle}{plain}
+
 %  Simple interface for the user  to customize the chapter titles 
 \ProvideDocumentCommand{\abovechapterskip}{}{\vspace*{20pt}}
 \ProvideDocumentCommand{\chapterbelowskip}{}{\vspace*{40pt}}

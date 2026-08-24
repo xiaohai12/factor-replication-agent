@@ -1,5 +1,38 @@
 \section{Validator and Leakage-Control Rules}
 \label{app:validator}
-% Step 4 sandbox validator rules (syntax/schema/future-leak scan); the
-% leakage-proof boundary specifics (SignalDoc.csv never passed to the
-% extractor; where/how the boundary is enforced in code).
+
+Step~4 validates the exact standalone script assembled after code generation,
+but its repair scope is deliberately technical: it can reject or repair a
+syntax, schema, or execution defect, never an empirical choice that belongs
+to human review. The generated plugin contains only
+\texttt{compute\_signal}; all timing, universe, breakpoints, and portfolio
+construction remain in controlled engine components.
+
+\begin{itemize}[nosep]
+  \item \textbf{Information boundary.} The extraction step is never given
+    \texttt{SignalDoc.csv}; that file is evaluation-only. Data availability
+    lags are applied in the data layer before the plugin receives its input,
+    and plugins are forbidden from implementing their own lag policy.
+  \item \textbf{Static checks.} The validator parses the plugin, requires
+    the declared entry function, scans for known future-looking constructs
+    (including negative shifts, \texttt{.future}, and \texttt{lead(}), and
+    enforces any factor-specific market-equity implementation policy.
+  \item \textbf{Execution check.} The exact generated script is imported in
+    a separate process and its signal function is executed on a small,
+    point-in-time real-data slice. The output must have the required keys and
+    a numeric signal; a raised exception, timeout, non-numeric output, or
+    clearly invalid signal cardinality/leg coverage fails validation.
+  \item \textbf{Diagnostics rather than hidden repair.} Empty or degenerate
+    thin-slice output is recorded as a warning when it may reflect coverage.
+    The full Step~5 execution remains the final check of the complete engine
+    on the full data. Only technical errors are eligible for bounded repair.
+  \item \textbf{Optional faithfulness read.} When enabled, a separate LLM
+    checks whether the plugin implements the already approved formula and
+    must cite verbatim formula and code substrings. This check does not decide
+    whether the approved formula itself is the correct empirical method.
+\end{itemize}
+
+Passing Step~4 is therefore not a claim that a factor has been correctly
+replicated. It establishes a narrower proposition: the frozen signal code is
+syntactically valid, compatible with the approved interface, and has passed
+the stated leakage and execution checks before deterministic backtesting.

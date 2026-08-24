@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased
+
+- Fix the thesis template's chapter-page style initialization for the standard
+  `book` base class, preventing an undefined `\chapter@p@gestyle` error at
+  `\begin{document}`.
+
 ### frontend: plot external endpoints in Step 7 mean-return / t-stat scatter (2026-08-24)
 
 - Added distinct paper, C\&Z, and HXZ reference points plus an on-chart legend

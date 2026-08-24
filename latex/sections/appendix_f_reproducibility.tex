@@ -1,8 +1,30 @@
 \section{Reproducibility}
 \label{app:repro}
-% WRDS vintage / download dates for CRSP, Compustat, IBES (must be filled
-% in manually -- data/snapshots/ is empty and no date range is hardcoded
-% anywhere in the pipeline, see docs/paper-outline.md \S4.3). Snapshot id
-% (e.g. real_wrds_local_v1), artifact hash vs. semantic hash convention,
-% code/version identifiers for the pipeline run that produced each number
-% in this thesis.
+
+The reported experiments use a local WRDS snapshot obtained in late June
+2026. CRSP monthly returns provide the returns backbone; Compustat annual
+fundamentals and the relevant point-in-time link tables provide factor inputs
+where required. The data-source registry records the source, columns, and
+linking rule used for each approved MethodSpec. The present study records the
+month of data acquisition rather than a vendor query identifier; readers
+should therefore treat exact reconstruction from a fresh WRDS pull as a
+separate data-vintage exercise.
+
+Each run carries a data-snapshot hash, a MethodSpec hash, a signal-code hash,
+a resolved-configuration hash, and runtime provenance. For the final
+AssetGrowth batch, the data-snapshot SHA--256 hash is
+\texttt{e59e6493f8ac05f3af7d090a041787ccf77045eff130b3896022e2c6e32c55e4};
+the run artifacts record lifecycle commit
+\texttt{b4fb8b0cbf48d7c4b2d0897fb9f46d24aea6df55-dirty} and frozen signal
+code hash \texttt{17d8f37c49504d47}. Equivalent metadata are stored beside
+every MeanRankRevGrowth and ShareVol run under \texttt{runs/evidence/}.
+
+The semantic hashes identify the approved MethodSpec and resolved
+configuration content; artifact SHA--256 hashes identify the materialized
+return-series and signal-series files. A successful replication should match
+both layers: semantic agreement establishes that the same specification and
+configuration were used, while artifact agreement establishes that the same
+stored inputs and outputs were read. The versioned repository, resolved
+MethodSpecs, generated scripts, per-track metadata, and
+\texttt{comparison.json} bundles together provide the audit trail for the
+numbers reported in this thesis.

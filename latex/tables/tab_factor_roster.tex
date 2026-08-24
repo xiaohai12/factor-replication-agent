@@ -7,17 +7,22 @@
 % enriched anchor-case reference (docs/paper-outline.md).
 \begin{table}[htbp]
   \centering
-  \caption{The factor sample: each team's own reported result.}
+  \footnotesize
+  \setlength{\tabcolsep}{3pt}
+  \renewcommand{\arraystretch}{1.08}
+  \caption{Illustrative factor sample and external reported endpoints. These
+    endpoints provide selection context; they are not assumed to share a
+    common estimator or data vintage.}
   \label{tab:roster}
-  \begin{tabular}{@{}p{2.3cm}p{2.6cm}p{3.1cm}p{3.1cm}p{3.1cm}@{}}
+  \begin{tabular}{@{}p{2.35cm}p{3.2cm}p{3.45cm}p{5.35cm}@{}}
     \toprule
-    Factor & Source & C\&Z (own) & HXZ (own) & Verdict \\
+    Factor & C\&Z (reported) & HXZ (reported) & Diagnostic role in the sample \\
     \midrule
-    AssetGrowth & Cooper, Gulen \& Schill (2008) & EW LS: 1.73\%/mo, $t=8.45$ & I/A annual, NYSE--VW: $t\approx 2.89$ & Both teams agree -- sample anchor \\
+    AssetGrowth & EW long--short: $1.73\%$/mo, $t=8.45$ & Annual I/A, NYSE--VW long--short: $0.61\%$/mo, $t=3.20$ & Agreement anchor: same sign and significant on both lines \\
     \addlinespace
-    Mean\-Rank\-Rev\-Growth & Lakonishok, Shleifer \& Vishny (1994) & EW LS: $0.55\%$/mo, $t=3.94$ & EW LS: $-0.19\%$/mo, $t=1.08$ (sign reversed, insignificant) & Opposite verdicts; compounded by a menu-clamped delisting-return policy \\
+    Mean\-Rank\-Rev\-Growth & EW long--short: $0.55\%$/mo, $t=3.94$ & EW long--short: $-0.19\%$/mo, $t=1.08$ & Opposite verdicts; the paper's delisting-return convention is outside the menu \\
     \addlinespace
-    ShareVol (share turnover) & Datar, Naik \& Radcliffe (1998) & EW LS: $t=8.86$ & EW LS: $-0.11\%$/mo, $t=0.46$ (insignificant) & Opposite verdicts; original test is a univariate regression, not a portfolio sort \\
+    ShareVol & EW long--short: $t=8.86$ & EW long--short: $-0.11\%$/mo, $t=0.46$ & Opposite verdicts; the paper's headline estimator is a univariate regression, not a portfolio sort \\
     \bottomrule
   \end{tabular}
 \end{table}

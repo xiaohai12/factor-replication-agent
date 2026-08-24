@@ -1,0 +1,2256 @@
+          U NIVERSITY OF L AUSANNE
+
+
+                M ASTER ’ S T HESIS
+
+
+
+  Underdetermination in Factor
+         Replication:
+ An Auditable LLM Agent as an
+Independent Second Implementer
+
+
+
+Author:                                 Supervisor:
+Shengzhao Lei                         Roxana Mihet
+
+
+
+
+                  August 24, 2026
+                                    Abstract
+
+
+Factor replication is often treated as binary, although discrepancies can reflect paper
+interpretation, data environment, portfolio construction, or estimand. This thesis de-
+velops a controlled LLM-agent workflow for making those alternatives auditable. The
+agent proposes an evidence-backed MethodSpec from a paper, subject to human re-
+view, and generates only the signal-computation code after approval. All consequen-
+tial empirical settings are selected from a fixed, reviewable menu. The resulting signal
+is frozen before any configuration experiment, so all empirical results are deterministic
+conditional on the approved specification and data snapshot.
+
+The workflow is applied to three illustrative equity anomalies. We compare the papers’
+reported endpoints with C&Z’s independent human replication and run the frozen
+agent signal under standardized HXZ configurations. AssetGrowth is reproduced on
+the aligned raw-return metric, but its magnitude is materially sensitive to configura-
+tion choices. MeanRankRevGrowth exhibits a residual-dominated paper comparison,
+showing that a gap cannot automatically be assigned to the agent when important con-
+ventions are unresolved or outside the menu. For ShareVol, the paper reports a Fama–
+MacBeth coefficient whereas the available replications are portfolio-sort spreads; the
+system therefore declines a paper-anchored numerical decomposition rather than com-
+paring incommensurable estimands.
+
+Where factorial designs are feasible, Shapley values provide exact within-engine attri-
+bution of configuration effects; larger designs receive OAT sensitivity analysis with its
+interaction limitation explicit. External comparisons and three-term identities remain
+observational accounting devices. The contribution is thus not an autonomous empir-
+ical judge, but an agent-assisted, human-reviewed process that turns paper interpreta-
+tions into versioned research objects and makes remaining replication gaps traceable
+rather than opaque.
+                                                                                           2 (58)
+
+
+
+
+CONTENTS
+
+List of Tables                                                                                  6
+
+
+List of Figures                                                                                 7
+
+
+1   Introduction                                                                                8
+
+    1.1   Two research questions . . . . . . . . . . . . . . . . . . . . . . . . . . . . .     10
+
+    1.2   Measurement unit convention . . . . . . . . . . . . . . . . . . . . . . . . .        10
+
+    1.3   Contributions . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . .    11
+
+    1.4   Roadmap . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . .    12
+
+
+2   Related Literature                                                                         13
+
+    2.1   Factor replication: HXZ, C&Z, and JKP . . . . . . . . . . . . . . . . . . .          13
+
+    2.2   Researcher degrees of freedom and multiverse analysis . . . . . . . . . .            15
+
+    2.3   LLM agents for research automation . . . . . . . . . . . . . . . . . . . . .         15
+
+
+3   Conceptual Framework                                                                       16
+
+    3.1   Notation . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . .   16
+
+    3.2   The paper-anchored three-term identity . . . . . . . . . . . . . . . . . . .         17
+
+    3.3   The LLM-assisted, not LLM-controlled, principle . . . . . . . . . . . . . .          18
+
+
+4   The Controlled Replication Pipeline                                                        19
+
+    4.1   Step 1: extract a MethodSpec from the paper . . . . . . . . . . . . . . . .          20
+
+
+Shengzhao Lei                                            Underdetermination in Factor Replication
+                                                                                            3 (58)
+
+
+    4.2   Step 2: LLM-assisted review, then a human resolution gate . . . . . . . .             20
+
+    4.3   Step 3: generate the signal and freeze the configuration . . . . . . . . . .          21
+
+    4.4   Step 4: validate the generated artifact in a sandbox . . . . . . . . . . . . .        22
+
+    4.5   Step 5: execute the frozen backtest script . . . . . . . . . . . . . . . . . . .      23
+
+    4.6   Step 6: compare tracks and implementation variants . . . . . . . . . . . .            24
+
+    4.7   Step 7: decompose the replication gap and preserve evidence . . . . . . .             24
+
+    4.8   Step 8: optionally draft an evidence-constrained diagnosis . . . . . . . .            25
+
+
+5   Data and Factor Sample                                                                      26
+
+    5.1   Data sources . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . .    26
+
+    5.2   Scope and assumptions . . . . . . . . . . . . . . . . . . . . . . . . . . . . .       26
+
+    5.3   Factor selection criteria . . . . . . . . . . . . . . . . . . . . . . . . . . . . .   28
+
+    5.4   The factor sample . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . .     28
+
+
+6   Experimental Design                                                                         30
+
+    6.1   Track grid . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . .    30
+
+    6.2   RQ1 design: the paper-anchored three-term identity . . . . . . . . . . . .            31
+
+    6.3   Field-level gap decomposition . . . . . . . . . . . . . . . . . . . . . . . . .       31
+
+    6.4   t-channel decomposition . . . . . . . . . . . . . . . . . . . . . . . . . . . .       32
+
+    6.5   Identification levels and significance tiers . . . . . . . . . . . . . . . . . .      32
+
+
+7   Results                                                                                     34
+
+
+
+Shengzhao Lei                                             Underdetermination in Factor Replication
+                                                                                            4 (58)
+
+
+    7.1   RQ2: agent autonomy and capability boundary (cross-factor) . . . . . . .              34
+
+    7.2   Per-factor results . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . .    35
+
+          7.2.1   AssetGrowth: a clean raw-return reproduction with material con-
+                  figuration sensitivity . . . . . . . . . . . . . . . . . . . . . . . . . .    35
+
+          7.2.2   MeanRankRevGrowth: a residual-dominated paper comparison                      39
+
+          7.2.3   ShareVol: an intentionally non-comparable estimand . . . . . . .              40
+
+    7.3   What the cross-factor comparison establishes . . . . . . . . . . . . . . . .          42
+
+    7.4   t-channel and post-publication evidence . . . . . . . . . . . . . . . . . . .         43
+
+    7.5   Evidence-constrained LLM diagnosis . . . . . . . . . . . . . . . . . . . .            44
+
+
+8   Discussion, Limitations and Conclusion                                                      45
+
+    8.1   Implications . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . .    45
+
+    8.2   Limitations . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . .   46
+
+          8.2.1   Agent and specification limits . . . . . . . . . . . . . . . . . . . . .      46
+
+          8.2.2   Experimental and statistical limits . . . . . . . . . . . . . . . . . .       47
+
+    8.3   Future work . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . .     47
+
+    8.4   Conclusion . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . .    48
+
+
+A MethodSpec Schema                                                                             49
+
+    A.1 Two recurring building blocks . . . . . . . . . . . . . . . . . . . . . . . . .         49
+
+    A.2 Top-level structure . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . .       50
+
+    A.3 A representative deep branch: portfolio construction . . . . . . . . . . .              50
+
+
+Shengzhao Lei                                             Underdetermination in Factor Replication
+                                                                                     5 (58)
+
+
+B Configuration Menu and Clamping Rules                                                  52
+
+
+C Prompt Text                                                                            53
+
+
+D Validator and Leakage-Control Rules                                                    54
+
+
+E Per-Factor Detail Tables                                                               55
+
+   E.1 Complete executed-track results . . . . . . . . . . . . . . . . . . . . . . .     55
+
+
+F Reproducibility                                                                        57
+
+
+
+
+Shengzhao Lei                                       Underdetermination in Factor Replication
+                                                                                          6 (58)
+
+
+
+
+LIST OF TABLES
+
+2.1    Positioning relative to HXZ, C&Z, and JKP. . . . . . . . . . . . . . . . . . .         14
+
+5.1    Scope and assumptions: what this pipeline supports. . . . . . . . . . . . .            27
+
+5.2    Illustrative factor sample and external reported endpoints. These end-
+       points provide selection context; they are not assumed to share a common
+       estimator or data vintage. . . . . . . . . . . . . . . . . . . . . . . . . . . . .     29
+
+7.1    AssetGrowth endpoints and frozen-signal tracks. Agent rows report in-
+       sample monthly long–short returns and FF3 alphas from the same frozen
+       signal; external rows report the persisted reference endpoint under the
+       basis shown. . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . .   38
+
+7.2    MeanRankRevGrowth endpoints and frozen-signal tracks. External rows
+       retain their reported bases. . . . . . . . . . . . . . . . . . . . . . . . . . . . .   40
+
+7.3    ShareVol endpoints and frozen-signal tracks. The paper coefficient is not
+       comparable to the portfolio-sort rows. . . . . . . . . . . . . . . . . . . . . .       41
+
+7.4    Paper-anchored three-term gap identities across factors. . . . . . . . . . . .         42
+
+7.5    Cross-factor endpoint summary. Agent columns report in-sample long–
+       short t-statistics under the frozen signal; the external column uses each
+       persisted reference endpoint. Detailed return, alpha, sample-window, and
+       estimand information is reported in the factor-specific tables. . . . . . . . .        43
+
+B.1    Principal fixed-menu controls used by the backtest engine. . . . . . . . . .           52
+
+E.1    All executed AssetGrowth tracks. . . . . . . . . . . . . . . . . . . . . . . . .       55
+
+E.2    All executed MeanRankRevGrowth tracks. . . . . . . . . . . . . . . . . . .             55
+
+E.3    All executed ShareVol tracks. . . . . . . . . . . . . . . . . . . . . . . . . . .      56
+
+
+Shengzhao Lei                                            Underdetermination in Factor Replication
+                                                                                           7 (58)
+
+
+
+
+LIST OF FIGURES
+
+4.1    The eight-step controlled replication pipeline. The LLM is used for bounded
+       extraction (Step 1), an iterative review-and-rewrite loop against the pa-
+       per text (Step 2), compute_signal generation (Step 3), and an optional,
+       evidence-constrained diagnosis proposal (Step 8); the human review gate
+       that concludes Step 2, and every other step, remain deterministic or de-
+       signed checkpoints rather than model calls. . . . . . . . . . . . . . . . . . .         19
+
+6.1    Controlled track grid and configuration-attribution design. The frozen
+       agent signal S A is held constant across every executable track; endpoint
+       and attribution runs differ only in their controlled configuration overrides.
+       CZ, HXZ, and P are external comparison references, not executable tracks. 30
+
+7.1    Representative audit trace from reviewed MethodSpec to frozen signal,
+       validation, and executable AssetGrowth baseline result. . . . . . . . . . . .           35
+
+7.2    AssetGrowth configuration results in the paper window. Agent tracks are
+       shown together with the reviewed baseline and the paper, C&Z, and HXZ
+       reported endpoints. The figure displays their relative return and t-statistic
+       positions; statistical evidence for configuration contrasts is supplied by
+       the paired and joint tests. . . . . . . . . . . . . . . . . . . . . . . . . . . . . .   36
+
+7.3    Three-term accounting identity for AssetGrowth. Each external imple-
+       menter’s distance from the paper is separated into the signal-and-environment
+       term, the controlled configuration term, and the agent baseline’s residual
+       distance from the paper. . . . . . . . . . . . . . . . . . . . . . . . . . . . . .      37
+
+7.4    Controlled Shapley attribution for AssetGrowth’s C&Z and HXZ configu-
+       ration comparisons. Colors distinguish the two controlled lines; the C&Z
+       attribution has joint statistical support, whereas the HXZ allocation re-
+       mains a controlled descriptive decomposition. . . . . . . . . . . . . . . . .           38
+
+
+
+
+Shengzhao Lei                                            Underdetermination in Factor Replication
+                                                                                         8 (58)
+
+
+
+
+1    INTRODUCTION
+
+Consider the sales-growth reversal signal in Lakonishok et al. (1994) – what Chen and
+Zimmermann code as MeanRankRevGrowth. Hou et al. (2020) report that under their
+standardized replication protocol – value-weighted portfolios, NYSE breakpoints – the
+signal fails to clear the conventional significance bar (t = 1.08). Chen and Zimmermann
+(2022), implementing the same paper’s own stated method rather than a uniform ex-
+ternal protocol, replicate it with a t-statistic of 3.94, and classify it as a clear predictor.
+Same factor, same underlying economic idea, the same published text to work from –
+and opposite verdicts, from two teams that are each careful, well-resourced, and work-
+ing independently.
+
+This is not an isolated case, and it does not require picking a side. Across several
+hundred overlapping anomalies, Hou et al. (2020) report that 65.4% fail to clear |t| ≥
+1.96 under their uniform protocol, while Chen and Zimmermann (2022) report that
+all but a handful of the same literature’s characteristics replicate under each paper’s
+own stated method. These two numbers are not answers to the same question – one
+is a failure rate under an externally imposed protocol, the other is a failure rate under
+paper-specific implementation choices – so it would be a mistake to read them as a
+simple contradiction. But that very fact is itself the point: the question "does this factor
+replicate?" does not have a single, protocol-free answer, because a published paper
+does not, in general, uniquely determine every choice its own replication requires.
+
+The right question is therefore not whether a factor replicates, but why two careful,
+independent teams can reach opposite verdicts on the same factor – and whether that
+disagreement can be attributed to specific, falsifiable causes (a breakpoint convention,
+a weighting rule, a lag assumption) rather than treated as an unexplained clash of
+protocols. Answering it requires two things: a controlled execution engine that enu-
+merates the menu of implementation choices a paper admits, so that gaps between
+two implementations can be decomposed field by field rather than reported as one
+opaque number; and an independent extraction of what the paper itself actually says,
+uncontaminated by prior exposure to either team’s implementation, so that a given
+disagreement can be attributed to a specific side’s departure from the text rather than
+merely to "different choices." This second requirement is where a controlled LLM agent
+
+Shengzhao Lei                                           Underdetermination in Factor Replication
+                                                                                      9 (58)
+
+
+enters – not as a labor-saving substitute for a human replicator, but as an auditable,
+independently-arrived-at reading of the paper – every field it extracts traceable to a
+cited quote, and arrived at without ever seeing either team’s implementation – that can
+serve as a neutral referee between two existing, human-produced implementations.
+
+Applying this framework to three factors chosen specifically because Hou-Xue-Zhang’s
+and Chen-Zimmermann’s own reported verdicts on them differ in kind rather than
+merely in degree (§5): sales-growth reversal, this section’s opening example, whose
+HXZ-versus-C&Z conflict is attributed to a compounding breakpoint-and-weighting
+effect rather than to either choice alone; asset growth (Cooper et al., 2008), the one
+case in this sample where both teams agree the signal is significant; and share turnover
+(Datar et al., 1998), whose original test is a firm-level Fama-MacBeth regression rather
+than a portfolio sort at all, so that HXZ’s and C&Z’s quantile-sort implementations are
+both equally-unauthorized reconstructions of the paper’s actual method, not compet-
+ing readings of a shared design. Running our controlled pipeline on these factors, we
+find that even in the one case where the published verdicts agree throughout (asset
+growth), the largest term in the agent’s own three-way gap decomposition against the
+C&Z reference spread is not the configuration difference between implementations but
+the agent’s own replication residual, which accounts for 67% of the total gap – more
+than the configuration and signal/environment terms combined. Related evidence
+holds in both disagreement cases, though of a different kind in each. For sales-growth
+reversal, the agent’s replication residual alone exceeds the total observed gap in mag-
+nitude (partially offset by an opposing configuration term) – a residual effect layered
+on top of the breakpoint-and-weighting story already given above for its configuration
+side. For share turnover, the agent’s own signal is not robust across the four alternative
+breakpoint/weighting configurations tested against it (a t-statistic range of 0.79 and
+one outright sign flip), indicating that at least part of the disagreement under study
+is intrinsic to the signal rather than attributable to either team’s protocol. Together,
+both cases show that the agent’s own replication precision, not just protocol choice, is
+a first-order determinant of the measured gap. Part of that replication residual, in turn,
+is itself a scope limitation rather than a reading error: this engine’s fixed configuration
+menu cannot always express an off-menu instruction the paper actually gives – the
+same standardization tradeoff HXZ’s own protocol makes in this paper’s opening ex-
+ample – a distinction §7 and §8 draw out factor by factor. The remainder of this section
+states two research questions this design answers (§1.1), fixes the unit of evaluation
+
+
+Shengzhao Lei                                        Underdetermination in Factor Replication
+                                                                                      10 (58)
+
+
+(§1.2), and lists the paper’s contributions (§1.3).
+
+
+
+1.1     Two research questions
+
+RQ1 (attribution). For a given factor, how much of the total gap between an exter-
+nal reference (CZ or HXZ) and the paper’s own reported result (P) is attributable to
+a difference in signal construction (and environment), how much to a difference in
+portfolio- construction configuration, and how much to the agent’s own inability to
+replicate the paper exactly? §3’s paper-anchored three-term identity answers this by
+construction rather than by inference: each of the three terms is an exact difference be-
+tween two tracks this paper’s controlled engine actually runs, not a residual assigned
+by assumption, and the identity holds for every factor whose own headline result is a
+portfolio-sort spread, regardless of whether CZ and HXZ agree or conflict. Where the
+paper’s own headline is instead a regression coefficient (share turnover, §8), P is not
+a quantity the identity’s terms can be taken against at all, and that definitional gap is
+reported directly rather than forced into the three terms.
+
+RQ2 (capability boundary). Producing the paper-faithful configuration that RQ1’s
+baseline, A, depends on is itself a nontrivial task for the agent system (§1.2): what
+fraction of high-impact MethodSpec fields does it resolve without a human correction,
+what fraction of runs reach an executable A end-to-end, and where does human correc-
+tion concentrate – on purely technical mismatches, or on fields where the paper leaves
+a genuine empirical judgment unstated? This is reported as an independent finding
+(C2), not merely as a caveat on RQ1: it costs nothing beyond what RQ1’s own pipeline
+already produces, since every MethodSpec field the agent resolves (or fails to) while
+building A is logged regardless of whether it is ever used for RQ1’s decomposition
+(§7).
+
+
+
+1.2     Measurement unit convention
+
+The unit under evaluation throughout this paper is not a bare language model call;
+it is the agent system as a whole – the LLM, the tool interface it uses to query paper
+text and prior evidence, the Step 2 review gate, the Step 4 sandbox validator, and the
+
+
+Shengzhao Lei                                         Underdetermination in Factor Replication
+                                                                                   11 (58)
+
+
+human confirmation step that resolves any field the reviewer flags (§4). Human con-
+firmation is a designed component of this system, not an external intervention that
+spoils the measurement: a real deployment of this pipeline always includes a human
+confirming ambiguous fields before A is built, so excluding that step from the unit of
+evaluation would understate, not idealize, what the deployed system actually does.
+Consequently, RQ2’s autonomy footprint (§1.1) is measured as where the agent’s own
+designed checkpoints trigger – which fields reach the reviewer, which of those the re-
+viewer resolves without escalating to a human, and which require a human correction
+– rather than as an estimate of raw LLM reading accuracy against some hypothetical
+unsupervised baseline. This distinction matters for how the capability results in §7
+should be read: a high rate of human correction on a given field is evidence that this
+system’s checkpoints are doing their job, not, by itself, evidence that the underlying
+model reads the paper poorly.
+
+
+
+1.3   Contributions
+
+   • C1 (RQ1, empirical, main thread). For each of three factors, decompose the total
+      gap between CZ (or HXZ) and P into a signal/environment term, a configuration
+      term, and an agent-residual term via three controlled counterfactual tracks (A,
+      Acz , Ahxz ) – an exact identity.
+
+   • C2 (RQ2, agent capability, independent finding). Report the agent’s autonomy
+     footprint and capability boundary across the same three factors, as a free byprod-
+      uct of running RQ1 – no separate annotation corpus required.
+
+   • C3 (methodological foundation for both). A controlled, auditable, LLM-assisted-
+     but-not-LLM-controlled replication pipeline – every extracted field carries a cited
+      quote and source location, the extraction step is leakage-proof by construction
+      (§3), and every empirical number is deterministically reproducible with the LLM
+      switched off.
+
+
+
+
+Shengzhao Lei                                      Underdetermination in Factor Replication
+                                                                                     12 (58)
+
+
+1.4   Roadmap
+
+§2 situates this paper against the existing replication-crisis literature and the specific
+HXZ-versus-C&Z divergence it takes as its starting point. §3 formalizes the notation
+used throughout and states the two identities the rest of the paper is built to mea-
+sure: the paper-anchored three-term identity (RQ1) and the disagreement-band lower
+bound on I( P). §4 describes the controlled pipeline itself, step by step, including the
+LLM-assisted-but-not-LLM-controlled boundary that makes C3 hold. §5 covers data
+sources, the scope and assumptions that make the implementation menu enumerable
+at all, and the resulting three-factor sample. §6 lays out the experimental design – the
+counterfactual tracks and ablations each factor is run through – that produces the num-
+bers §7 reports for RQ1 and RQ2. §8 states this design’s limitations honestly, including
+the leakage-proof boundary’s remaining dependence on human discipline (§3), and
+concludes.
+
+
+
+
+Shengzhao Lei                                        Underdetermination in Factor Replication
+                                                                                     13 (58)
+
+
+
+
+2     RELATED LITERATURE
+
+2.1   Factor replication: HXZ, C&Z, and JKP
+
+This paper joins a decade-long methodological debate about how to replicate the pub-
+lished cross-sectional return-predictability literature. Hou et al. (2020) rerun 452 anoma-
+lies under one uniform protocol – NYSE breakpoints, value weighting – and report that
+65.4% fail to clear |t| ≥ 1.96; the failure rate falls to 43.1% under an equal-weighted
+protocol with NYSE-Amex-NASDAQ breakpoints, a fact HXZ themselves use to ar-
+gue that weighting and breakpoint conventions, not the underlying economics, drive
+much of the disagreement. Their contribution is an aggregate failure rate under a sin-
+gle, externally imposed protocol; it does not decompose any individual factor’s gap
+into a signal component and a configuration component, nor does it compare against
+the paper’s own originally reported number field by field.
+
+Chen and Zimmermann (2022) take the opposite approach: for each of 319 characteris-
+tics, they implement the paper’s own stated method as closely as possible, and report
+that all but a handful replicate. Where their result disagrees with HXZ’s, they make
+a manual, case-by-case judgment of whether the anomaly itself is invalid or whether
+the standardized protocol departs from what the paper actually specified. This is a
+substantive contribution, but it stops short of an actual counterfactual: C&Z never run
+their own signal through HXZ’s protocol, or vice versa, to isolate how much of the
+disagreement is attributable to the signal formula versus the portfolio configuration.
+
+Jensen et al. (2023) instead replace the entire protocol with a uniform Bayesian frame-
+work and report a sequence of six failure rates (35% → 55.6% → 61.3% → 82.4% →
+75.6% → 82.4%) as successive methodological choices are changed one at a time –
+comparable tercile/decile conventions, exclusion of originally-insignificant anomalies,
+CAPM-alpha rather than raw returns, and multiple-testing corrections. This is the clos-
+est existing work to a decomposition, but it decomposes the effect of replacing the pro-
+tocol, not the disagreement between two independently-arrived-at implementations of
+the same protocol space.
+
+Table 2.1 summarizes this positioning. What none of the three provides is a genuine
+
+Shengzhao Lei                                        Underdetermination in Factor Replication
+                                                                                      14 (58)
+
+
+counterfactual execution – taking one signal and running it under another team’s con-
+figuration, holding everything else fixed – that would cleanly separate "the signal is
+measured differently" from "the portfolio is constructed differently." The Acz /Ahxz hy-
+brid tracks in this paper (§6) are built to do exactly that.
+
+
+                  TABLE 2.1: Positioning relative to HXZ, C&Z, and JKP.
+   Source        What it does                         What is missing, and what this
+                                                      paper adds
+   HXZ (2020)    452 anomalies, uniform protocol      Only an aggregate failure rate; no
+                 (NYSE breakpoints + VW); 65%         per-factor, field-level gap.
+                 fail at |t| ≥ 1.96; 43.1% under EW
+                 + NYSE–Amex–NASDAQ
+                 breakpoints
+   C&Z           Manual case-by-case judgment of      Manual classification; never runs
+   (2021/2022)   factor-invalid vs.                   the C&Z signal through the HXZ
+                 method-deviates-from-paper;          configuration as a counterfactual.
+                 ∼100% replication on 319
+                 characteristics
+   JKP (2023)    Uniform Bayesian protocol rerun;     Flattens disagreement (replaces
+                 Figure 1’s six bars (35% → 55.6%     the protocol) rather than
+                 → 61.3% → 82.4% → 75.6% →            decomposing it.
+                 82.4%) are attributed to protocol
+                 choices
+   This paper    Acz /Ahxz hybrid tracks: genuine     Cleanly splits each factor’s total
+                 counterfactual execution             gap into signal- and
+                                                      configuration-difference
+                                                      components.
+
+
+A separate, older literature frames the same tension without proposing a decomposi-
+tion: Harvey et al. (2016) and McLean and Pontiff (2016) both treat the multiplicity of
+possible implementation and testing choices as a source of noise to be corrected for
+(via higher significance thresholds or out-of-sample decay, respectively) rather than
+as an object of study in its own right. This paper’s departure is to treat exactly that
+multiplicity – the space of choices a paper’s text leaves open – as the primary object of
+measurement.
+
+
+
+
+Shengzhao Lei                                         Underdetermination in Factor Replication
+                                                                                    15 (58)
+
+
+2.2   Researcher degrees of freedom and multiverse analysis
+
+The idea that a single dataset admits many defensible analytical choices, and that the
+choice matters, is well established outside finance. Specification-curve analysis (Si-
+monsohn et al., 2020) and multiverse analysis (Steegen et al., 2016) both enumerate
+the full space of reasonable choices a researcher could make and report how the result
+varies across that space. The finance literature’s own version of this concern is the
+p-hacking / multiple-testing critique of anomaly discovery.
+
+This paper’s disagreement band is narrower by construction, and that is a deliberate
+design choice rather than a limitation to apologize for: rather than enumerate every
+choice a researcher could imaginably make, it is calibrated to the choices two real, in-
+dependent, well-resourced implementers (the agent and Chen-Zimmermann) actually
+disagreed on. The resulting band is an empirically observed lower bound on the pa-
+per’s true implementation space (§3), not an a priori enumeration of hypothetical alter-
+natives – it is anchored to what real disagreement looks like, not to what disagreement
+could in principle look like.
+
+
+
+2.3   LLM agents for research automation
+
+A growing literature uses large language models to automate parts of the empirical re-
+search pipeline, from literature extraction to code generation, and a parallel literature
+raises validity concerns about doing so – principally that an LLM’s output can silently
+encode choices the model was never authorized, or expected, to make. This paper’s
+design responds to that concern directly rather than by assertion: the LLM is only
+ever permitted to author the compute_signal function (§4); it never sets an empirical
+parameter – weighting, breakpoint convention, sample window, or estimator – all of
+which are drawn from a fixed, human-auditable configuration menu. Every quantity
+reported in §7 is therefore reproducible with the LLM switched off, once a plugin has
+been frozen; the LLM’s role is confined to producing an artifact whose downstream
+consequences are then measured by a deterministic engine, not to producing the em-
+pirical findings themselves.
+
+
+
+
+Shengzhao Lei                                       Underdetermination in Factor Replication
+                                                                                        16 (58)
+
+
+
+
+3     CONCEPTUAL FRAMEWORK
+
+This section formalizes the notation used throughout the paper and states two identi-
+ties the empirical design in §6 is built to measure. It deliberately contains no imple-
+mentation detail – those are deferred to §4 and Appendix B.
+
+
+
+3.1   Notation
+
+For a given factor and its published paper P, six quantities recur: P, the spread (and
+t-statistic) P itself reports; A, the result of running the agent’s independently-extracted
+signal S A under the agent’s own reading of P’s configuration, Cagent – the paper-faithful
+baseline; Acz and Ahxz , hybrid tracks that hold S A fixed but swap in Chen and Zimmer-
+mann’s actual configuration, Ccz , or an HXZ-style standardized configuration, Cstd , re-
+spectively; and CZ and HXZ, each team’s own independently measured result for the
+same factor (Chen and Zimmermann’s own reported number, and Hou-Xue-Zhang’s
+own reported number where one exists). A track is one (signal, configuration) pair exe-
+cuted by the engine; a freeze commits a signal or configuration to evidence so that later
+tracks can be compared against it without risk of silent drift (§4).
+
+Definition 1 (Underdetermination). Given a paper P, let I( P) denote the set of imple-
+mentations it admits. If {verdict(i ) : i ∈ I( P)} is not a singleton, the factor’s replication
+verdict is underdetermined by P.
+
+Definition 2 (Disagreement band). The subspace spanned by the difference set be-
+tween A and CZ is used as an empirical lower-bound estimate of I( P) (a lower bound
+because the true disagreement space can only be wider).
+
+
+The disagreement band operationalizes underdetermination: I( P) itself cannot be
+enumerated, since doing so would require running every implementation the paper’s
+text admits, so the band substitutes what can actually be measured – the gap between
+two real, independently-arrived-at points inside that space – for the full space itself.
+
+
+
+
+Shengzhao Lei                                           Underdetermination in Factor Replication
+                                                                                                                  17 (58)
+
+
+3.2      The paper-anchored three-term identity
+
+   ⏞ ⏟⏟− P⏞ =
+   CZ                   (CZ − Acz )               +        ( A − A)              +          ( A − P)                (3.1)
+                        ⏞   ⏟⏟   ⏞                         ⏞ cz⏟⏟ ⏞                         ⏞ ⏟⏟ ⏞
+   total gap    signal / environment difference       configuration difference       agent replication residual
+
+The HXZ side substitutes Ahxz for Acz symmetrically. Each term has a distinct, non-
+interchangeable meaning: the first isolates how much of the gap survives even when
+the configuration is held at C&Z’s own choices – attributable to differences between
+the agent’s signal and C&Z’s signal, plus any residual data-vintage or engine effects
+that Q2 (§4, future work) would need to separate further; the second isolates the con-
+figuration effect alone, with the signal held fixed at S A ; the third is the agent’s own
+departure from the paper, holding neither signal nor configuration against an external
+party. Collapsing these into one number – "the total gap" – is exactly what existing
+replication studies do (§2), and exactly what this identity is designed not to do.
+
+The second term is clean specifically because Acz (symmetrically, Ahxz ) and A are
+both computed by this engine, from the same signal S A , rather than one side being
+C&Z’s – or HXZ’s – own separately-coded output. Comparing CZ directly to HXZ, by
+contrast, would confound whatever configuration difference separates the two teams
+with whatever infrastructure differences separate their two independently built code-
+bases (data vintage, rounding, engine-level conventions); the three-term identity exists
+specifically so that this confound never enters the configuration term, at the cost of
+relegating it to the (unidentified, see §4) CZ − Acz term instead. This does not make
+the engine’s own finite configuration menu (§4, Appendix B) free of cost – §5.2 states
+that cost directly – only that whatever the menu’s limits are, they are applied identi-
+cally to A, Acz , and Ahxz , so the configuration term measures a configuration effect and
+nothing else.
+
+This identity only licenses the "who deviates from the paper" reading on fields P ex-
+plicitly states; on fields P is silent on, there is no ground truth to deviate from, and the
+analysis reverts to the disagreement-band framing above. Both readings coexist in this
+paper’s results (§7): a stated field is scored as an attributable deviation, a silent field is
+scored as a point in an underdetermined space. They are not alternative framings of
+the same evidence – they are the correct framing for two disjoint kinds of configuration
+field.
+
+
+
+
+Shengzhao Lei                                                        Underdetermination in Factor Replication
+                                                                                      18 (58)
+
+
+3.3   The LLM-assisted, not LLM-controlled, principle
+
+Everything in this framework depends on one constraint holding without exception:
+the language model is permitted to author the compute_signal function and nothing
+else. Every quantity that enters Cagent – weighting rule, breakpoint convention, sample
+window, holding period, estimator – is drawn from a fixed menu enforced mechani-
+cally by registry.build_config (§4, Appendix B); a value the paper appears to specify
+but that falls outside the menu is clamped to a documented default rather than passed
+through as the model’s own choice. This is what makes A usable as a paper-faithful
+baseline rather than merely another model output: the model’s influence is confined
+to one auditable artifact, and every downstream number in §7 is reproducible by re-
+running the deterministic engine against a frozen compute_signal with the language
+model switched off entirely.
+
+The same discipline is what makes Cagent auditable rather than merely inspectable af-
+ter the fact: every field the Step 1 extractor emits carries a cited quote and source
+location (§4), so a reviewer can check the model’s reading against the paper’s own
+text field by field instead of accepting its output on faith. One specific guarantee this
+auditability depends on is a leakage-proof boundary: Chen and Zimmermann’s own
+metadata (SignalDoc.csv) is used only for post-hoc evaluation – to compute CZ and
+to select which factors exhibit informative HXZ-versus-C&Z divergence (§5) – and is
+never passed to the extraction step that produces Cagent . Section 1 already flags where
+this boundary is a system-level guarantee and where it instead depends on the disci-
+pline of a human reviewer; that distinction is restated in full in §8.
+
+
+
+
+Shengzhao Lei                                         Underdetermination in Factor Replication
+                                                                                        19 (58)
+
+
+
+
+4     THE CONTROLLED REPLICATION PIPELINE
+
+Figure 4.1 summarizes the eight-step agent pipeline that produces every quantity in
+§7. The language model has a strictly limited role: it may extract a method from paper
+text (Step 1), iteratively review and rewrite that extraction against the paper text before
+a human sees it (Step 2), write the signal formula (Step 3), and, only if requested, draft
+an explanation of already-computed evidence (Step 8). Each step below states what its
+prompt is given and constrained to return; the prompt text itself, and the code that as-
+sembles its inputs and validates its output, is versioned in the project repository rather
+than reproduced here.1 All empirical choices and every reported number are instead
+produced by reviewed specifications and deterministic, controlled components.
+
+
+
+
+           F IGURE 4.1: The eight-step controlled replication pipeline. The LLM is
+           used for bounded extraction (Step 1), an iterative review-and-rewrite loop
+           against the paper text (Step 2), compute_signal generation (Step 3), and
+           an optional, evidence-constrained diagnosis proposal (Step 8); the human
+           review gate that concludes Step 2, and every other step, remain determin-
+                     istic or designed checkpoints rather than model calls.
+    1 https://github.com/xiaohai12/factor-replication-agent, prompts/ and src/steps/.
+
+
+
+
+Shengzhao Lei                                           Underdetermination in Factor Replication
+                                                                                        20 (58)
+
+
+4.1   Step 1: extract a MethodSpec from the paper
+
+Step 1 extracts a structured MethodSpec from the paper’s text (and, when available,
+the paper’s raw PDF), together with a live registry of the data sources and columns
+this pipeline supports – so a required field’s source_table/source_column is resolved
+against what is actually registered rather than invented. The resulting specification
+covers paper identity, the signal definition, these data-catalog bindings, the sample
+periods, timing, universe, and portfolio-construction fields, and, not least, the paper’s
+own reported headline results (its metrics, t-statistics, and risk-adjustment models),
+which later steps benchmark against. Wherever a field has direct textual support, it
+carries an evidence citation – a verbatim quoted span for text, or a table/row/column
+reference for a value read off a table – rather than every field carrying its own free-
+standing provenance.
+
+Step 1’s draft is not the last time the paper is read: Step 2’s review loop (below) is
+explicitly permitted to consult the paper text again, and every change it makes is
+captured as a diff against Step 1’s draft. No step beyond Step 2 ever reads the pa-
+per directly, so every later step’s notion of "what the paper says" is mediated through
+the final, human-approved MethodSpec and its evidence trail, rather than through an
+unaudited, free-form re-reading of the paper.
+
+
+
+4.2   Step 2: LLM-assisted review, then a human resolution gate
+
+Step 2 opens with an LLM-assisted review loop, before any human sees the extracted
+MethodSpec. Each round validates the current specification, runs deterministic tool
+checks (schema validation and engine-menu/capability findings), and sends the pa-
+per text, the current specification, and those tool results to the LLM, which returns a
+rewritten specification together with structured notes on any value corrections it made.
+The loop repeats for up to a fixed number of rounds or until a round leaves the specifi-
+cation unchanged; every field-level change the LLM makes is captured as a mechanical
+before/after diff, so nothing it rewrites is applied silently. A small set of identifier fields
+(factor_id, schema_version, the paper’s document_id) is never taken from the LLM
+and is re-injected deterministically every round.
+
+
+
+
+Shengzhao Lei                                           Underdetermination in Factor Replication
+                                                                                     21 (58)
+
+
+Only once this loop converges does the human review gate take over: a human con-
+firms or corrects any remaining low-confidence or inconsistent fields, each intervention
+is retained as field-level evidence, and the gate verifies source registration and blocks
+an unknown signal-input source.
+
+A universe filter whose concept must be derived – e.g. mapping the paper’s stated
+categories onto an underlying column’s raw encoding, or computing a concept from
+other fields – is reviewed together with that derivation rather than applied or dropped
+silently; if it cannot yet be resolved against any registered data source, a human must
+explicitly mark it accepted_unapplied with a reason, rather than the stated restriction
+being silently ignored, and the converse decision is recorded just as explicitly: a filter
+inferred from indirect evidence can instead be marked human_confirmed_applied (the
+two are mutually exclusive).
+
+Only a specification with direct textual support or an explicit human resolution for ev-
+ery required field is marked codegen_ready. This gate also produces the RQ2 extrac-
+tion measure (§1): the fraction of high-impact fields resolved without assistance is read
+from this ordinary review record, not a separate annotation exercise. "High-impact" is
+a fixed, enumerated set of fields whose value materially changes the backtest – the sig-
+nal’s direction; the formation rule, rebalance frequency, and holding period; the portfo-
+lio’s construction type, weighting, and return-combination rule; the universe descrip-
+tion; and, per sort dimension or required data field, the breakpoint basis, grouping,
+and sort mode, the missing-data policy, and the source-table/column binding – rather
+than a per-field judgment made at review time; only fields in this set are scored, and
+every one of them counts as high-impact.
+
+
+
+4.3   Step 3: generate the signal and freeze the configuration
+
+Once a MethodSpec is codegen-ready, its generator prompt is given only that approved
+specification and returns only a compute_signal function body; the pipeline assembles
+this into one complete standalone backtest script. The prompt has no access to, and
+cannot generate, lags, universe, breakpoint, weighting, or portfolio-construction logic.
+registry.build_config then turns the approved MethodSpec into an executable con-
+figuration by resolving every relevant field against a fixed menu of allowed values
+(weighting rule, breakpoint convention, rebalance frequency, holding period, universe
+
+Shengzhao Lei                                        Underdetermination in Factor Replication
+                                                                                     22 (58)
+
+
+filters, estimator; the full menu is reproduced in Appendix B). A value the Method-
+Spec specifies that falls outside this menu is not passed through – it is deterministically
+clamped to a documented default, and the clamp is logged in config["defaults_applied"]
+rather than silently dropped. This is the mechanism that makes I( P) (§3) something
+one can actually enumerate: because the menu is finite and explicit, every configura-
+tion this paper ever runs is a labeled point in a known space, not an unbounded piece
+of hand-written logic.
+
+This control is also an operational limitation of the present agent, rather than a claim
+that every paper can be reproduced without extension. A factor is admissible only
+when its required inputs are available through the registered data sources and links,
+and its empirical design can be expressed in the engine menu. For example, the cur-
+rently implemented weighting alternatives are equal weighting (EW) and value weight-
+ing (VW); a paper requiring another weighting rule is recorded as an out-of-menu de-
+viation rather than approximated by generated code. The study-level data and design
+boundaries— US common equity, monthly CRSP returns, and the supported Compu-
+stat/IBES signal inputs and link tables—are stated fully in §5.2.
+
+
+
+4.4   Step 4: validate the generated artifact in a sandbox
+
+Step 4 validates the generated compute_signal plugin in a sandbox, before it is allowed
+to run against real data, through a fixed sequence of checks: syntax, schema, a static
+scan for forbidden look-ahead patterns (e.g. shifting a series into the future), and, last,
+an execution smoke test. That final check is not purely static: it imports the assembled
+backtest script and actually runs compute_signal against a small, fixed slice of secu-
+rities’ full monthly history, checking for raised exceptions, the returned schema and
+dtype, missing-value rates, and degenerate portfolio groupings (e.g. an empty long or
+short leg) that only surface once the signal is actually computed.
+
+Any of these checks can trigger the same bounded repair loop. On a failure, an auto-
+mated repairer is given only the validator’s raw error report and rewrites the compute_signal
+plugin itself – never the surrounding, deterministically assembled script, and never an
+empirical parameter; the full script is then reassembled from this repaired plugin and
+validated again, for up to a fixed number of attempts before the batch is returned to
+a human. The loop does not distinguish where the failure came from – a look-ahead
+
+Shengzhao Lei                                        Underdetermination in Factor Replication
+                                                                                     23 (58)
+
+
+finding, a degenerate portfolio grouping, and a runtime exception all trigger a plu-
+gin repair the same way a syntax error does – so the accurate constraint is that only
+technical or execution failures are repairable at this stage, never an empirical formula
+choice.
+
+
+
+4.5   Step 5: execute the frozen backtest script
+
+Step 5 runs the standalone script assembled in Step 3 in a fresh subprocess against the
+actual resolved data, as a single one-track run – this is not the resource-limited smoke
+test of Step 4, but the real execution that produces the paper’s replicated backtest.
+The standardized engine supplies the approved universe, lags, breakpoints, weight-
+ing, portfolio construction (including any winsorization or other transform Step 2’s
+review configured, applied by the engine rather than by the plugin), and return cal-
+culation; the plugin supplies only the signal formula. Execution produces the run’s
+track-level metrics: mean monthly return, a Newey-West t-statistic, Sharpe ratio, and
+month count, together with CAPM/FF3/FF5 alphas and their own t-statistics when
+factor data is available. The same mean/t-stat/Sharpe are additionally recomputed
+separately over three windows – the paper’s own in-sample period, the gap between
+the sample’s end and the paper’s publication, and the post-publication period – so that
+any decay in the signal after the sample the paper studied, or after its publication, is
+visible rather than averaged away.
+
+The execution boundary is deliberately split between two components. BacktestRunner
+builds the standalone script from the reviewed MethodSpec, the frozen compute_signal
+source, and a resolved configuration, then launches that exact file in a fresh subprocess.
+Inside the script, BacktestExecutor implements the fixed ten-step lifecycle: data load-
+ing, delisting-return treatment, missing-data policy, universe filtering, excess-return
+conversion, signal holding-period expansion, portfolio formation (including break-
+points), portfolio-return calculation, long–short construction, and metric calculation.
+Thus, the generated artifact contributes the signal formula only; it cannot replace or
+silently modify the standardized backtesting lifecycle. This separation is what makes
+a Step 6 comparison a configuration experiment over one frozen signal rather than a
+comparison of separately generated backtest programs.
+
+
+
+Shengzhao Lei                                        Underdetermination in Factor Replication
+                                                                                      24 (58)
+
+
+4.6   Step 6: compare tracks and implementation variants
+
+Step 6 orchestrates several tracks built from the same frozen signal code: the original-
+specification track (no overrides), a standardized track built against a fixed HXZ con-
+figuration, an optional track built from a human-supplied C&Z configuration, and a
+set of attribution tracks that each isolate one or more configuration switches – break-
+point source (NYSE-only vs. all-exchange), weighting rule (EW vs. VW), accounting
+lag, rebalance frequency (always changed together with holding period, so the num-
+ber of observations does not silently change), universe filters, and breakpoint quantiles.
+When two tracks being compared differ on a small number of these switches, the con-
+troller runs the full factorial of baseline/target combinations across them; beyond that
+it falls back to flipping one switch at a time, so a batch’s exact number of attribution
+runs depends on how many switches the comparison at hand actually touches, not a
+fixed count. Every track is built from the exact same plugin object, varying only its
+configuration overrides. The review UI overlays every track’s cumulative long-short
+return on one chart per sample-period segment (in-sample, the gap between sample
+end and publication, and post-publication, mirroring the segmentation in §4’s Step 5
+metrics), so a divergence between, say, A and Ahxz is visible directly rather than only
+as a difference in summary statistics.
+
+
+
+4.7   Step 7: decompose the replication gap and preserve evidence
+
+Step 7 builds two decompositions from a factor’s executed tracks. A field-level de-
+composition attributes the gap between Acz (or Ahxz ) and A to individual configura-
+tion fields – exactly, via the full factorial, when few enough fields differ, and via the
+one-at-a-time design otherwise (Equation (6.1), §6). A second, paper-anchored decom-
+position applies Equation (3.1) itself, splitting the gap between an external reference
+(CZ or HXZ) and P into the same three named terms defined in §3, together with a
+check that they sum to the total gap. Every comparison the bundle reports also carries
+the identification level §6 assigns it, so a reader can tell a controlled attribution from a
+merely descriptive one.
+
+The resulting evidence bundle is considerably larger than these two decompositions: it
+
+
+
+
+Shengzhao Lei                                         Underdetermination in Factor Replication
+                                                                                     25 (58)
+
+
+also carries the field-level configuration diff, a specification-quality summary, publication-
+decay and robustness sections, and an external-performance comparison, among oth-
+ers, all indexed under a single flat evidence_keys whitelist – which is what the next
+step is restricted to citing.
+
+
+
+4.8   Step 8: optionally draft an evidence-constrained diagnosis
+
+Step 8 is the one place in the pipeline where the LLM is asked to write about results
+rather than produce them. Its input is exactly the evidence bundle Step 7 already com-
+puted, plus the paper-evidence quotes already recorded in the reviewed MethodSpec.
+Its output is drawn from a small, fixed menu of claim types, each a natural-language
+rendering of one already-computed comparison: whether the paper’s and the agent’s
+sign agree; how large a magnitude or significance gap between two tracks is; how
+much of a gap a given configuration switch, or the joint set of switches, explains;
+whether the factor’s own return pattern decays after the paper’s publication; and, for
+the paper-anchored three-term identity, which of the three terms dominates an exter-
+nal party’s distance from the paper. Every claim must cite the specific evidence behind
+it and is tagged as a proposal rather than a finding. The LLM does not compute, see
+the derivation of, or alter any number, and it does not decide the overall verdict – it
+only selects which of these fixed, pre-defined things is true for this factor and phrases
+it in prose. This is what lets the pipeline surface a human-readable explanation for a
+factor’s replication gap without reopening, at the one point the model is allowed to
+speak about the results, any guarantee the rest of the pipeline establishes.
+
+
+
+
+Shengzhao Lei                                        Underdetermination in Factor Replication
+                                                                                     26 (58)
+
+
+
+
+5     DATA AND FACTOR SAMPLE
+
+5.1   Data sources
+
+Portfolio returns are constructed from the CRSP Monthly Stock File, including delist-
+ing returns; accounting inputs come from Compustat Fundamentals Annual, linked to
+CRSP through the CCM link table with a point-in-time accounting lag (accounting_lag_months).
+IBES’s unadjusted summary statistics (annual EPS forecast consensus) are likewise reg-
+istered, linked to CRSP via a dedicated IBES–CRSP link table, though none of the three
+factors in §5.3 draws on it. Every source is declared once in a single catalog (§4) rather
+than accreted ad hoc: each entry states how that source’s own native key links, through
+a point-in-time link table, to the CRSP permno backbone every source is ultimately
+merged onto. Adding a further source is a single declarative entry in this catalog, after
+which any paper drawing on it is handled the same way as CRSP/Compustat, rather
+than requiring new source-specific code; conversely, a paper whose required source
+has no such entry is hard-blocked at Step 2’s review rather than silently improvised.
+This is also what makes every field, join key, and lag behind a number in §7 traceable
+to one place.
+
+Chen and Zimmermann’s factor metadata (SignalDoc.csv) plays a strictly circum-
+scribed role: it supplies CZ (each factor’s reported spread and t-statistic under C&Z’s
+own implementation) and the evidence used to select factors in §5.3, and nothing
+else – it is never passed to the Step 1 extractor that produces Cagent (§3). The HXZ-
+style standardized configuration Cstd used to construct Ahxz is a single, versioned file
+(data/hxz/hxz_standard_config.yaml), applied identically across every factor rather
+than tuned per factor.
+
+
+
+5.2   Scope and assumptions
+
+This paper’s implementation menu (Appendix B) is restricted along several dimen-
+sions that are worth stating positively rather than apologetically: restricting attention
+to US common equity, monthly portfolio returns, and CRSP–Compustat accounting
+
+
+Shengzhao Lei                                        Underdetermination in Factor Replication
+                                                                                       27 (58)
+
+
+fields, with portfolio construction limited to univariate and independent-or-sequential
+bivariate sorts estimated by portfolio sorting rather than cross-sectional regression, is
+precisely what makes I( P) (§3) something this paper can enumerate at all. A menu
+with no boundary would make every disagreement unattributable, since there would
+be no fixed list of candidate causes to attribute it to. The menu is a deliberate boundary
+at any given time, not a permanent ceiling on what the agent could support: unlike the
+data-source catalog of this section, where adding a source is a single declarative entry,
+extending the menu means implementing the corresponding logic in the engine itself,
+but nothing in the design prevents doing so, and the menu has in fact grown as new
+factors required it.
+
+                TABLE 5.1: Scope and assumptions: what this pipeline supports.
+Dimension         Supported                             Not supported
+Market            US common equity (CRSP)               International, bonds, futures,
+                                                        crypto
+Returns panel     CRSP monthly + delisting returns      Daily portfolio returns, intraday
+Accounting        Compustat annual (29 registered       Fields not yet registered in
+data              fields)                               sources.py
+Analyst data      IBES annual EPS summary only          IBES actuals, quarterly,
+                                                        recommendations
+Estimator         Portfolio sort only                   Fama–MacBeth regression
+Sorts             Univariate; independent or            Within-group-conditioned sorts;
+                  sequential bivariate (2               3+ dimensions
+                  dimensions, quantile grouping
+                  only)
+Universe          Categorical (single- or           Derived-column filters;
+filters           multi-value); numeric             asymmetric quantile splits
+                  comparisons, ranges, and interval
+                  unions
+
+
+That said, the finite menu introduces a two-sided bias that must be stated without
+qualification. It understates underdetermination, because a reasonable implementation
+choice that falls outside the menu can never enter the disagreement band – the band
+in §3 is a lower bound, not an unbiased estimate, for exactly this reason. It simulta-
+neously risks overstating underdetermination, because a single extraction draw con-
+flates genuine paper ambiguity with ordinary language-model sampling noise; only a
+
+Shengzhao Lei                                          Underdetermination in Factor Replication
+                                                                                      28 (58)
+
+
+repeated-draw study (§8, left to future work) could separate the two. Both directions
+of this bias are revisited where they bear on a specific result in §7.
+
+
+
+5.3   Factor selection criteria
+
+Factors are selected against one hard constraint and one sampling goal. The constraint
+follows mechanically from §5.2: the signal, universe, and estimator must all be com-
+putable from CRSP monthly data and Compustat annual fields alone, using a single
+plain portfolio sort – no multi-way or within-group-conditioned sorts, no derived uni-
+verse filters, and no other estimator such as Fama–MacBeth. ShareVol is the sole ex-
+ception: its own headline test is a Fama-MacBeth coefficient, but Hou-Xue-Zhang’s and
+Chen-Zimmermann’s own portfolio-sort reconstructions of it satisfy the constraint, so
+it enters the sample on that basis.
+
+Within that feasible set, the sampling goal is deliberately illustrative, not representa-
+tive: two factors are chosen for verified divergence between Hou-Xue-Zhang’s and
+Chen-Zimmermann’s own reported verdicts, and one for their agreement. The agree-
+ment case (asset growth, below) is the sample’s anchor – a baseline where this pipeline’s
+own gap decomposition should turn up a small, well-explained gap, so the two dis-
+agreement cases read as a genuine contrast rather than an artifact of a pipeline that
+only ever finds gaps.
+
+
+
+5.4   The factor sample
+
+The final sample is three factors, chosen so that Hou-Xue-Zhang’s and Chen-Zimmermann’s
+own reported verdicts on them differ in kind rather than merely in degree (§1).
+
+Asset growth (Cooper et al., 2008) is the sample’s anchor: C&Z’s own equal-weighted
+long-short spread is 1.73%/month (t = 8.45), and HXZ’s own I/A-sorted, NYSE-VW
+spread is t ≈ 2.89 – both sides significant and same-signed, the sample’s sole instance
+of agreement.
+
+
+
+
+Shengzhao Lei                                         Underdetermination in Factor Replication
+                                                                                             29 (58)
+
+
+Sales-growth reversal (Lakonishok et al., 1994) (MeanRankRevGrowth) is an opposite-
+verdict case compounded by a menu-clamped delisting-return policy: C&Z’s own re-
+ported long-short return is 0.55%/month (t = 3.94). HXZ’s own reported spread, by
+contrast, is a clean −0.19%/month (t = 1.08) – sign-reversed and statistically insignifi-
+cant.
+
+Share turnover (Datar et al., 1998) is an opposite-verdict case whose original test is not a
+portfolio sort at all, so both teams’ comparison numbers are themselves reconstructions
+of the paper’s method: C&Z’s own long-short spread is significant (t = 8.86), while
+HXZ’s own is −0.11%/month (t = 0.46) – again sign-reversed and insignificant (§5.3,
+§8; Table 5.2).
+
+
+            TABLE 5.2: Illustrative factor sample and external reported endpoints.
+            These endpoints provide selection context; they are not assumed to share
+                             a common estimator or data vintage.
+   Factor          C&Z (reported)      HXZ (reported)        Diagnostic role in the sample
+   AssetGrowth     EW     long–short: Annual I/A, NYSE– Agreement anchor: same sign and
+                   1.73%/mo, t = 8.45 VW       long–short: significant on both lines
+                                      0.61%/mo, t = 3.20
+   MeanRank-       EW     long–short: EW      long–short: Opposite verdicts; the paper’s
+   RevGrowth       0.55%/mo, t = 3.94 −0.19%/mo, t = 1.08 delisting-return convention is out-
+                                                          side the menu
+   ShareVol        EW long–short: t = EW      long–short: Opposite verdicts; the paper’s
+                   8.86               −0.11%/mo, t = 0.46 headline estimator is a univariate
+                                                          regression, not a portfolio sort
+
+
+
+
+Shengzhao Lei                                            Underdetermination in Factor Replication
+                                                                                        30 (58)
+
+
+
+
+6     EXPERIMENTAL DESIGN
+
+6.1   Track grid
+
+For each factor, the frozen agent signal S A (§4) is executed under three configurations
+– Cagent , Ccz , and Cstd – producing A, Acz , and Ahxz respectively; alongside these, CZ
+and HXZ are each team’s own independently measured result, and P is the paper’s
+own reported number. Figure 6.1 separates the executable track grid from these exter-
+nal comparison references. It also shows the factorial or one-at-a-time (OAT) attribu-
+tion subtracks used to identify the configuration differences between the paper-faithful
+baseline and each endpoint. Only the configuration varies across A, Acz , and Ahxz –
+the code hash of S A is identical across all three by the freeze guarantee in §4 – so any
+difference among them is attributable to configuration alone, never to a silent change
+in the signal.
+
+
+
+
+          F IGURE 6.1: Controlled track grid and configuration-attribution design.
+          The frozen agent signal S A is held constant across every executable track;
+          endpoint and attribution runs differ only in their controlled configuration
+          overrides. CZ, HXZ, and P are external comparison references, not exe-
+                                         cutable tracks.
+
+
+Shengzhao Lei                                           Underdetermination in Factor Replication
+                                                                                            31 (58)
+
+
+6.2   RQ1 design: the paper-anchored three-term identity
+
+Acz and Ahxz are constructed by taking the frozen S A and re-executing it with Ccz or
+Cstd substituted for Cagent – otherwise unchanged – so that Equation (3.1)’s configura-
+tion term, Acz − A (or Ahxz − A), is measured directly rather than inferred.
+
+
+
+6.3   Field-level gap decomposition
+
+Our objective is to allocate the difference between the baseline Cagent and a target con-
+figuration (Ccz or Cstd ) to the individual configuration fields that change. Let D be the
+set of those fields, and let R(S) denote the in-sample mean return from the track that
+switches exactly the fields in S ⊆ D to their target values, leaving all other fields at
+their baseline values. In particular, R(∅) is the baseline result: no field is switched and
+every field retains its Cagent value.
+
+For example, suppose only the weighting rule w and breakpoint rule b differ. The full
+factorial grid runs four tracks: R(∅), R({w}), R({b}), and R({w, b}). The contribu-
+tion of w is the average of its effect when switched first, R({w}) − R(∅), and when
+switched after b, R({w, b}) − R({b}); b is treated symmetrically. Thus, any effect that
+arises only when both fields are switched is shared rather than assigned arbitrarily to
+whichever field is considered first.
+
+More generally, where | D | ≤ 3, we preferentially execute the full factorial grid and
+allocate the total difference by Shapley values:
+
+                                  ∆ = R ( D ) − R (∅) = ∑ ϕ j                                  (6.1)
+                                                            j∈ D
+
+
+                                    |S|! (| D | − |S| − 1)!
+                  ϕj =     ∑                  | D |!
+                                                            [ R(S ∪ { j}) − R(S)] .            (6.2)
+                         S⊆ D \{ j}
+
+Here, ϕj is field j’s average marginal effect over every possible switching order. The
+Shapley efficiency property makes Equation (6.1) exact. Interactions are not reported
+as separate terms; instead, their effect is allocated across the affected fields’ Shapley
+values through these averaged marginal contributions.
+
+
+
+Shengzhao Lei                                               Underdetermination in Factor Replication
+                                                                                       32 (58)
+
+
+When more than three fields differ, the number of factorial combinations grows ex-
+ponentially and exceeds the acceptable computational budget, so we fall back to a
+one-at-a-time (OAT) design. OAT reports δj = R({ j}) − R(∅) for each field, but in the
+presence of interactions ∑ j δj need not equal ∆; the remaining difference is not identi-
+fied by the OAT design.
+
+
+
+6.4   t-channel decomposition
+
+                              log t = log µ − log σ + 12 log n                            (6.3)
+
+This is an identity, not a model. For an eligible baseline–track comparison with posi-
+tive mean returns, non-zero t-statistics, and consistent return and t-statistic signs, the
+three terms on the right sum exactly to log t. We recover the required volatility from the
+                                                                 √
+persisted mean return, t-statistic, and sample size using σ = µ n/t. Unlike the mean
+return in Equation (6.1), a t-statistic cannot be decomposed additively across configu-
+ration fields, because it is a ratio rather than a sum; Equation (6.3) instead decomposes
+why a t-statistic changed between two tracks – via a shift in mean return, in volatility, or
+in sample size – without requiring the mean-return decomposition’s factorial design. If
+either track fails these conditions (for example, because its mean return is non-positive
+or its sign flips), we mark the channel decomposition as degenerate and report only
+the change in absolute t-statistics, rather than applying undefined logarithms.
+
+
+
+6.5   Identification levels and significance tiers
+
+Identification levels are evidence labels: they do not change any estimated return, t-
+statistic, or Shapley value, but determine the strength of the interpretation we permit.
+They are derived automatically from the experiment design and available evidence,
+never hand-labeled. Controlled evidence is a complete factorial grid, whose Shapley at-
+tribution exactly allocates the total mean-return difference across the switched fields; it
+supports high-strength attribution claims. At the individual-track level, a comparison
+is also labeled controlled when exactly one configuration or snapshot axis differs. Har-
+monized evidence is an OAT or otherwise single-switch comparison with the remain-
+ing settings held fixed; it supports medium-strength claims about that comparison, but
+
+
+Shengzhao Lei                                          Underdetermination in Factor Replication
+                                                                                     33 (58)
+
+
+does not identify interactions or guarantee additivity. Observational evidence is a dif-
+ference that is observed without an isolating experiment, including external published
+references and raw multi-configuration differences; it supports only low-strength de-
+scriptive claims. Unidentified means the evidence required for an attribution was not
+produced – for example, a multi-field endpoint contrast without the requisite facto-
+rial or OAT runs – and likewise supports only low-strength limitation claims. This
+hierarchy prevents an observed replication gap from being reported as a controlled
+configuration effect when the experiment did not isolate it. Significance is reported at
+three tiers – |t| ≥ 1.96, 2.78, and 3.39 – matching the thresholds Hou et al. (2020) them-
+selves use under increasingly conservative multiple-testing corrections, rather than a
+single conventional cutoff.
+
+
+
+
+Shengzhao Lei                                        Underdetermination in Factor Replication
+                                                                                    34 (58)
+
+
+
+
+7     RESULTS
+
+The results are organized around three distinct empirical cases: one factor for which
+the external teams agree, one whose paper-anchored comparison is available but whose
+endpoints diverge, and one whose original estimand is not comparable to the portfolio-
+sort output of this engine. Throughout, a reported gap is not itself treated as evidence
+of a configuration effect: only a complete factorial grid supports controlled Shapley
+attribution, while OAT evidence and external comparisons retain their lower identifi-
+cation levels.
+
+
+
+7.1   RQ2: agent autonomy and capability boundary (cross-factor)
+
+All three factors reached executable frozen-signal tracks, so the pipeline produced au-
+ditable outputs for the reviewed MethodSpecs. This is a completion result, not an
+extraction-accuracy claim. The resolved MethodSpecs retain their evidence status field
+by field: the resulting audit flags one weak field for AssetGrowth, four for Mean-
+RankRevGrowth, and thirteen for ShareVol. These flags identify where human con-
+firmation remains important; they do not silently alter a backtest result. Because this
+study does not repeat extraction from the same paper, it does not estimate within-agent
+sampling variation, and the audit counts should not be interpreted as a probability that
+the extracted method is correct.
+
+The flags have two distinct meanings. An inferred field is one for which the paper gives
+an economic concept or a data source but not the native database field or operational
+rule required by the engine. AssetGrowth’s lone flag is an inferred signal-input source
+column. MeanRankRevGrowth has an inferred portfolio-sort mode and three inferred
+signal-input source columns. ShareVol has inferred holding-period and signal-source
+details, alongside three unspecified portfolio-sort fields: the breakpoint basis, group
+type, and sorting mode. “Unspecified” means that the paper itself does not state the
+required implementation choice. The distinction matters: inference is a documented
+mapping decision that can be checked against the source, whereas an unspecified field
+requires a reviewer to supply a convention or accept the engine default.
+
+
+Shengzhao Lei                                       Underdetermination in Factor Replication
+                                                                                        35 (58)
+
+
+Figure 7.1 provides a representative audit trace rather than reproducing every artifact
+for every factor. It links the paper-evidence-backed MethodSpec from Steps 1–2, the
+frozen compute_signal formula generated in Step 3, the Step 4 validation record, and
+the Step 5 executable-track metrics. The complete MethodSpecs, source quotations,
+generated scripts, and realized signal series remain versioned run artifacts; showing
+them in full in the results chapter would obscure the empirical comparisons rather
+than make them more auditable.
+
+
+
+
+           F IGURE 7.1: Representative audit trace from reviewed MethodSpec to
+              frozen signal, validation, and executable AssetGrowth baseline result.
+
+
+
+
+7.2     Per-factor results
+
+7.2.1   AssetGrowth: a clean raw-return reproduction with material configuration
+        sensitivity
+
+AssetGrowth (Cooper et al., 2008) is the sample’s clean reproduction case once the
+comparison metric is aligned. We use the paper’s value-weighted raw monthly long–
+short return as the primary benchmark: 1.05% per month with t = 5.04. The paper’s
+separately reported value-weighted FF3 alpha of 0.70% per month (t = 3.84) is retained
+as a supplementary result, but is not mixed with raw return spreads in the replication
+comparison.
+
+Under the reviewed paper configuration, the agent baseline produces 0.93% per month
+with t = 4.12. Its magnitude is therefore 0.89 times the paper estimate, with the same
+sign and the same significance verdict; the deterministic bundle classifies it as a clean
+
+Shengzhao Lei                                           Underdetermination in Factor Replication
+                                                                                          36 (58)
+
+
+reproduction. The two external implementations reach the same qualitative conclu-
+sion. C&Z reports 1.73% per month (t = 8.45), and running the frozen agent signal
+under the C&Z configuration produces 1.54% (t = 7.11). The persisted HXZ reference,
+evaluated over the paper window, is 0.61% (t = 3.20), while the standardized-HXZ
+agent track produces 0.71% (t = 3.60). Both matched-configuration comparisons are
+classified as reproduced.
+
+The endpoint changes are nevertheless economically material. Relative to the baseline,
+the C&Z configuration increases the agent return by 0.61% per month and raises its
+t-statistic from 4.12 to 7.11. The standardized HXZ configuration reduces the return
+by 0.22% per month and lowers the t-statistic to 3.60, although the return remains pos-
+itive and statistically significant. Thus, agreement in sign and significance does not
+imply invariance to portfolio design. Figure 7.2 locates every executed configuration
+alongside the paper, C&Z, and HXZ endpoints, making the economically material dis-
+persion visible. The figure is descriptive; inference on a configuration contrast comes
+from the paired and joint tests below.
+
+
+
+
+          F IGURE 7.2: AssetGrowth configuration results in the paper window.
+          Agent tracks are shown together with the reviewed baseline and the pa-
+          per, C&Z, and HXZ reported endpoints. The figure displays their relative
+          return and t-statistic positions; statistical evidence for configuration con-
+                        trasts is supplied by the paired and joint tests.
+
+The paper-anchored identities place these controlled contrasts inside the larger ex-
+ternal gaps. C&Z exceeds the paper by 0.68% per month: the configuration term is
++0.61%, the signal-and-environment term is +0.19%, and the agent replication resid-
+ual is −0.12%. HXZ is 0.44% below the paper: the corresponding terms are −0.22%,
+
+Shengzhao Lei                                            Underdetermination in Factor Replication
+                                                                                       37 (58)
+
+
+−0.10%, and −0.12%. These are exact accounting identities, but only the configuration
+term is a within-engine controlled contrast; the cross-source remainder still absorbs
+signal, data-vintage, and infrastructure differences. The two AssetGrowth rows are
+collected in Table 7.4; Figure 7.3 gives the same identities a graphical form, separating
+the two external lines without treating the cross-source terms as controlled effects.
+
+
+
+
+          F IGURE 7.3: Three-term accounting identity for AssetGrowth. Each ex-
+          ternal implementer’s distance from the paper is separated into the signal-
+          and-environment term, the controlled configuration term, and the agent
+                        baseline’s residual distance from the paper.
+
+Both configuration lines admit complete factorial grids. On the C&Z line, the con-
+trolled Shapley decomposition assigns +0.71% per month to changing portfolio weight-
+ing from value to equal weights. Replacing the baseline universe—stocks on the three
+major US exchanges excluding financial firms—with C&Z’s universe of common stocks
+listed on those exchanges, which does not separately exclude financial firms, con-
+tributes −0.10%. The two changes sum exactly to the +0.61% configuration effect.
+On the HXZ line, changing the breakpoints from the full sample to NYSE stocks con-
+tributes −0.17%, and adding the positive common-equity requirement (ceq > 0) to
+the baseline universe contributes −0.04%; together they match the −0.22% endpoint
+change. The C&Z joint test rejects that both single-switch contrasts are zero (p = 0.003),
+providing joint statistical support for its attribution. The HXZ joint test does not reject
+that null (p = 0.400). This does not test whether the final −0.22% endpoint difference
+is zero; rather, it means that the two single-switch contrasts lack joint statistical sup-
+port. The HXZ Shapley allocation should therefore be read as a controlled description
+of the in-sample contrast, not as a precisely estimated switch-level attribution. Fig-
+ure 7.4 places the two controlled allocations in one view: it makes the C&Z weighting
+contribution visually salient while retaining the HXZ line’s weaker evidential status.
+
+Shengzhao Lei                                          Underdetermination in Factor Replication
+                                                                                                 38 (58)
+
+
+           TABLE 7.1: AssetGrowth endpoints and frozen-signal tracks. Agent rows
+           report in-sample monthly long–short returns and FF3 alphas from the
+           same frozen signal; external rows report the persisted reference endpoint
+                                    under the basis shown.
+Source / track Configuration or reported basis     LS return FF3 alpha t-stat. Status
+                                                 (%/month) (%/month)
+Paper (P)       VW raw LS, Year 1                      1.05         0.70   5.04 primary reference
+C&Z (CZ)        EW long–short                          1.73            –   8.45 external reference
+HXZ (HXZ)       I/A, NYSE–VW, paper window             0.61            –   3.20 external reference
+Agent (A)       Cagent                                 0.93         0.51   4.12 paper-faithful baseline
+Agent (Acz )    Ccz                                    1.54         1.42   7.11 C&Z configuration
+Agent (Ahxz )   Cstd                                   0.71         0.36   3.60 HXZ-style configuration
+
+Note: The paper comparison endpoint is its VW raw long–short return, whose t-statistic is 5.04 after
+direction reconciliation. Its separately reported FF3 alpha is 0.70% per month (t = 3.84). The external
+estimates retain their reference constructions; the persisted HXZ endpoint shown here is evaluated
+over the paper window. Agent t-statistics are for in-sample long–short returns.
+
+
+
+
+           F IGURE 7.4: Controlled Shapley attribution for AssetGrowth’s C&Z and
+           HXZ configuration comparisons. Colors distinguish the two controlled
+           lines; the C&Z attribution has joint statistical support, whereas the HXZ
+                    allocation remains a controlled descriptive decomposition.
+
+
+
+
+Shengzhao Lei                                                 Underdetermination in Factor Replication
+                                                                                       39 (58)
+
+
+7.2.2   MeanRankRevGrowth: a residual-dominated paper comparison
+
+MeanRankRevGrowth (Lakonishok et al., 1994) is the residual-dominated case. Ta-
+ble 7.2 displays the paper’s reported value-decile return of 2.20% per month beside the
+engine’s long–short tracks; because these endpoints do not share a common estimator
+or data vintage, the paper-anchored comparison is observational. The reviewed base-
+line produces 0.48% per month (t = 3.00). Under the C&Z configuration, the frozen
+signal produces 0.38% (t = 2.83), versus the C&Z reference of 0.55% (t = 3.94); this
+matched-configuration comparison is classified as reproduced. Under the standard-
+ized HXZ configuration, the agent produces 0.25% (t = 1.33), whereas the HXZ refer-
+ence is −0.19% (t = 1.08). The signs differ, but neither is statistically significant, so that
+comparison is inconclusive rather than a claimed reproduction or failure. Thus, the
+reproduced C&Z comparison establishes agreement with C&Z under its matched con-
+figuration; it does not eliminate the much larger, observational gap between the agent
+baseline and the paper endpoint.
+
+The paper-anchored identities show why configuration is not the central explanation.
+Each identity follows the path from the paper endpoint to the agent baseline, then
+to the frozen agent signal under the external configuration, and finally to the exter-
+nal reference. The total gaps to C&Z and HXZ are −1.65% and −2.39% per month,
+respectively, while the agent replication residual is −1.72% on both lines. The configu-
+ration terms are much smaller: −0.10% on the C&Z line and −0.23% on the HXZ line.
+The residual is the difference between the agent’s 0.48% baseline return and the paper
+endpoint; it does not itself identify which implementation choice caused that differ-
+ence. The reviewed MethodSpec retains four fields requiring human attention: the
+portfolio-sort mode and three signal-input source columns are inferred. Moreover, the
+paper does not specify an accounting lag or missing-return treatment, so the engine
+uses its documented six-month lag and drop-missing defaults. Those choices alter
+which firms, months, and accounting inputs enter the sort. The paper’s post-signal
+rank transform is also recorded as unapplied because the fixed menu cannot express
+it. Thus, the residual combines signal-source mapping, the omitted rank transform,
+documented defaults, data vintage, and engine implementation differences. No coun-
+terfactual tracks isolate these components, so the residual cannot be reliably allocated
+among them. The two MeanRankRevGrowth rows in Table 7.4 make this residual
+dominance explicit.
+
+
+Shengzhao Lei                                          Underdetermination in Factor Replication
+                                                                                                 40 (58)
+
+
+Both endpoint lines nevertheless admit complete factorial grids. On the C&Z line,
+changing deciles to quintiles contributes −0.12% per month, while the common-stock
+universe change offsets this by +0.02%. On the HXZ line, moving to NYSE break-
+points, changing the stock universe, and changing from equal to value weights con-
+tribute −0.08%, −0.09%, and −0.05%, respectively; together they match the −0.23%
+configuration effect. These are controlled Shapley descriptions of the engine’s own
+contrasts. However, the corresponding joint tests do not reject that all single-switch
+contrasts are zero (C&Z p = 0.121; HXZ p = 0.319), so neither line supports a precise
+statistical attribution to individual configuration switches.
+
+
+           TABLE 7.2: MeanRankRevGrowth endpoints and frozen-signal tracks. Ex-
+                          ternal rows retain their reported bases.
+Source / track Configuration or reported basis     LS return FF3 alpha t-stat. Status
+                                                 (%/month) (%/month)
+Paper (P)       reported value-decile return            2.20          –       – external reference
+C&Z (CZ)        EW long–short                           0.55          –    3.94 external reference
+HXZ (HXZ)       EW long–short                          -0.19          –    1.08 external reference
+Agent (A)       Cagent                                 0.48         0.38   3.00 paper-faithful baseline
+Agent (Acz )    Ccz                                    0.38         0.30   2.83 C&Z configuration
+Agent (Ahxz )   Cstd                                   0.25         0.07   1.33 HXZ-style configuration
+
+Note: Agent values are in-sample long–short returns and FF3 alphas. The paper’s reported value-decile
+return and the external references are shown transparently but do not share one common estimator or
+data vintage.
+
+
+
+
+7.2.3   ShareVol: an intentionally non-comparable estimand
+
+ShareVol (Datar et al., 1998) is the boundary case. The paper’s headline result is a
+Fama–MacBeth coefficient (t = −8.86), whereas the engine and the external references
+report portfolio-sort long–short spreads. The system therefore correctly marks both
+paper-anchored three-term identities as unidentified rather than subtracting incompa-
+rable quantities. This is a substantive scope boundary, not a missing number to be
+filled by approximation. Accordingly, the two ShareVol rows in Table 7.4 are marked
+unidentified rather than assigned numerical gap components.
+
+The portfolio-sort endpoints remain informative on their own terms. Table 7.3 shows
+that the agent baseline is close to zero (0.01% per month, t = 0.03). The C&Z configura-
+tion raises it to 0.19% (t = 0.89), still far below the C&Z reference of 0.91% (t = 3.87); this
+
+Shengzhao Lei                                                  Underdetermination in Factor Replication
+                                                                                                 41 (58)
+
+
+matched-configuration comparison is not reproduced. The result is a failure to repro-
+duce the C&Z portfolio-sort reference, not a numerical verdict on the paper’s regres-
+sion coefficient. The standardized-HXZ track remains close to zero (0.01%, t = 0.03),
+while the HXZ reference is −0.11% (t = 0.46). Since both are insignificant, that com-
+parison is inconclusive despite the sign difference.
+
+The HXZ contrast simultaneously changes the breakpoint rule, accounting lag, rebal-
+ancing frequency, and stock universe; the C&Z contrast additionally changes the num-
+ber of portfolios and the weighting rule. These four and five fields, respectively, exceed
+the factorial budget. The controller therefore runs one-at-a-time ablations rather than a
+complete factorial grid, and no controlled Shapley attribution is available. Across the
+four standardized-side ablations, the in-sample t-statistic range is 0.79 and the return
+changes sign once, but no track crosses the significance threshold. This is harmonized
+evidence that the portfolio-sort output is sensitive to implementation choices, not an
+additive decomposition of an endpoint gap or an attribution to any individual switch.
+The paper’s weighting instruction cannot be expressed as either equal or value weight-
+ing in the fixed menu, so the baseline uses the documented value-weighting default.
+This further limits any paper-faithful interpretation.
+
+
+           TABLE 7.3: ShareVol endpoints and frozen-signal tracks. The paper coef-
+                     ficient is not comparable to the portfolio-sort rows.
+Source / track Configuration or reported basis     LS return FF3 alpha t-stat. Status
+                                                 (%/month) (%/month)
+Paper (P)       Fama–MacBeth coefficient                   –            –   -8.86 not comparable
+C&Z (CZ)        EW long–short                              –            –    8.86 external reference
+HXZ (HXZ)       EW long–short                          -0.11            –    0.46 external reference
+Agent (A)       Cagent                                  0.01         0.23   0.03 portfolio-sort baseline
+Agent (Acz )    Ccz                                     0.19         0.42   0.89 portfolio-sort endpoint
+Agent (Ahxz )   Cstd                                    0.01         0.23   0.03 portfolio-sort endpoint
+
+Note: Agent t-statistics are for in-sample long–short returns. Because the paper’s headline quantity is a
+regression coefficient, it is intentionally not entered into the paper-anchored spread decomposition.
+
+
+
+
+Shengzhao Lei                                                  Underdetermination in Factor Replication
+                                                                                                                              42 (58)
+
+
+                TABLE 7.4: Paper-anchored three-term gap identities across factors.
+Factor            Reference Total gap Signal / environment Configuration Agent residual Identification
+                                                     (%/month)
+AssetGrowth       C&Z          +0.68                 +0.19         +0.61          −0.12 observational identity; controlled configuration
+AssetGrowth       HXZ          −0.44                 −0.10         −0.22          −0.12 observational identity; controlled configuration
+MeanRankRevGrowth C&Z          −1.65                 +0.17         −0.10          −1.72 observational identity; controlled configuration
+MeanRankRevGrowth HXZ          −2.39                 −0.44         −0.23          −1.72 observational identity; controlled configuration
+ShareVol          C&Z               –                    –             –               – unidentified: coefficient versus spread
+ShareVol          HXZ               –                    –             –               – unidentified: coefficient versus spread
+
+Note: For each available row, total gap equals signal / environment plus configuration plus agent residual.
+The identity is observational because external endpoints may differ in estimator, sample window, or
+data vintage. The configuration term holds the agent signal fixed and is therefore a within-engine
+controlled contrast. AssetGrowth’s C&Z line has joint statistical support; the AssetGrowth HXZ and
+both MeanRankRevGrowth lines do not. ShareVol’s paper coefficient is not comparable to a
+portfolio-sort spread.
+
+
+7.3        What the cross-factor comparison establishes
+
+The three cases do not support a single universal cause of replication disagreement.
+AssetGrowth’s C&Z-side configuration difference is dominated by weighting; Mean-
+RankRevGrowth’s controlled configuration effects are small relative to its paper-comparison
+residual; and ShareVol cannot support the same decomposition because its paper es-
+timand differs and its field count exceeds the factorial budget. The common finding
+is methodological: the pipeline distinguishes controlled configuration evidence from
+external or underidentified residuals instead of assigning every observed difference to
+a single label.
+
+Table 7.4 places the available paper-anchored identities on one common display and
+marks ShareVol as unidentified; Table 7.5 provides the corresponding compact end-
+point comparison, while Appendix E supplies the complete executed track grids. The
+factor-specific endpoint tables above retain the reported return and alpha values.
+
+These conclusions are bounded by the controlled design. The fixed configuration menu
+cannot express every paper-specific convention, and the factorial budget prevents ex-
+act interaction attribution when many settings differ. The C&Z and HXZ references
+are independent comparison points rather than ground truth or the original authors’
+code; differences that remain across sources therefore cannot be assigned uniquely to
+the signal, data vintage, or infrastructure. The pipeline is consequently strongest as
+an auditable system for identifying estimand mismatches and measuring controlled
+within-engine configuration contrasts, not as proof that it has recovered the authors’
+
+
+Shengzhao Lei                                                                Underdetermination in Factor Replication
+                                                                                        43 (58)
+
+
+original implementation or as a general estimate of LLM extraction accuracy.
+
+
+          TABLE 7.5: Cross-factor endpoint summary. Agent columns report in-
+          sample long–short t-statistics under the frozen signal; the external column
+          uses each persisted reference endpoint. Detailed return, alpha, sample-
+          window, and estimand information is reported in the factor-specific tables.
+
+Factor                       Cagent   Ccz Cstd C&Z / HXZ Interpretation
+AssetGrowth                    4.12 7.11 3.60        8.45 / 3.20 controlled endpoints
+MeanRankRevGrowth              3.00 2.83 1.33        3.94 / 1.08 external bases differ
+ShareVol                       0.03 0.89 0.03        8.86 / 0.46 paper estimator differs
+
+
+
+
+7.4   t-channel and post-publication evidence
+
+For AssetGrowth and MeanRankRevGrowth, eligible positive-return comparisons per-
+mit the t-channel decomposition of Section 6. This diagnostic uses the same paper-
+window in-sample metrics as the endpoint comparisons in Section 7.2. It accounts for
+a change in the absolute t-statistic through changes in mean return, return volatility,
+and the number of monthly observations; it is not a causal attribution.
+
+For AssetGrowth, the C&Z configuration raises the in-sample mean return from 0.93%
+to 1.54% per month and lowers implied volatility from 4.68% to 4.49%, with both tracks
+covering 432 months. Consequently, t rises from 4.12 to 7.11: the higher mean is the
+dominant channel and the lower volatility reinforces it. The standardized-HXZ config-
+uration instead lowers the mean to 0.71%. Its implied volatility also falls, to 4.11%, but
+that reduction only partly offsets the lower mean, so t falls to 3.60.
+
+For MeanRankRevGrowth, the C&Z configuration lowers the in-sample mean from
+0.48% to 0.38% per month, but a volatility reduction from 2.66% to 2.25% partly offsets
+that loss, so t falls only from 3.00 to 2.83. The standardized-HXZ configuration lowers
+the mean to 0.25% and raises implied volatility to 3.12%, jointly reducing t to 1.33.
+ShareVol’s in-sample agent tracks are technically eligible for the log decomposition,
+but its baseline mean and t-statistic are both close to zero. The resulting log ratios can
+magnify economically small changes, so they are retained as a diagnostic rather than
+interpreted as substantive evidence.
+
+Shengzhao Lei                                           Underdetermination in Factor Replication
+                                                                                     44 (58)
+
+
+The post-publication split provides a separate descriptive check. In the AssetGrowth
+paper window (1968–2003), the baseline has t = 4.12; in the intervening 2004–2008
+window it has t = 0.08, and in the post-publication window beginning in 2009 it has
+t = 0.16. MeanRankRevGrowth’s baseline is significant in both its paper and post-
+publication windows (t = 3.00 and t = 2.53, respectively), while ShareVol is insignif-
+icant in both. Thus, successful in-sample replication does not imply persistence after
+publication. These separate-window statistics describe realized track histories; they
+are not a time-series estimate of a decline and do not establish a causal publication
+effect.
+
+
+
+7.5   Evidence-constrained LLM diagnosis
+
+Step 8 was run as an optional explanation layer for all three completed comparison
+bundles. It produced 25 persisted diagnosis claims (ten for AssetGrowth, nine for
+MeanRankRevGrowth, and six for ShareVol), with no claim rejected by the evidence
+validator. Each accepted claim names one or more keys from the deterministic bundle
+and inherits its identification level and evidence strength. For example, the Asset-
+Growth proposal identifies the weighting switch as the controlled Shapley attribution
+on the C&Z line, separately records its paired-switch and joint-test evidence, and la-
+bels post-publication decay as observational. For ShareVol, the proposal reports the
+unavailable paper-versus-track comparison as an evidence limitation rather than in-
+venting a comparable spread.
+
+In these cases, this provides an illustrative, bounded analytical capability: the model
+can select and organize supported diagnostic claims across a heterogeneous evidence
+bundle. It is not an independent empirical result or a validation of the model’s eco-
+nomic reasoning. In particular, validator acceptance establishes that a claim is evidence-
+supported; it does not make that interpretation unique, best, or economically most per-
+suasive. Numeric statements in the rendered diagnosis are reinserted deterministically
+from the bundle, and the artifacts retain the status llm_assisted_proposal. The ap-
+propriate comparison is therefore not “AI versus deterministic results”–the latter are
+the source of truth–but whether the proposal surfaces the same evidence, limitations,
+and identification level as a human analyst. A blinded expert evaluation of that ques-
+tion remains future work.
+
+
+Shengzhao Lei                                        Underdetermination in Factor Replication
+                                                                                    45 (58)
+
+
+
+
+8     DISCUSSION, LIMITATIONS AND CONCLUSION
+
+8.1   Implications
+
+The results show why a single comparison between two published factor implementa-
+tions is an inadequate diagnosis. A difference can arise from a controlled configuration
+change, from the signal and data environment that remain outside the experiment,
+from a mismatch between the engine and the paper’s requested method, or from an
+estimand that is not comparable in the first place. AssetGrowth demonstrates that
+substantial configuration effects can coexist with agreement about a factor’s sign and
+significance. MeanRankRevGrowth demonstrates that a large paper-comparison resid-
+ual cannot automatically be attributed to the agent when the implementation menu
+supplies defaults for unresolved or unsupported fields. ShareVol demonstrates the
+stronger boundary: a paper coefficient and a portfolio-sort spread should not be forced
+into the same replication identity.
+
+The agent’s contribution is not to replace the researcher’s empirical judgment, but to
+turn an unstructured paper description into a conversational, reviewable, and exe-
+cutable research object. It extracts a MethodSpec with source evidence and explicit
+uncertainty labels, and generates only the signal-computation code after that specifi-
+cation is approved; consequential empirical settings remain governed by human re-
+view and a fixed menu. Freezing the resulting agent signal then permits the same pa-
+per interpretation to be run under multiple configurations, separating implementation
+sensitivity from variation that would arise if the model rewrote the strategy each time.
+A researcher can of course reproduce an individual factor manually. The incremental
+value of the agent workflow is to extend that exercise across papers while retaining a
+consistent evidence standard, review interface, and versioned audit trail.
+
+The controlled factorial results are therefore the paper’s strongest evidence. They iso-
+late the effect of moving the same frozen signal between configurations and allocate
+that within-engine difference exactly by Shapley values. OAT results remain useful
+for sensitivity analysis, but their interaction caveat prevents an additive causal read-
+ing. External comparisons and the three-term identity are valuable accounting devices,
+
+
+Shengzhao Lei                                       Underdetermination in Factor Replication
+                                                                                       46 (58)
+
+
+yet remain observational because they absorb external code, data-vintage, sample-
+window, and estimator differences.
+
+Robustness in this study does not mean that a factor is invariant across all plausible im-
+plementations. Rather, the controlled results show different patterns: AssetGrowth re-
+mains positive and significant across the baseline, C&Z, and standardized-HXZ config-
+urations, while its return magnitude and t-statistic change materially; MeanRankRevGrowth
+weakens under the standardized-HXZ configuration; and ShareVol’s portfolio-sort tracks
+remain insignificant across the configurations examined. The separate-window results
+add a temporal qualification: a successful paper-window replication need not persist
+after publication. AssetGrowth’s baseline loses significance in its post-publication win-
+dow, whereas MeanRankRevGrowth remains significant in its own post-publication
+window. Robustness is thus reported as auditable evidence conditional on the cho-
+sen configurations and windows, not as proof of a factor’s general validity; the post-
+publication comparisons are descriptive and do not identify a causal effect of publica-
+tion.
+
+
+
+8.2     Limitations
+
+8.2.1    Agent and specification limits
+
+   • No within-agent dispersion study. Repeated independent extractions of each
+        paper have not been run. Consequently, the analysis cannot separate variation
+        induced by model sampling from ambiguity in the paper or from a genuine ex-
+        traction error.
+
+   • No cross-model or prompt-sensitivity evaluation. The study does not compare
+        the selected agent model, system prompt, or tool-use policy with alternative
+        models or prompting strategies. Its findings therefore describe this controlled
+        workflow, not a model-agnostic ranking of LLMs or a claim that the same extrac-
+        tion quality will transfer to every agent configuration.
+
+   • No blinded evaluation of the diagnosis layer. Step 8’s proposal is structurally
+     constrained by deterministic evidence keys and identification labels, but this
+        study does not yet compare its claim selection or explanatory usefulness with
+        blinded expert judgments.
+
+Shengzhao Lei                                          Underdetermination in Factor Replication
+                                                                                      47 (58)
+
+
+   • Finite configuration and estimator menu. The engine clamps off-menu or un-
+        specified choices to documented defaults. This preserves reproducibility, but
+        means a paper-faithful baseline can contain a scope deviation. It also excludes
+        methods such as Fama–MacBeth from the controlled portfolio-sort experiment.
+
+   • No external-signal bridge. C&Z’s independently coded signal has not been ex-
+     ecuted through this engine. The term labelled signal-and-environment therefore
+        combines signal, data-vintage, and engine differences rather than identifying a
+        pure signal effect.
+
+
+8.2.2    Experimental and statistical limits
+
+   • Factorial budget. Complete factorial attribution is limited to three differing fields.
+        Larger contrasts use OAT and cannot identify interactions; ShareVol is the present
+        example.
+
+   • External comparability. The paper, C&Z, HXZ, and engine endpoints may use
+        different windows, data vintages, standard-error conventions, or estimands. Ex-
+        act arithmetic closure of the three-term identity does not remove these differ-
+        ences.
+
+   • t-channel domain. The log-t decomposition is available only when both com-
+        pared mean returns are positive and the required signs are consistent. Otherwise
+        the system reports an absolute-t change but does not manufacture a channel split.
+
+   • Small, illustrative sample. Three deliberately selected factors cannot estimate
+     how frequently each diagnosis occurs in the factor literature.
+
+
+
+8.3     Future work
+
+The immediate next step is repeated extraction per paper, which would turn the cur-
+rent single-draw audit into a measured within-agent dispersion study. A bridge that
+runs an external implementation through the same engine and data snapshot would
+further separate signal differences from environmental ones. Extending the menu to
+additional data sources, estimator families, and portfolio constructions would reduce
+selection and clamping limits. Finally, scaling the protocol to a pre-specified broader
+
+Shengzhao Lei                                         Underdetermination in Factor Replication
+                                                                                     48 (58)
+
+
+factor sample would test whether the three observed diagnostic patterns generalize
+beyond these illustrative cases.
+
+
+
+8.4   Conclusion
+
+This paper treats replication not as a binary verdict, but as a question of which differ-
+ences can be measured, compared, and identified. It therefore separates controlled con-
+figuration contrasts from observational external accounting and from cases in which
+the relevant estimands are not comparable at all.
+
+The agent’s role is deliberately bounded. It turns an unstructured paper into an evidence-
+backed MethodSpec with explicit uncertainty, generates only the approved signal-
+computation code, and then has that signal frozen for every subsequent configuration
+experiment. Human review and the fixed configuration menu continue to govern con-
+sequential empirical choices. This makes the agent’s paper interpretation a versioned,
+auditable object rather than a black box that can silently alter the strategy while an
+experiment is running.
+
+Across the three cases, AssetGrowth is a raw-return reproduction that remains mate-
+rially configuration-sensitive; MeanRankRevGrowth has a residual-dominated paper
+comparison; and ShareVol’s paper coefficient cannot be identified with a portfolio-sort
+spread. Where complete factorial grids are feasible, the workflow reports exact within-
+engine Shapley contributions; where they are not, it reports non-additive OAT sensitiv-
+ity; and where estimands differ, it declines the paper-anchored decomposition. These
+boundaries are part of the result: they make the remaining replication gap auditable
+rather than presenting it as an opaque failure of either the factor or the agent.
+
+
+
+
+Shengzhao Lei                                        Underdetermination in Factor Replication
+                                                                                      49 (58)
+
+
+
+
+A     METHODSPEC SCHEMA
+
+The MethodSpec produced by Step 1 and reviewed in Step 2 (§4) is implemented as
+roughly 35 nested Pydantic models in src/infra/models/method_spec.py, up to five
+levels deep. Reproducing the full definition here would not aid legibility; this ap-
+pendix instead gives the two recurring building blocks that carry provenance through
+the spec, the nine top-level sections of MethodSpec itself, and one representative deep
+branch (the portfolio-construction tree). The complete, authoritative schema is the
+source file itself.1
+
+
+
+A.1     Two recurring building blocks
+
+Most leaf fields in MethodSpec are not plain values: they are wrapped so that a value
+can never appear without a record of whether, and how, it is supported by the paper.
+
+    • EvidenceCitation: location, quote (a verbatim span of paper text), table_ref
+      (table, row, column, used instead of quote when the value comes from a table
+       rather than prose), interpretation.
+    • SourcedValue[T]: value (of type T), evidence (a list of EvidenceCitation), status
+       (one of the EvidenceStatus values – e.g. directly supported, table-only, human-
+       resolved, or unsupported), and, when unsupported, an unsupported_value place-
+       holder rather than a silently invented one.
+
+Not every field is SourcedValue-wrapped or carries its own evidence list – a few struc-
+tural or purely definitional fields (e.g. an enum selecting among a fixed menu of con-
+struction types) are plain values – but every field that encodes an empirical choice read
+from the paper is.
+    1 https://github.com/xiaohai12/factor-replication-agent, src/infra/models/method_spec.py.
+
+
+
+
+Shengzhao Lei                                         Underdetermination in Factor Replication
+                                                                                    50 (58)
+
+
+A.2    Top-level structure
+
+   • paper (PaperRef): document id, title, citation, publication year.
+   • signal (SignalSpec): the signal’s definition, economic intuition, and direction
+      (all SourcedValue), a signal-category enum, and a FormulaSpec decomposing
+      the paper’s formula into discrete CalculationSteps with their own inputs, con-
+      stants, and evidence.
+   • data (DataSpec): signal/return frequency, the sources cited, and a list of RequiredFields
+      – each one a concept referenced in the paper together with the source_table and
+     source_column it resolves to against the registered data catalog (§4).
+   • sample (SampleSpec): three independently tracked periods – data coverage, portfolio-
+      formation, and reported-returns – each a Period with its own evidence.
+   • timing (TimingSpec): formation rule and month, rebalance frequency, holding
+      period, and a DataAvailability record of the reporting lag applied before a sig-
+      nal can be used.
+   • universe (UniverseSpec): a description plus a list of FilterSpec inclusion/exclusion
+     rules, each tied to a concept and an evidence-backed operator/value.
+   • portfolio (PortfolioSpec): construction type, sort dimensions, portfolio legs,
+      weighting scheme, return-combination rule, missing-data policies, and signal
+      transforms – detailed below.
+   • reported_results (ReportedResults): the paper’s own headline numbers – up
+     to four ReportedMetrics (estimand, adjustment model, weighting, estimate, statis-
+      tic, sample period, each with evidence) plus an optional ComparisonDerivation
+      recording how a high-minus-low spread is built from two of them. This is the sec-
+      tion the gap decomposition in §7 benchmarks against; it is not incidental meta-
+      data.
+   • notes: free-text, non-evidentiary.
+
+
+
+A.3    A representative deep branch: portfolio construction
+
+PortfolioSpec.sorts is a list of SortDimension, each carrying a concept_id, a role (in-
+dependent/conditioning) and order, a sort mode and group-type (both SourcedValue),
+an optional group_count, and a nested BreakpointSpec (basis – e.g. NYSE-only – and
+the numeric breakpoint values themselves). PortfolioSpec.legs is a list of PortfolioLeg,
+
+
+Shengzhao Lei                                       Underdetermination in Factor Replication
+                                                                                 51 (58)
+
+
+each a long/short side and a selector mapping sort ids to the group index that com-
+poses it. This is the branch registry.build_config (§4) reads to resolve breakpoint
+convention and weighting against the fixed engine menu (Appendix B).
+
+
+
+
+Shengzhao Lei                                    Underdetermination in Factor Replication
+                                                                                          52 (58)
+
+
+
+
+B      CONFIGURATION MENU AND CLAMPING RULES
+
+The agent never writes portfolio-construction or backtest-control code. After review,
+registry.build_config resolves the MethodSpec into the engine’s fixed menu. Ta-
+ble B.1 lists the principal menu-governed choices. A paper value that is absent, un-
+specified, or outside the implemented menu is deterministically replaced by the stated
+default and recorded in the resolved configuration’s defaults_applied field. This is a
+scope limitation, not an inference that the default reproduces the paper’s choice.
+
+
+              TABLE B.1: Principal fixed-menu controls used by the backtest engine.
+    Control                  Implemented values                          Default       when
+                                                                         unspecified or off-
+                                                                         menu
+    Breakpoint source        Full-sample universe; NYSE universe         NYSE
+    Portfolio weighting      Value weighted; equal weighted              Value weighted
+    Missing-signal action    Drop; unspecified                           Drop
+    Return combination       Extreme-group spread;        average-leg    Extreme-group
+                             spread; full-portfolio return; single-      spread
+                             signal-portfolio return; unspecified
+    Rebalance frequency      Annual; quarterly; monthly                  Monthly
+    Number of target-sort    Integer of at least two                     Ten groups
+    groups
+    Estimator                Portfolio sort                              Portfolio sort
+    Return basis             Excess return                               Excess return
+
+
+The universe filters, sample window, formation month, accounting lag, and portfo-
+lio legs are also resolved from the approved MethodSpec, subject to schema valida-
+tion and the data catalog. They are not free-text code generated by the agent. Track-
+specific experimental overrides are stricter than paper resolution: an unknown key or
+an override value outside a menu is rejected, rather than silently clamped, because a
+no-op override would invalidate the claimed configuration contrast. Unsupported sort
+modes or constructions fail loudly rather than being reinterpreted by the engine.
+
+
+
+
+Shengzhao Lei                                            Underdetermination in Factor Replication
+                                                                                      53 (58)
+
+
+
+
+C     PROMPT TEXT
+
+What each LLM-facing prompt (Steps 1, 2, 3, and 8) is given and constrained to return is
+described alongside each step in §4. The prompt text itself, and the code that assembles
+its inputs and validates its output, is not reproduced here; it is versioned in the project
+repository under prompts/ and src/steps/.1
+
+
+
+
+    1 https://github.com/xiaohai12/factor-replication-agent.
+
+
+Shengzhao Lei                                         Underdetermination in Factor Replication
+                                                                                     54 (58)
+
+
+
+
+D     VALIDATOR AND LEAKAGE-CONTROL RULES
+
+Step 4 validates the exact standalone script assembled after code generation, but its
+repair scope is deliberately technical: it can reject or repair a syntax, schema, or exe-
+cution defect, never an empirical choice that belongs to human review. The generated
+plugin contains only compute_signal; all timing, universe, breakpoints, and portfolio
+construction remain in controlled engine components.
+
+    • Information boundary. The extraction step is never given SignalDoc.csv; that
+      file is evaluation-only. Data availability lags are applied in the data layer before
+      the plugin receives its input, and plugins are forbidden from implementing their
+      own lag policy.
+    • Static checks. The validator parses the plugin, requires the declared entry func-
+      tion, scans for known future-looking constructs (including negative shifts, .future,
+      and lead(), and enforces any factor-specific market-equity implementation pol-
+      icy.
+    • Execution check. The exact generated script is imported in a separate process
+      and its signal function is executed on a small, point-in-time real-data slice. The
+      output must have the required keys and a numeric signal; a raised exception,
+      timeout, non-numeric output, or clearly invalid signal cardinality/leg coverage
+      fails validation.
+    • Diagnostics rather than hidden repair. Empty or degenerate thin-slice output is
+      recorded as a warning when it may reflect coverage. The full Step 5 execution
+      remains the final check of the complete engine on the full data. Only technical
+      errors are eligible for bounded repair.
+    • Optional faithfulness read. When enabled, a separate LLM checks whether the
+      plugin implements the already approved formula and must cite verbatim for-
+      mula and code substrings. This check does not decide whether the approved
+      formula itself is the correct empirical method.
+
+Passing Step 4 is therefore not a claim that a factor has been correctly replicated. It
+establishes a narrower proposition: the frozen signal code is syntactically valid, com-
+patible with the approved interface, and has passed the stated leakage and execution
+checks before deterministic backtesting.
+
+Shengzhao Lei                                        Underdetermination in Factor Replication
+                                                                                          55 (58)
+
+
+
+
+E     PER-FACTOR DETAIL TABLES
+
+E.1     Complete executed-track results
+
+Tables E.1–E.3 list every executed agent track. Returns and FF3 alphas are in-sample
+monthly percentages; t-statistics are for the in-sample long–short return. The “switches”
+column records the configuration dimensions changed from original_method; a dash
+denotes the baseline.
+
+                        TABLE E.1: All executed AssetGrowth tracks.
+
+ Track                        Switches                    LS return FF3 alpha t-stat.
+ original_method              –                                    0.93          0.51      4.12
+ standardized_hxz             breakpoint, universe                 0.71          0.36      3.60
+ cz_actual_config             universe, weighting                  1.54          1.42      7.11
+ factorial_breakpoint         breakpoint                           0.75          0.40      3.73
+ factorial_universe           universe                             0.88          0.46      4.09
+ cz_factorial_universe        universe                             0.89          0.51      3.99
+ cz_factorial_weighting       weighting                            1.69          1.55      7.39
+
+
+                  TABLE E.2: All executed MeanRankRevGrowth tracks.
+Track                            Switches                          LS return FF3 alpha t-stat.
+original_method                  –                                        0.48     0.38     3.00
+standardized_hxz                 breakpoint, universe, weighting          0.25     0.07     1.33
+cz_actual_config                 quantiles, universe                      0.38     0.30     2.83
+factorial_universe               universe                                 0.37     0.27     2.30
+factorial_weighting              weighting                                0.44     0.27     2.44
+factorial_weighting_universe     weighting, universe                      0.41     0.21     2.14
+factorial_breakpoint             breakpoint                               0.46     0.37     3.01
+factorial_breakpoint_universe    breakpoint, universe                     0.33     0.23     2.17
+factorial_breakpoint_weighting   breakpoint, weighting                    0.34     0.18     1.85
+cz_factorial_quantiles           quantiles                                0.35     0.29     2.58
+cz_factorial_universe            universe                                 0.48     0.38     3.01
+
+
+
+
+Shengzhao Lei                                          Underdetermination in Factor Replication
+                                                                                                56 (58)
+
+
+                           TABLE E.3: All executed ShareVol tracks.
+Track                   Switches                                         LS return FF3 alpha t-stat.
+original_method         –                                                     0.01       0.23     0.03
+standardized_hxz        breakpoint, lag, rebalance, universe                  0.01       0.23     0.03
+cz_actual_config        lag, quantiles, rebalance, universe, weighting        0.19       0.42     0.89
+ablation_breakpoint     breakpoint                                            0.01       0.23     0.03
+ablation_lag            lag                                                   0.01       0.23     0.03
+ablation_rebalance      rebalance                                             0.08       0.35     0.24
+ablation_universe       universe                                              0.00       0.13     0.00
+cz_ablation_weighting   weighting                                             0.27       0.40     1.03
+cz_ablation_lag         lag                                                   0.01       0.23     0.03
+cz_ablation_rebalance   rebalance                                             0.08       0.35     0.24
+cz_ablation_universe    universe                                              0.03       0.27     0.11
+cz_ablation_quantiles   quantiles                                             0.00       0.20     0.01
+
+
+
+
+Shengzhao Lei                                              Underdetermination in Factor Replication
+                                                                                   57 (58)
+
+
+
+
+F    REPRODUCIBILITY
+
+The reported experiments use a local WRDS snapshot obtained in late June 2026. CRSP
+monthly returns provide the returns backbone; Compustat annual fundamentals and
+the relevant point-in-time link tables provide factor inputs where required. The data-
+source registry records the source, columns, and linking rule used for each approved
+MethodSpec. The present study records the month of data acquisition rather than
+a vendor query identifier; readers should therefore treat exact reconstruction from a
+fresh WRDS pull as a separate data-vintage exercise.
+
+Each run carries a data-snapshot hash, a MethodSpec hash, a signal-code hash, a resolved-
+configuration hash, and runtime provenance. For the final AssetGrowth batch, the
+data-snapshot SHA–256 hash is e59e6493f8ac05f3af7d090a041787ccf77045eff130b3896022e2c6e32
+the run artifacts record lifecycle commit b4fb8b0cbf48d7c4b2d0897fb9f46d24aea6df55-dirty
+and frozen signal code hash 17d8f37c49504d47. Equivalent metadata are stored beside
+every MeanRankRevGrowth and ShareVol run under runs/evidence/.
+
+The semantic hashes identify the approved MethodSpec and resolved configuration
+content; artifact SHA–256 hashes identify the materialized return-series and signal-
+series files. A successful replication should match both layers: semantic agreement
+establishes that the same specification and configuration were used, while artifact
+agreement establishes that the same stored inputs and outputs were read. The ver-
+sioned repository, resolved MethodSpecs, generated scripts, per-track metadata, and
+comparison.json bundles together provide the audit trail for the numbers reported in
+this thesis.
+
+
+
+
+Shengzhao Lei                                      Underdetermination in Factor Replication
+                                                                                      58 (58)
+
+
+
+
+BIBLIOGRAPHY
+
+Chen, Andrew Y. and Tom Zimmermann (2022). “Open Source Cross-Sectional Asset
+ Pricing”. In: Critical Finance Review 11.2, pp. 207–264.
+Cooper, Michael J., Huseyin Gulen, and Michael J. Schill (2008). “Asset Growth and the
+  Cross-Section of Stock Returns”. In: The Journal of Finance 63.4, pp. 1609–1651.
+Datar, Vinay T., Narayan Y. Naik, and Robert Radcliffe (1998). “Liquidity and Stock
+ Returns: An Alternative Test”. In: Journal of Financial Markets 1.2, pp. 203–219.
+Harvey, Campbell R., Yan Liu, and Heqing Zhu (2016). “... and the Cross-Section of
+  Expected Returns”. In: The Review of Financial Studies 29.1, pp. 5–68.
+Hou, Kewei, Chen Xue, and Lu Zhang (2020). “Replicating Anomalies”. In: The Review
+ of Financial Studies 33.5, pp. 2019–2133.
+Jensen, Theis Ingerslev, Bryan Kelly, and Lasse Heje Pedersen (2023). “Is There a Repli-
+  cation Crisis in Finance?” In: The Journal of Finance 78.5, pp. 2465–2518.
+Lakonishok, Josef, Andrei Shleifer, and Robert W. Vishny (1994). “Contrarian Invest-
+  ment, Extrapolation, and Risk”. In: The Journal of Finance 49.5, pp. 1541–1578.
+McLean, R. David and Jeffrey Pontiff (2016). “Does Academic Research Destroy Stock
+  Return Predictability?” In: The Journal of Finance 71.1, pp. 5–32.
+Simonsohn, Uri, Joseph P. Simmons, and Leif D. Nelson (2020). “Specification Curve
+  Analysis”. In: Nature Human Behaviour 4, pp. 1208–1214.
+Steegen, Sara et al. (2016). “Increasing Transparency Through a Multiverse Analysis”.
+  In: Perspectives on Psychological Science 11.5, pp. 702–712.
+
+
+
+
+Shengzhao Lei                                         Underdetermination in Factor Replication
+

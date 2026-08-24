@@ -1,7 +1,43 @@
 \section{Configuration Menu and Clamping Rules}
 \label{app:config-menu}
-% Full table of every registry.build_config key and its allowed-value list
-% (weighting, breakpoint_source, breakpoint_quantiles, rebalance_frequency,
-% return_combination_type, estimator, universe_filters, etc.), with defaults
-% and the clamping behavior for out-of-menu values (see
-% docs/paper-outline.md \S4.1--4.7 for the code-verified source table).
+
+The agent never writes portfolio-construction or backtest-control code. After
+review, \texttt{registry.build\_config} resolves the MethodSpec into the
+engine's fixed menu. Table~\ref{tab:config-menu} lists the principal
+menu-governed choices. A paper value that is absent, unspecified, or outside
+the implemented menu is deterministically replaced by the stated default and
+recorded in the resolved configuration's \texttt{defaults\_applied} field.
+This is a scope limitation, not an inference that the default reproduces the
+paper's choice.
+
+\begin{table}[htbp]
+  \centering
+  \small
+  \caption{Principal fixed-menu controls used by the backtest engine.}
+  \label{tab:config-menu}
+  \begin{tabular}{p{0.25\linewidth}p{0.43\linewidth}p{0.22\linewidth}}
+    \toprule
+    Control & Implemented values & Default when unspecified or off-menu \\
+    \midrule
+    Breakpoint source & Full-sample universe; NYSE universe & NYSE \\
+    Portfolio weighting & Value weighted; equal weighted & Value weighted \\
+    Missing-signal action & Drop; unspecified & Drop \\
+    Return combination & Extreme-group spread; average-leg spread;
+      full-portfolio return; single-signal-portfolio return; unspecified &
+      Extreme-group spread \\
+    Rebalance frequency & Annual; quarterly; monthly & Monthly \\
+    Number of target-sort groups & Integer of at least two & Ten groups \\
+    Estimator & Portfolio sort & Portfolio sort \\
+    Return basis & Excess return & Excess return \\
+    \bottomrule
+  \end{tabular}
+\end{table}
+
+The universe filters, sample window, formation month, accounting lag, and
+portfolio legs are also resolved from the approved MethodSpec, subject to
+schema validation and the data catalog. They are not free-text code generated
+by the agent. Track-specific experimental overrides are stricter than paper
+resolution: an unknown key or an override value outside a menu is rejected,
+rather than silently clamped, because a no-op override would invalidate the
+claimed configuration contrast. Unsupported sort modes or constructions fail
+loudly rather than being reinterpreted by the engine.

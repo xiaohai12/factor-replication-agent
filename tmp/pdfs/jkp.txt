@@ -1,0 +1,2657 @@
+THE JOURNAL OF FINANCE • VOL. LXXVIII, NO. 5 • OCTOBER 2023
+
+
+
+
+         Is There a Replication Crisis in Finance?
+
+  THEIS INGERSLEV JENSEN,* BRYAN KELLY, and LASSE HEJE PEDERSEN
+
+                                            ABSTRACT
+      Several papers argue that financial economics faces a replication crisis because the
+      majority of studies cannot be replicated or are the result of multiple testing of too
+      many factors. We develop and estimate a Bayesian model of factor replication that
+      leads to different conclusions. The majority of asset pricing factors (i) can be repli-
+      cated; (ii) can be clustered into 13 themes, the majority of which are significant parts
+      of the tangency portfolio; (iii) work out-of-sample in a new large data set covering 93
+      countries; and (iv) have evidence that is strengthened (not weakened) by the large
+      number of observed factors.
+
+
+
+
+SEVERAL RESEARCH FIELDS FACE REPLICATION CRISES (or credibility crises),
+including medicine (Ioannidis (2005)), psychology (Nosek, Spies, and Motyl
+(2012)), management (Bettis (2012)), experimental economics (Maniadis, Tu-
+fano, and List (2017)), and now also financial economics. Challenges to the
+replicability of finance research take two basic forms:
+
+  1. No internal validity. Most studies cannot be replicated with the same
+     data (e.g., because of coding errors or faulty statistics) or are not robust
+     in the sense that the main results cannot be replicated using slightly
+
+
+   * Theis Ingerslev Jensen is at Copenhagen Business School. Bryan Kelly is at Yale School of
+
+Management, AQR Capital Management, and NBER. Lasse Heje Pedersen is at AQR Capital
+Management, Copenhagen Business School, and CEPR. We are grateful for helpful comments
+from Nick Barberis; Andrea Frazzini; Cam Harvey (discussant); Antti Ilmanen; Ronen Israel; An-
+drew Karolyi; John Liew; Toby Moskowitz; Stefan Nagel; Scott Richardson; Anders Rønn-Nielsen;
+Neil Shephard (discussant); and seminar and conference participants at AFA 2022, NBER 2021,
+AQR, Georgetown Virtual Fintech Seminar, Tisvildeleje Summer Workshop 2020, Yale, and the
+CFA Institute European Investment Conference 2020. We thank Tyler Gwinn for excellent re-
+search assistance. Jensen and Pedersen gratefully acknowledge support from the Center for Big
+Data in Finance (grant no. DNRF167). AQR Capital Management is a global investment manage-
+ment firm, which may or may not apply similar investment techniques or methods of analysis as
+described herein. The views expressed here are those of the authors and not necessarily those of
+AQR. A conflict of interest disclosure statement can be found on The Journal of Finance website.
+   Correspondence: Theis Ingerslev Jensen, Department of Finance, Copenhagen Business School,
+Solbjerg Plads 3, A4.15, DK-2000 Frederiksberg, Denmark; e-mail: tij.fi@cbs.dk.
+
+This is an open access article under the terms of the Creative Commons Attribution License, which
+permits use, distribution and reproduction in any medium, provided the original work is properly
+cited.
+DOI: 10.1111/jofi.13249
+© 2023 The Authors. The Journal of Finance published by Wiley Periodicals LLC on behalf of
+American Finance Association.
+                                                2465
+                                                                                                        15406261, 2023, 5, Downloaded from https://onlinelibrary.wiley.com/doi/10.1111/jofi.13249 by Schweizerische Akademie der Medizinischen Wissenschaften, Wiley Online Library on [15/03/2026]. See the Terms and Conditions (https://onlinelibrary.wiley.com/terms-and-conditions) on Wiley Online Library for rules of use; OA articles are governed by the applicable Creative Commons License
+2466                              The Journal of Finance®
+
+     different methodologies and/or slightly different data.1 For example, Hou,
+     Xue, and Zhang (2020) state that:
+     “Most anomalies fail to hold up to currently acceptable standards for em-
+     pirical finance.”
+  2. No external validity. Most studies may be robustly replicated, but are
+     spurious and driven by “p-hacking,” that is, find significant results by
+     testing multiple hypotheses without controlling the false discovery rate
+     (FDR). Such spurious results are not expected to replicate in other sam-
+     ples or time periods, in part because the sheer number of factors is simply
+     too large, and too fast growing, to be believable. For example, Cochrane
+     (2011) asks for a consolidation of the “factor zoo,” and Harvey, Liu, and
+     Zhu (2016) state that:
+     “most claimed research findings in financial economics are likely false.”2
+
+   In this paper, we examine these two challenges both theoretically and em-
+pirically. We conclude that neither criticism is tenable. The majority of factors
+do replicate, do survive joint modeling of all factors, do hold up out-of-sample,
+are strengthened (not weakened) by the large number of observed factors, are
+further strengthened by global evidence, and the number of factors can be un-
+derstood as multiple versions of a smaller number of themes.
+   These conclusions rely on new theory and data. First, we show that factors
+must be understood in light of economic theory, and we develop a Bayesian
+model that offers a very different interpretation of the evidence on factor repli-
+cation. Second, we construct a new global data set of 153 factors across 93
+countries. To help advance replication in finance, we have made this data set
+easily accessible to researchers by making our code and data publically avail-
+able.3
+   Replication results. Figure 1 illustrates our main results and how they relate
+to the literature in a sequence of steps. It presents the “replication rate,” that
+is, the percent of factors with a statistically significant average excess return.
+
+   1 Hamermesh (2007) contrasts “pure replication” and “scientific replication.” Pure replication
+
+is “checking on others’ published papers using their data,” also called “reproduction” by Welch
+(2019), while scientific replication uses a “different sample, different population and perhaps simi-
+lar, but not identical model.” We focus on scientific replication. We propose a new modeling frame-
+work to jointly estimate factor alphas, we use robust factor construction methods that are applied
+uniformly to all factors, and we test both internal and external validity of prior factor research
+along several dimensions, including out-of-sample time-series replication and international sam-
+ple replication. In complementary and contemporaneous work, Chen and Zimmermann (2022)
+consider pure replication, attempting to use the same data and methods as the original papers
+for a large number of factors. They are able to reproduce nearly 100% of factors, but Hou, Xue,
+and Zhang (2020) challenge the scientific replication and Harvey, Liu, and Zhu (2016) challenge
+validity due to multiple testing (MT).
+   2 Similarly, Linnainmaa and Roberts (2018) state that: “the majority of accounting-based return
+
+anomalies, including investment, are most likely an artifact of data snooping.”
+   3 The data are available at https://jkpfactors.com. The data will be updated over time and will
+
+also be available through Wharton Research Data Services (WRDS). The code is available at https:
+//github.com/bkelly-lab/ReplicationCrisis.
+                                                                                                       15406261, 2023, 5, Downloaded from https://onlinelibrary.wiley.com/doi/10.1111/jofi.13249 by Schweizerische Akademie der Medizinischen Wissenschaften, Wiley Online Library on [15/03/2026]. See the Terms and Conditions (https://onlinelibrary.wiley.com/terms-and-conditions) on Wiley Online Library for rules of use; OA articles are governed by the applicable Creative Commons License
+                        Is There a Replication Crisis in Finance?                            2467
+
+
+
+
+Figure 1. Replication rates versus the literature. This figure summarizes analyses through-
+out the paper. Refer to Section III for estimation details. (Color figure can be viewed at wileyon-
+linelibrary.com)
+
+
+
+The starting point of Figure 1—the first bar on the left—is the 35% replica-
+tion rate reported in the expansive factor replication study of Hou, Xue, and
+Zhang (2020). The second bar in Figure 1 shows a 55.6% baseline replication
+rate in our main sample of U.S. factors. It is based on significant ordinary least
+squares (OLS) t-statistics for average raw factor returns, in direct comparabil-
+ity to the 35% calculation from Hou, Xue, and Zhang (2020). This difference
+arises because our sample is longer, we add 15 factors to our sample that come
+from prior literature but are not studied by Hou, Xue, and Zhang (2020), and,
+we believe, minor conservative factor construction details that robustify factor
+behavior.4 We discuss this decomposition further in Section II, where we detail
+our factor construction choices and discuss why we prefer them.
+   The Hou, Xue, and Zhang (2020) sample includes a number of factors that
+the original studies find to be insignificant.5 We exclude these when calculating
+the replication rate. After making this adjustment, the replication rate rises to
+61.3%, as shown in the third bar in Figure 1.
+
+
+   4 In particular, we use tercile spreads while they use deciles, we use tercile breakpoints from
+
+all stocks above the NYSE 20th percentile (i.e., non-micro-caps) while they use straight NYSE
+breakpoints, we always lag accounting data four months while they use a mixture of updating
+schemes, we exclude factors based on IBES data due to its relatively short history, we use capped
+value-weighting while they use straight value-weights, and we look at returns over a one-month
+holding period while they use one, six, and 12 months. In Section I of the Internet Appendix, we
+detail how each change affects the replication rate. The Internet Appendix may be found in the
+online version of this article.
+   5 We identify 34 factors from Hou, Xue, and Zhang (2020) for which the original paper did not
+
+find a significant alpha or did not study factor returns (see Table IA.II of the Internet Appendix).
+                                                                                                      15406261, 2023, 5, Downloaded from https://onlinelibrary.wiley.com/doi/10.1111/jofi.13249 by Schweizerische Akademie der Medizinischen Wissenschaften, Wiley Online Library on [15/03/2026]. See the Terms and Conditions (https://onlinelibrary.wiley.com/terms-and-conditions) on Wiley Online Library for rules of use; OA articles are governed by the applicable Creative Commons License
+2468                             The Journal of Finance®
+
+   Alpha, not raw return. Hou, Xue, and Zhang (2020) analyze and test fac-
+tors’ raw returns, but if we wish to learn about “anomalies,” economic theory
+dictates the use of risk-adjusted returns. The raw return can lead to incor-
+rect inferences for a factor if this return differs from the alpha. When the raw
+return is significant but the alpha is not, this simply means that the factor
+is taking risk exposure and the risk premium is significant, which does not
+indicate anomalous factor returns. Likewise, when the raw return is insignif-
+icant but the alpha is significant, the factor’s efficacy is masked by its risk
+exposure. An example of this is the low-beta anomaly, whereby theory predicts
+that the alpha of a dollar-neutral low-beta factor is positive but its raw re-
+turn is negative or close to zero (Frazzini and Pedersen (2014)). In this case,
+the “failure to replicate” of Hou, Xue, and Zhang (2020) actually supports the
+betting-against-beta theory. We analyze the alpha to the capital asset pricing
+model (CAPM), which is the clearest theoretical benchmark model that is not
+mechanically linked to other so-called anomalies in the list of replicated fac-
+tors. The fourth bar in Figure 1 shows that the replication rate rises to 82.4%
+based on tests of factors’ CAPM alpha.
+   MT and our Bayesian model. The first four bars in Figure 1 are based on
+individual OLS t-statistics for each factor. But Harvey, Liu, and Zhu (2016)
+rightly point out that this type of analysis suffers from an MT problem. Harvey,
+Liu, and Zhu (2016) recommend MT adjustments that raise the threshold for
+a t-statistic to be considered statistically significant. We report one such MT
+correction using a leading method proposed by Benjamini and Yekutieli (2001).
+Accounting for MT in this manner, we find that the replication rate drops to
+75.6% (the fifth bar of Figure 1). For comparison, Hou, Xue, and Zhang (2020)
+consider a similar adjustment and find that their replication rate drops from
+35% with OLS to 18% after MT correction.
+   However, common frequentist MT corrections can be unnecessarily crude.
+Our handling of the MT problem is different. We propose a Bayesian frame-
+work for the joint behavior of all factors, resulting in an MT correction that
+sacrifices much less power than its frequentist counterpart, which we demon-
+strate via simulation.6 To understand the benefits of our approach, note first
+that we impose a prior that all alphas are expected to be zero. The role of the
+Bayesian prior is conceptually similar to that of frequentist MT corrections—it
+imposes conservatism on statistical inference and controls the FDR. Second,
+our joint factor model allows us to conduct inference for all factor alphas si-
+multaneously. The joint structure among factors leverages dependence in the
+data to draw more informative statistical inferences (relative to conducting
+independent individual tests). Our zero-alpha prior shrinks alpha estimates
+
+   6 A large statistics literature (see Gelman et al. (2013) and references therein) explains how
+
+Bayesian estimation naturally addresses MT problems and Gelman, Hill, and Yajima (2012) con-
+clude that “the problem of multiple comparisons can disappear entirely when viewed from a hi-
+erarchical Bayesian perspective.” Chinco, Neuhierl, and Weber (2021) use a Bayesian estimation
+framework similar to ours for a different (but conceptually related) problem. They infer the dis-
+tribution of coefficients in a stock return prediction model to calculate what they refer to as the
+“anomaly base rate.”
+                                                                                                   15406261, 2023, 5, Downloaded from https://onlinelibrary.wiley.com/doi/10.1111/jofi.13249 by Schweizerische Akademie der Medizinischen Wissenschaften, Wiley Online Library on [15/03/2026]. See the Terms and Conditions (https://onlinelibrary.wiley.com/terms-and-conditions) on Wiley Online Library for rules of use; OA articles are governed by the applicable Creative Commons License
+                       Is There a Replication Crisis in Finance?                          2469
+
+of all factors, leading to fewer discoveries (i.e., a lower replication rate), with
+similar conservatism as a frequentist MT correction. At the same time, how-
+ever, the model allows us to learn more about the alpha of any individual fac-
+tor, borrowing estimation strength across all factors, and the improved pre-
+cision of alpha estimates for all factors can increase the number of discover-
+ies. Which effect dominates when we construct our final Bayesian model—the
+conservative shrinkage to the prior or the improved precision of alphas—is an
+empirical question.
+   In our sample, we find that the two effects exactly offset on average, which
+is why the Bayesian MT view delivers a replication rate identical to the OLS-
+based rate. Specifically, our estimated replication rate rises to 82.4% (the sixth
+bar of Figure 1) using our Bayesian approach to the MT problem.7 The intu-
+ition behind this surprising result is simply that having many factors (a “factor
+zoo”) can be a strength rather than a weakness when assessing the replicabil-
+ity of factor research. It is obvious that our posterior is tighter when a factor
+has performed better and has a longer time series. But the posterior is further
+tightened if similar factors have also performed well and if additional data
+show that these factors have performed well in many other countries.8
+   Benefits of our model beyond the replication rate. One of the key benefits of
+Bayesian statistics is that one recovers not just a point estimate but rather the
+entire posterior distribution of parameters. The posterior allows us to make
+any possible probability calculation about parameters. For example, in addi-
+tion to the replication rate, we calculate the posterior probability of false dis-
+coveries (FDR) and the posterior expected fraction of true factors. Moreover,
+we calculate Bayesian confidence intervals (also called credibility intervals)
+for each of these estimates. We find that our 82.4% replication rate has a tight
+posterior standard error of 2.8%. The posterior Bayesian FDR is only 0.1%
+with a 95% confidence interval of [0.0%, 1.0%], demonstrating the small risk of
+false discoveries. The expected fraction of true factors is 94.0% with a posterior
+standard error of 1.3%.
+   Global replication. Having found a high degree of internal validity of prior
+research, we next consider external validity across countries and over time.
+Regarding the former, we investigate how our conclusions are affected when
+we extend the data to include all factors in a large global panel of 93 countries.
+The last bar in Figure 1 shows that based on the global sample, the final repli-
+cation rate is 82.4%. This estimate is based on the Bayesian model applied to
+a sample of global factors that weights country-specific factors in proportion
+to the country’s total market capitalization. The model continues to account
+for MT. The global result shows that factor performance in the United States
+
+   7 Our Bayesian approach leads to an even larger increase in the replication rate when using
+
+pure value-weighted returns (see Figure IA.1 of the Internet Appendix) and when considering
+global evidence outside the United States (as we show later, in Figure 6).
+   8 Taking this intuition further, we can obtain additional information from studying whether
+
+factors work in other asset classes, as has been done for value and momentum (Asness, Moskowitz,
+and Pedersen (2013)), betting against beta (Frazzini and Pedersen (2014)), time-series momentum
+(Moskowitz, Ooi, and Pedersen (2012)), and carry (Koijen et al. (2018)).
+                                                                                                       15406261, 2023, 5, Downloaded from https://onlinelibrary.wiley.com/doi/10.1111/jofi.13249 by Schweizerische Akademie der Medizinischen Wissenschaften, Wiley Online Library on [15/03/2026]. See the Terms and Conditions (https://onlinelibrary.wiley.com/terms-and-conditions) on Wiley Online Library for rules of use; OA articles are governed by the applicable Creative Commons License
+2470                              The Journal of Finance®
+
+replicates well in an extensive cross section of countries. Serving as our fi-
+nal estimate, the global factor replication rate more than doubles that of Hou,
+Xue, and Zhang (2020) by grounding our tests in economic theory and modern
+Bayesian statistics. We conclude from the global analysis that factor research
+demonstrates external validity in the cross section of countries.
+   Postpublication performance. McLean and Pontiff (2016) find that U.S. fac-
+tor returns “are 26% lower out-of-sample and 58% lower post-publication.”9
+Our Bayesian framework shows that, given a prior belief of zero alpha but an
+OLS alpha (α̂) that is positive, our posterior belief about alpha lies somewhere
+between zero and α̂. Hence, a positive but attenuated postpublication alpha is
+the expected outcome based on Bayesian learning, rather than a sign of nonre-
+producibility. Further, when comparing factors cross-sectionally, the prediction
+of the Bayesian framework is that higher prepublication alphas, if real, should
+be associated with higher postpublication alphas on average. This is what we
+find. We present new and significant cross-sectional evidence that factors with
+higher in-sample alpha generally have higher out-of-sample alpha. The atten-
+uation in the data is somewhat stronger than predicted by our Bayesian model.
+We conclude that factor research demonstrates external validity in the time se-
+ries, but there appears to be some decay of the strongest factors that could be
+due to arbitrage or data mining.10
+   Publication bias. We also address the issue that factors with strong in-
+sample performance are more likely to be published while poorly performing
+factors are more likely to be unobserved in the literature. Publication bias can
+influence our full-sample Bayesian evidence through the empirical Bayes (EB)
+estimation of prior hyperparameters. To account for this bias, we show how to
+pick a prior distribution that is unaffected by publication bias by using only
+out-of-sample data or estimates from Harvey, Liu, and Zhu (2016). Using such
+priors, the full-sample alphas are shrunk more heavily toward zero. The re-
+sult is a slight drop in the U.S. replication rate to 81.5%. If we add an extra
+degree of conservatism to the prior, the replication rate drops to 79.8%. Fur-
+ther, our out-of-sample evidence over time and across countries is not subject
+to publication bias.
+   Multidimensional challenge: A Darwinian view of the factor zoo. Harvey, Liu,
+and Zhu (2016) challenge the sheer number of factors, which Cochrane (2011)
+refers to as “the multidimensional challenge.” We argue that the factor uni-
+verse should not be viewed as hundreds of distinct factors. Instead, factors
+cluster into a relatively small number of highly correlated themes. This prop-
+erty features prominently in our Bayesian modeling approach. Specifically, we
+propose a factor taxonomy that algorithmically classifies factors into 13 themes
+
+  9 Extending the evidence to global stock markets, Jacobs and Müller (2020) find that “the United
+
+States is the only country with a reliable post-publication decline in long-short returns.” Chen and
+Zimmermann (2020b) use Bayesian methods to estimate bias-corrected postpublication perfor-
+mance and find that average returns drop by only 12% after publication in U.S. data.
+  10 Data prior to the sample used in original studies also constitute out-of-sample evidence (Lin-
+
+nainmaa and Roberts (2018), Ilmanen et al. (2021)). Our external validity conclusions hold when
+we also include pre–original-study out-of-sample evidence.
+                                                                                                  15406261, 2023, 5, Downloaded from https://onlinelibrary.wiley.com/doi/10.1111/jofi.13249 by Schweizerische Akademie der Medizinischen Wissenschaften, Wiley Online Library on [15/03/2026]. See the Terms and Conditions (https://onlinelibrary.wiley.com/terms-and-conditions) on Wiley Online Library for rules of use; OA articles are governed by the applicable Creative Commons License
+                      Is There a Replication Crisis in Finance?                          2471
+
+possessing a high degree of within-theme return correlation and economic con-
+cept similarity, and low across-theme correlation. The emergence of themes in
+which factors are minor variations on a related idea is intuitive. For example,
+each value factor is defined by a specific valuation ratio, but there are many
+plausible ratios. Considering their variations is not spurious alpha-hacking,
+particularly when the “correct” value signal construction is debatable.
+   We estimate a replication rate greater than 50% in 11 of the 13 themes
+(based on the Bayesian model including MT adjustment), the exceptions being
+“low leverage” and “size” factor themes. We also analyze which themes matter
+when simultaneously controlling for all other themes. To do so, we estimate
+the ex post tangency portfolio of 13 theme-representative portfolios. We find
+that 10 of the 13 themes enter into the tangency portfolio with significantly
+positive weights, where the three displaced themes are “profitability,” “invest-
+ment,” and “size.”
+   Why, the profession asks, have we arrived at a “factor zoo”?11 Evidently the
+answer is because the risk-return trade-off is complex and difficult to mea-
+sure. The complexity manifests in our inability to isolate a single silver-bullet
+characteristic that pins down the risk-return trade-off. Classifying factors into
+themes, we trace the economic culprits to roughly a dozen concepts. This is
+already a multidimensional challenge, but it is compounded by the fact that
+within a theme there are many detailed choices for how to configure the eco-
+nomic concept, which results in highly correlated within-theme factors. To-
+gether, the themes (and the factors in them) each make slightly different con-
+tributions to our collective understanding of markets. A more positive take on
+the factor zoo is not as a collective exercise in data mining and false discovery,
+but rather as a natural outcome of a decentralized effort in which researchers
+make contributions that are correlated with, but incrementally improve on,
+the body of knowledge.
+   Economic implications. Our findings have broad implications for finance re-
+searchers and practitioners. We confirm that the body of finance research con-
+tains a multitude of replicable information about the determinants of expected
+returns. Further, we show that investors would have profited from factors
+deemed significant by our Bayesian method but insignificant by the frequen-
+tist MT method proposed by Harvey, Liu, and Zhu (2016). Figure 2 plots the
+out-of-sample returns of the subset of factors discovered by our method but
+discarded by the frequentist method. As can be seen, these factors produce an
+annualized information ratio (IR) of 0.93 in the Unites States and 1.10 globally
+(ex-U.S.) over the full sample, with t-statistics above five. If we restrict anal-
+ysis to the sample after that of Harvey, Liu, and Zhu (2016), the performance
+
+
+
+   11 See Bryzgalova, Huang, and Julliard (2023), Kelly, Pruitt, and Su (2019), Chordia, Goyal,
+
+and Saretto (2020), Kozak, Nagel, and Santosh (2020), Green, Hand, and Zhang (2017), and Feng,
+Giglio, and Xiu (2020) for other perspectives on high-dimensional asset pricing problems, and
+Chen (2021) for an argument regarding why p-hacking cannot explain the existence of so many
+significant factors.
+                                                                                                       15406261, 2023, 5, Downloaded from https://onlinelibrary.wiley.com/doi/10.1111/jofi.13249 by Schweizerische Akademie der Medizinischen Wissenschaften, Wiley Online Library on [15/03/2026]. See the Terms and Conditions (https://onlinelibrary.wiley.com/terms-and-conditions) on Wiley Online Library for rules of use; OA articles are governed by the applicable Creative Commons License
+2472                              The Journal of Finance®
+
+
+
+
+Figure 2. Out-of-sample performance of marginally significant factors. The figure shows
+the cumulative CAPM alpha of an average of factors significant under our empirical Bayes frame-
+work, but not with the Benjamini-Yekutieli adjustment suggested by Harvey, Liu, and Zhu (2016).
+The significance cutoffs are reestimated each year with the available data. Factors are eligible for
+inclusion after the sample period in the original paper, so all returns are out-of-sample. The table
+shows the IR (alpha divided by residual volatility) for the full sample (1990 to 2020) and the post–
+Harvey, Liu, and Zhu (2016) sample (2013 to 2020) with t-statistics in parentheses. The vertical
+dotted line is at December 2012. (Color figure can be viewed at wileyonlinelibrary.com)
+
+
+
+differential remains large and significant.12 These findings show strong ex-
+ternal validity (postoriginal publications, post–Harvey, Liu, and Zhu (2016),
+different countries) and significant economic benefits of exploiting the joint in-
+formation in all factor returns rather than simply applying a high cutoff for
+t-statistics. We also show that the optimal risk-return profile has improved
+over time as factors have been discovered. In other words, the Sharpe ratio
+of the tangency portfolio has meaningfully increased over time as truly novel
+determinants of returns have been discovered. These findings can help inform
+asset pricing theory.
+   The paper proceeds as follows. Section I describes our Bayesian model of
+factor replication. Section II presents our new public data set of global fac-
+tors. Section III contains our empirical assessment of factor replicability. Sec-
+tion IV concludes.
+
+
+                   I. A Bayesian Model of Factor Replication
+  This section presents our Bayesian model for assessing factor replicability.
+We first draw out some basic implications of the Bayesian framework for inter-
+preting evidence on individual factor alphas. We then present a hierarchical
+structure for simultaneously modeling factors in a variety themes and across
+many countries.
+
+
+  12 The out-of-sample performance across all significant factors under EB is also highly signifi-
+
+cant as shown in Figure IA.2 of the Internet Appendix.
+                                                                                                   15406261, 2023, 5, Downloaded from https://onlinelibrary.wiley.com/doi/10.1111/jofi.13249 by Schweizerische Akademie der Medizinischen Wissenschaften, Wiley Online Library on [15/03/2026]. See the Terms and Conditions (https://onlinelibrary.wiley.com/terms-and-conditions) on Wiley Online Library for rules of use; OA articles are governed by the applicable Creative Commons License
+                       Is There a Replication Crisis in Finance?                          2473
+
+A. Learning about Alpha: The Bayes Case
+                                   A.1. Posterior Alpha
+  We begin by considering an excess return factor, ft . A study of “anomalous”
+factor returns requires a risk benchmark, without which we cannot separate
+distinctive factor behavior from run-of-the-mill risk compensation. We assume
+a CAPM benchmark due to its history as a factor research benchmark for
+decades, and because it is not mechanically related to any of the factors that
+we attempt to replicate (in contrast to, say, the model of Fama and French
+(1993), which by construction explains size and value factors). A factor’s net
+performance versus the excess market factor (rtm ) is its α,
+
+                                     ft = α + βrtm + εt .                                   (1)
+
+Our Bayesian prior is that the alpha is normally distributed with mean zero
+and variance τ 2 , or α ∼ N(0, τ 2 ). The mean of zero implies that CAPM holds
+on average, and τ governs potential deviations from CAPM. Intuitively, the
+higher the confidence in the prior, the lower is τ . The error term, εt ∼ N(0, σ 2 ),
+has volatility σ and is independent and identically distributed over time, and
+σ and β are observable.13
+  The risk-adjusted return, α, is estimated as the average market-adjusted
+factor return from T periods of data,
+
+                                 1                 1
+                          α̂ =        ft − βrtm = α +     εt .                              (2)
+                                 T t                  T t
+
+This observed OLS estimate α̂ is distributed N(α, σ 2 /T ) given the true alpha,
+α. From Bayes’ rule, we can compute the posterior distribution of the true
+alpha given the empirical evidence and prior. The posterior exhaustively de-
+scribes the Bayesian’s beliefs about alpha at a future time t > T given past
+experience, including the posterior expected factor performance,
+                                                
+                                                
+                                               m
+                           E(α|α̂) = E ft − βrt α̂ .                        (3)
+
+We derive the posterior alpha distribution via Bayes’ rule (the derivation,
+which is standard, is shown in Appendix A). The posterior alpha is normal
+with mean
+
+                                       E(α|α̂) = κ α̂,                                      (4)
+
+
+   13 Here, we seek to derive some simple expressions that illustrate the economic implications
+
+of Bayesian logic. In the empirical implementation, we use a slightly richer model, as discussed
+further below. The empirical implementation normalizes factors so that σ is given at 10% for all
+factors, while β must be estimated, but this does not affect the economic points that we make in
+this section.
+                                                                                      15406261, 2023, 5, Downloaded from https://onlinelibrary.wiley.com/doi/10.1111/jofi.13249 by Schweizerische Akademie der Medizinischen Wissenschaften, Wiley Online Library on [15/03/2026]. See the Terms and Conditions (https://onlinelibrary.wiley.com/terms-and-conditions) on Wiley Online Library for rules of use; OA articles are governed by the applicable Creative Commons License
+2474                        The Journal of Finance®
+
+where κ is a shrinkage factor given by
+
+                               τ2         1
+                       κ=            =          ∈ (0, 1)                        (5)
+                            τ + σ /T
+                             2    2
+                                       1 + σ2
+                                              2
+                                                  τ T
+
+and the posterior variance is
+
+                                          σ2         1
+                          Var(α|α̂) = κ      = 1            .                   (6)
+                                          T   σ 2 /T
+                                                      + τ12
+
+The first insight from this posterior is that a Bayesian predicts that future
+returns will have smaller alpha (in absolute value) than the OLS estimate α̂,
+because the posterior mean (κ α̂) must lie between α̂ and the prior mean of zero.
+Put differently, a large observed alpha might be due to luck. Given the prior,
+we expect that at least part of this performance is indeed luck. The more data
+we have (higher T), the less shrinkage there is (i.e., κ closer to one), while the
+stronger is the prior of zero alpha (i.e., lower τ ), the heavier is the shrinkage.
+We can think of the prior τ in terms of the number of time periods of evidence
+that it corresponds to. That is, the posterior mean, E(α|α̂), corresponds to first
+observing σ 2 /τ 2 time periods with an average alpha of zero, followed by T time
+periods with a average alpha of α̂.
+  When evaluating out-of-sample evidence, a positive but lower alpha is some-
+times interpreted as a sign of replication failure. But this is the expected out-
+come from the Bayesian perspective (i.e., based on the latest posterior) and can
+be fully consistent with a high degree of replicability. In fact, postpublication
+results (as also studied by McLean and Pontiff (2016)) have tended to confirm
+the Bayesian’s beliefs and as a result the Bayesian posterior alpha estimate
+has been extraordinarily stable over time (see Section III.B.2).
+
+
+                                A.2. Alpha-Hacking
+  Because out-of-sample alpha attenuation is not generally a sign of repli-
+cation failure, we may want a more direct probe for nonreplicability. We can
+build such a test into our Bayesian framework by embedding scope for “alpha-
+hacking,” or selectively reporting or manipulating data to artificially make the
+alpha seem larger. We represent this idea using the following distribution of
+factor returns in the in-sample period t = 1, . . . , T:
+
+                              ft = α + βrtm + ε̃t + u .                         (7)
+                                              
+                                                   εt
+
+
+Here, ε̃t ∼ N(0, σ 2 ) captures usual return shocks and u ∼ N(ε̄, σu2 ) represents
+return inflation due to alpha-hacking. The total in-sample return shock εt is
+normally distributed, N(ε̄, σ̄ 2 ), where ε̄ ≥ 0 is the alpha-hacking bias, and the
+variance σ̄ 2 = σ 2 + σu2 ≥ σ 2 is elevated due to the artificial noise created by
+                                                                                                   15406261, 2023, 5, Downloaded from https://onlinelibrary.wiley.com/doi/10.1111/jofi.13249 by Schweizerische Akademie der Medizinischen Wissenschaften, Wiley Online Library on [15/03/2026]. See the Terms and Conditions (https://onlinelibrary.wiley.com/terms-and-conditions) on Wiley Online Library for rules of use; OA articles are governed by the applicable Creative Commons License
+                        Is There a Replication Crisis in Finance?                         2475
+
+alpha-hacking.14 Naturally, the false benefits of alpha-hacking disappear in
+out-of-sample data, or in other words, εt ∼ N(0, σ 2 ) for t > T. The Bayesian
+accounts for alpha-hacking as follows.
+PROPOSITION 1 (Alpha-Hacking): The posterior alpha with alpha-hacking is
+given by
+
+                                   E(α|α̂) = −κ0 + κ hacking α̂,                            (8)
+
+where κ hacking =      1
+                           2   ≤ κ and κ0 = κ hacking ε̄ ≥ 0. Further, κ hacking → 0 in the
+                     1+ σ̄2
+                         τ T
+limit of “pure alpha-hacking,” τ → 0 or σ̄ → ∞.
+   The Bayesian posterior alpha accounts for alpha-hacking in two ways. First,
+the estimated alpha is shrunk more heavily toward zero since the factor κ hacking
+is now smaller. Second, the alpha is further discounted by the intercept term
+κ0 due to the bias in the error terms.
+   We examine alpha-hacking empirically in Section III.B in light of Propo-
+sition 1. We consider a cross-sectional regression of factors’ out-of-sample
+(e.g., postpublication) alphas on their in-sample alphas, looking for the sig-
+natures of alpha-hacking in the form of a negative intercept term or a slope
+coefficient that is too small. In addition, Section III.C.2 shows how to esti-
+mate the Bayesian model in a way that is less susceptible to the effects of
+alpha-hacking. Appendix A presents additional theoretical results character-
+izing alpha-hacking.
+
+
+B. Hierarchical Bayesian Model
+                 B.1. Shared Alphas: The Case of Complete Pooling
+  We now embed a critical aspect of factor research into our Bayesian frame-
+work: Factors are often correlated and conceptually related to each other. For
+concreteness, we begin with a setting in which the researcher has access to
+“domestic” evidence in (1) as well as “global” evidence from an international
+factor, ftg, with known exposure β g to the global market index rtg:
+
+                                       ftg = α + β grtg + εtg.                              (9)
+
+Here, we assume that the true alpha for this global factor is the same as the do-
+mestic alpha. In other words, we have complete “pooling” of information about
+alpha across the two samples. As an alternative interpretation, the researcher
+could have access to two related factors, say, two different value factors in the
+same country, and assume that they have the same alpha because they capture
+the same investment principle.
+
+
+  14 We note that this elevated variance cannot be detected by looking at the in-sample variance
+
+of residual returns since the alpha-hacking term u does not depend on time t.
+                                                                                                    15406261, 2023, 5, Downloaded from https://onlinelibrary.wiley.com/doi/10.1111/jofi.13249 by Schweizerische Akademie der Medizinischen Wissenschaften, Wiley Online Library on [15/03/2026]. See the Terms and Conditions (https://onlinelibrary.wiley.com/terms-and-conditions) on Wiley Online Library for rules of use; OA articles are governed by the applicable Creative Commons License
+2476                             The Journal of Finance®
+
+   The global shock, εtg, is normally distributed N(0, σ 2 ), and εtg and εt are
+jointly normal with correlation ρ.15 The estimated alpha based on the global
+evidence is simply its market-adjusted return:
+                                           1  g         
+                                  α̂ g =       ft − β grtg .                                (10)
+                                           T t
+
+  To see the power of global evidence (or, more generally, the power of ob-
+serving related strategies), we consider the posterior when observing both the
+domestic and global evidence.
+PROPOSITION 2 (The Power of Shared Evidence): The posterior alpha given the
+domestic estimate, α̂, and the global estimate, α̂ g, is normally distributed with
+mean
+                                                       
+                                          g 1      1 g
+                         E(α|α̂, α̂ ) = κ
+                                   g
+                                               α̂ + α̂ .                      (11)
+                                             2     2
+The global shrinkage parameter is
+                                              1
+                                 κg =                   ∈ [κ, 1],                           (12)
+                                        1 + τσ2 T 1+ρ
+                                                2
+                                                   2
+
+which decreases with the correlation ρ, attaining the minimum value, κ g = κ,
+when ρ = 1. The posterior variance is lower when observing both domestic and
+global evidence:
+
+                                 Var(α|α̂) ≥ Var(α|α̂, α̂ g ).                              (13)
+
+
+   Naturally, the posterior depends on the average alpha observed domestically
+and globally. Furthermore, the combined alpha is shrunk toward the prior of
+zero. The shrinkage factor κ g is smaller (heavier shrinkage) if the markets are
+more correlated because the global evidence provides less new information.
+With low correlation, the global evidence adds a lot of independent informa-
+tion, shrinkage is lighter, and the Bayesian becomes more confident in the
+data and less reliant on the prior. The proposition shows that if a factor has
+been found to work both domestically and globally, then the Bayesian expects
+stronger out-of-sample performance than a factor that has only worked domes-
+tically (or has only been analyzed domestically).
+   Two important effects are at play here, and both are important for under-
+standing the empirical evidence presented below: The domestic and global al-
+phas are shrunk both toward each other and toward zero. For example, suppose
+that a factor worked domestically but not globally, say, α̂ = 10% > α̂ g = 0%.
+
+   15 The framework can be generalized to a situation in which the global shocks have a different
+
+volatility and sample length. In this case, the Bayesian posterior puts more weight on the sample
+with lower volatility and longer length.
+                                                                                                                                       15406261, 2023, 5, Downloaded from https://onlinelibrary.wiley.com/doi/10.1111/jofi.13249 by Schweizerische Akademie der Medizinischen Wissenschaften, Wiley Online Library on [15/03/2026]. See the Terms and Conditions (https://onlinelibrary.wiley.com/terms-and-conditions) on Wiley Online Library for rules of use; OA articles are governed by the applicable Creative Commons License
+                                  Is There a Replication Crisis in Finance?                                                  2477
+
+Then, the overall evidence points to an alpha of 12 α̂ + 12 α̂ g = 5% but shrinkage
+toward the prior results in a lower posterior, say, 2.5%. Hence, the Bayesian ex-
+pects future factor returns in both regions of 2.5%. The fact that shared alphas
+are shrunk together is a key feature of a joint model, and it generally leads to
+different conclusions than when factors are evaluated independently. We next
+consider a perhaps more realistic model in which factors are only partially
+shrunk toward each other.
+
+                     B.2. Hierarchical Alphas: The Case of Partial Pooling
+  We now consider several factors, numbered i = 1, . . . , N. Factor i has a true
+alpha given by
+                                                       α i = c + wi .                                                        (14)
+Here, c is the common component of all alphas, which has a prior distribution
+given by N(0, τc2 ). Likewise, wi is the idiosyncratic alpha component, which
+has a prior distribution given by N(0, τw2 ), independent of c and across i. Put
+differently, we can imagine that nature first picks the overall c from N(0, τc2 )
+and then picks the factor-specific α i from N(c, τw2 ).
+  This hierarchical model is a realistic compromise between assuming that
+all factor alphas are completely different (using equation (4) for each alpha
+separately) and assuming that they are all the same (using Proposition 2).
+Rather than assuming no pooling or complete pooling, the hierarchical model
+allows factors to have a common component and an idiosyncratic component.
+  Suppose we observe factor returns of
+                                                  fti = α i + β i rtm + εti ,                                                (15)
+
+where εti are normally distributed with mean zero and variance σ 2 , and
+Cor(εti , εtj ) = ρ ≥ 0 for all i, j.16 Computing the observed alpha estimates as
+above, α̂ i = T1 t ( fti − β i rtm ), we derive the posterior in the following result.17
+PROPOSITION 3 (Hierarchical Alphas): The posterior alpha of factor i given the
+evidence on all factors is normally distributed with mean
+                                                                                           ⎛                                    ⎞
+                                              1                                1           ⎝α̂ i −               1
+E(α i |α̂ 1 , . . . , α̂ N ) =                                   α̂ · +                                                      α̂ · ⎠,
+                                              τ 2 +(1−ρ)σ 2 /T                                            τ 2 +(1−ρ)σ 2 /T
+                                 1 + τρσ2 T + w
+                                                                                       2
+                                                                          1 + (1−ρ)σ
+                                          2
+
+                                                     τc2 N                      τ2T                  1 + (τw 2 +ρσ 2 /T )N
+                                      c                                            w                         c
+                                                                                                                             (16)
+
+   16 Alternatively, we can write the error terms in a similar way as we write the alphas in (14),
+               √       √
+namely, εti = ρ ε̃t + 1 − ρ ε̃ti , where ε̃ti are idiosyncratic shocks that are independent across fac-
+tors and of the common shock ε̃t , with Var(ε̃ti ) = Var(ε̃t ) = σ 2 . Note that we require (the empiri-
+cally realistic case) that ρ ≥ 0 since we cannot have an arbitrarily large number of normal random
+variables with equal negative correlation (because the corresponding variance-covariance matrix
+would not be positive semidefinite for large enough N).
+   17 The general hierarchical model is used extensively in the statistics literature (see, e.g., Gel-
+
+man et al. (2013)), but to our knowledge the results in Proposition 3 are not in the literature.
+                                                                                                                    15406261, 2023, 5, Downloaded from https://onlinelibrary.wiley.com/doi/10.1111/jofi.13249 by Schweizerische Akademie der Medizinischen Wissenschaften, Wiley Online Library on [15/03/2026]. See the Terms and Conditions (https://onlinelibrary.wiley.com/terms-and-conditions) on Wiley Online Library for rules of use; OA articles are governed by the applicable Creative Commons License
+2478                                    The Journal of Finance®
+
+where α̂ · = N1      j α̂
+                            j
+                                is average alpha. When the number of factors N grows, the
+limit is
+                                                         1                     1           i       
+              lim E(α i |α̂ 1 , . . . , α̂ N ) =                 α̂ · +                    α̂ − α̂ · .       (17)
+                                                    1 + τρσ2 T
+                                                             2                        2
+             N→∞                                                          1 + (1−ρ)σ
+                                                                                τw2 T
+                                                          c
+
+
+The posterior variance of factor i’s alpha using the information in all factor
+returns is lower than the posterior variance when looking at this factor in iso-
+lation,
+
+                                   Var(α i |α̂ 1 , . . . , α̂ N ) < Var(α i |α̂ i ).                         (18)
+
+The posterior variance is decreasing in N and, as N → ∞, its limit is
+
+                                                ρσ 2  1        (1 − ρ)σ 2    1
+            Var(α i |α̂ 1 , . . . , α̂ N )                   +                       .                       (19)
+                                                 T 1 + ρσ2 2
+                                                                   T        (1−ρ)σ 2
+                                                                          1+ 2
+                                                             τc T                              τw T
+
+
+
+   The main insight of this proposition is that having data on many factors is
+helpful for estimating the alpha of any of them. Intuitively, the posterior for
+any individual alpha depends on all of the other observed alphas because they
+are all informative about the common alpha component. Put differently, the
+other observed alphas tell us whether alpha exists in general, that is, whether
+the CAPM appears to be violated in general. Further, the factor’s own observed
+alpha tells us whether this specific factor appears to be especially good or bad.
+Using all of the factors jointly reduces posterior variance for all alphas. In sum-
+mary, the joint model with hierarchical alphas has the dual benefits of identi-
+fying the common component in alphas and tightening confidence intervals by
+sharing information among factors.
+   To understand the proposition in more detail, consider first the (unrealistic)
+case in which all factor returns have independent shocks (ρ = 0). In this case,
+we essentially know the overall alpha when we see many uncorrelated factors.
+Indeed, the average observed alpha becomes a precise estimator of the overall
+alpha with more and more observed factors, α̂ · → c. Since we essentially know
+the overall alpha in this limit, the first term in (17) becomes 1 × α̂ · when ρ =
+0, meaning that we do not need any shrinkage here. The second term is the
+outperformance of factor i above the average alpha, and this outperformance
+is shrunk toward our prior of zero. Indeed, the outperformance is multiplied by
+a number less than one, and this multiplier naturally decreases in the return
+volatility σ and in our conviction in the prior (increases in τw ).
+   The posterior variance is also intuitive in the case ρ = 0. The posterior vari-
+ance is clearly lower compared to only observing the performance of factor i
+itself,
+
+                                          σ2  1       σ2    1
+          Var(α i |α̂ 1 , α̂ 2 . . .) =         σ
+                                                    <                                   = Var(α i |α̂ i ),   (20)
+                                          T 1+ 2  2
+                                                      T 1 + 2 σ 22
+                                                     τw T                  (τc +τw )T
+                                                                                                   15406261, 2023, 5, Downloaded from https://onlinelibrary.wiley.com/doi/10.1111/jofi.13249 by Schweizerische Akademie der Medizinischen Wissenschaften, Wiley Online Library on [15/03/2026]. See the Terms and Conditions (https://onlinelibrary.wiley.com/terms-and-conditions) on Wiley Online Library for rules of use; OA articles are governed by the applicable Creative Commons License
+                      Is There a Replication Crisis in Finance?                             2479
+
+based on (19) and (6). With partial pooling, the posterior variance decreases be-
+cause the denominator on the left does not have τc2 , reflecting that uncertainty
+about the general alpha has been eliminated by observing many factors.
+   In the realistic case in which factor returns are correlated (ρ > 0), we see
+that both the average alpha α̂ · and factor i’s outperformance α̂ i − α̂ · are
+shrunk toward the prior of zero. This is because we cannot precisely esti-
+mate the overall alpha even with an infinite number of correlated factors—
+the correlated part never vanishes. Nevertheless, we still shrink the con-
+fidence interval, Var(α i |α̂ 1 , . . . , α̂ N ) ≤ Var(α i |α̂ i ), since more information is
+always better than less.
+
+
+                         B.3. Multilevel Hierarchical Model
+  The model development to this point is simplified to draw out its intuition.
+Our empirical implementation is based on a more realistic (and slightly more
+complex) model that accounts for the fact that factors naturally belong to dif-
+ferent economic themes and to different regions.
+  In our global analysis, we have N different characteristic signals (e.g., book-
+to-market) across K regions, for a total of NK factors (e.g., U.S., developed, and
+emerging markets versions of book-to-market). Each of the N signals belongs
+to a smaller number of J theme clusters, where one cluster consists of vari-
+ous value factors, another consists of various momentum factors, and so on.
+One level of our hierarchical model allows for partially shared alphas among
+factors in the same theme cluster. Another level allows for commonality across
+regions among factors associated with the same underlying characteristic, cap-
+turing, for example, the connections between the book-to-market factors in dif-
+ferent markets.
+  Mathematically, this means that an individual factor i has an alpha of
+
+                                  α i = α o + c j + sn + wi .                               (21)
+
+To illustrate, suppose factor i ∈ {1, . . . , NK} is the book-to-market factor in the
+U.S. region. Part of its alpha is driven by a component that is common to all
+factors, α o, which we dogmatically fix at zero to be conservative. In addition,
+this factor i belongs to the value cluster j ∈ {1, . . . , J}, which contributes a
+cluster-specific alpha c j ∼ N(0, τc2 ). Next, since factor i is based on book-to-
+market characteristic n ∈ {1, . . . , N}, it has an incremental signal-specific al-
+pha of sn ∼ N(0, τs2 ) that is shared across regions—for example, it is the com-
+mon behavior among book-to-market factors regardless of geography. Finally,
+wi ∼ N(0, τw2 ) is factor i’s idiosyncratic alpha, namely, the incremental alpha
+that is unique to the U.S. version of book-to-market.
+  We write this model in vector form as18
+
+                               α = α o 1NK + Mc + Zs + w,                                   (22)
+
+  18 The notation 1 refers to an N × 1 vector of ones and I is the N × N identity matrix.
+                   N                                       N
+                                                                                                                   15406261, 2023, 5, Downloaded from https://onlinelibrary.wiley.com/doi/10.1111/jofi.13249 by Schweizerische Akademie der Medizinischen Wissenschaften, Wiley Online Library on [15/03/2026]. See the Terms and Conditions (https://onlinelibrary.wiley.com/terms-and-conditions) on Wiley Online Library for rules of use; OA articles are governed by the applicable Creative Commons License
+2480                                  The Journal of Finance®
+
+where α = (α 1 , . . . , α NK ) , c = (c1 , . . . , cJ ) , s = (s1 , . . . , sN ) , w = (w1 , . . . , wNK ) ,
+M is the NK × J matrix of cluster memberships, and Z is the NK × N matrix
+indicating the characteristic that factor i is based on. In particular, Mi, j = 1
+if factor i is in cluster j and Mi, j = 0 otherwise. Likewise, Zi,n = 1 if factor i
+is based on characteristic n and Zi,n = 0 otherwise. This hierarchical model
+implies that the prior variance of alpha, denoted by , is19
+                               = Var(α) = MM τc2 + ZZ τs2 + INK τw2 .                                     (23)
+
+
+  In some cases, we analyze this model within a single region, K = 1 (e.g.,
+in our U.S.-only analysis). In this case, there is no difference between signal-
+specific alphas and idiosyncratic alphas, so we collapse one level of the model
+by setting τ s = 0 and sn = 0 for n ∈ {1, . . . , N}. In any case, the following result
+shows how to compute the posterior distribution of all alphas based on the prior
+uncertainty, , and a general variance-covariance matrix of return shocks, =
+Var(ε). This result is at the heart of our empirical analysis.
+PROPOSITION 4: In the multilevel hierarchical model, the posterior of the vector
+of true alphas is normally distributed with posterior mean
+                                      −1  −1                  
+                 E(α|α̂) = −1 + T −1            1NK α0 + T −1 α̂            (24)
+and posterior variance
+                                                       −1
+                                                                      
+                                                                   −1 −1
+                                   Var(α|α̂) =               +T            .                              (25)
+
+
+   As noted above, we set the mean prior alpha to zero (α0 = 0) in our empirical
+implementation. This prior is based on economic theory and leads to a conser-
+vative shrinkage toward zero as seen in (24). We note that, in the data, the
+observed alphas are mostly positive, not centered around zero. However, these
+positive alphas are related to the way that factors are signed, that is, according
+to the convention in the original paper, which almost always leads to a posi-
+tive factor return in the original sample. If we view this signing convention as
+somewhat arbitrary, then a symmetry argument implies that a prior of zero is
+again natural. Put differently, factor means would be centered around zero if
+we changed signs arbitrarily, so our prior is agnostic about these signs.
+
+C. Bayesian Multiple Testing and Empirical Bayes Estimation
+  Frequentist MT corrections embody a principle of conservatism that seeks
+to limit false discoveries by controlling the family-wise error rate (FWER) or
+
+    19 Stated differently, each diagonal element of    is τc2 + τs2 + τw2 . Further, if i = k, then the (i, k)th
+element of       is τc2 + τs2 if i and k are constructed from the same signal in the same cluster in
+different regions, it is τc2 if i and k are constructed from different signals in the same cluster, and
+it is zero if i and k are in different clusters.
+                                                                                                   15406261, 2023, 5, Downloaded from https://onlinelibrary.wiley.com/doi/10.1111/jofi.13249 by Schweizerische Akademie der Medizinischen Wissenschaften, Wiley Online Library on [15/03/2026]. See the Terms and Conditions (https://onlinelibrary.wiley.com/terms-and-conditions) on Wiley Online Library for rules of use; OA articles are governed by the applicable Creative Commons License
+                       Is There a Replication Crisis in Finance?                          2481
+
+the FDR. Leading frequentist methods do so by widening confidence intervals
+and raising p-values, but do not alter the underlying point estimate.
+
+
+                             C.1. Bayesian Multiple Testing
+   A large statistics literature shows that Bayesian modeling is effective for
+making reliable inferences in the face of MT.20 Drawing on this literature, our
+hierarchical model is a prime example of how Bayesian methods accomplish
+their MT correction based on two key model features.
+   The first such feature is the model prior, which imposes statistical con-
+servatism in analogy to frequentist MT methods. It anchors the researcher’s
+beliefs to a sensible default (e.g., all alphas are zero) in case the data are
+insufficiently informative about the parameters of interest. Reduction of false
+discoveries is achieved first by shrinking estimates toward the prior. When
+there is no information in the data, the alpha point estimate is the prior
+mean and there are no false discoveries. As empirical evidence accumulates,
+posterior beliefs migrate away from the prior toward the OLS alpha estimate.
+In the process, discoveries begin to emerge, though they remain dampened
+relative to OLS. In the large-data limit, Bayesian beliefs converge on OLS
+with no MT correction, which is justified because in the limit there are no false
+discoveries. In other words, the prior embodies a particularly flexible form of
+conservatism—the Bayesian model decides how severe of an MT correction to
+make based on the informativeness of the data.
+   The second key model feature is the hierarchical structure that captures fac-
+tors’ joint behavior. Modeling factors jointly means that each alpha is shrunk
+toward its cluster mean (i.e., toward related factors), in addition to being
+shrunk toward the prior of zero. So, if we observe a cluster of factors in which
+most perform poorly, then this evidence reduces the posterior alpha even for
+the few factors with strong performance—another form of Bayesian MT cor-
+rection. In addition to this Bayesian discovery control coming through shrink-
+age of the posterior mean alpha, the Bayesian confidence interval also plays
+an important role and changes as a function of the data. Indeed, having data
+on related factors leads to a contraction of the confidence intervals in our joint
+Bayesian model. So while alpha shrinkage often has the effect of reducing dis-
+coveries, the increased precision from joint estimation has the opposite effect
+of enhancing statistical power and thus increases discoveries.
+   In summary, a typical implementation of frequentist MT corrections esti-
+mates parameters independently for each factor and leaves these parameters
+unchanged, but inflates p-values to reduce the number of discoveries. In con-
+trast, our hierarchical model leverages dependence in the data to efficiently
+learn about all alphas simultaneously. All data therefore help to determine the
+
+
+  20 See Greenland and Robins (1991), Berry and Hochberg (1999), Efron and Tibshirani (2002),
+
+Gelman, Hill, and Yajima (2012), among others. See Gelman (2016) for an intuitive, informal dis-
+cussion of the topic.
+                                                                                                 15406261, 2023, 5, Downloaded from https://onlinelibrary.wiley.com/doi/10.1111/jofi.13249 by Schweizerische Akademie der Medizinischen Wissenschaften, Wiley Online Library on [15/03/2026]. See the Terms and Conditions (https://onlinelibrary.wiley.com/terms-and-conditions) on Wiley Online Library for rules of use; OA articles are governed by the applicable Creative Commons License
+2482                            The Journal of Finance®
+
+center and width of each alpha’s confidence interval (Propositions 3 and 4).
+This leads to more precise estimates with “built-in” Bayesian MT correction.
+
+                           C.2. Empirical Bayes Estimation
+   Given the central role of the prior, it might seem problematic that the sever-
+ity of the Bayesian MT adjustment is at the discretion of the researcher. A
+powerful (and somewhat surprising) aspect of a hierarchical model is that the
+prior can be learned in part from the data. This idea is formalized in the idea
+of “empirical Bayes (EB)” estimation, which has emerged as a major toolkit for
+navigating MT in high-dimensional statistical settings (Efron (2012)).
+   The general approach to EB is to specify a multilevel hierarchical model and
+then use the dispersion in estimated effects within each level to learn about
+the prior parameters for that level. In our setting, the specific implementation
+of EB is dictated by Proposition 4. We first compute each factor’s abnormal
+return, α̂, as the intercept in a CAPM regression on the market excess return.
+We then set the overall alpha prior mean, α o, to zero to enforce conservatism
+in our inferences.
+   From here, the benefits of EB kick in. The realized dispersion in alphas
+across factors helps determine the appropriate prior beliefs (i.e., the appropri-
+ate values for τc2 , τs2 , and τw2 ). For example, if we compute the average alpha for
+each cluster, ĉ j (e.g., the average value alpha, the average momentum alpha),
+the cross-sectional variation in ĉ j suggests that τc2 ∼          1
+                                                               = J−1
+                                                                        J           · 2
+                                                                        j=1 (ĉ − ĉ ) . The
+                                                                               j
+
+same idea applies to τs . Likewise, variation in observed alphas after account-
+                            2
+
+ing for hierarchical connections is informative about τw2 ∼               1
+                                                                     = NK−N−J
+                                                                                   N      i 2
+                                                                                   i=1 (ŵ ) ,
+where ŵ = α̂ − M ĉ − Zŝ.
+   The above variances illustrate that EB can help calibrate prior variances
+using the data itself. But those calculations are too crude, because they ignore
+sampling variation coming from the noise in returns, ε, which has covariance
+matrix . EB estimates the prior variances by maximizing the prior likeli-
+hood function of the observed alphas, α̂ ∼ N(0, (τc , τs , τw ) + ˆ /T ), where the
+notation emphasizes that              depends on τc , τs , and τw according to (23). The
+likelihood function accounts for sampling variation through a plug-in estimate
+of the covariance matrix of factor return shocks, ˆ .21 We collect the resulting
+hyperparameters in τ , that is, τc , τs , τw , ˆ , and β i .
+
+                            C.3. Bayesian FDR and FWER
+   With the EB estimates (τ ) in hand, we can compute the posterior distribution
+of the alphas from Proposition 4. From the posterior, we can in turn compute
+Bayesian versions of the FDR and FWER. Suppose that we consider a factor to
+be “discovered” if its z-score is greater than the critical value z̄ = 1.96,
+
+                                   √E(α |α ,· · · ,α ,τ )
+                                           i   1         N
+                                                                      ≥ z̄.              (26)
+                                      Var(α i |
+                                               α 1 ,· · · ,
+                                                           α N ,τ )
+
+  21 We provide details on our EB estimation procedure in Appendix B.
+                                                                                                     15406261, 2023, 5, Downloaded from https://onlinelibrary.wiley.com/doi/10.1111/jofi.13249 by Schweizerische Akademie der Medizinischen Wissenschaften, Wiley Online Library on [15/03/2026]. See the Terms and Conditions (https://onlinelibrary.wiley.com/terms-and-conditions) on Wiley Online Library for rules of use; OA articles are governed by the applicable Creative Commons License
+                       Is There a Replication Crisis in Finance?                           2483
+
+Equivalently, factor i is discovered if p-nulli ≤ 2.5%,22 where we use the poste-
+rior to compute
+                            p-nulli = Pr(α i ≤ 0|α̂ 1 , · · · , α̂ N , τ ).                  (27)
+In words, p-nulli is the posterior probability that the null hypothesis is true,
+which is the Bayesian version of a frequentist p-value. Put differently, it is the
+posterior probability of a “false discovery,” that is, the probability that the true
+alpha is actually nonpositive.
+  We can further compute the Bayesian FDR as
+                                                                            
+                                                          
+                                   i 1{i false discovery}  1
+                           =E                             α̂ , . . . , α̂ , τ ,
+                     Bayes                                                N
+                FDR                                                              (28)
+                                      i 1{i discovery}
+
+where we condition on the data including at least one discovery (so the denom-
+inator is not zero); otherwise, FDR is set to zero (see Benjamini and Hochberg
+(1995)).
+  The following proposition is a novel characterization of the Bayesian FDR,
+and shows that it is the posterior probability of a false discovery, averaged
+across all discoveries:
+PROPOSITION 5 (Bayesian FDR): Conditional on the parameters of the prior
+distribution τ and data with at least one discovery, the Bayesian FDR can be
+computed as
+                         FDRBayes = #discoveries
+                                         1
+                                                         i discovery p-nulli                 (29)
+
+and is bounded, FDRBayes ≤ 2.5%.
+  This result shows explicitly how the Bayesian framework controls the FDR
+without the need for additional MT adjustments.23 The definition of a discovery
+ensures that at most 2.5% of the discoveries are false according to the Bayesian
+posterior, which is exactly the right distribution for assessing discoveries from
+the perspective of the Bayesian. Further, if many of the discovered factors are
+highly significant (as is the case in our data), then the Bayesian FDR is much
+lower than 2.5%.24
+  We can also compute a Bayesian version of the FWER, which is the proba-
+bility of making one or more false discoveries in total:
+                                                                              
+                                                            1
+             FWER   Bayes
+                          =Pr      1{i false discovery} ≥ 1α̂ , . . . , α̂ , τ .
+                                                                            N
+                                                                                   (30)
+                                       i
+
+  22 We use a critical value of 2.5% rather than 5% because the 1.96 cutoff corresponds to a two-
+
+sided test, while false discoveries are only on one side in the Bayesian framework.
+   23 Efron (2007) includes related analysis but, to our knowledge, this particular result is new.
+   24 Proposition 5 formalizes the argument of Greenland and Robins (1991) that “from the
+
+empirical-Bayes or Bayesian perspective, multiple comparisons are not really a ‘problem.’ Rather,
+the multiplicity of comparisons provides an opportunity to improve our estimates through judi-
+cious use of any prior information (in the form of model assumptions) about the ensemble of pa-
+rameters being estimated.”
+                                                                                                          15406261, 2023, 5, Downloaded from https://onlinelibrary.wiley.com/doi/10.1111/jofi.13249 by Schweizerische Akademie der Medizinischen Wissenschaften, Wiley Online Library on [15/03/2026]. See the Terms and Conditions (https://onlinelibrary.wiley.com/terms-and-conditions) on Wiley Online Library for rules of use; OA articles are governed by the applicable Creative Commons License
+2484                               The Journal of Finance®
+
+If we define a discovery as in (26) using the standard critical value z̄ = 1.96,
+then we do not necessarily control the FWERBayes , which is a harsh criterion
+that is concerned with the risk of a single false discovery without regard for the
+number of missed discoveries. Because FWERBayes is a probability that can be
+computed from the posterior, it is straightforward to choose a critical value z̄ to
+ensure FWERBayes ≤ 5% or any other level one prefers. The main point is that
+the Bayesian approach to replication lends itself to any inferential calculation
+the researcher desires because the posterior is a complete characterization of
+Bayesian beliefs about model parameters.
+
+
+    C.4. A Comparison of Frequentist and Bayesian False Discovery Control
+   We illustrate the benefits of Bayesian inference for our replication analysis
+via simulation. We assume a factor-generating process based on the hierarchi-
+cal model above and, for simplicity, consider a single region (as in our empir-
+ical U.S.-only analysis), removing sn and τs2 from equations (21) and (23). We
+analyze discoveries as we vary the prior variances τc and τw . The remaining
+parameters are calibrated to our estimates for the U.S. region in our empirical
+analysis below.
+   We simulate an economy with 130 factors in 13 different clusters of 10 factors
+each, observed monthly over 70 years. We assume that the mean alpha, α o,
+is zero. We then draw a cluster alpha from c j ∼ N(0, τc2 ) and a factor-specific
+alpha as wi ∼ N(0, τw2 ). Based on these alphas, we generate realized returns by
+adding Gaussian noise.25
+   We compute p-values separately using OLS with no adjustment or OLS ad-
+justed using the Benjamini and Yekutieli (2001) (BY) method. We also use EB
+to estimate the posterior alpha distribution, treating τc and τw as known to
+simplify simulations and focus on the Bayesian updating. For OLS and BY, a
+discovery occurs when the alpha estimate is positive and the two-sided p-value
+is below 5%. For EB, we consider it a discovery when the posterior probability
+that alpha is negative is less than 2.5%. For each τc and τw pair, we draw 10,000
+simulated samples and report average discovery rates over all simulations.
+   Figure 3 reports alpha discoveries based on the OLS, BY, and EB approaches.
+For each method, we report the true FDR in the top panels (we know the truth
+since this is a simulation) and the “true discovery rate”26 in the bottom panels.
+   When idiosyncratic variation in true alphas is small (left panels with τw =
+0.01%) and the variation in cluster alphas is also small (values of τc near zero
+
+   25 The noise covariance matrix has a block structure calibrated to our data, with a correlation
+
+of 0.58 among factors in the same cluster and a correlation of 0.02 across clusters. The residual
+volatility for each factor is 10% per annum.
+   26 We define the true discovery rate to be the number of significantly positive alphas according
+
+to, respectively, OLS, BY, and EB divided by the number of truly positive alphas. Given our sim-
+ulation structure, half of the alphas are expected to be positive in any simulation. Some of these
+will be small (i.e., economically insignificant) positives, so a testing procedure would require a high
+degree of statistical power to detect them. This is why the true discovery rate is below one even
+for high values of τc .
+                                                                                                          15406261, 2023, 5, Downloaded from https://onlinelibrary.wiley.com/doi/10.1111/jofi.13249 by Schweizerische Akademie der Medizinischen Wissenschaften, Wiley Online Library on [15/03/2026]. See the Terms and Conditions (https://onlinelibrary.wiley.com/terms-and-conditions) on Wiley Online Library for rules of use; OA articles are governed by the applicable Creative Commons License
+                        Is There a Replication Crisis in Finance?                               2485
+
+
+
+
+Figure 3. Simulation comparison of false discovery rates. The upper panels show the real-
+ized FDR computed as the proportion of discovered factors for which the true alpha is negative,
+averaged over 10,000 simulations. The lower panels show the true discovery rate computed as the
+number of discoveries for which the true alpha is positive divided by the total number of factors for
+which the true alpha is positive. The left and right panels use low and high values of idiosyncratic
+variation in alphas (τw ), respectively. The x-axis varies cluster alpha dispersion, τc . (Color figure
+can be viewed at wileyonlinelibrary.com)
+
+
+on the horizontal axis), alphas are very small and true discoveries are unlikely.
+In this case, the OLS FDR can be as high as 25% as seen in the upper left panel.
+However, both BY and EB successfully correct this problem and lower the FDR.
+The lower left panel shows that the BY correction pays a high price for its cor-
+rection in terms of statistical power when τc is larger. In contrast, EB exhibits
+much better power to detect true positives while maintaining a similar false
+discovery control as BY. In fact, when there are more discoveries to be made
+in the data (as τc increases), EB becomes even more likely to identify true pos-
+itives than OLS. This is due to the joint nature of the Bayesian model, whose
+estimates are especially precise compared to OLS due to EB’s ability to learn
+more efficiently from dependent data. This result illustrates the observation
+by Greenland and Robins (1991) that “Unlike conventional multiple compar-
+isons, empirical-Bayes and Bayes approaches will alter and can improve point
+estimates and can provide more powerful tests and more precise (narrower)
+interval estimators.” When the idiosyncratic variation is larger (τw = 0.20%),
+there are many more true discoveries to be made, so the FDR tends to be low
+even for OLS with no correction. Yet, in the lower right panel, we continue to
+see the costly loss of statistical power suffered by the BY correction.
+   In summary, EB accomplishes a flexible MT adjustment by adapting to the
+data-generating process. When discoveries are rare so that there is a compar-
+atively high likelihood of false discovery, EB imposes heavy shrinkage and be-
+haves similarly to the conservative BY correction. In this case, the benefit of
+                                                                                                        15406261, 2023, 5, Downloaded from https://onlinelibrary.wiley.com/doi/10.1111/jofi.13249 by Schweizerische Akademie der Medizinischen Wissenschaften, Wiley Online Library on [15/03/2026]. See the Terms and Conditions (https://onlinelibrary.wiley.com/terms-and-conditions) on Wiley Online Library for rules of use; OA articles are governed by the applicable Creative Commons License
+2486                              The Journal of Finance®
+
+conservatism costs little in terms of power exactly because true discoveries are
+rare. Yet, when discoveries are more likely, EB behaves more like uncorrected
+OLS, giving it high power to detect discoveries and suffering little in terms of
+false discoveries because true positives abound.
+   The limitations of frequentist MT corrections are well studied in the statis-
+tics literature. Berry and Hochberg (1999) note that “these procedures are very
+conservative (especially in large families) and have been subjected to criticism
+for paying too much in terms of power for achieving (conservative) control of
+selection effects.” The reason is that, while inflating confidence intervals and
+p-values reduces the discovery of false positives, it also reduces power to detect
+true positives.
+   Much of the discussion around MT adjustments in the finance literature
+fails to consider the loss of power associated with frequentist corrections. But
+as Greenland and Hofman (2019) point out, this trade-off should be a first-
+order consideration for a researcher navigating MT, and frequentist MT cor-
+rections tend to place an implicit cost on false positives that can be unrea-
+sonably large. Unlike some medical contexts for example, there is no obvious
+motivation for asymmetric treatment of false positives and missed positives in
+factor research. The finance researcher may be willing to accept the risk of a
+few false discoveries to avoid missing too many true discoveries. In statistics,
+this is sometimes discussed in terms of an (abstract) cost of Type I versus Type
+II errors,27 but in finance we can make this cost concrete: We can look at the
+profit of trading on the discovered factors, where the cost of false discoveries is
+then the resulting extra risk and money lost (Section III.C.1).
+
+                  II. A New Public Data Set of Global Factors
+  We study a global data set with 153 factors in 93 countries. In this section,
+we provide a brief overview of our data construction. We have posted the data
+and code along with extensive documentation detailing each implementation
+choice that we make for each factor.28
+
+A. Factors
+  The set of factors that we study is based on the exhaustive list compiled by
+Hou, Xue, and Zhang (2020). They study 202 different characteristic signals
+from which they build 452 factor portfolios. The proliferation is due to treating
+one-, six-, and 12-month holding periods for a given characteristic as differ-
+ent factors, and due to their inclusion of both annual and quarterly updates of
+
+   27 As Greenland and Robins (1991) point out, “Decision analysis requires, in addition to the like-
+
+lihood function, a loss function, which indicates the cost of each action under the various possible
+values for the unknown parameter (benefits would be expressed as negative costs). Construction of
+a loss function requires one to quantify costs in terms of dollars, lives lost, or some other common
+scale.”
+   28 The data and code are available at https://jkpfactors.com/ and https://github.com/bkelly-lab/
+
+ReplicationCrisis. The data will be updated over time and will also be available via WRDS.
+                                                                                                       15406261, 2023, 5, Downloaded from https://onlinelibrary.wiley.com/doi/10.1111/jofi.13249 by Schweizerische Akademie der Medizinischen Wissenschaften, Wiley Online Library on [15/03/2026]. See the Terms and Conditions (https://onlinelibrary.wiley.com/terms-and-conditions) on Wiley Online Library for rules of use; OA articles are governed by the applicable Creative Commons License
+                        Is There a Replication Crisis in Finance?                            2487
+
+some accounting-based factors. In contrast, we focus on a one-month holding
+period for all factors, and we only include the version that updates with the
+most recent accounting data—this could be either annual or quarterly. Finally,
+we exclude a small number of factors for which data are not available globally.
+This gives us a set of 180 feasible global factors. For this set, we exclude fac-
+tors based on industry or analyst data because they have comparatively short
+samples.29 This leaves us with 138 factors. Finally, we add 15 factors stud-
+ied in the literature that were not included in Hou, Xue, and Zhang (2020).
+For each characteristic, we build the one-month-holding-period factor return
+within each country as follows. First, in each country and month, we sort stocks
+into characteristic terciles (top/middle/bottom third) with breakpoints based
+on non-micro stocks in that country.30 For each tercile, we compute its “capped
+value weight” return, meaning that we weight stocks by their market equity
+winsorized at the NYSE 80th percentile. This construction ensures that tiny
+stocks have tiny weights and any one mega stock does not dominate a portfo-
+lio in an effort to create tradable, yet balanced, portfolios.31 The factor is then
+defined as the high-tercile return minus the low-tercile return, corresponding
+to the excess return of a long-short zero-net-investment strategy. The factor
+is long (short) the tercile identified by the original paper to have the highest
+(lowest) expected return.
+   We√scale all factors such that their monthly idiosyncratic volatility is
+10%/ 12 (i.e., 10% annualized), which ensures cross-sectional stationarity
+and a prior that factors are similar in terms of their information ratio. Fi-
+nally, we compute each factor’s α̂ i via an OLS regression on a constant and the
+corresponding region’s market portfolio.
+   For a factor return to be nonmissing, we require that it have at least five
+stocks in each of the long and short legs. We also require a minimum of 60 non-
+missing monthly observations for each country-specific factor for inclusion in
+our sample. When grouping countries into regions (U.S., developed ex-U.S., and
+emerging), we use the Morgan Stanley Capital International (MSCI) develop-
+ment classification as of January 7, 2021. When aggregating factors across
+countries, we use capitalization-weighted averages of the country-specific fac-
+tors. For the developed and emerging market factors, we require that at least
+three countries have nonmissing factor returns.
+
+
+
+
+   29 Global industry codes (GICS) are only available from 2000. I/B/E/S data are available from
+
+the mid-1980s but coverage in early years is somewhat sparse.
+   30 Specifically, we start with all nonmicro stocks in a country (i.e., larger than NYSE 20th per-
+
+centile) and sort them into three groups of equal numbers of stocks based on the characteristic, say
+book-to-market. We then distribute the micro-cap stocks into the three groups based on the same
+characteristic breakpoints. This process ensures that the nonmicro stocks are distributed equally
+across portfolios, creating more tradable portfolios.
+   31 For robustness, Figure IA.1 of the Internet Appendix reports our replication results when
+
+using standard, uncapped value weights to construct factors.
+                                                                                                      15406261, 2023, 5, Downloaded from https://onlinelibrary.wiley.com/doi/10.1111/jofi.13249 by Schweizerische Akademie der Medizinischen Wissenschaften, Wiley Online Library on [15/03/2026]. See the Terms and Conditions (https://onlinelibrary.wiley.com/terms-and-conditions) on Wiley Online Library for rules of use; OA articles are governed by the applicable Creative Commons License
+2488                             The Journal of Finance®
+
+B. Clusters
+   We group factors into clusters using hierarchical agglomerative clustering
+(Murtagh and Legendre (2014)). We define the distance between factors as one
+minus their pairwise correlation and use the linkage criterion of Ward (1963).
+The correlation is computed based on CAPM-residual returns of U.S. factors
+signed as in the original paper. Figure IA.15 of the Internet Appendix shows
+the resulting dendrogram, which illustrates the hierarchical clusters identified
+by the algorithm. Based on the dendrogram, we choose 13 clusters that demon-
+strate a high degree of economic and statistical similarity. The cluster names
+indicate the types of characteristics that dominate each group: Accruals∗ , Debt
+Issuance∗ , Investment∗ , Leverage∗ , Low Risk, Momentum, Profit Growth, Prof-
+itability, Quality, Seasonality, Size∗ , Short-Term Reversal, and Value, where (∗ )
+indicates that these factors bet against the corresponding characteristic (e.g.,
+accrual factors go long stocks with low accruals while shorting those with high
+accruals). Figure IA.16 shows that the average within-cluster pairwise corre-
+lation is above 0.5 for nine out of 13 clusters. Table IA.II provides details on
+the cluster assignment, sign convention, and original publication source for
+each factor.
+
+C. Data and Characteristics
+   Return data are from CRSP for the United States (beginning in 1926) and
+from Compustat for all other countries (beginning in 1986 for most developed
+countries).32 All accounting data are from Compustat. For international data,
+all variables are measured in U.S. dollars (based on exchange rates from Com-
+pustat) and excess returns are relative to the U.S. Treasury bill rate. To allevi-
+ate the influence of data errors in the international data, we winsorize returns
+from Compustat at 0.1% and 99.9% each month.
+   We restrict our focus to common stocks that are identified by Compustat
+as the primary security of the underlying firm and assign stocks to countries
+based on the country of their exchange.33 In the United States, we include
+delisting returns from CRSP. If a delisting return is missing and the delisting
+is for a performance-based reason, we set the delisting return to −30% follow-
+ing Shumway (1997). In the global data, delisting returns are not available, so
+all performance-based delistings are assigned a return of −30%.
+   We build characteristics in a consistent way, that sometimes deviates from
+the exact implementation used in the original reference. For example, for char-
+acteristics that use book equity, we always follow the method in Fama and
+French (1993). Furthermore, we always use the most recent accounting data,
+whether annual or quarterly. Quarterly income and cash flow items are ag-
+gregated over the previous four quarters to avoid distortions from seasonal
+
+  32 Table IA.IV shows start date and other information for all countries included in our data set.
+  33 Compustat identifies primary securities in the United States, Canada, and rest of the world.
+
+This means that some firms can have up to three securities in our data set. In practice, the vast
+majority of firms (97%) only have one security in our sample at a given point in time.
+                                                                                                         15406261, 2023, 5, Downloaded from https://onlinelibrary.wiley.com/doi/10.1111/jofi.13249 by Schweizerische Akademie der Medizinischen Wissenschaften, Wiley Online Library on [15/03/2026]. See the Terms and Conditions (https://onlinelibrary.wiley.com/terms-and-conditions) on Wiley Online Library for rules of use; OA articles are governed by the applicable Creative Commons License
+                        Is There a Replication Crisis in Finance?                              2489
+
+effects. We assume that accounting data are available four months after the
+fiscal period end. When creating valuation ratios, we always use the most re-
+cent price data following Asness and Frazzini (2013). Section IX in the Internet
+Appendix contains detailed documentation of our data set.
+
+D. EB Estimation
+  We estimate the hyperparameters and the posterior alpha distributions of
+our Bayesian model via EB. Appendix B provides details on the EB methodol-
+ogy and the estimated parameters.
+
+              III. Empirical Assessment of Factor Replicability
+  We now report replication results for our global factor sample. We first
+present an internal validity analysis by studying U.S. factors over the full
+sample. We then analyze external validity in the global cross section and in
+the time series (postpublication factor returns).
+
+A. Internal Validity
+   We plot the full-sample performance of U.S. factors in Figure 4. Each panel
+shows the CAPM alpha point estimate of each factor corresponding to the dot
+at the center of the vertical bars. Vertical bars represent the 95% confidence
+interval for each estimate. Bar colors and linetypes differentiate between three
+types of factors. Solid blue indicates factors that are significant in the original
+study and remain significant in our full sample. Dashed red indicates factors
+that are significant in the original study but insignificant in our test. Dotted
+green indicates factors that are not significant in the original study but are
+included in the sample of Hou, Xue, and Zhang (2020).
+   The four panels in Figure 4 differ in how the alphas and their confidence
+intervals are estimated. The upper left panel reports the simple OLS estimate
+of each alpha, α̂ols , and the 95% confidence intervals based on unadjusted stan-
+dard errors, α̂ols ± 1.96 × SEols .34 The factors are sorted by OLS α̂ estimate,
+and we use this ordering for the other three panels as well. We find that the
+OLS replication rate is 82.4%, computed as the number of solid blue factors
+(98) divided by the sum of solid blue and dashed red factors (119). Based on
+OLS tests, factors are highly replicable.
+   The upper right panel repeats this analysis using the MT adjustment of BY,
+which is advocated by Harvey, Liu, and Zhu (2016) and implemented by Hou,
+Xue, and Zhang (2020). This method leaves the OLS point estimate unchanged,
+but inflates the p-value. We illustrate this visually by widening the alpha con-
+fidence interval. Specifically, we find the BY-implied critical value35 in our
+  34 We define SE                                                  ˆ
+                 ols as the diagonal of the alpha covariance matrix , which we estimate accord-
+ing to Appendix B.
+   35 We compute the BY-implied critical value as the average of the t-statistic of the factor that is
+
+just significant based on BY (the factor with the highest BY-adjusted p-value below 5%) and the
+                                                                                                         15406261, 2023, 5, Downloaded from https://onlinelibrary.wiley.com/doi/10.1111/jofi.13249 by Schweizerische Akademie der Medizinischen Wissenschaften, Wiley Online Library on [15/03/2026]. See the Terms and Conditions (https://onlinelibrary.wiley.com/terms-and-conditions) on Wiley Online Library for rules of use; OA articles are governed by the applicable Creative Commons License
+2490                               The Journal of Finance®
+
+
+
+
+Figure 4. Alpha distributions for U.S. factors. The figure shows point estimates and confi-
+dence intervals for U.S. factors. The upper left panel depicts OLS estimates. The upper right panel
+uses the OLS point estimate but adjusts the confidence interval following the BY procedure. The
+lower left panel shows our EB posterior confidence intervals using only U.S. data. The lower right
+panel continues to show EB results for U.S. factors, but estimates the U.S. factor posterior from
+global data rather than U.S.-only data. Solid blue (dashed red) confidence intervals correspond to
+factors that were significant in the original study and that we find to be significant (insignificant)
+based on the method in each panel. Dotted green intervals correspond to factors that the original
+study find to be insignificant or that the original study does not evaluate in terms of average re-
+turn significance. The order of factors is the same in all panels and is arranged from lowest OLS
+alpha to highest. Table IA.III lists the factor names arranged in the same order. (Color figure can
+be viewed at wileyonlinelibrary.com)
+
+
+sample to have a t-statistic of 2.7, and we compute the corresponding confi-
+dence interval as α̂ols ± 2.7 × SEols . We deem a factor as significant according
+to the BY method if this interval lies entirely above zero. Naturally, this widen-
+ing of confidence intervals produces a lower replication rate of 75.6%. However,
+the BY correction does not materially change the OLS-based conclusion that
+factors appear to be highly replicable.
+  The lower left panel is based on our EB estimates using the full sample
+of U.S. factors. For each factor, we use Proposition 4 to compute its posterior
+mean, E(αi |(α̂ j ) j any US factor ), shown as the dot at the center of the confidence
+interval. These dots change relative to the OLS estimates, in contrast to BY
+and other frequentist MT methods that only change the size of the confidence
+intervals. We also compute the posterior volatility to produce Bayesian confi-
+dence intervals, E(αi |(α̂ j ) j any US factor ) ± 1.96 × σ (αi |(α̂ j ) j any US factor ). The repli-
+cation rate based on Bayesian model estimates is 82.4%, larger than BY and,
+coincidentally, the same as the OLS replication rate. This replication rate has
+
+t-statistic of the factor that is just insignificant (the factor with the lowest BY-adjusted p-value
+above 5%).
+                                                                                                      15406261, 2023, 5, Downloaded from https://onlinelibrary.wiley.com/doi/10.1111/jofi.13249 by Schweizerische Akademie der Medizinischen Wissenschaften, Wiley Online Library on [15/03/2026]. See the Terms and Conditions (https://onlinelibrary.wiley.com/terms-and-conditions) on Wiley Online Library for rules of use; OA articles are governed by the applicable Creative Commons License
+                       Is There a Replication Crisis in Finance?                            2491
+
+a built-in conservatism from the zero-alpha prior, and it further accounts for
+the multiplicity of factors because each factor’s posterior depends on all of the
+observed evidence in the United States (not just own-factor performance).
+   The lower right panel again reports EB estimates for U.S. factors, but now
+we allow the posterior to depend on data from all over the world, not just on
+U.S. data. That is, we compute the posterior mean and variance for each U.S.
+factor conditional on the alpha estimates for all factors in all regions. The re-
+sulting replication rate is 81.5%, which is slightly lower than the EB replica-
+tion rate using only U.S. data. Some posterior means are reduced due to the
+fact that some factors have not performed as well outside the United States,
+which affects posterior means for the United States through the dependence
+among global alphas. For example, when the Bayesian model seeks to learn
+the true alpha of the “U.S. change in book equity” factor, the Bayesian’s con-
+viction regarding positive alpha is reduced by accounting for the fact that the
+international version of this factor has underperformed the U.S. version.36
+   To further assess internal validity, we investigate the replication rate for U.S.
+factors when those factors are constructed from subsamples based on stock
+size. One of the leading criticisms of factor research replicability is that re-
+sults are driven by illiquid small stocks whose behavior largely reflects market
+frictions and microstructure as opposed to just economic fundamentals or in-
+vestor preferences. In particular, Hou, Xue, and Zhang (2020) argue that they
+find a low replication rate because they limit the influence of micro-caps. We
+find that factors demonstrate a high replication rate throughout the size dis-
+tribution. Panel A of Figure 5 summarizes replication rates for U.S. size cat-
+egories shown in the five bars: mega stocks (largest 20% of stocks based on
+NYSE breakpoints), large stocks (market capitalization between the 80th and
+50th percentile of NYSE stocks), small stocks (between the 50th and 20th per-
+centile), micro stocks (between the 20th and 1st percentile), and nano stocks
+(market capitalization below the 1st percentile).
+   We see that the EB replication rates in mega- and large-stock samples are
+77.3% and 79.8%, respectively. This is only marginally lower than the overall
+U.S. sample replication rate of 82.4%, indicating that criticisms of factor
+replicability based on arguments around stock size or liquidity are largely
+groundless. For comparison, small, micro, and nano stocks deliver replication
+rates of 85.7%, 85.7%, and 68.1%, respectively.
+   In Panel B of Figure 5, we provide U.S. factor replication rates by theme
+cluster. Eleven out of 13 themes are replicable with a rate of 50% or better,
+with the exceptions being the low leverage and size themes. To understand
+these exceptions, we note that size factors are stronger in emerging markets
+(bottom panel of Figure IA.7) and among micro and nano stocks (bottom panels
+of Figure IA.8). The theoretical foundation of the size effect is compensation
+
+   36 To provide a few more details on this example, the U.S. factor based on annual change in book
+
+equity (be_gr1a) has a posterior volatility of 0.095% using U.S. data and 0.077% using global data,
+leading to a tighter confidence interval with the global data. However, the posterior mean is 0.22%
+using only U.S. data and 0.13% using global data.
+                                                                                                      15406261, 2023, 5, Downloaded from https://onlinelibrary.wiley.com/doi/10.1111/jofi.13249 by Schweizerische Akademie der Medizinischen Wissenschaften, Wiley Online Library on [15/03/2026]. See the Terms and Conditions (https://onlinelibrary.wiley.com/terms-and-conditions) on Wiley Online Library for rules of use; OA articles are governed by the applicable Creative Commons License
+2492                             The Journal of Finance®
+
+
+
+
+Figure 5. U.S. replication rates by size group and theme cluster. Panel A summarizes
+replication rates for U.S. factors formed from subsamples defined by stocks’ market capitalization
+using our EB method. Panel B shows replication rates for U.S. factors in each theme cluster. (Color
+figure can be viewed at wileyonlinelibrary.com)
+
+
+
+
+for market illiquidity (Amihud and Mendelson (1986)) and market liquidity
+risk (Acharya and Pedersen (2005)). Theory predicts that the illiquidity (risk)
+premium should be the same order of magnitude as the differences in trading
+costs, and these differences are simply much larger in emerging markets and
+among micro stocks.
+   Another reason some factors and themes appear insignificant is that we
+do not account for other factors. Factors published after 1993 are routinely
+benchmarked to the Fama-French three-factor model (and, more recently, to
+the updated five-factor model). Some factors are insignificant in terms of raw
+return or CAPM alpha, but their alpha becomes significant after controlling
+for other factors. Indeed, this explanation accounts for the lack of replicability
+for the low-leverage theme. While CAPM alphas of low-leverage factors are
+                                                                                                        15406261, 2023, 5, Downloaded from https://onlinelibrary.wiley.com/doi/10.1111/jofi.13249 by Schweizerische Akademie der Medizinischen Wissenschaften, Wiley Online Library on [15/03/2026]. See the Terms and Conditions (https://onlinelibrary.wiley.com/terms-and-conditions) on Wiley Online Library for rules of use; OA articles are governed by the applicable Creative Commons License
+                        Is There a Replication Crisis in Finance?                             2493
+
+
+
+
+Figure 6. Replication rates in global data. We summarize replication rates for factors in three
+regions (U.S., developed ex.-U.S., and emerging) and for the world as a whole. A factor in a given
+region is the capitalization-weighted average factor for countries in that region. We report OLS
+replication rates with no adjustment and with MT adjustment of BY. We also report replication
+rates based on the EB posterior. We consider two EB methods. In both methods, the replication
+rate corresponds only to factors within the region of interest, but the posterior is computed by
+conditioning either on data from that region alone (“Empirical Bayes – Region”) or on the full global
+sample (“Empirical Bayes – All”). We deem a factor successfully replicated if its 95% confidence
+interval excludes zero for a given method. (Color figure can be viewed at wileyonlinelibrary.com)
+
+
+
+insignificant, we find that it is one of the best-performing themes when we
+account for multiple factors (see Section III.D.2 below).
+
+
+B. External Validity
+   We find a high replication rate in our full-sample analysis, indicating that
+the large majority of factors are reproducible at least in-sample. We next study
+the external validity of these results in international data and in postpublica-
+tion U.S. data.
+
+
+                                   B.1. Global Replication
+   Figure 6 shows corresponding replication rates around the world. We report
+replication rates from four testing approaches: (i) OLS with no adjustment,
+(ii) OLS with MT adjustment of BY, (iii) the EB posterior conditioning only on
+factors within a region (“Empirical Bayes – Region”), and (iv) EB conditioning
+on factors in all regions (“Empirical Bayes – All”). Even when using all global
+data to update the posterior of all factors, the reported Bayesian replication
+rate applies only to the factors within the stated region.
+                                                                                                   15406261, 2023, 5, Downloaded from https://onlinelibrary.wiley.com/doi/10.1111/jofi.13249 by Schweizerische Akademie der Medizinischen Wissenschaften, Wiley Online Library on [15/03/2026]. See the Terms and Conditions (https://onlinelibrary.wiley.com/terms-and-conditions) on Wiley Online Library for rules of use; OA articles are governed by the applicable Creative Commons License
+2494                            The Journal of Finance®
+
+  The first set of bars establishes a baseline by showing replication rates for
+the U.S. sample, summarizing the results from Figure 4. The next two sets of
+bars correspond to the developed ex.-U.S. sample and the emerging markets
+sample, respectively.37 Each region’s factor is a capitalization-weighted aver-
+age of that factor among countries within a given region, and the replication
+rate describes the fraction of significant CAPM alphas for these regional fac-
+tors.
+  OLS replication rates in developed and emerging markets are generally
+lower than in the United States, and the frequentist BY correction has an
+especially large negative impact on replication rate. This is a case in which the
+Bayesian approach to MT is especially powerful. Even though the alphas of all
+regions are shrunk toward zero, the global information set helps EB achieve
+a high degree of precision, narrowing the posterior distribution around the
+shrunk point estimate. We can see this in increments. First, the EB replication
+rate using region-specific data (“Empirical Bayes – Region” in the figure) is
+just below the OLS replication rate but much higher than the BY rate. When
+the posterior leverages global data (“Empirical Bayes – All” in the figure), the
+replication rate is even higher, reflecting the benefits of sharing information
+across regions, as recommended by the dependence among alphas in the hier-
+archical model.
+  Finally, we use the global model to compute, for each factor, the
+capitalization-weighted average alpha across all countries in our sample
+(“World” in the figure). Using data from around the world, we find a Bayesian
+replication rate of 82.4%.
+  In summary, our EB-All method yields a high replication rate in all regions.
+That said, the OLS replication rates are lower outside the U.S. than in the
+U.S., which is primarily due to the fact that foreign markets have shorter time
+samples—the point estimates of alphas are similar in magnitude for the U.S.
+and international data. Figure 7 shows the alpha of each U.S. factor against
+the alpha of the corresponding factor for the world ex.-U.S. universe. The data
+cloud aligns closely with the 45o line, demonstrating the close similarity of al-
+pha magnitudes in the two samples. But shorter international samples widen
+confidence intervals, and this is the primary reason for the drop in OLS repli-
+cation rates outside the United States.
+
+                      B.2. Time-Series Out-of-Sample Evidence
+   McLean and Pontiff (2016) document the intriguing fact that, following pub-
+lication, factor performance tends to decay. They estimate an average postpub-
+lication decline of 58% in factor returns. In our data, the average in-sample
+alpha is 0.49% per month and the average out-of-sample alpha is 0.26% when
+looking postoriginal sample, implying a decline of 47%.
+   37 The developed and emerging samples are defined by the MSCI development classification
+
+and include 23 and 27 countries, respectively. The remaining 43 countries in our sample that are
+classified as neither developed nor emerging by MSCI do not appear in our developed and emerging
+region portfolios, but they are included in the “world” versions of our factor portfolios.
+                                                                                                         15406261, 2023, 5, Downloaded from https://onlinelibrary.wiley.com/doi/10.1111/jofi.13249 by Schweizerische Akademie der Medizinischen Wissenschaften, Wiley Online Library on [15/03/2026]. See the Terms and Conditions (https://onlinelibrary.wiley.com/terms-and-conditions) on Wiley Online Library for rules of use; OA articles are governed by the applicable Creative Commons License
+                        Is There a Replication Crisis in Finance?                              2495
+
+
+
+
+Figure 7. U.S. factor alphas versus world ex.-U.S. The figure compares OLS alphas for
+U.S. factors versus their international counterpart. Each world ex.-U.S. factor is a capitalization-
+weighted average of the factor in all other countries of our sample. Blue circles correspond to
+factors that were significant in the original study, while red triangles are those for which the orig-
+inal paper did not find a significant effect (or did not study the factor in terms of average return
+significance). The dotted line is the 45o line. The figure also shows a regression of world ex.-U.S.
+alpha on U.S. alpha. (Color figure can be viewed at wileyonlinelibrary.com)
+
+
+
+
+   We gain further economic insight by looking at these findings cross-
+sectionally. Figure 8 provides a cross-sectional comparison of the in-sample
+and out-of-sample alphas of our U.S. factors. The in-sample period is the sam-
+ple studied in the original reference. The out-of-sample period in Panel A is
+the period before the start of in-sample period, while in Panel B it is the period
+following the in-sample period. Panel C defines out-of-sample as the combined
+data from the periods before and after the originally studied sample. We find
+that 82.6% of the U.S. factors that were significant in the original publication
+also have positive returns in the preoriginal sample, 83.3% are positive in the
+postoriginal sample, and 87.4% are positive in the combined out-of-sample pe-
+riod. When we regress out-of-sample alphas on in-sample alphas using gener-
+alized least squares (GLS), we find a slope coefficient of 0.57, 0.26, and 0.35 in
+Panels A, B, and C, respectively. The slopes are highly significant (ranging from
+t = 3.5 to t = 5.3), indicating that in-sample alphas contain something “real”
+rather than being the outcome of pure data mining, as factors that performed
+better in-sample also tend to perform better out-of-sample.
+                                                                                                        15406261, 2023, 5, Downloaded from https://onlinelibrary.wiley.com/doi/10.1111/jofi.13249 by Schweizerische Akademie der Medizinischen Wissenschaften, Wiley Online Library on [15/03/2026]. See the Terms and Conditions (https://onlinelibrary.wiley.com/terms-and-conditions) on Wiley Online Library for rules of use; OA articles are governed by the applicable Creative Commons License
+2496                              The Journal of Finance®
+
+
+
+
+Figure 8. In-sample versus out-of-sample alphas for U.S. factors. The figure shows OLS
+alphas for U.S. factors during the in-sample period (i.e., the period studied in the original publi-
+cation) versus out-of-sample alphas. In Panel A, out-of-sample is the period before the in-sample
+period. In Panel B, out-of-sample is the period after the in-sample period. In Panel C, out-of-sample
+includes both the period before and the period after the in-sample period. We require at least five
+years of out-of-sample data for a factor to be included, amounting to 102, 115, and 119 factors in
+Panel A, B, and C. The figure also shows feasible GLS estimates of out-of-sample alphas on in-
+sample alphas. To implement feasible GLS, we assume that the error variance-covariance matrix
+is proportional to the full-sample CAPM residual variance-covariance matrix, ˆ /T, described in
+Appendix B. The dotted line is the 45o line. (Color figure can be viewed at wileyonlinelibrary.com)
+
+
+   The significantly positive slope allows us to reject the hypothesis of “pure
+alpha-hacking,” which would imply a slope of zero, as seen in Proposition 1.
+Further, the regression intercept is positive, while alpha-hacking of the form
+studied in Proposition 1 would imply a negative intercept. That the slope coef-
+ficient is positive and less than one is consistent with the basic Bayesian logic
+of equation (4). As we emphasize in Section I, a Bayesian would expect at least
+some attenuation in out-of-sample performance. This is because the published
+studies report the OLS estimate, while Bayesian beliefs shrink the OLS esti-
+mate toward the zero-alpha prior. More specifically, with no alpha-hacking or
+arbitrage, the Bayesian expects a slope of approximately 0.9 using equation (5)
+and our EB hyperparameters (see Table I).38 Hence, the slope coefficients in
+Figure 8 are too low relative to this Bayesian benchmark. In addition to the
+moderate slope, there is evidence that the dots in Figure 8 have a concave
+shape (as seen more clearly in Figure IA.3). These results indicate that, while
+we can rule out pure alpha-hacking (or p-hacking), there is some evidence that
+the highest in-sample alphas may be data-mined or arbitraged down.
+   From the Bayesian perspective, another interesting evaluation of time-series
+external validity is to ask whether the new information contained in out-of-
+sample data moves the posterior alpha toward zero. Imagine a Bayesian ob-
+serving the arrival of factor data in real time. As new data arrive, she up-
+dates her beliefs for all factors based on the information in the full cross sec-
+tion of factor data. In the top panel of Figure 9, we show how the Bayesian’s
+
+  38 The slope is κ = 1/(1 + σ 2 /(Tτ 2 )) = 0.9, where σ 2 = 10%2 /12, the average in-sample period
+
+length is T = 420 months, and τ 2 = τc2 + τw2 = (0.35%)2 + (0.21%)2 = (0.41%)2 .
+                                                                                                            15406261, 2023, 5, Downloaded from https://onlinelibrary.wiley.com/doi/10.1111/jofi.13249 by Schweizerische Akademie der Medizinischen Wissenschaften, Wiley Online Library on [15/03/2026]. See the Terms and Conditions (https://onlinelibrary.wiley.com/terms-and-conditions) on Wiley Online Library for rules of use; OA articles are governed by the applicable Creative Commons License
+                         Is There a Replication Crisis in Finance?                                2497
+
+                                                Table I
+ Hyperparameters of the Prior Distribution Estimated by Maximum
+                           Likelihood
+This table presents τc as the estimated dispersion in cluster alphas (e.g., the dispersion in the
+alpha of the value cluster alpha, momentum cluster). When we estimate a single region, τw is the
+idiosyncratic dispersion of alphas within each cluster. When we jointly estimate several regions,
+then τs is the estimated dispersion in alphas across signals within each cluster, and τw is the
+estimated idiosyncratic dispersion in alphas for factors identified by their signal and region.
+
+Sample                                             τc                      τw                       τs
+
+USA                                              0.35%                   0.21%
+Developed                                        0.24%                   0.18%
+Emerging                                         0.32%                   0.24%
+USA, Developed & Emerging                        0.30%                   0.19%                    0.10%
+World                                            0.37%                   0.23%
+World ex.-US                                     0.29%                   0.20%
+USA—Mega                                         0.26%                   0.16%
+USA—Large                                        0.31%                   0.18%
+USA—Small                                        0.44%                   0.26%
+USA—Micro                                        0.48%                   0.32%
+USA—Nano                                         0.42%                   0.28%
+
+
+
+
+Figure 9. World factor alpha posterior distribution over time. The top panel depicts the
+CAPM alpha and 95% posterior confidence interval for an equal-weighted portfolio of world fac-
+tors based on EB posteriors reestimated in December each year. That is, each blue circle is
+E( N1 i α i | data until time t) and the vertical lines are ±2 times the posterior volatility. Red trian-
+gles show average OLS alpha at each point in time, N1 i α̂ ii , estimated using data through date
+                                                               t0 ,t
+t. The bottom panel reports the average monthly alpha for all factors in a rolling five-year window.
+The results are based on factors found to be significant in the original paper with data available
+since 1955. (Color figure can be viewed at wileyonlinelibrary.com)
+                                                                                                       15406261, 2023, 5, Downloaded from https://onlinelibrary.wiley.com/doi/10.1111/jofi.13249 by Schweizerische Akademie der Medizinischen Wissenschaften, Wiley Online Library on [15/03/2026]. See the Terms and Conditions (https://onlinelibrary.wiley.com/terms-and-conditions) on Wiley Online Library for rules of use; OA articles are governed by the applicable Creative Commons License
+2498                              The Journal of Finance®
+
+posterior of the average alpha would have evolved in real time.39 We focus
+on all the world factors that are available since at least 1955 and significant
+in the original paper. Starting in 1960, we reestimate the hierarchical model
+using the EB estimator in December of each year. The plot shows the CAPM
+alpha and corresponding 95% confidence interval of an equal-weighted portfo-
+lio of the available factors. The posterior mean alpha becomes relatively stable
+from the mid-1980s, around 0.4% per month. Further, as empirical evidence
+has accumulated over time, the confidence interval narrows by one-third, from
+about 0.16% in 1960 to 0.10% in 2020.
+   To understand the posterior alpha, Figure 9 also shows the average OLS al-
+pha (red triangles) and the bottom panel in Figure 9 shows the rolling five-year
+average monthly alpha among all these factors. We see that the EB posterior is
+below the OLS estimate, especially in the beginning, which occurs because the
+Bayesian posterior is shrunk toward the zero prior. Naturally, periods of good
+performance increase the posterior mean as well as the OLS estimate, and vice
+versa for poor performance. Over time, the OLS estimate moves nearer to the
+Bayesian posterior mean.
+   To further understand why the posterior alpha is relatively stable with a
+tightening confidence interval, consider the following simple example. Suppose
+a researcher has T = 10 years of data√ for factors with an OLS alpha estimate
+of α̂ = 10% with standard error σ / T. Further, assume that their√      zero-alpha
+prior is equally as informative as their 10-year sample (i.e., τ = σ / T). Then,
+the shrinkage factor is κ = 1/2 using equation (5). So, after observing the first
+10 years with α̂ = 10%, the Bayesian expects a future alpha of E(α|α̂) = 5%
+(equation (4)). What happens if this Bayesian belief is confirmed by additional
+data, that is, the factor realizes an alpha of 5% over the next 10 years? In this
+case, the full-sample OLS alpha is α̂ = 7.5%, but now the shrinkage factor
+becomes κ = 2/3 because the sample length doubles, T = 20. This results in
+a posterior alpha of E(α|α̂) = 7.5% · 2/3 = 5%. Naturally, when beliefs are
+confirmed by additional data, the posterior mean does not change. Neverthe-
+less, we learn something from the additional data, because our conviction
+increases
+           as the posterior
+                            variance is reduced. If σ = 0.1, the posterior volatil-
+ity Var(α|α̂) = σ Tκ goes from 2.2% with 10 years of data to 1.8% with 20
+                                                            
+years of data, and the confidence interval, [E(α|α̂) ± 2 Var(α|α̂)], decreases
+from [0.5%, 9.5%] to [1.3%, 8.7%].
+
+
+C. Bayesian MT
+  A great advantage of Bayesian methods for tackling challenges in MT is that,
+from the posterior distribution, we can make explicit probability calculations
+
+   39 Here, we keep τ and τ fixed at their full-sample values of 0.37% and 0.23% to mimic the idea
+                      c     w
+of a decision maker who starts with a given prior and updates this view based on new data, while
+keeping the prior fixed. Figure IA.4 shows that the figure is almost the same with rolling estimates
+of τc and τw , and Figure IA.5 shows that this consistency arises because the rolling estimates are
+relatively stable.
+                                                                                                         15406261, 2023, 5, Downloaded from https://onlinelibrary.wiley.com/doi/10.1111/jofi.13249 by Schweizerische Akademie der Medizinischen Wissenschaften, Wiley Online Library on [15/03/2026]. See the Terms and Conditions (https://onlinelibrary.wiley.com/terms-and-conditions) on Wiley Online Library for rules of use; OA articles are governed by the applicable Creative Commons License
+                        Is There a Replication Crisis in Finance?                              2499
+
+for essentially any inferential question. We simulate from our EB posterior to
+investigate the FDRs and FWERs among the set of global factors that were
+significant in the original study. We define a false discovery as a factor where
+we claim that the alpha is positive, but the true alpha is negative.40
+  First, based on Proposition 5, we calculate the Bayesian FDR in our sample
+as the average posterior probability of a false discovery, p-null, among all
+discoveries. We find that FDRBayes = 0.1%, meaning that we expect roughly
+one discovery in 1,000 to be a false positive given our Bayesian hierarchical
+model estimates. The posterior standard error for FDRBayes is 0.3% with a
+confidence interval of [0,1%]. In other words, the model generates a highly
+conservative MT adjustment in the sense that once a factor is found to be
+significant, we can be relatively confident that the effect is genuine.
+  We can also use the posterior to make other inference calculations. We com-
+pute the FWER, which we define as the probability of at least one false discov-
+ery. We simulate 1,000,000 draws of the vector of alphas that were deemed to
+be discoveries from the EB posterior and compute
+
+                                           1           
+                                                    1,000,000
+                     FWERBayes =                                1{ns ≥1} = 5.5%,
+                                       1,000,000
+                                                       s=1
+
+where ns is the number of false discoveries in simulation s. In other words, the
+probability of at least one alpha having the wrong sign is 5.5%. The FWERBayes
+is naturally much higher than the FDRBayes given the extreme conservatism
+built into the FWER’s definition. Whether it is too high is subjective. A nice
+aspect of our approach is that a researcher can control the FWERBayes as de-
+sired. For example, using a t-statistic threshold of 2.78 rather than 1.96 leads
+to FWERBayes = 0.8%.
+   From the posterior, we can also compute the expected fraction of dis-
+covered factors that are “true,” which in general is different than the
+replication rate. The replication rate is the fraction of factors having
+E(αi |data)/σ (αi |data) > 1.96, while the expected fraction of true factors is
+     i E(1αi >0 |data) = n  i Pr(αi > 0|data). The replication rate gives a conser-
+1                        1
+n
+vative take on the number of true factors—the expected fraction of true factors
+is typically higher than the replication rate. To understand this conservatism,
+consider an example in which all factors have a 90% posterior probability of
+being true. These would all individually be counted as “not replicated,” but
+they would contribute to a high expected fraction of true factors. Indeed, we
+estimate that the expected fraction of factors with truly positive alphas is 94%
+(with a posterior standard error of 1.3%), which is notably higher than our
+estimated replication rate.
+
+
+   40 In particular, we define a discovery as a factor for which the posterior probability of the true
+
+alpha being negative is less than 2.5%. With this definition, we start with 153 world factors. We
+then focus on the 119 factors that were significant in the original studies. Of these 119 factors, 98
+are considered discoveries.
+                                                                                                        15406261, 2023, 5, Downloaded from https://onlinelibrary.wiley.com/doi/10.1111/jofi.13249 by Schweizerische Akademie der Medizinischen Wissenschaften, Wiley Online Library on [15/03/2026]. See the Terms and Conditions (https://onlinelibrary.wiley.com/terms-and-conditions) on Wiley Online Library for rules of use; OA articles are governed by the applicable Creative Commons License
+2500                              The Journal of Finance®
+
+                    C.1. Economic Benefits of More Powerful Tests
+   MT adjustments should ultimately be evaluated by whether they lead to
+better decisions. It is important to balance the relative costs of false posi-
+tives versus false negatives, and the appropriate trade-off depends on the
+context of the problem (Greenland and Hofman (2019)). We apply this general
+principle in our context by directly measuring costs in terms of investment
+performance. Specifically, we can compute the difference in out-of-sample
+investment performance from investing using factors chosen with different
+methods. We compare two alternatives. One is the BY decision rule advocated
+by Harvey, Liu, and Zhu (2016), which is a frequentist MT method that suc-
+cessfully controls false discoveries relative to OLS, but in doing so sacrifices
+power (the ability to detect true positives). The second alternative is our EB
+method, whose false discovery control typically lies somewhere between BY
+and unadjusted OLS. EB uses the data sample itself to decide whether its
+discoveries should behave more similarly to BY or to unadjusted OLS.
+   For investors, the optimal decision rule is the one that leads to the best per-
+formance out-of-sample. For the most part, the set of discovered factors for BY
+and EB coincide. It is only in marginal cases where they disagree, which occurs
+in our sample when EB makes a discovery that BY deems insignificant. There-
+fore, to evaluate MT approaches in economic terms, we track the out-of-sample
+performance of factors included by EB but excluded by BY. If the performance
+of these is negative on average, then the BY correction is warranted and pre-
+ferred by the investor.
+   We find that the out-of-sample performance of factors discovered by EB
+but not BY is positive on average and highly significant. The alpha for these
+marginal cases is 0.35% per month among U.S. factors (t = 5.1).41 This esti-
+mate suggests that the BY decision rule is too conservative: An investor using
+the rule would fail to invest in factors that subsequently have a high out-of-
+sample return. Another way to see that the BY decision rule is too conser-
+vative √comes from the connection between the Sharpe ratio and t-statistics:
+t = SR T. If we have a factor with an annual Sharpe ratio of 0.5, an investor
+using the 1.96 cutoff would in expectation invest in the factor after 15 years,
+whereas an investor using the 2.78 cutoff would not start investing until ob-
+serving the factor for 31 years.
+
+
+   C.2. Addressing Unobserved Factors, Publication Bias, and Other Biases
+  A potential concern with our replication rate is that the set of factors that
+make it into the literature is a selected sample. In particular, researchers may
+have tried many different factors, some of which are observed in the literature,
+while others are unobserved because they never got published. Unobserved
+
+
+   41 For the developed ex.-U.S. sample, the monthly alpha for marginal cases is 0.24% per month
+
+(t = 5.3), and for the emerging sample it is 0.27% (t = 3.7), in favor of the EB decision rule. Table
+IA.I reports additional details for this analysis.
+                                                                                                    15406261, 2023, 5, Downloaded from https://onlinelibrary.wiley.com/doi/10.1111/jofi.13249 by Schweizerische Akademie der Medizinischen Wissenschaften, Wiley Online Library on [15/03/2026]. See the Terms and Conditions (https://onlinelibrary.wiley.com/terms-and-conditions) on Wiley Online Library for rules of use; OA articles are governed by the applicable Creative Commons License
+                       Is There a Replication Crisis in Finance?                           2501
+
+
+
+
+Figure 10. Replication rate with prior estimated in light of unobserved factors. The
+figure shows how the replication rate in the United States varies when changing the τc parameter.
+The τw parameter is fixed at the estimate value of 0.21%. The dotted line shows our replication
+rate of 82.4%. The green square highlights the value estimated in the data τc = 0.35%. The red
+triangle and the blue circle highlight values that are found by estimating the EB model according
+to assumptions about unobserved factors from Harvey, Liu, and Zhu (2016). The values are τc =
+0.28% in the baseline scenario and τc = 0.20% in the conservative scenario. A description of this
+approach can be found in Section IV of the Internet Appendix. (Color figure can be viewed at
+wileyonlinelibrary.com)
+
+
+factors may have worse average performance if poor performance makes pub-
+lication more difficult or less desirable. Alternatively, unobserved factors could
+have strong performance if people chose to trade on them in secret rather than
+publish them. Either way, we next show how unobserved factors can be ad-
+dressed in our framework.
+    The key insight is that the performance of factors across the universe of
+observed and unobserved factors is captured in our prior parameters τc , τw .
+Indeed, large values of these priors correspond to a large dispersion of alphas
+(i.e., a lot of large alphas “out there”), while small values mean that most true
+alphas are close to zero. Therefore, a smaller τ leads to stronger shrinkage
+toward zero for our posterior alphas, leading to fewer factor “discoveries” and
+a lower replication rate. Figure 10 shows how our estimated replication rate
+depends on the most important prior parameter, τc , based on the τw that we
+estimate from the data.42
+    In Figure 10, we show how the replication rate varies with τc in precise
+quantitative terms. Note that while the replication rate does indeed rise with
+τc , the differences are small in magnitude across a large range of τc values,
+demonstrating robustness of our conclusions about replicability.
+
+  42 Figure IA.6 shows that the results are robust to alternative values of τ .
+                                                                             w
+                                                                                     15406261, 2023, 5, Downloaded from https://onlinelibrary.wiley.com/doi/10.1111/jofi.13249 by Schweizerische Akademie der Medizinischen Wissenschaften, Wiley Online Library on [15/03/2026]. See the Terms and Conditions (https://onlinelibrary.wiley.com/terms-and-conditions) on Wiley Online Library for rules of use; OA articles are governed by the applicable Creative Commons License
+2502                        The Journal of Finance®
+
+   The stable replication rate in Figure 10 also suggests that the replication
+rate among the observed factors would be similar even if we had observed
+the unobserved factors. The figure highlights several key values of τc : both
+the value of τc that we estimated from the observed data (as explained in Ap-
+pendix B) and values that adjust for unobserved data in different ways.
+   We adjust τc for unobserved factors as follows. We simulate a data set that
+proxies for the full set of factors in the population (including those that are
+unobserved), and then estimate the τ ’s that match this sample. One set of
+simulations is constructed to match the baseline scenario of Harvey, Liu, and
+Zhu (2016, table 5.A, row 1), which estimates that researchers have tried
+M = 1, 297 factors, of which 39.6% have zero alpha and the rest have a Sharpe
+ratio of 0.44. We also consider the more conservative scenario of Harvey, Liu,
+and Zhu (2016, table 5.B, row 1), which implies that researchers have tried
+M = 2, 458 factors, of which 68.3% have zero alpha. Section IV of the Internet
+Appendix provides more details on these simulations. The result, as seen in
+Figure 10, is that values of τc that correspond to these scenarios from Harvey,
+Liu, and Zhu (2016) still lead to a conclusion of a high replication rate in our
+factor universe. The replication rate is 81.5%, and 79.8% for the prior hyper-
+parameters implied by the baseline and conservative scenario, respectively.
+   A closely related bias is that factors may suffer from alpha-hacking as dis-
+cussed in Section I.A (Proposition 1), which makes realized in-sample factor
+returns too high. To account for this bias, we estimate the prior hyperparam-
+eters using only out-of-sample data. The estimated values are τc = 0.27% and
+τw = 0.22%. These hyperparameters are similar to those implied by the base-
+line scenario of Harvey, Liu, and Zhu (2016) as seen in Figure 10. With these
+hyperparameters, the replication rate is 81.5%.
+
+
+D. Economic Significance of Factors
+  Which factors (and which themes) are the most impactful anomalies in eco-
+nomic terms? We shed light on this question by identifying which factors mat-
+ter most from an investment performance standpoint.
+  Figure 11 shows the alpha confidence intervals for all world factors, sorted by
+the median posterior alpha within clusters. This figure is similar to Figure 4,
+but now we focus on the world instead of the U.S. factors, and here we sort
+factors into clusters. We also focus on factors that the original studies conclude
+are significant. We see that world factor alphas tend to be economically large,
+often above 0.3% per month, and highly significant in most clusters. The ex-
+ception is the low-leverage cluster, where we also see a low replication rate in
+preceding analyses.
+
+
+                          D.1. By Region and By Size
+  We next consider which factors are most economically important across
+global regions and across stock size groups. In Panel A of Figure 12, we con-
+struct factors using only stocks in the five size subsamples presented earlier
+                                                                                                     15406261, 2023, 5, Downloaded from https://onlinelibrary.wiley.com/doi/10.1111/jofi.13249 by Schweizerische Akademie der Medizinischen Wissenschaften, Wiley Online Library on [15/03/2026]. See the Terms and Conditions (https://onlinelibrary.wiley.com/terms-and-conditions) on Wiley Online Library for rules of use; OA articles are governed by the applicable Creative Commons License
+                       Is There a Replication Crisis in Finance?                           2503
+
+
+
+
+Figure 11. World alpha posterior by factor and cluster. The figure reports the EB posterior
+95% confidence interval for the true alpha of a world factor create as a capitalization-weighted
+average of all country-specific factors in our data set. We only include factors that the original
+paper finds significant. (Color figure can be viewed at wileyonlinelibrary.com)
+
+
+in Figure 5, namely, mega, large, small, micro, and nano stock samples. For
+each sample, we calculate cluster-level alphas as the equal-weighted average
+alpha of rank-weighted factors within the cluster.43 We see, perhaps surpris-
+ingly, that the ordering and magnitude of alphas is broadly similar across size
+groups. The Spearman rank correlation of alphas for mega caps versus mi-
+cro caps is 73%. Only the nano stock sample, defined as stocks below the 1st
+percentile of the NYSE size distribution (which amounted to 458 out of 4,356
+stocks in the United States at the end of 2020), exhibits notable deviation from
+the other groups. The Spearman rank correlation between alphas of mega caps
+and nano caps is 36%.
+   Panel B of Figure 12 shows cluster-level alphas across regions. Again, we
+find consistency in alphas across the globe, with the obvious standout being
+the size theme, which is much more important in emerging markets than in
+developed markets. U.S. factor alphas share a 62% Spearman correlation with
+the developed ex.-U.S. sample, and a 43% correlation with the emerging mar-
+kets sample.
+
+                           D.2. Controlling for Other Themes
+  We have focused so far on whether factors (or clusters) possess significant
+positive alpha relative to the market. The limitation of studying factors in
+  43 Rank-weighting is similar to equal-weighting and used here to illustrate the performance of
+
+typical stocks in each size group. See equation (1) in Asness, Moskowitz, and Pedersen (2013).
+                                                                                                       15406261, 2023, 5, Downloaded from https://onlinelibrary.wiley.com/doi/10.1111/jofi.13249 by Schweizerische Akademie der Medizinischen Wissenschaften, Wiley Online Library on [15/03/2026]. See the Terms and Conditions (https://onlinelibrary.wiley.com/terms-and-conditions) on Wiley Online Library for rules of use; OA articles are governed by the applicable Creative Commons License
+2504                              The Journal of Finance®
+
+
+
+
+Figure 12. Alphas by stock size group and geographic region. The figure presents aver-
+age cluster-level alphas for factors formed from subsamples defined by different stock market
+capitalization groups (Panel A) and regions (Panel B). (Color figure can be viewed at wileyonlineli-
+brary.com)
+
+
+terms of CAPM alpha is that it does not control for duplicate behavior other
+than through the market factor. Economically important factors are those that
+have large impact on an investor’s overall portfolio, and this requires under-
+standing which clusters contribute alpha while controlling for all others.
+  To this end, we estimate cluster weights in a tangency portfolio that in-
+vests jointly in all cluster-level portfolios. We test the significance of the
+estimated weights using the method of Britten-Jones (1999). In addition to
+                                                                                                    15406261, 2023, 5, Downloaded from https://onlinelibrary.wiley.com/doi/10.1111/jofi.13249 by Schweizerische Akademie der Medizinischen Wissenschaften, Wiley Online Library on [15/03/2026]. See the Terms and Conditions (https://onlinelibrary.wiley.com/terms-and-conditions) on Wiley Online Library for rules of use; OA articles are governed by the applicable Creative Commons License
+                       Is There a Replication Crisis in Finance?                           2505
+
+
+
+
+Figure 13. Tangency portfolio weights. The returns are from U.S. portfolios. We compute the
+cluster return as the equal-weighted return of all factors with data available at a given point
+in time. We further add the U.S. market return. We estimate the tangency weights following the
+method of Britten-Jones (1999) with a nonnegativity constraint. The error bars are 90% confidence
+intervals based on 10,000 bootstrap samples and the percentile method. The data start in 1952 to
+ensure that all clusters have nonmissing observations. (Color figure can be viewed at wileyon-
+linelibrary.com)
+
+
+our 13 cluster-level factors, we also include the market portfolio as a way to
+benchmark factors to the CAPM null. Lastly, we constrain all weights to be
+nonnegative (because we have signed the factors to have positive expected
+returns according to the findings of the original studies).
+   Figure 13 reports the estimated tangency portfolio weights and their 90%
+bootstrap confidence intervals. When a factor has a significant weight in the
+tangency portfolio, it means that it matters for an investor, even controlling
+for all the other factors. We see that all but three clusters are significant in
+this sense. We also see that conclusions about cluster importance change when
+clusters are studied jointly. For example, value factors become stronger when
+controlling for other effects because of their hedging benefits relative to mo-
+mentum, quality, and low leverage. More surprisingly, the low-leverage cluster
+becomes one of the most heavily weighted clusters, in large part due to its
+ability to hedge value and low-risk factors. The hedging performance of value
+and low-leverage clusters is clearly discernible in Table IA.16, which shows
+the average pairwise correlations among factors within and across clusters.44
+Section VI of the Internet Appendix provides further performance attribution
+of the tangency portfolio at the factor level.45
+
+  44 Tables IA.9 and IA.10 show how tangency portfolio weights vary by region and by size group.
+   45 Figure IA.11 shows the performance of each cluster together with the market portfo-
+
+lio, Figure IA.12 shows how the optimal portfolio changes when one cluster is excluded, and
+Figure IA.14 shows the importance of each factor for the optimal portfolio.
+                                                                                                       15406261, 2023, 5, Downloaded from https://onlinelibrary.wiley.com/doi/10.1111/jofi.13249 by Schweizerische Akademie der Medizinischen Wissenschaften, Wiley Online Library on [15/03/2026]. See the Terms and Conditions (https://onlinelibrary.wiley.com/terms-and-conditions) on Wiley Online Library for rules of use; OA articles are governed by the applicable Creative Commons License
+2506                              The Journal of Finance®
+
+
+
+
+Figure 14. The evolution of the tangency Sharpe ratio. The top panel shows the Sharpe
+ratio on the ex post tangency portfolio. A factor is included in the tangency portfolio only after
+the end of the sample in which the factor was studied in the original publication (we only include
+factors that were found to be significant in the original paper). We highlight selected factors that
+significantly improve the optimal portfolio, starting with the market portfolio. We use the longest
+available balanced U.S. sample, 1972 to 2020 (i.e., when all factors are available).
+
+
+
+
+                      D.3. Evolution of Finance Factor Research
+  The number of published factors has increased over time as seen in the bot-
+tom panel of Figure 14. To what extent have these new factors continued to
+add new insights versus simply repackage existing information?
+  To address this question, we consider how the optimal risk-return tradeoff
+has evolved over time as factors have been discovered. Specifically, Figure 14
+computes the monthly Sharpe ratio of the ex post tangency portfolio that only
+invests in factors discovered by a certain point in time.46 The starting point (on
+the left) of the analysis is the 0.13 Sharpe ratio of the market portfolio in the
+U.S. sample over 1972 to 2020 when all factors are available. The ending point
+(on the right) is the 0.80 Sharpe ratio of the tangency portfolio that invests
+the optimal weights across all factors over the same U.S. sample period.47 In
+between, we see how the Sharpe ratio of the tangency portfolio has evolved as
+factors have been discovered. The improvement is gradual over time, but we
+also see occasional large increases when researchers have discovered especially
+impactful factors (usually corresponding to new themes in our classification
+scheme). An example is the operating accruals factor proposed by Sloan (1996),
+
+  46 We estimate tangency portfolio weights following the method of Pedersen, Babu, and Levine
+
+(2021), which offers a sensible approach to mean-variance optimization for high-dimensional data.
+Estimation details are provided in Section VI of the Internet Appendix.
+   47 The high Sharpe ratio partly reflects the fact that we are conducting in-sample optimization.
+
+If we instead run a pseudo out-of-sample analysis via cross-validation, we find a monthly Sharpe
+ratio of 0.56.
+                                                                                       15406261, 2023, 5, Downloaded from https://onlinelibrary.wiley.com/doi/10.1111/jofi.13249 by Schweizerische Akademie der Medizinischen Wissenschaften, Wiley Online Library on [15/03/2026]. See the Terms and Conditions (https://onlinelibrary.wiley.com/terms-and-conditions) on Wiley Online Library for rules of use; OA articles are governed by the applicable Creative Commons License
+                   Is There a Replication Crisis in Finance?                    2507
+
+which increased the tangency Sharpe ratio from 0.43 to 0.56. More recently,
+the seasonality factors of Heston and Sadka (2008) have increased the Sharpe
+ratio from 0.65 to 0.74.
+
+
+               IV. Conclusion: Finance Research Posterior
+   We introduce a hierarchical Bayesian model of alphas that emphasizes the
+joint behavior of factors and provides a more powerful MT adjustment than
+common frequentist methods. Based on this framework, we revisit the evi-
+dence on replicability in factor research and come to substantially different
+conclusions than prior literature. We find that U.S. equity factors have a high
+degree of internal validity in the sense that over 80% of factors remain signifi-
+cant after modifications in factor construction that make all factors consistent
+and more implementable while still capturing the original signal (Hamermesh
+(2007)) and after accounting for MT concerns (Harvey, Liu, and Zhu (2016),
+Harvey (2017)).
+   We also provide new evidence demonstrating a high degree of external va-
+lidity in factor research. In particular, we find highly similar qualitative and
+quantitative behavior in a large sample of 153 factors across 93 countries as we
+find in the United States. We also show that, within the United States, factors
+exhibit a high degree of consistency between their published in-sample results
+and out-of-sample data not considered in the original studies. We show that
+some out-of-sample factor decay is to be expected in light of Bayesian posteri-
+ors based on publication evidence. Therefore, the new evidence from postpubli-
+cation data largely confirms the Bayesian’s beliefs, which has led to relatively
+stable Bayesian alpha estimates over time.
+   In addition to providing a powerful tool for replication, our Bayesian frame-
+work has several additional applications. For example, the model can be
+used to correctly interpret out-of-sample evidence, look for evidence of alpha-
+hacking, compute the expected number of false discoveries and other relevant
+statistics based on the posterior, analyze portfolio choice taking into account
+both estimation uncertainty and return volatility, and evaluate asset pric-
+ing models.
+   Finally, the code, data, and meticulous documentation for our analysis are
+available online. Our large global factor data set and the underlying stock-level
+characteristics are easily accessible to researchers by using our publicly avail-
+able code and its direct link to WRDS. Our database will be updated regularly
+with new data releases and code improvements. We hope that our methodology
+and data will help promote credible finance research.
+
+                Initial submission: February 1, 2021; Accepted: July 16, 2021
+                Editors: Stefan Nagel, Philip Bond, Amit Seru, and Wei Xiong
+                                                                                                        15406261, 2023, 5, Downloaded from https://onlinelibrary.wiley.com/doi/10.1111/jofi.13249 by Schweizerische Akademie der Medizinischen Wissenschaften, Wiley Online Library on [15/03/2026]. See the Terms and Conditions (https://onlinelibrary.wiley.com/terms-and-conditions) on Wiley Online Library for rules of use; OA articles are governed by the applicable Creative Commons License
+2508                              The Journal of Finance®
+
+                  Appendix A: Additional Results and Proofs
+
+A.1. Additional Results on Alpha-Hacking
+  We consider the situation where the researcher has in-sample data from
+time 1 to time T and an out-of-sample (oos) period from time T + 1 to T + T oos .
+The researcher may have used alpha-hacking during the in-sample period, but
+this does not affect the out-of-sample period. The researcher is interested in
+the posterior alpha based on the total evidence, in-sample and out-of-sample,
+which is useful for predicting factor performance in a future time period (i.e., a
+time period that is out-of-sample relative to the existing out-of-sample period).
+PROPOSITION A.1 (Out-of-sample alpha): The posterior alpha based on in-
+sample data from time 1 to T with alpha-hacking, and an out-of-sample period
+from T + 1 to T + T oos is given by
+                                                                  
+                 E(α|α̂, α̂ oos ) = κ oos w(α̂ − ε̄) + (1 − w)α oos ,   (A1)
+                σ /T
+                   2   oos
+where w = σ̄ 2 /T+σ 2 /T oos ∈ (0, 1) is the relative weight on the in-sample period rel-
+
+ative to the out-of-sample period and κ oos = 1+1/(τ 2 ([σ̄ 2 /T]1−1 +[σ 2 /T oos ]−1 )) is a shrink-
+age parameter.
+   We see that the more alpha-hacking the researcher has done (higher σ̄ ),
+the less weight we put on the in-sample period relative to the out-of-sample
+period. Further, the in-sample period has the nonproportional discounting due
+to alpha-hacking (ε̄), which we do not have for out-of-sample evidence.
+   This result formalizes the idea that an in-sample backtest plus live perfor-
+mance is not the same as a longer backtest. For example, 10 years of backtest
+plus 10 years of live performance is more meaningful that 20 years of backtest
+with no live performance. The difference is that the out-of-sample performance
+is free from alpha-hacking.
+
+
+A.2. Proofs and Lemmas
+   The proofs make repeated use of the following well-known property of mul-
+tivariate Normally distributed random variable. If x and y are multivariate
+Normal:
+                                            
+                          x        μx       xx yx
+                             ∼N         ,           ,                   (A2)
+                          y        μy       xy yy
+
+then the conditional distribution of x given y has the following Normal distri-
+bution:
+                                 −1                      −1
+                                                               
+               x|y ∼ N μx + xy yy    (y − μy ) , xx − xy yy  yx .         (A3)
+
+
+  The proofs also make use of the following two lemmas.
+                                                                                                                     15406261, 2023, 5, Downloaded from https://onlinelibrary.wiley.com/doi/10.1111/jofi.13249 by Schweizerische Akademie der Medizinischen Wissenschaften, Wiley Online Library on [15/03/2026]. See the Terms and Conditions (https://onlinelibrary.wiley.com/terms-and-conditions) on Wiley Online Library for rules of use; OA articles are governed by the applicable Creative Commons License
+                      Is There a Replication Crisis in Finance?                                             2509
+
+LEMMA A.1: For random variables x, y, and z, it holds that E(Var(x|y, z)) ≤
+E(Var(x|y)) and, if the random variables are jointly normal, then Var(x|y, z) ≤
+Var(x|y).
+LEMMA A.2: Let A be an N × N matrix for which all diagonal elements equal a
+and all off-diagonal elements equal b, where a = b and a + b(N − 1) = 0. Then
+the inverse A−1 exists and is of the same form:
+                         ⎡          ⎤           ⎡       ⎤
+                            a     b               c   d
+                         ⎢          ⎥           ⎢       ⎥
+                     A = ⎣ ... ⎦         A−1 = ⎣ . . . ⎦ ,                (A4)
+                                 b      a                              d       c
+                                         −b
+where c = (a−b)(a+b(N−1))
+             a+b(N−2)
+                          and d = (a−b)(a+b(N−1)) .
+PROOF OF LEMMA A.1: Using the definition of conditional variance, we have
+                                                2                       2
+   E(Var(x|y, z)) = E(E(x2 |y, z)) − E( E(x|y, z) ) = E(x2 ) − E( E(x|y, z) ).
+
+Hence, using Jensen’s inequality, we have
+                                            2           2
+   E(Var(x|y)) − E(Var(x|y, z)) =E( E(x|y, z) ) − E( E(x|y) )
+                                            2                   2
+                                =E( E(x|y, z) ) − E( E(E(x|y, z)|y) )
+                                            2                2
+                                ≥E( E(x|y, z) ) − E(E( E(x|y, z) |y)) = 0.
+
+The result for normal distributions follows from the fact that normal condi-
+tional variances are nonstochastic, that is, Var(x|y) = E(Var(x|y)). In this case,
+we can also characterize the extra drop in variance due to conditioning on
+z using its orthogonal component ε from the regression z = a + by + ε, using
+similar notation as (A2):
+                                                   −1
+ Var(x|y, z) = Var(x|y, ε) =   x,x −   x,(y,ε)     (y,ε),(y,ε)    (y,ε),x
+
+                                             −1                        −1                             −1
+                          =    x,x −   x,y   y,y     y,x −       x,ε   ε,ε   ε,x = Var(x|y) −   x,ε   ε,ε    ε,x .
+
+                                                                                                                
+PROOF OF LEMMA A.2: The proof follows from inspection: The product of A and
+its proposed inverse clearly has the same form as A with diagonal elements
+                    a(a + b(N − 2)) − b2 (N − 1)   a2 + ab(N − 1) − ab − b2 (N − 1)
+ ac + bd(I − 1) =                                =                                  =1
+                       (a − b)(a + b(N − 1))             (a − b)(a + b(N − 1))
+
+and off-diagonal elements
+
+                                       −ab + b(a + b(N − 2)) − b2 (N − 2)
+         ad + bc + bd(N − 2) =                                            = 0.
+                                            (a − b)2 (a + b(N − 1))2
+In other words, AA−1 equals the identity, proving the result.                                                   
+                                                                                               15406261, 2023, 5, Downloaded from https://onlinelibrary.wiley.com/doi/10.1111/jofi.13249 by Schweizerische Akademie der Medizinischen Wissenschaften, Wiley Online Library on [15/03/2026]. See the Terms and Conditions (https://onlinelibrary.wiley.com/terms-and-conditions) on Wiley Online Library for rules of use; OA articles are governed by the applicable Creative Commons License
+2510                               The Journal of Finance®
+
+PROOF OF EQUATIONS (4) to (6): The posterior distribution of the true alpha
+given the observed factor return is computed using (A3). The conditional mean
+is
+                                   Cov(α, α̂)              τ2
+              E(α|α̂) = 0 +                   (α̂ − 0) = 2         α̂ = κ α̂,
+                                    Var(α̂)             τ + σ 2 /T
+where κ is given by (5) and the posterior variance is
+
+                             (Cov(α, α̂))2             τ2          τ 2 σ 2 /T     σ2
+  Var(α|α̂) = Var(α) −                     = τ2 − τ2 2         =              = κ    .
+                               Var(α̂)              τ + σ 2 /T   τ 2 + σ 2 /T     T
+                                                                                           
+PROOF OF PROPOSITION 1: The posterior alpha with alpha-hacking is given
+via (A3) as
+                    Cov(α, α̂)                  τ2
+   E(α|α̂) = 0 +               (α̂ − E(α̂)) = 2          (α̂ − ε̄) = −κ0 + κ hacking α̂,
+                     Var(α̂)                 τ + σ̄ 2 /T
+
+where κ hacking =     1
+                          2 , κ0 = κ
+                                     hacking
+                                             ε̄ ≥ 0, and κ hacking ≤ κ because σ̄ ≥ σ .    
+                    1+ σ̄2
+                      τ T
+
+PROOF OF PROPOSITION 2: The posterior mean given α̂ and α̂ g is computed
+via (A3) as
+                                                             
+                                     τ 2 + σ 2 τ 2 + ρσ 2 −1 α̂
+            E(α|α̂, α̂ g ) = τ 2 τ 2          T           T
+                                       τ 2 + ρσT2 τ 2 + σT2     α̂ g
+                                                                      
+                               1  2 2       τ 2 + σT2 −(τ 2 + ρσT2 ) α̂
+                           =       τ τ
+                             det            −(τ 2 + ρσT2 ) τ 2 + σT2    α̂ g
+                                τ 2 (1 − ρ)σT2           
+                            =                   α̂ + α̂ g
+                                      det
+                                          τ 2 (1 − ρ)                     
+                            =                                    α̂ + α̂ g
+                              σT2 (1 − ρ)(1 + ρ) + 2τ 2 (1 − ρ)
+                                               
+                                g 1       1 g
+                            = κ       α̂ + α̂
+                                    2     2
+
+using the notation σT2 = σ 2 /T and
+
+         det = (τ 2 + σT2 )2 − (τ 2 + ρσT2 )2 = σT2 [σT2 (1 − ρ 2 ) + 2τ 2 (1 − ρ)].
+
+The global shrinkage parameter κ g is in [κ, 1] and decreases with the corre-
+lation ρ, attaining the minimum value, κ g = κ, when ρ = 1 as is clearly seen
+from (12).
+  The result about the posterior variance follows from Lemma A.1.           
+PROOF OF PROPOSITION 3: The prior joint distribution of the true and esti-
+mated alphas is given by the following expression, where we focus on factor 1
+                                                                                                                                          15406261, 2023, 5, Downloaded from https://onlinelibrary.wiley.com/doi/10.1111/jofi.13249 by Schweizerische Akademie der Medizinischen Wissenschaften, Wiley Online Library on [15/03/2026]. See the Terms and Conditions (https://onlinelibrary.wiley.com/terms-and-conditions) on Wiley Online Library for rules of use; OA articles are governed by the applicable Creative Commons License
+                                 Is There a Replication Crisis in Finance?                                                      2511
+
+without loss of generality:
+             ⎛        ⎡                                                                                                         ⎤⎞
+ ⎡ 1⎤          ⎡ ⎤ τc2 + τw2         τc2 + τw2     τc2                                      ···        τc2
+   α         ⎜   0    ⎢ 2                                                                                              ⎟
+ ⎢ α̂ 1 ⎥    ⎜⎢0⎥ ⎢τc + 2τw
+                               2
+                                     τc2 + τw2 + σ 2 /T                                                τc2 + ρσ 2 /T ⎥
+                                                                                                                     ⎥⎟
+ ⎢ ⎥         ⎜⎢ ⎥ ⎢         τ                                                                                        ⎥⎟
+ ⎢ .. ⎥ ∼ N ⎜⎢ .. ⎥ , ⎢      c                                                                                       ⎥⎟.
+ ⎣ . ⎦       ⎜⎣ . ⎦ ⎢ ..                                                                    ..                       ⎥⎟
+             ⎝        ⎣   .                                                                    .                     ⎦⎠
+   α̂ N          0
+                          τc2    τc2 + ρσ 2 /T                                                   τc + τw + σ /T
+                                                                                                  2    2     2
+
+                                                                                                                       (A5)
+
+The posterior alpha of factor 1 is therefore normally distributed with a mean
+derived using the standard formula for conditional normal distributions (A3):
+                                          ⎡ 2       ⎤
+                                           τc + τw2          ⎡                                           ⎤−1 ⎡ ⎤
+                                          ⎢ τ2 ⎥              τc2 + τw2 + σ 2 /T           τc2 + ρσ 2 /T       α̂ 1
+                                          ⎢    c    ⎥        ⎢                                           ⎥   ⎢      ⎥
+ E(α 1 |α̂ 1 , . . . , α̂ N )            =⎢         ⎥        ⎢                   ..                      ⎥ ⎢ .. ⎥ .
+                                          ⎢   ..    ⎥        ⎣                      .                    ⎦ ⎣ . ⎦
+                                          ⎣    .    ⎦
+                                                              τc2 + ρσ 2 /T           τc2 + τw2 + σ 2 /T      α̂ N
+                                                 τc2
+
+We next use Lemma A.2 and its notation, that is, a = τc2 + τw2 + σ 2 /T, b = τc2 +
+ρσ 2 /T, and c , d are defined accordingly, where we use the notation c to avoid
+confusion with the c in equation (14). This application of Lemma A.2 yields
+                                                                         ⎡ 2        ⎤
+                                                                           τc + τw2   ⎡               ⎤⎡ 1⎤
+                                                                         ⎢ τc2 ⎥ c                  d    α̂
+                                                                         ⎢          ⎥ ⎢     .         ⎥ ⎢ .. ⎥
+                                                E(α |α̂ , . . . , α̂ ) = ⎢ . ⎥ ⎣
+                                                   1 1              N                         . .     ⎦⎣ . ⎦
+                                                                         ⎣ .. ⎦
+                                                                                         d          c    α̂ N
+                                                                              τc2
+                                                                        ⎡ 2                         ⎤
+                                                                          τc (c + d(N − 1)) + τw2 c     ⎡ 1⎤
+                                                                        ⎢τc2 (c + d(N − 1)) + τw2 d ⎥    α̂
+                                                                        ⎢                           ⎥ ⎢ .. ⎥
+                                                                      =⎢              ..            ⎥ ⎣ . ⎦
+                                                                        ⎣              .            ⎦
+                                                                                                         α̂ N
+                                                                          τc (c + d(N − 1)) + τw d
+                                                                           2                      2
+
+
+                                                           = (τc2 (c + d(N − 1)) + τw2 d)N α̂ · + τw2 (c − d)α̂ 1
+                                  N                            bN                              1
+                                = (τc2     − τw2                               )α̂ · + τw2          α̂ 1
+                         a + b(N − 1)            (a − b)(a + b(N − 1))                     a−b
+                                                                                                     
+                                                      τc2       ·      τw2                1         ·
+                                              =               α̂ +           α̂ −
+                                                                               1
+                                                                                                 α̂
+                                                 b + a−b  N
+                                                                     a−b              1 + a−bbN
+                                                                  ⎛                                   ⎞
+             τc2                                  τ 2
+                                                                                     1
+ =                                 α̂ · + 2        w              ⎝α̂ 1 −                        α̂ · ⎠
+   τ + ρσ /T +
+    2    2       τw2 +(1−ρ)σ 2 /T        τw + (1  −   ρ)σ  2 /T                 τw2 +(1−ρ)σ 2 /T
+                                                                           1+ 2 2
+       c                                  N                                                                   (τc +ρσ /T )N
+                                                                                           ⎛                                       ⎞
+                                            1                                 1            ⎝α̂ 1 −                 1
+                   =                          τ 2 +(1−ρ)σ 2 /T
+                                                                 α̂ · +                                      τ 2 +(1−ρ)σ 2 /T
+                                                                                                                                α̂ · ⎠.
+                        1 + τρσ2 T + w
+                                                                                       2
+                                                                          1 + (1−ρ)σ
+                                     2
+
+                                                     τc2 N                      τ2T
+                                                                                  w
+                                                                                                     1 + (τw 2 +ρσ 2 /T )N
+                                 c                                                                             c
+                                                                                                     15406261, 2023, 5, Downloaded from https://onlinelibrary.wiley.com/doi/10.1111/jofi.13249 by Schweizerische Akademie der Medizinischen Wissenschaften, Wiley Online Library on [15/03/2026]. See the Terms and Conditions (https://onlinelibrary.wiley.com/terms-and-conditions) on Wiley Online Library for rules of use; OA articles are governed by the applicable Creative Commons License
+2512                              The Journal of Finance®
+
+The posterior has conditional variance
+                                                    ⎡ 2        ⎤                  ⎡          ⎤
+                                                      τc + τw2   ⎡              ⎤ τc2 + τw2
+                                                    ⎢ τc2 ⎥         c         d   ⎢          ⎥
+                                                                                ⎥ ⎢ τc ⎥
+                                                                                         2
+                                                    ⎢          ⎥ ⎢     ..
+       Var(α 1 |α̂ 1 , . . . , α̂ N ) = τc2 + τw2 − ⎢ . ⎥ ⎣               .     ⎦ ⎢     . ⎥
+                                                    ⎣ .. ⎦                        ⎣ .. ⎦
+                                                                    d         c
+                                                         τc2                           τc2
+                                                   ⎡ 2                         ⎤ ⎡ 2         ⎤
+                                                    τc (c + d(N − 1)) + τw2 c       τc + τw2
+                                                   ⎢τc2 (c + d(N − 1)) + τw2 d ⎥ ⎢ τc2 ⎥
+                                                   ⎢                           ⎥ ⎢           ⎥
+                                     = τc2 + τw2 − ⎢             ..            ⎥ ⎢ .. ⎥
+                                                   ⎣              .            ⎦  ⎣     . ⎦
+                                                τc2 (c + d(N − 1)) + τw2 d               τc2
+                                   = τc2 + τw2 − (τc2 (c + d(N − 1)) + τw2 c )(τc2 + τw2 )
+                                                −(τc2 (c + d(N − 1)) + τw2 d)τc2 (N − 1)
+                                                   1         1             1
+                       →        τc2 + τw2 − (τc2 (     −        ) + τw2        )(τ 2 + τw2 )
+                                                a−b a−b                 a−b c
+                                                                        1          1
+                                                                 −(τc2 − τw2           )τ 2
+                                                                        b       a−b c
+                                                                                        
+                                                                             1         1
+                                                      = τc2 + τw2 − τw4          + τc4
+                                                                          a−b          b
+                                                                                       
+                                                          τw
+                                                           4
+                                                                               τc4
+                                 = τc2 + τw2 −                        +                    .
+                                                 τw2 + (1 − ρ)σ 2 /T      τc2 + ρσ 2 /T
+
+The last results follow from Lemma A.1.                                                          
+PROOF OF PROPOSITION 4: We write the joint prior distribution of true and
+observed alphas in the multilevel hierarchical model as
+                                                 
+                       α
+                          ∼ N α 0 12NK ,                .            (A6)
+                       α̂                      + /T
+
+The posterior mean vector of true alphas is computed via (A3):
+
+                    E(α|α̂) = 1NK α0 + ( + /T )−1 (α̂ − 1NK α0 )
+                                        −1  −1                 
+                            = −1 + T −1           1NK α0 + T −1 α̂ ,
+
+using the fact that ( + /T )−1 = −1 − −1 ( −1 + T −1 )−1 −1 by the Wood-
+bury matrix identity. The posterior variance is computed similarly via (A3) and
+the same application of the Woodbury matrix identity as
+                                                                              
+                                                                             −1 −1
+                 Var(α|α̂) =       −    (   +    /T )−1    =       −1
+                                                                        +T           .
+
+                                                                                                 
+                                                                                                                 15406261, 2023, 5, Downloaded from https://onlinelibrary.wiley.com/doi/10.1111/jofi.13249 by Schweizerische Akademie der Medizinischen Wissenschaften, Wiley Online Library on [15/03/2026]. See the Terms and Conditions (https://onlinelibrary.wiley.com/terms-and-conditions) on Wiley Online Library for rules of use; OA articles are governed by the applicable Creative Commons License
+                       Is There a Replication Crisis in Finance?                                          2513
+
+PROOF OF PROPOSITION 5: Based on the definition of the Bayesian FDR, we
+have:
+                                                                                  
+                                  i 1{i false discovery}  1
+                                                             
+         FDRBayes = E                                        α̂ , . . . , α̂ N
+                                                                                , τ
+                                       i 1{i discovery}
+                                                                                                    
+                                   1                                             1
+                      =                         E                                
+                                                            1{i false discovery} α̂ , . . . , α̂ , τ
+                                                                                                 N
+
+                            i 1{i discovery}            i
+
+                                 1              
+                      =                                 Pr(i false discovery|α̂ 1 , . . . , α̂ N , τ )
+                             1
+                            i {i discovery}         i
+
+                               1                    
+                      =                                      p-nulli
+                          #discoveries
+                                               i discovery
+
+                      ≤ 2.5%.
+
+                                                                                                            
+
+PROOF OF PROPOSITION A.1: The posterior mean alpha is
+
+                                                             −1          
+                                      τ 2 + σ̄ 2      τ2         α̂ − ε̄
+           E(α|α̂, α̂ oos ) = τ 2 τ 2           T
+                                            τ2     τ 2 + σoos
+                                                           2        α̂ oos
+                                             2                              
+                                1  2 2  τ + σoos     2
+                                                           −τ 2       α̂ − ε̄
+                            =       τ τ
+                              det                −τ 2 τ 2 + σ̄T2        α̂ oos
+                            τ2  2                         
+                          =     σoos (α̂ − ε̄) + σ̄T2 α̂ g
+                           det
+                                τ 2 (σ̄ 2 + σ 2 )                    
+                          = 2 2 T 2 oos 2 2 w(α̂ − ε̄) + (1 − w)α oos
+                           τ (σ̄T + σoos ) + σ̄T σoos
+                                          τ2                                         
+                          =                                 w(α̂ − ε̄) + (1 − w)α oos
+                               τ + σ̄T σoos /(σ̄T + σoos )
+                                2    2  2       2    2
+
+                                          1                                      
+                          =                              w(α̂ − ε̄) + (1 − w)α oos ,
+                               1 + τ 2 (σ̄ −21+σ −2 )
+                                          T     oos
+
+
+
+
+using the notation σ̄T2 = σ̄ 2 /T, σoos
+                                    2
+                                        = σ 2 /T oos , and
+
+
+               det = (τ 2 + σ̄T2 )(τ 2 + σoos
+                                          2
+                                              ) − τ 4 = τ 2 (σ̄T2 + σoos
+                                                                     2
+                                                                         ) + σ̄T2 σoos
+                                                                                   2
+                                                                                       .
+
+                                                                                                            
+                                                                                                                15406261, 2023, 5, Downloaded from https://onlinelibrary.wiley.com/doi/10.1111/jofi.13249 by Schweizerische Akademie der Medizinischen Wissenschaften, Wiley Online Library on [15/03/2026]. See the Terms and Conditions (https://onlinelibrary.wiley.com/terms-and-conditions) on Wiley Online Library for rules of use; OA articles are governed by the applicable Creative Commons License
+2514                                 The Journal of Finance®
+
+                                Appendix B: EB Estimation
+   For convenient reference, we restate the multilevel hierarchical model of Sec-
+tion I. For factor i in cluster j corresponding to signal n, the factor is
+
+                                          fti = α i + β i rtm + εti
+
+with
+
+                                       α i = α o + c j + sn + wi ,
+
+where the alpha components are α o = 0, c j ∼ N(0, τc2 ), sn ∼ N(0, τs2 ), and wi ∼
+N(0, τw2 ). We write alpha in vector form as
+
+                                    α = α o 1NK + Mc + Zs + w,                                         (B1)
+
+where α = (α 1 , . . . , α NK ) , c = (c1 , . . . , cJ ) , s = (s1 , . . . , sN ) , w = (w1 , . . . , wNK ) ,
+M is the NK × J matrix of cluster memberships, and Z is the NK × N matrix
+indicating the characteristic that factor i is based on. Given the hyperparame-
+ters (α 0 , τc , τs , τw ), the prior mean and covariance matrix of alphas are
+
+                   E[α] = 0,           ≡ Var(α) = MM τc2 + ZZ τs2 + INK τw2 .                          (B2)
+
+The vector of return shocks is εt = (εt1 , . . . , εtNK ) , which is distributed εt ∼
+N(0, ).
+  Given this structure, we estimate the model as follows. The vector of factor
+returns ft = ( ft1 , . . . , ftNK ) has marginal likelihood—that is, after integrating
+out the uncertain alpha components—that is distributed as
+
+                                         ft ∼ N(0, [       + ]),
+
+or, equivalently (treating CAPM betas as known), the estimated alphas are
+distributed48
+
+                                       α̂ ∼ N(0, [      +     /T]).
+
+The matrices Z and M are given by the factor definition and cluster assign-
+ment (Table IA.III), respectively. We use a plug-in estimate of the factor CAPM-
+residual return covariance matrix, denoted ˆ (discussed below). Finally, given
+ ˆ , Z, and M, we estimate the hyperparameters of the prior distribution,
+(τc , τs , τw ), via MLE based on the marginal likelihood.
+    This estimation approach is an example of the EB method. It approximates
+the fully Bayesian posterior calculation (which requires integrating over a hy-
+perprior distribution of hyperparameters, usually an onerous calculation) by
+setting the hyperparameters to their most likely values based on the marginal
+likelihood. It is particularly well suited to hierarchical Bayesian models in
+which parameters for individual observations share some common structure,
+
+   48 We abstract from uncertainty in CAPM betas to emphasize the Bayesian updating of alphas.
+
+Our conclusions are qualitatively insensitive to accounting for beta uncertainty.
+                                                                                                      15406261, 2023, 5, Downloaded from https://onlinelibrary.wiley.com/doi/10.1111/jofi.13249 by Schweizerische Akademie der Medizinischen Wissenschaften, Wiley Online Library on [15/03/2026]. See the Terms and Conditions (https://onlinelibrary.wiley.com/terms-and-conditions) on Wiley Online Library for rules of use; OA articles are governed by the applicable Creative Commons License
+                       Is There a Replication Crisis in Finance?                            2515
+
+so that the realized heterogeneity across individual observations is informative
+about sensible values for the hyperparameters of the prior. Our model and esti-
+mation approach implementation is a minor variation on Bayesian hierarchical
+normal mean models that are common in Bayesian statistics (textbook treat-
+ments include Efron (2012), Gelman et al. (2013), and Maritz (2018)). We con-
+duct sensitivity analysis to ensure that our results are robust to a wide range
+of hyperparameters (see Figure IA.6). Also, we note that our EB methodology
+is more easily replicable than a full-Bayesian setting with additional hyper-
+priors as EB relies on closed-form Bayesian updating rather than numerical
+integration.
+   To ensure cross-sectional stationarity, √
+                                           we scale each factor such that their
+monthly idiosyncratic volatility is 10%/ 12 (i.e., 10% annualized). To con-
+struct a plug-in estimate of the factor residual return covariance matrix,
+denoted ˆ , we face two main empirical challenges. First, the sample covari-
+ance is poorly behaved due the relatively large number of factors compared
+to the number of time-series observations. Second, we have an unbalanced
+panel because different factors come online at different points in time. To
+address the first challenge, we impose a block equicorrelation structure on
+   based on factors’ cluster membership.49 The correlation between factors
+in clusters i and j is estimated as the average correlation among all pairs
+such that one factor is in cluster i and the other is in j. In our global anal-
+yses, blocks correspond to region-cluster pairs. To address unbalancedness,
+we use the bootstrap. In particular, we generate 10,000 bootstrap samples
+that resample rows of the unbalanced factor return data set. Each boot-
+strap sample is, therefore, also unbalanced, and we use this to produce a
+distribution of alpha estimates. From this we calculate ˆ /T as the covari-
+ance of alphas across bootstrap samples (imposing the block equicorrelation
+structure).
+   Table I shows the estimated hyperparameters across different samples.
+While most of our analysis is based on these full-sample estimates, we also
+consider rolling estimates of the hyperparameters when considering out-of-
+sample evidence as seen in Figure IA.5.
+
+                                      REFERENCES
+Acharya, Viral, and Lasse Heje Pedersen, 2005, Asset pricing with liquidity risk, Journal of Fi-
+   nancial Economics 77, 375–410.
+Amihud, Yakov, and Haim Mendelson, 1986, Asset pricing and the bid-ask spread, Journal of
+   Financial Economics 17, 223–249.
+Asness, Cliff, Tobias Moskowitz, and Lasse Heje Pedersen, 2013, Value and momentum every-
+   where, Journal of Finance 68, 929–985.
+
+
+
+   49 As advocated by Engle and Kelly (2012) and Elton, Gruber, and Spitzer (2006), block equicor-
+
+relation constrains all pairs of factors in the same block to share a single correlation parameter,
+and likewise for cross-block correlations. This stabilizes covariance matrix estimates by dramat-
+ically reducing the parameterization of the correlation matrix, while leaving the individual vari-
+ance estimates unchanged.
+                                                                                                     15406261, 2023, 5, Downloaded from https://onlinelibrary.wiley.com/doi/10.1111/jofi.13249 by Schweizerische Akademie der Medizinischen Wissenschaften, Wiley Online Library on [15/03/2026]. See the Terms and Conditions (https://onlinelibrary.wiley.com/terms-and-conditions) on Wiley Online Library for rules of use; OA articles are governed by the applicable Creative Commons License
+2516                             The Journal of Finance®
+
+Asness, Clifford, and Andrea Frazzini, 2013, The devil in HML’s details, Journal of Portfolio Man-
+    agement 39, 49–68.
+Benjamini, Yoav, and Yosef Hochberg, 1995, Controlling the false discovery rate: A practical
+    and powerful approach to multiple testing, Journal of the Royal Statistical Society: Series
+    B (Methodological) 57, 289–300.
+Benjamini, Yoav, and Daniel Yekutieli, 2001, The control of the false discovery rate in multiple
+    testing under dependency, Annals of Statistics 29, 1165–1188.
+Berry, Donald A., and Yosef Hochberg, 1999, Bayesian perspectives on multiple comparisons,
+    Journal of Statistical Planning and Inference 82, 215–227.
+Bettis, Richard A, 2012, The search for asterisks: Compromised statistical tests and flawed theo-
+    ries, Strategic Management Journal 33, 108–113.
+Britten-Jones, Mark, 1999, The sampling error in estimates of mean-variance efficient portfolio
+    weights, Journal of Finance 54, 655–671.
+Bryzgalova, Svetlana, Jiantao Huang, and Christian Julliard, 2023, Bayesian solutions for the
+    factor zoo: We just ran two quadrillion models, Journal of Finance, 78, 487–557.
+Chen, Andrew Y., 2021, The limits of p-hacking: Some thought experiments, Journal of Finance,
+    76, 2447–2480.
+Chen, Andrew Y., and Tom Zimmermann, 2022, Open source cross-sectional asset pricing, Critical
+    Finance Review, 11, 207–264.
+Chen, Andrew Y., and Tom Zimmermann, 2020b, Publication bias and the cross-section of stock
+    returns, Review of Asset Pricing Studies 10, 249–289.
+Chinco, Alex, Andreas Neuhierl, and Michael Weber, 2021, Estimating the anomaly base rate,
+    Journal of Financial Economics 140, 101–126.
+Chordia, Tarun, Amit Goyal, and Alessio Saretto, 2020, Anomalies and false rejections, Review of
+    Financial Studies 33, 2134–2179.
+Cochrane, John H., 2011, Presidential address: Discount rates, Journal of Finance 66, 1047–1108.
+Efron, Bradley, 2007, Size, power and false discovery rates, Annals of Statistics 35, 1351–1377.
+Efron, Bradley, 2012, Large-Scale Inference: Empirical Bayes Methods for Estimation, Testing, and
+    Prediction, volume 1 (Cambridge University Press, Cambridge).
+Efron, Bradley, and Robert Tibshirani, 2002, Empirical Bayes methods and false discovery rates
+    for microarrays, Genetic Epidemiology 23, 70–86.
+Elton, Edwin J., Martin J. Gruber, and Jonathan Spitzer, 2006, Improved estimates of correla-
+    tion coefficients and their impact on optimum portfolios, European Financial Management 12,
+    303–318.
+Engle, Robert, and Bryan Kelly, 2012, Dynamic equicorrelation, Journal of Business & Economic
+    Statistics 30, 212–228.
+Fama, Eugene F., and Kenneth R. French, 1993, Common risk factors in the returns on stocks and
+    bonds, Journal of Financial Economics 33, 3–56.
+Feng, Guanhao, Stefano Giglio, and Dacheng Xiu, 2020, Taming the factor zoo: A test of new
+    factors, Journal of Finance 75, 1327–1370.
+Frazzini, Andrea, and Lasse Heje Pedersen, 2014, Betting against beta, Journal of Financial Eco-
+    nomics 111, 1–25.
+Gelman, Andrew, 2016, Bayesian inference completely solves the multiple comparisons
+    problem, Statistical Modeling, Causal Inference, and Social Science. Available at
+    https://statmodeling.stat.columbia.edu/2016/08/22/bayesian-inference-completely-solves-
+    the-multiple-comparisons-problem/.
+Gelman, Andrew, John B. Carlin, Hal S. Stern, David B. Dunson, Aki Vehtari, and Donald B.
+    Rubin, 2013, Bayesian Data Analysis:, third edition (CRC Press, New York).
+Gelman, Andrew, Jennifer Hill, and Masanao Yajima, 2012, Why we (usually) don’t have to worry
+    about multiple comparisons, Journal of Research on Educational Effectiveness 5, 189–211.
+Green, Jeremiah, John R.M. Hand, and X. Frank Zhang, 2017, The characteristics that provide
+    independent information about average us monthly stock returns, Review of Financial Studies
+    30, 4389–4436.
+                                                                                                       15406261, 2023, 5, Downloaded from https://onlinelibrary.wiley.com/doi/10.1111/jofi.13249 by Schweizerische Akademie der Medizinischen Wissenschaften, Wiley Online Library on [15/03/2026]. See the Terms and Conditions (https://onlinelibrary.wiley.com/terms-and-conditions) on Wiley Online Library for rules of use; OA articles are governed by the applicable Creative Commons License
+                        Is There a Replication Crisis in Finance?                            2517
+
+Greenland, Sander, and Albert Hofman, 2019, Multiple comparisons controversies are about con-
+    text and costs, not frequentism versus Bayesianism, European Journal of Epidemiology 34,
+    801–808.
+Greenland, Sander, and James M. Robins, 1991, Empirical-Bayes adjustments for multiple com-
+    parisons are sometimes useful, Epidemiology, 2, 244–251.
+Hamermesh, Daniel S., 2007, Replication in economics, Canadian Journal of Economics/Revue
+    canadienne d’économique 40, 715–733.
+Harvey, Campbell R., 2017, Presidential address: The scientific outlook in financial economics,
+    Journal of Finance 72, 1399–1440.
+Harvey, Campbell R., Yan Liu, and Heqing Zhu, 2016, …and the cross-section of expected returns,
+    Review of Financial Studies 29, 5–68.
+Heston, Steven L., and Ronnie Sadka, 2008, Seasonality in the cross-section of stock returns,
+    Journal of Financial Economics 87, 418–445.
+Hou, Kewei, Chen Xue, and Lu Zhang, 2020, Replicating anomalies, Review of Financial Studies
+    33, 2019–2133.
+Ilmanen, Antti, Ronen Israel, Tobias J Moskowitz, Rachel Lee, and Ashwin K. Thapar, 2021, How
+    do factor premia vary over time? A century of evidence, Journal of Investment Management,
+    19, 15–57.
+Ioannidis, John PA., 2005, Why most published research findings are false, PLoS Medicine 2, e124.
+Jacobs, Heiko, and Sebastian Müller, 2020, Anomalies across the globe: Once public, no longer
+    existent?, Journal of Financial Economics 135, 213–230.
+Kelly, Bryan T., Seth Pruitt, and Yinan Su, 2019, Characteristics are covariances: A unified model
+    of risk and return, Journal of Financial Economics 134, 501–524.
+Koijen, Ralph S.J., Tobias J. Moskowitz, Lasse Heje Pedersen, and Evert B. Vrugt, 2018, Carry,
+    Journal of Financial Economics 127, 197–225.
+Kozak, Serhiy, Stefan Nagel, and Shrihari Santosh, 2020, Shrinking the cross-section, Journal of
+    Financial Economics 135, 271–292.
+Linnainmaa, Juhani T., and Michael R. Roberts, 2018, The history of the cross-section of stock
+    returns, Review of Financial Studies 31, 2606–2649.
+Maniadis, Zacharias, Fabio Tufano, and John A. List, 2017, To replicate or not to replicate? Explor-
+    ing reproducibility in economics through the lens of a model and a pilot study, The Economic
+    Journal 127, F209–F235.
+Maritz, Johannes S., 2018, Empirical Bayes Methods with Applications, second edition (CRC Press,
+    New York).
+McLean, R. David, and Jeffrey Pontiff, 2016, Does academic research destroy stock return pre-
+    dictability? Journal of Finance 71, 5–32.
+Moskowitz, Tobias J., Yao Hua Ooi, and Lasse Heje Pedersen, 2012, Time series momentum,
+    Journal of Financial Economics 104, 228–250.
+Murtagh, Fionn, and Pierre Legendre, 2014, Ward’s hierarchical agglomerative clustering method:
+    Which algorithms implement Ward’s criterion? Journal of Classification 31, 274–295.
+Nosek, Brian A., Jeffrey R. Spies, and Matt Motyl, 2012, Scientific utopia: II. Restructuring incen-
+    tives and practices to promote truth over publishability, Perspectives on Psychological Science
+    7, 615–631.
+Pedersen, Lasse Heje, Abhilash Babu, and Ari Levine, 2021, Enhanced portfolio optimization,
+    Financial Analysts Journal 77, 124–151.
+Shumway, Tyler, 1997, The delisting bias in CRSP data, Journal of Finance 52, 327–340.
+Sloan, Richard G., 1996, Do stock prices fully reflect information in accruals and cash flows about
+    future earnings? Accounting Review 71, 289–315.
+Ward, Joe H., 1963, Hierarchical grouping to optimize an objective function, Journal of the Ameri-
+    can Statistical Association 58, 236–244.
+Welch, Ivoi, 2019, Reproducing, extending, updating, replicating, reexamining, and reconciling,
+    Critical Finance Review 8, 301–304.
+15406261, 2023, 5, Downloaded from https://onlinelibrary.wiley.com/doi/10.1111/jofi.13249 by Schweizerische Akademie der Medizinischen Wissenschaften, Wiley Online Library on [15/03/2026]. See the Terms and Conditions (https://onlinelibrary.wiley.com/terms-and-conditions) on Wiley Online Library for rules of use; OA articles are governed by the applicable Creative Commons License
+                                                                    Additional Supporting Information may be found in the online version of this
+                 The Journal of Finance®   Supporting Information
+                                                                                                                                                   Appendix S1: Internet Appendix.
+                                                                    article at the publisher’s website:
+                                                                                                                                                   Replication Code.
+                    2518
+
