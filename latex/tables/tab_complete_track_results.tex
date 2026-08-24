@@ -7,9 +7,11 @@ percentages; $t$-statistics are for the in-sample long--short return. The
 \texttt{original\_method}; a dash denotes the baseline.
 
 \begin{table}[htbp]
-  \centering\small
+  \centering\scriptsize
+  \setlength{\tabcolsep}{3pt}
   \caption{All executed AssetGrowth tracks.}
   \label{tab:assetgrowth-all-tracks}
+  \resizebox{\linewidth}{!}{%
   \begin{tabular}{llrrr}
     \toprule
     Track & Switches & LS return & FF3 alpha & $t$-stat. \\
@@ -22,13 +24,16 @@ percentages; $t$-statistics are for the in-sample long--short return. The
     cz\_factorial\_universe & universe & 0.89 & 0.51 & 3.99 \\
     cz\_factorial\_weighting & weighting & 1.69 & 1.55 & 7.39 \\
     \bottomrule
-  \end{tabular}
+  \end{tabular}%
+  }
 \end{table}
 
 \begin{table}[htbp]
-  \centering\small
+  \centering\scriptsize
+  \setlength{\tabcolsep}{3pt}
   \caption{All executed MeanRankRevGrowth tracks.}
   \label{tab:meanrank-all-tracks}
+  \resizebox{\linewidth}{!}{%
   \begin{tabular}{llrrr}
     \toprule
     Track & Switches & LS return & FF3 alpha & $t$-stat. \\
@@ -45,13 +50,16 @@ percentages; $t$-statistics are for the in-sample long--short return. The
     cz\_factorial\_quantiles & quantiles & 0.35 & 0.29 & 2.58 \\
     cz\_factorial\_universe & universe & 0.48 & 0.38 & 3.01 \\
     \bottomrule
-  \end{tabular}
+  \end{tabular}%
+  }
 \end{table}
 
 \begin{table}[htbp]
-  \centering\small
+  \centering\scriptsize
+  \setlength{\tabcolsep}{3pt}
   \caption{All executed ShareVol tracks.}
   \label{tab:sharevol-all-tracks}
+  \resizebox{\linewidth}{!}{%
   \begin{tabular}{llrrr}
     \toprule
     Track & Switches & LS return & FF3 alpha & $t$-stat. \\
@@ -69,5 +77,6 @@ percentages; $t$-statistics are for the in-sample long--short return. The
     cz\_ablation\_universe & universe & 0.03 & 0.27 & 0.11 \\
     cz\_ablation\_quantiles & quantiles & 0.00 & 0.20 & 0.01 \\
     \bottomrule
-  \end{tabular}
+  \end{tabular}%
+  }
 \end{table}

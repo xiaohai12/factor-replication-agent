@@ -54,102 +54,200 @@ obscure the empirical comparisons rather than make them more auditable.
 
 \subsection{Per-factor results}
 
-\subsubsection{AssetGrowth: agreement in external verdicts, but a material
-configuration effect}
+\subsubsection{AssetGrowth: a clean raw-return reproduction with material
+configuration sensitivity}
 
-AssetGrowth \citep{CooperGulenSchill2008} is the sample's agreement case:
-both C\&Z and HXZ report a positive, statistically significant result. In
-the engine, the paper-faithful baseline has an in-sample $t$-statistic of
-$4.12$; the C\&Z-configuration endpoint is $7.11$, while the standardized
-HXZ endpoint is $3.60$. Table~\ref{tab:assetgrowth-endpoints} shows the
-external references beside the three frozen-signal tracks. Relative to the
-baseline, the HXZ-style configuration leaves the in-sample long--short return
-positive but reduces it from $0.93\%$ to $0.71\%$/month and lowers the
-$t$-statistic from $4.12$ to $3.60$; the C\&Z configuration instead raises
-the return to $1.54\%$/month and the $t$-statistic to $7.11$. The C\&Z
-paper-anchored identity attributes its
-$1.03\%$/month total gap principally to the configuration term
-($0.91\%$/month), with a $0.31\%$/month signal-and-environment residual and
-a $-0.19\%$/month agent residual. These quantities are an accounting
-identity across heterogeneous external endpoints; only the configuration term
-is a controlled within-engine contrast.
+AssetGrowth \citep{CooperGulenSchill2008} is the sample's clean reproduction
+case once the comparison metric is aligned. We use the paper's value-weighted
+raw monthly long--short return as the primary benchmark: $1.05\%$ per month
+with $t=5.04$. The paper's separately reported value-weighted FF3 alpha of
+$0.70\%$ per month ($t=3.84$) is retained as a supplementary result, but is
+not mixed with raw return spreads in the replication comparison.
 
-Both configuration comparisons admit complete factorial grids. For the
-C\&Z endpoint, the controlled Shapley decomposition assigns
-$0.71\%$/month of the $0.61\%$/month within-engine difference to weighting,
-offset by $-0.10\%$/month from the universe switch. For the standardized
-endpoint, the breakpoint switch accounts for $-0.17\%$/month of the
-$-0.22\%$/month difference, with the universe accounting for the remainder.
-Thus, even in this agreement case, the configuration effect is economically
-material and factor-specific rather than a generic implementation constant.
+Under the reviewed paper configuration, the agent baseline produces
+$0.93\%$ per month with $t=4.12$. Its magnitude is therefore $0.89$ times
+the paper estimate, with the same sign and the same significance verdict;
+the deterministic bundle classifies it as a clean reproduction. The two
+external implementations reach the same qualitative conclusion. C\&Z
+reports $1.73\%$ per month ($t=8.45$), and running the frozen agent signal
+under the C\&Z configuration produces $1.54\%$ ($t=7.11$). The persisted HXZ
+reference, evaluated over the paper window, is $0.61\%$ ($t=3.20$), while
+the standardized-HXZ agent track produces $0.71\%$ ($t=3.60$). Both
+matched-configuration comparisons are classified as reproduced.
+
+The endpoint changes are nevertheless economically material. Relative to
+the baseline, the C\&Z configuration increases the agent return by
+$0.61\%$ per month and raises its $t$-statistic from $4.12$ to $7.11$.
+The standardized HXZ configuration reduces the return by $0.22\%$ per month
+and lowers the $t$-statistic to $3.60$, although the return remains positive
+and statistically significant. Thus, agreement in sign and significance
+does not imply invariance to portfolio design. Figure~\ref{fig:assetgrowth-mean-tstat}
+locates every executed configuration alongside the paper, C\&Z, and HXZ
+endpoints, making the economically material dispersion visible. The figure
+is descriptive; inference on a configuration contrast comes from the paired
+and joint tests below.
+
+\begin{figure}[htbp]
+  \centering
+  \includegraphics[width=\linewidth]{Figures/AssetGrowth-mean-t_stat.png}
+  \caption{AssetGrowth configuration results in the paper window. Agent
+    tracks are shown together with the reviewed baseline and the paper, C\&Z,
+    and HXZ reported endpoints. The figure displays their relative return and
+    $t$-statistic positions; statistical evidence for configuration contrasts
+    is supplied by the paired and joint tests.}
+  \label{fig:assetgrowth-mean-tstat}
+\end{figure}
+
+The paper-anchored identities place these controlled contrasts inside the
+larger external gaps. C\&Z exceeds the paper by $0.68\%$ per month: the
+configuration term is $+0.61\%$, the signal-and-environment term is
+$+0.19\%$, and the agent replication residual is $-0.12\%$. HXZ is
+$0.44\%$ below the paper: the corresponding terms are $-0.22\%$,
+$-0.10\%$, and $-0.12\%$. These are exact accounting identities, but only
+the configuration term is a within-engine controlled contrast; the
+cross-source remainder still absorbs signal, data-vintage, and infrastructure
+differences. The two AssetGrowth rows are collected in
+Table~\ref{tab:three-term-identities}; Figure~\ref{fig:assetgrowth-three-term}
+gives the same identities a graphical form, separating the two external
+lines without treating the cross-source terms as controlled effects.
+
+\begin{figure}[htbp]
+  \centering
+  \includegraphics[width=0.85\linewidth]{Figures/AssetGrowth-three_term.png}
+  \caption{Three-term accounting identity for AssetGrowth. Each external
+    implementer's distance from the paper is separated into the
+    signal-and-environment term, the controlled configuration term, and the
+    agent baseline's residual distance from the paper.}
+  \label{fig:assetgrowth-three-term}
+\end{figure}
+
+Both configuration lines admit complete factorial grids. On the C\&Z line,
+the controlled Shapley decomposition assigns $+0.71\%$ per month to changing
+portfolio weighting from value to equal weights. Replacing the baseline
+universe---stocks on the three major US exchanges excluding financial
+firms---with C\&Z's universe of common stocks listed on those exchanges,
+which does not separately exclude financial firms, contributes $-0.10\%$.
+The two changes sum exactly to the $+0.61\%$ configuration effect. On the HXZ
+line, changing the breakpoints from the
+full sample to NYSE stocks contributes $-0.17\%$, and adding the positive
+common-equity requirement ($ceq>0$) to the baseline universe contributes
+$-0.04\%$; together they match the $-0.22\%$ endpoint change. The C\&Z
+joint test rejects that both single-switch contrasts are zero ($p=0.003$),
+providing joint statistical support for its attribution. The HXZ joint test
+does not reject that null ($p=0.400$). This does not test whether the final
+$-0.22\%$ endpoint difference is zero; rather, it means that the two
+single-switch contrasts lack joint statistical support. The HXZ Shapley
+allocation should therefore be read as a controlled description of the
+in-sample contrast, not as a precisely estimated switch-level attribution.
+Figure~\ref{fig:assetgrowth-shapley} places the two controlled allocations in
+one view: it makes the C\&Z weighting contribution visually salient while
+retaining the HXZ line's weaker evidential status.
 \input{tables/tab_assetgrowth_endpoints}
 
 \begin{figure}[htbp]
   \centering
-  \fbox{\parbox{0.92\linewidth}{\centering\vspace{4.2cm}
-    Placeholder: Step~7 AssetGrowth Shapley-attribution screenshot for the
-    \texttt{to\_cz} line. Show the weighting and universe contributions,
-    the total-gap check, and the \texttt{controlled} evidence label.
-    \vspace{4.2cm}}}
-  \caption{Controlled Shapley attribution for the AssetGrowth C\&Z
-    configuration comparison.}
+  \includegraphics[width=0.85\linewidth]{Figures/AssetGrowth-Shapley.png}
+  \caption{Controlled Shapley attribution for AssetGrowth's C\&Z and HXZ
+    configuration comparisons. Colors distinguish the two controlled lines;
+    the C\&Z attribution has joint statistical support, whereas the HXZ
+    allocation remains a controlled descriptive decomposition.}
   \label{fig:assetgrowth-shapley}
 \end{figure}
 
 \subsubsection{MeanRankRevGrowth: a residual-dominated paper comparison}
 
-For MeanRankRevGrowth \citep{LakonishokShleiferVishny1994}, the baseline,
-C\&Z-configuration, and standardized-HXZ tracks have in-sample $t$-statistics
-of $3.00$, $2.83$, and $1.33$, respectively. The paper-anchored identity is
-available for both external references, but its largest term is the agent
-replication residual: $-1.72\%$/month, compared with total gaps of
-$-1.65\%$/month to C\&Z and $-2.39\%$/month to HXZ. This result should not
-be read as a pure language-model error. The resolved baseline applies
-documented defaults for accounting lag and missing returns where the reviewed
-specification leaves fields unresolved or the menu cannot express them, so the
-residual combines extraction, implementation, and finite-menu scope.
+MeanRankRevGrowth \citep{LakonishokShleiferVishny1994} is the
+residual-dominated case. Table~\ref{tab:meanrank-endpoints} displays the
+paper's reported value-decile return of $2.20\%$ per month beside the
+engine's long--short tracks; because these endpoints do not share a common
+estimator or data vintage, the paper-anchored comparison is observational.
+The reviewed baseline produces $0.48\%$ per month ($t=3.00$). Under the
+C\&Z configuration, the frozen signal produces $0.38\%$ ($t=2.83$), versus
+the C\&Z reference of $0.55\%$ ($t=3.94$); this matched-configuration
+comparison is classified as reproduced. Under the standardized HXZ
+configuration, the agent produces $0.25\%$ ($t=1.33$), whereas the HXZ
+reference is $-0.19\%$ ($t=1.08$). The signs differ, but neither is
+statistically significant, so that comparison is inconclusive rather than a
+claimed reproduction or failure.
+Thus, the reproduced C\&Z comparison establishes agreement with C\&Z under
+its matched configuration; it does not eliminate the much larger,
+observational gap between the agent baseline and the paper endpoint.
 
-The two endpoint comparisons nevertheless have complete factorial grids.
-For the standardized-HXZ endpoint, breakpoint, universe, and weighting each
-make negative Shapley contributions, together accounting exactly for the
-$-0.23\%$/month configuration difference. For the C\&Z endpoint, the
-quantile switch contributes $-0.12\%$/month and the universe switch offsets
-it by $0.02\%$/month. These are controlled attributions of the engine's own
-configuration contrast; they do not identify the external teams' signal or
-data-vintage differences.
+The paper-anchored identities show why configuration is not the central
+explanation. Each identity follows the path from the paper endpoint to the
+agent baseline, then to the frozen agent signal under the external
+configuration, and finally to the external reference. The total gaps to C\&Z
+and HXZ are $-1.65\%$ and $-2.39\%$ per month, respectively, while the agent
+replication residual is $-1.72\%$ on both lines. The configuration terms are
+much smaller: $-0.10\%$ on the C\&Z line and $-0.23\%$ on the HXZ line. The
+residual is the difference between the agent's $0.48\%$ baseline return and
+the paper endpoint; it does not itself identify which implementation choice
+caused that difference. The reviewed
+MethodSpec retains four fields requiring human attention: the portfolio-sort
+mode and three signal-input source columns are inferred. Moreover, the paper
+does not specify an accounting lag or missing-return treatment, so the engine
+uses its documented six-month lag and drop-missing defaults. Those choices
+alter which firms, months, and accounting inputs enter the sort. The paper's
+post-signal rank transform is also recorded as unapplied because the fixed
+menu cannot express it. Thus, the residual combines signal-source mapping,
+the omitted rank transform, documented defaults, data vintage, and engine
+implementation differences. No counterfactual tracks isolate these components,
+so the residual cannot be reliably allocated among them. The two
+MeanRankRevGrowth rows in Table~\ref{tab:three-term-identities} make this
+residual dominance explicit.
+
+Both endpoint lines nevertheless admit complete factorial grids. On the C\&Z
+line, changing deciles to quintiles contributes $-0.12\%$ per month, while
+the common-stock universe change offsets this by $+0.02\%$. On the HXZ line,
+moving to NYSE breakpoints, changing the stock universe, and changing from
+equal to value weights contribute $-0.08\%$, $-0.09\%$, and $-0.05\%$,
+respectively; together they match the $-0.23\%$ configuration effect. These
+are controlled Shapley descriptions of the engine's own contrasts. However,
+the corresponding joint tests do not reject that all single-switch contrasts
+are zero (C\&Z $p=0.121$; HXZ $p=0.319$), so neither line supports a precise
+statistical attribution to individual configuration switches.
 \input{tables/tab_meanrank_endpoints}
 
 \subsubsection{ShareVol: an intentionally non-comparable estimand}
 
 ShareVol \citep{DatarNaikRadcliffe1998} is the boundary case. The paper's
-headline result is a Fama--MacBeth coefficient, whereas the engine and the
-external portfolio-sort references report long--short spreads. The system
-therefore correctly marks both paper-anchored three-term identities as
-unidentified rather than subtracting incomparable quantities. This is a
-substantive result about the scope of the experiment, not a missing number to
-be filled by approximation.
+headline result is a Fama--MacBeth coefficient ($t=-8.86$), whereas the
+engine and the external references report portfolio-sort long--short spreads.
+The system therefore correctly marks both paper-anchored three-term identities
+as unidentified rather than subtracting incomparable quantities. This is a
+substantive scope boundary, not a missing number to be filled by
+approximation. Accordingly, the two ShareVol rows in
+Table~\ref{tab:three-term-identities} are marked unidentified rather than
+assigned numerical gap components.
 
-Its endpoint differences involve four and five fields, respectively, so the
-controller uses OAT runs rather than a complete factorial grid. Accordingly,
-no controlled Shapley attribution is available. The four standardized-side
-OAT runs yield a $t$-statistic range of $0.79$ and one sign flip; this is
-harmonized evidence of sensitivity, not an additive decomposition of the
-endpoint gap. The baseline also has an off-menu weighting instruction and
-other documented defaults, which further limits any paper-faithful reading.
+The portfolio-sort endpoints remain informative on their own terms.
+Table~\ref{tab:sharevol-endpoints} shows that the agent baseline is close to
+zero ($0.01\%$ per month, $t=0.03$). The C\&Z configuration raises it to
+$0.19\%$ ($t=0.89$), still far below the C\&Z reference of $0.91\%$
+($t=3.87$); this matched-configuration comparison is not reproduced. The
+result is a failure to reproduce the C\&Z portfolio-sort reference, not a
+numerical verdict on the paper's regression coefficient. The
+standardized-HXZ track remains close to zero ($0.01\%$, $t=0.03$), while the
+HXZ reference is $-0.11\%$ ($t=0.46$). Since both are insignificant, that
+comparison is inconclusive despite the sign difference.
+
+The HXZ contrast simultaneously changes the breakpoint rule, accounting lag,
+rebalancing frequency, and stock universe; the C\&Z contrast additionally
+changes the number of portfolios and the weighting rule. These four and five
+fields, respectively, exceed the factorial budget. The controller therefore
+runs one-at-a-time ablations rather than a complete factorial grid, and no
+controlled Shapley attribution is available. Across the four standardized-side
+ablations, the in-sample $t$-statistic range is $0.79$ and the return changes
+sign once, but no track crosses the significance threshold. This is harmonized
+evidence that the portfolio-sort output is sensitive to implementation
+choices, not an additive decomposition of an endpoint gap or an attribution to
+any individual switch. The paper's weighting instruction cannot be expressed
+as either equal or value weighting in the fixed menu, so the baseline uses the
+documented value-weighting default. This further limits any paper-faithful
+interpretation.
 \input{tables/tab_sharevol_endpoints}
 
-\begin{figure}[htbp]
-  \centering
-  \fbox{\parbox{0.92\linewidth}{\centering\vspace{4.2cm}
-    Placeholder: Step~7 ShareVol OAT/robustness screenshot. Show the OAT
-    identification or unavailable-factorial notice, $t$-statistic range,
-    sign-flip count, and the non-comparable paper-versus-track limitation.
-    \vspace{4.2cm}}}
-  \caption{ShareVol sensitivity evidence and its attribution boundary. The
-    OAT design supports a harmonized sensitivity reading, not an exact
-    factorial decomposition.}
-  \label{fig:sharevol-oat}
-\end{figure}
+\input{tables/tab_three_term_identity}
 
 \subsection{What the cross-factor comparison establishes}
 
@@ -163,46 +261,69 @@ pipeline distinguishes controlled configuration evidence from external or
 underidentified residuals instead of assigning every observed difference to a
 single label.
 
-Table~\ref{tab:cross-factor-endpoints} provides the compact comparison needed
-to read the three cases side by side. The factor-specific endpoint tables
-above retain the reported return and alpha values; Appendix~E supplies the
-complete track grids underlying those endpoints.
+Table~\ref{tab:three-term-identities} places the available paper-anchored
+identities on one common display and marks ShareVol as unidentified;
+Table~\ref{tab:cross-factor-endpoints} provides the corresponding compact
+endpoint comparison, while Appendix~E supplies the complete executed track
+grids. The factor-specific endpoint tables above retain the reported return
+and alpha values.
+
+These conclusions are bounded by the controlled design. The fixed
+configuration menu cannot express every paper-specific convention, and the
+factorial budget prevents exact interaction attribution when many settings
+differ. The C\&Z and HXZ references are independent comparison points rather
+than ground truth or the original authors' code; differences that remain
+across sources therefore cannot be assigned uniquely to the signal, data
+vintage, or infrastructure. The pipeline is consequently strongest as an
+auditable system for identifying estimand mismatches and measuring controlled
+within-engine configuration contrasts, not as proof that it has recovered the
+authors' original implementation or as a general estimate of LLM extraction
+accuracy.
 \input{tables/tab_cross_factor_endpoints}
 
 \subsection{$t$-channel and post-publication evidence}
 
 For AssetGrowth and MeanRankRevGrowth, eligible positive-return comparisons
-permit the $t$-channel decomposition of Section~\ref{sec:design}. In the
-AssetGrowth C\&Z endpoint comparison, the mean-return channel is the dominant
-positive component of the log-$t$ change; its volatility component is also
-positive and its sample-size component is near zero. ShareVol's mean returns
-do not satisfy the positive-return requirement, so its $t$-channel outputs
-are correctly marked degenerate and report only absolute-$t$ changes.
+permit the $t$-channel decomposition of Section~\ref{sec:design}. This
+diagnostic uses the same paper-window in-sample metrics as the endpoint
+comparisons in Section~7.2. It accounts for a change in the absolute
+$t$-statistic through changes in mean return, return volatility, and the
+number of monthly observations; it is not a causal attribution.
 
-The post-publication split provides a separate descriptive check. AssetGrowth's
-baseline moves from in-sample $t=4.12$ to post-publication $t=0.16$ and loses
-significance. MeanRankRevGrowth's baseline remains significant
-($t=3.00$ in sample and $t=2.53$ post-publication). ShareVol is insignificant
-in both periods. These comparisons describe realized track histories; they do
-not establish a causal publication effect.
+For AssetGrowth, the C\&Z configuration raises the in-sample mean return from
+$0.93\%$ to $1.54\%$ per month and lowers implied volatility from $4.68\%$ to
+$4.49\%$, with both tracks covering 432 months. Consequently, $t$ rises from
+$4.12$ to $7.11$: the higher mean is the dominant channel and the lower
+volatility reinforces it. The standardized-HXZ configuration instead lowers
+the mean to $0.71\%$. Its implied volatility also falls, to $4.11\%$, but
+that reduction only partly offsets the lower mean, so $t$ falls to $3.60$.
 
-\begin{figure}[htbp]
-  \centering
-  \fbox{\parbox{0.92\linewidth}{\centering\vspace{4.2cm}
-    Placeholder: AssetGrowth publication-decay or cumulative-return
-    screenshot. Show the in-sample and post-publication periods and the
-    original-method track's loss of significance after publication.
-    \vspace{4.2cm}}}
-  \caption{AssetGrowth before- and after-publication evidence. This display
-    is descriptive and does not identify a causal publication effect.}
-  \label{fig:assetgrowth-decay}
-\end{figure}
+For MeanRankRevGrowth, the C\&Z configuration lowers the in-sample mean from
+$0.48\%$ to $0.38\%$ per month, but a volatility reduction from $2.66\%$ to
+$2.25\%$ partly offsets that loss, so $t$ falls only from $3.00$ to $2.83$.
+The standardized-HXZ configuration lowers the mean to $0.25\%$ and raises
+implied volatility to $3.12\%$, jointly reducing $t$ to $1.33$. ShareVol's
+in-sample agent tracks are technically eligible for the log decomposition,
+but its baseline mean and $t$-statistic are both close to zero. The resulting
+log ratios can magnify economically small changes, so they are retained as a
+diagnostic rather than interpreted as substantive evidence.
+
+The post-publication split provides a separate descriptive check. In the
+AssetGrowth paper window (1968--2003), the baseline has $t=4.12$; in the
+intervening 2004--2008 window it has $t=0.08$, and in the post-publication
+window beginning in 2009 it has $t=0.16$. MeanRankRevGrowth's baseline is
+significant in both its paper and post-publication windows ($t=3.00$ and
+$t=2.53$, respectively), while ShareVol is insignificant in both. Thus,
+successful in-sample replication does not imply persistence after publication.
+These separate-window statistics describe realized track histories; they are
+not a time-series estimate of a decline and do not establish a causal
+publication effect.
 
 \subsection{Evidence-constrained LLM diagnosis}
 
 Step~8 was run as an optional explanation layer for all three completed
-comparison bundles. It produced 25 persisted diagnosis claims (nine for
-AssetGrowth, nine for MeanRankRevGrowth, and seven for ShareVol), with no
+comparison bundles. It produced 25 persisted diagnosis claims (ten for
+AssetGrowth, nine for MeanRankRevGrowth, and six for ShareVol), with no
 claim rejected by the evidence validator. Each accepted claim names one or
 more keys from the deterministic bundle and inherits its identification level
 and evidence strength. For example, the AssetGrowth proposal identifies the
@@ -212,26 +333,16 @@ post-publication decay as observational. For ShareVol, the proposal reports
 the unavailable paper-versus-track comparison as an evidence limitation rather
 than inventing a comparable spread.
 
-This demonstrates a bounded analytical capability: the model can select and
-organize supported diagnostic claims across a heterogeneous evidence bundle.
-It is not an independent empirical result or a validation of the model's
-economic reasoning. Numeric statements in the rendered diagnosis are
-reinserted deterministically from the bundle, and the artifacts retain the
-status \texttt{llm\_assisted\_proposal}. The appropriate comparison is
-therefore not ``AI versus deterministic results''--the latter are the source
-of truth--but whether the proposal surfaces the same evidence, limitations,
-and identification level as a human analyst. A blinded expert evaluation of
-that question remains future work.
-
-\begin{figure}[htbp]
-  \centering
-  \fbox{\parbox{0.92\linewidth}{\centering\vspace{4.2cm}
-    Placeholder: Step~8 AssetGrowth diagnosis screenshot. Show the
-    \texttt{llm\_assisted\_proposal} status, an evidence-cited Shapley claim,
-    its identification/evidence-strength labels, and the linked evidence key.
-    \vspace{4.2cm}}}
-  \caption{Evidence-constrained LLM diagnosis for AssetGrowth. The language
-    model proposes an interpretation, while the deterministic evidence bundle
-    supplies every number and constrains every admissible claim.}
-  \label{fig:assetgrowth-diagnosis}
-\end{figure}
+In these cases, this provides an illustrative, bounded analytical capability:
+the model can select and organize supported diagnostic claims across a
+heterogeneous evidence bundle. It is not an independent empirical result or a
+validation of the model's economic reasoning. In particular, validator
+acceptance establishes that a claim is evidence-supported; it does not make
+that interpretation unique, best, or economically most persuasive. Numeric
+statements in the rendered diagnosis are reinserted deterministically from
+the bundle, and the artifacts retain the status
+\texttt{llm\_assisted\_proposal}. The appropriate comparison is therefore
+not ``AI versus deterministic results''--the latter are the source of
+truth--but whether the proposal surfaces the same evidence, limitations, and
+identification level as a human analyst. A blinded expert evaluation of that
+question remains future work.

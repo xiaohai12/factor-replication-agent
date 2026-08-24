@@ -1,17 +1,20 @@
 \begin{table}[htbp]
-  \centering\small
+  \centering\scriptsize
+  \setlength{\tabcolsep}{3pt}
   \caption{Cross-factor endpoint summary. Agent columns report in-sample
-  long--short $t$-statistics under the frozen signal; external columns retain
-  their published bases. Detailed return, alpha, and estimand information is
-  reported in the factor-specific tables.}
+  long--short $t$-statistics under the frozen signal; the external column uses
+  each persisted reference endpoint. Detailed return, alpha, sample-window,
+  and estimand information is reported in the factor-specific tables.}
   \label{tab:cross-factor-endpoints}
+  \resizebox{\linewidth}{!}{%
   \begin{tabular}{lrrrrl}
     \toprule
     Factor & $\Cagent$ & $\Ccz$ & $\Chxz$ & C\&Z / HXZ & Interpretation \\
     \midrule
-    AssetGrowth & 4.12 & 7.11 & 3.60 & 8.45 / 2.89 & controlled endpoints \\
+    AssetGrowth & 4.12 & 7.11 & 3.60 & 8.45 / 3.20 & controlled endpoints \\
     MeanRankRevGrowth & 3.00 & 2.83 & 1.33 & 3.94 / 1.08 & external bases differ \\
     ShareVol & 0.03 & 0.89 & 0.03 & 8.86 / 0.46 & paper estimator differs \\
     \bottomrule
-  \end{tabular}
+  \end{tabular}%
+  }
 \end{table}

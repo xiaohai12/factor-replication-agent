@@ -1,8 +1,10 @@
 \begin{table}[htbp]
   \centering
-  \small
+  \scriptsize
+  \setlength{\tabcolsep}{3pt}
   \caption{MeanRankRevGrowth endpoints and frozen-signal tracks. External rows retain their reported bases.}
   \label{tab:meanrank-endpoints}
+  \resizebox{\linewidth}{!}{%
   \begin{tabular}{llrrrl}
     \toprule
     Source / track & Configuration or reported basis & LS return & FF3 alpha & $t$-stat. & Status \\
@@ -16,7 +18,8 @@
     Agent ($\Acz$) & $\Ccz$ & 0.38 & 0.30 & 2.83 & C\&Z configuration \\
     Agent ($\Ahxz$) & $\Cstd$ & 0.25 & 0.07 & 1.33 & HXZ-style configuration \\
     \bottomrule
-  \end{tabular}
+  \end{tabular}%
+  }
   \par\medskip
   \footnotesize\raggedright
   \emph{Note:} Agent values are in-sample long--short returns and FF3 alphas.

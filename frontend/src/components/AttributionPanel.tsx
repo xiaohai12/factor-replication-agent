@@ -2,6 +2,7 @@ import {
   Bar,
   BarChart,
   CartesianGrid,
+  Legend,
   Cell,
   ReferenceLine,
   ResponsiveContainer,
@@ -93,6 +94,33 @@ export function TrackMetricsChart({
 const JOINT_SIGNIFICANCE_ALPHA = 0.05
 const T_STAT_SIGNIFICANCE_THRESHOLD = 1.96
 
+type ExternalScatterReference = {
+  available?: boolean
+  mean_return?: number | null
+  t_stat?: number | null
+  source?: string | null
+}
+
+type PaperScatterReference = {
+  return_type?: string | null
+  main_spread?: number | null
+  main_t_stat?: number | null
+}
+
+const SCATTER_COLORS = {
+  baseline: "var(--color-muted-foreground)",
+  agent: "var(--color-primary)",
+  paper: "#a855f7",
+  cz: "#3b82f6",
+  hxz: "#ef4444",
+} as const
+
+const SCATTER_REFERENCE_LABELS: Record<string, string> = {
+  paper: "Paper (reported)",
+  cz: "C&Z (reported)",
+  hxz: "HXZ (reported)",
+}
+
 /** Scatter of `mean_return` (x, economic size) vs `t_stat` (y, statistical
  * confidence) -- one point per track -- so "is this track's difference
  * from baseline real, or just noise" is answered in a single glance
@@ -104,20 +132,43 @@ export function TrackScatterChart({
   tracks,
   trackNames,
   baselineTrack,
+  paperReported,
+  externalPerformance,
 }: {
   tracks: Record<string, { metrics?: Record<string, unknown> }>
   trackNames: string[]
   baselineTrack?: string
+  paperReported?: PaperScatterReference
+  externalPerformance?: Partial<Record<string, ExternalScatterReference>>
 }) {
-  const points = trackNames
+  const agentPoints = trackNames
     .map((track) => {
       const metrics = tracks[track]?.metrics ?? {}
       const meanReturn = metrics.mean_return
       const tStat = metrics.t_stat
       if (typeof meanReturn !== "number" || typeof tStat !== "number") return null
-      return { track, meanReturn, tStat }
+      return { track, meanReturn, tStat, kind: track === baselineTrack ? "baseline" : "agent", source: undefined }
     })
-    .filter((p): p is { track: string; meanReturn: number; tStat: number } => p !== null)
+    .filter((p): p is { track: string; meanReturn: number; tStat: number; kind: "baseline" | "agent"; source: undefined } => p !== null)
+  // A paper coefficient and a portfolio-sort spread are not commensurable;
+  // leave the paper point off the plot in that case rather than suggesting a
+  // false benchmark (e.g. ShareVol). C&Z/HXZ entries are already raw spreads.
+  const paperPoint = paperReported?.return_type === "spread"
+    && typeof paperReported.main_spread === "number"
+    && typeof paperReported.main_t_stat === "number"
+    ? [{ track: SCATTER_REFERENCE_LABELS.paper, meanReturn: paperReported.main_spread, tStat: paperReported.main_t_stat, kind: "paper" as const, source: undefined }]
+    : []
+  const externalPoints = Object.entries(externalPerformance ?? {}).flatMap(([key, entry]) => {
+    if (!entry?.available || typeof entry.mean_return !== "number" || typeof entry.t_stat !== "number") return []
+    return [{
+      track: SCATTER_REFERENCE_LABELS[key] ?? key,
+      meanReturn: entry.mean_return,
+      tStat: entry.t_stat,
+      kind: key === "cz" ? "cz" as const : "hxz" as const,
+      source: entry.source,
+    }]
+  })
+  const points = [...agentPoints, ...paperPoint, ...externalPoints]
 
   if (points.length === 0) {
     return <p className="text-xs text-muted-foreground">No mean_return/t_stat pairs available for these tracks.</p>
@@ -125,6 +176,13 @@ export function TrackScatterChart({
 
   return (
     <div className="h-80 w-full rounded-lg border border-border p-3">
+      <div className="mb-1 flex flex-wrap gap-x-3 gap-y-1 text-[11px] text-muted-foreground">
+        <span><i className="mr-1 inline-block h-2 w-2 rounded-full" style={{ background: SCATTER_COLORS.agent }} />Agent tracks</span>
+        <span><i className="mr-1 inline-block h-2 w-2 rounded-full" style={{ background: SCATTER_COLORS.baseline }} />Baseline</span>
+        {paperPoint.length > 0 && <span><i className="mr-1 inline-block h-2 w-2 rounded-full" style={{ background: SCATTER_COLORS.paper }} />Paper</span>}
+        {externalPoints.some((p) => p.kind === "cz") && <span><i className="mr-1 inline-block h-2 w-2 rounded-full" style={{ background: SCATTER_COLORS.cz }} />C&Z reference</span>}
+        {externalPoints.some((p) => p.kind === "hxz") && <span><i className="mr-1 inline-block h-2 w-2 rounded-full" style={{ background: SCATTER_COLORS.hxz }} />HXZ reference</span>}
+      </div>
       <ResponsiveContainer width="100%" height="100%">
         <ScatterChart margin={{ top: 8, right: 16, bottom: 24, left: 16 }}>
           <CartesianGrid strokeDasharray="3 3" className="stroke-border" />
@@ -149,12 +207,13 @@ export function TrackScatterChart({
             labelFormatter={() => ""}
             content={({ active, payload }) => {
               if (!active || !payload?.length) return null
-              const p = payload[0].payload as { track: string; meanReturn: number; tStat: number }
+              const p = payload[0].payload as { track: string; meanReturn: number; tStat: number; kind: string; source?: string }
               return (
                 <div className="rounded-md border border-border bg-background p-2 text-xs shadow">
                   <p className="font-medium">{p.track}</p>
                   <p>mean_return: {p.meanReturn.toFixed(4)}</p>
                   <p>t_stat: {p.tStat.toFixed(2)}</p>
+                  {p.kind !== "agent" && p.kind !== "baseline" && <p className="text-muted-foreground">external reference{p.source ? ` -- ${p.source}` : ""}</p>}
                 </div>
               )
             }}
@@ -163,7 +222,7 @@ export function TrackScatterChart({
             {points.map((p) => (
               <Cell
                 key={p.track}
-                fill={p.track === baselineTrack ? "var(--color-muted-foreground)" : "var(--color-primary)"}
+                fill={SCATTER_COLORS[p.kind]}
               />
             ))}
           </Scatter>
@@ -226,7 +285,7 @@ export function ForestPlot({
 }: {
   tracks: Record<string, { vs_paper?: { track_raw_t_stat?: number | null; track_significance_tier?: number | null } }>
   baselineTrack?: string
-  externalPerformance?: Record<string, ExternalPerformanceEntry>
+  externalPerformance?: Partial<Record<string, ExternalPerformanceEntry>>
 }) {
   const trackRows = Object.entries(tracks)
     .map(([track, d]) => ({
@@ -237,16 +296,17 @@ export function ForestPlot({
       refKey: null,
     }))
     .filter((r): r is { track: string; tStat: number; tier: number | null; external: false; refKey: null } => typeof r.tStat === "number")
-  const externalRows = Object.entries(externalPerformance ?? {})
-    .filter(([, entry]) => entry.available && typeof entry.t_stat === "number")
-    .map(([ref, entry]) => ({
+  const externalRows = Object.entries(externalPerformance ?? {}).flatMap(([ref, entry]) => {
+    if (!entry?.available || typeof entry.t_stat !== "number") return []
+    return [{
       track: EXTERNAL_PERFORMANCE_LABELS[ref] ?? ref,
-      tStat: entry.t_stat as number,
+      tStat: entry.t_stat,
       tier: null,
       external: true as const,
       refKey: ref,
       source: entry.source,
-    }))
+    }]
+  })
   const rows = [...trackRows, ...externalRows].sort((a, b) => Math.abs(b.tStat) - Math.abs(a.tStat))
 
   if (rows.length === 0) {
@@ -376,6 +436,55 @@ function ShapleyBarChart({ effects }: { effects: [string, number][] }) {
   )
 }
 
+const SHAPLEY_COMPARISON_LABELS: Record<string, string> = {
+  to_cz: "C&Z config",
+  to_hxz: "HXZ config",
+}
+
+const SHAPLEY_COMPARISON_COLORS: Record<string, string> = {
+  to_cz: "#2563eb",
+  to_hxz: "#dc2626",
+}
+
+/** A single grouped chart for the C&Z and HXZ Shapley lines. The two lines
+ * have distinct controlled designs, so this is a visual comparison only;
+ * joint-test status and each line's detailed table remain below. */
+export function ShapleyComparisonChart({
+  lines,
+}: {
+  lines: { line: string; shapley: ShapleyAttribution | undefined }[]
+}) {
+  const available = lines.filter((entry) => entry.shapley?.available === true)
+  const switches = [...new Set(available.flatMap((entry) => Object.keys(entry.shapley?.shapley_effects ?? {})))]
+  if (available.length === 0 || switches.length === 0) return null
+  const rows = switches.map((switchName) => {
+    const row: Record<string, string | number> = { switchName }
+    for (const { line, shapley } of available) {
+      const value = shapley?.shapley_effects?.[switchName]
+      if (typeof value === "number") row[line] = value
+    }
+    return row
+  })
+  return (
+    <div className="h-64 w-full max-w-2xl self-center rounded-lg border border-border p-3">
+      <p className="text-xs font-medium">Shapley attribution comparison (mean_return)</p>
+      <ResponsiveContainer width="100%" height="94%">
+        <BarChart data={rows} margin={{ top: 8, right: 16, bottom: 24, left: 8 }} barGap={4}>
+          <CartesianGrid strokeDasharray="3 3" className="stroke-border" />
+          <XAxis dataKey="switchName" tick={{ fontSize: 11 }} interval={0} angle={-20} textAnchor="end" height={60} />
+          <YAxis tick={{ fontSize: 11 }} />
+          <ReferenceLine y={0} className="stroke-border" />
+          <Tooltip formatter={(value, name) => [Number(value).toFixed(4), SHAPLEY_COMPARISON_LABELS[name as string] ?? name]} />
+          <Legend formatter={(value) => SHAPLEY_COMPARISON_LABELS[value] ?? value} wrapperStyle={{ fontSize: 11 }} />
+          {available.map(({ line }) => (
+            <Bar key={line} dataKey={line} fill={SHAPLEY_COMPARISON_COLORS[line] ?? "var(--color-primary)"} barSize={28} />
+          ))}
+        </BarChart>
+      </ResponsiveContainer>
+    </div>
+  )
+}
+
 /** step7's `shapley_attribution` result -- a bar chart plus one table row
  * per switch. Visually dims itself when the joint test (passed in, not
  * re-derived) doesn't reject "all switches are zero", per docs/step7-8.md
@@ -384,9 +493,11 @@ function ShapleyBarChart({ effects }: { effects: [string, number][] }) {
 export function ShapleyAttributionTable({
   shapley,
   jointTest,
+  showChart = true,
 }: {
   shapley: ShapleyAttribution | undefined
   jointTest: JointTest | undefined
+  showChart?: boolean
 }) {
   if (!shapley || shapley.available !== true) {
     return (
@@ -408,7 +519,7 @@ export function ShapleyAttributionTable({
           <Badge variant="secondary">lacks joint support</Badge>
         )}
       </div>
-      <ShapleyBarChart effects={effects} />
+      {showChart && <ShapleyBarChart effects={effects} />}
       <Table>
         <TableHeader>
           <TableRow>

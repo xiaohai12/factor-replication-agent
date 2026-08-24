@@ -1,5 +1,28 @@
 # Changelog
 
+### frontend: plot external endpoints in Step 7 mean-return / t-stat scatter (2026-08-24)
+
+- Added distinct paper, C\&Z, and HXZ reference points plus an on-chart legend
+  to Step 7's in-sample mean-return-versus-$t$-statistic scatter plot.
+- The paper point is intentionally omitted when its reported estimand is not a
+  portfolio-return spread, so a regression coefficient cannot be mistaken for
+  a directly comparable track return; C\&Z and HXZ remain separately labelled
+  external reference endpoints.
+
+### frontend: make the Step 7 three-term identity chart taller and narrower (2026-08-24)
+
+- Capped the chart width and increased its per-term vertical space, improving
+  readability of the three-way paper-distance decomposition on wide screens;
+  also separated its horizontal-axis title from the bottom legend.
+- Added one grouped C\&Z-versus-HXZ Shapley-effect chart, while retaining
+  each line's own joint-test and paired-test evidence below it in a responsive
+  two-column layout; matched the chart's capped-width, taller proportion to
+  the three-term identity chart, used thicker bars for clearer contrasts, and
+  gave C\&Z/HXZ explicit blue/red colors rather than a muted track color.
+- Merged Step 7's separate C\&Z/HXZ full-factorial gap charts into one
+  blue/red grouped chart, while preserving that each color's Shapley effects
+  sum within its own controlled comparison line.
+
 ## [Unreleased]
 
 ### docs: align Results and Discussion with the current controlled evidence (2026-08-24)
@@ -39,6 +62,61 @@
 - Added a compact cross-factor endpoint table in Chapter 7, while retaining
   factor-specific endpoint tables in the main text and the full executed-track
   matrices in Appendix E.
+- Constrained all Chapter 7 endpoint tables and Appendix E's full-track
+  matrices to the text width, with reduced table spacing for readable pages.
+- Corrected AssetGrowth's approved paper-comparison endpoint to the paper's
+  VW raw long--short return ($1.05\%$/month, $t=5.04$, after direction
+  reconciliation), retaining its FF3 alpha only as a supplementary result.
+  Regenerated the deterministic comparison bundle without rerunning any
+  backtests, so paper-anchored identities now use raw long--short returns at
+  all four endpoints rather than mixing the paper alpha with return spreads.
+- Aligned Step 5's displayed primary paper metric to the reviewed engine
+  long--short direction using the MethodSpec's target-sort selectors and
+  portfolio legs, while leaving the paper's stored table value unchanged.
+- Rewrote Section 7.2.1 from the regenerated AssetGrowth Step 7 and Step 8
+  artifacts: it now reports the matched raw-return reproduction, updated HXZ
+  $t$-statistic, corrected three-term identities, controlled Shapley effects,
+  and the diagnosis layer's evidence-strength distinctions.
+- Streamlined the AssetGrowth paper endpoint in Section 7.2.1 and made its
+  Shapley attributions explicit: VW-to-EW weighting and the actual C\&Z/HXZ
+  universe and breakpoint switches now replace generic stage labels.
+- Clarified the inferential boundary of the AssetGrowth Shapley results by
+  reporting the C\&Z and HXZ joint-test results, and relabeled external table
+  endpoints as persisted references rather than uniformly source-reported
+  quantities.
+- Rewrote the MeanRankRevGrowth and ShareVol results sections around their
+  actual Step 7 evidence: reproduced/inconclusive external comparisons,
+  residual-dominated and non-comparable paper boundaries, and the distinct
+  factorial versus OAT attribution limits.
+- Added a Chapter 7 cross-factor table of the paper-anchored three-term gap
+  identities, with explicit observational, controlled-configuration, and
+  non-comparable-estimand boundaries; linked it from each of the three
+  factor-result subsections.
+- Made the MeanRankRevGrowth residual discussion concrete by identifying its
+  inferred MethodSpec fields, recorded defaults, unapplied rank transform, and
+  the absence of counterfactual tracks that could allocate the residual.
+- Clarified that MeanRankRevGrowth's reproduced C\&Z comparison is not a
+  paper-reproduction verdict, and added the four-endpoint path behind its
+  paper-anchored three-term identities.
+- Made ShareVol's OAT boundary explicit by listing its simultaneous
+  configuration switches, distinguishing a return-sign flip from any
+  significance change, and separating the C\&Z portfolio-sort verdict from
+  the paper's incomparable regression estimand.
+- Added Chapter 7's cross-factor controlled-design boundary: finite menu and
+  factorial limits, non-ground-truth external references, and the distinction
+  between auditable contrasts and recovery of original-author code.
+- Clarified Chapter 7's $t$-channel and publication analysis as accounting and
+  descriptive evidence, respectively, and tightened the ShareVol eligibility
+  boundary for the log-$t$ decomposition.
+- Recast AssetGrowth's publication split as three separate paper, intervening,
+  and post-publication windows rather than an implied continuous decline.
+- Rewrote Chapter 7's $t$-channel discussion to explain the observed
+  paper-window $t$-statistic changes through their mean-return and volatility
+  components, and to distinguish this controlled comparison from the separate
+  publication-window diagnostic.
+- Corrected Step 7's $t$-channel computation to use the paper-window
+  in-sample metrics, matching its controlled endpoint comparisons instead of
+  mixing in full-history coverage; added regression coverage for that choice.
 
 ### docs: add the controlled track-grid figure (2026-08-24)
 

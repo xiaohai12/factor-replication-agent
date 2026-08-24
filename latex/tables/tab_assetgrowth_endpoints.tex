@@ -1,29 +1,34 @@
 \begin{table}[htbp]
   \centering
-  \small
+  \scriptsize
+  \setlength{\tabcolsep}{3pt}
   \caption{AssetGrowth endpoints and frozen-signal tracks. Agent rows report
     in-sample monthly long--short returns and FF3 alphas from the same frozen
-    signal; external rows retain each source's reported quantity.}
+    signal; external rows report the persisted reference endpoint under the
+    basis shown.}
   \label{tab:assetgrowth-endpoints}
+  \resizebox{\linewidth}{!}{%
   \begin{tabular}{llrrrl}
     \toprule
     Source / track & Configuration or reported basis & LS return & FF3 alpha & $t$-stat. & Status \\
     & & (\%/month) & (\%/month) & & \\
     \midrule
-    Paper ($\Pref$) & reported high--low FF3 alpha & -- & 0.70 & 3.84 & external reference \\
+    Paper ($\Pref$) & VW raw LS, Year 1 & 1.05 & 0.70 & 5.04 & primary reference \\
     C\&Z ($\CZ$) & EW long--short & 1.73 & -- & 8.45 & external reference \\
-    HXZ ($\HXZ$) & I/A annual, NYSE--VW & 0.61 & -- & $\approx2.89$ & external reference \\
+    HXZ ($\HXZ$) & I/A, NYSE--VW, paper window & 0.61 & -- & 3.20 & external reference \\
     \addlinespace
     Agent ($\Aref$) & $\Cagent$ & 0.93 & 0.51 & 4.12 & paper-faithful baseline \\
     Agent ($\Acz$) & $\Ccz$ & 1.54 & 1.42 & 7.11 & C\&Z configuration \\
     Agent ($\Ahxz$) & $\Cstd$ & 0.71 & 0.36 & 3.60 & HXZ-style configuration \\
     \bottomrule
-  \end{tabular}
+  \end{tabular}%
+  }
   \par\medskip
   \footnotesize\raggedright
-  \emph{Note:} The external estimates do not share a common estimator,
-  sample window, or data vintage. The table is a transparent endpoint display,
-  not a claim that every row is directly comparable. Agent $t$-statistics are
-  for in-sample long--short returns; the FF3 alpha column is reported
-  separately to match the paper's headline basis where available.
+  \emph{Note:} The paper comparison endpoint is its VW raw long--short
+  return, whose $t$-statistic is $5.04$ after direction reconciliation. Its
+  separately reported FF3 alpha is $0.70\%$ per month ($t=3.84$). The
+  external estimates retain their reference constructions; the persisted HXZ
+  endpoint shown here is evaluated over the paper window. Agent
+  $t$-statistics are for in-sample long--short returns.
 \end{table}

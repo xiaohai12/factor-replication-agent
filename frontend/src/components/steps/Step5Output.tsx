@@ -16,6 +16,7 @@ interface ReportedMetric {
   estimate: number
   statistic?: { kind: string; value: number } | null
   sample_period?: { start_year?: number | null; end_year?: number | null } | null
+  portfolio_selector?: Record<string, number> | null
 }
 
 interface ComparisonDerivation {
@@ -78,14 +79,44 @@ function reportedPrimaryMetric(spec: Record<string, unknown> | undefined): Repor
   } | undefined
   if (!rr?.metrics) return undefined
   const derivation = rr.comparison_derivation
+  let metric: ReportedMetric | undefined
   if (derivation?.use_as_primary_comparison && derivation.operation === "high_minus_low") {
     const high = rr.metrics.find((m) => m.metric_id === derivation.high_metric_id)
     const low = rr.metrics.find((m) => m.metric_id === derivation.low_metric_id)
     if (high && low) {
-      return { ...high, metric_id: derivation.metric_id, label: `${derivation.label} (derived)`, estimand: "spread", estimate: high.estimate - low.estimate, statistic: null }
+      metric = { ...high, metric_id: derivation.metric_id, label: `${derivation.label} (derived)`, estimand: "spread", estimate: high.estimate - low.estimate, statistic: null }
     }
   }
-  return rr.metrics.find((m) => m.metric_id === rr.primary_metric_id)
+  metric ??= rr.metrics.find((m) => m.metric_id === rr.primary_metric_id)
+  if (!metric) return undefined
+
+  // Paper tables often label the spread high-minus-low even when the
+  // executable strategy's economic direction is low-minus-high. Align the
+  // displayed paper estimate to the engine's long/short legs using only the
+  // reviewed MethodSpec; preserve the stored source metric unchanged.
+  const portfolio = paper?.portfolio as {
+    sorts?: { sort_id?: string; role?: string }[]
+    legs?: { side?: string; selector?: Record<string, number> }[]
+  } | undefined
+  const targetSort = portfolio?.sorts?.find((s) => s.role === "target") ?? portfolio?.sorts?.[0]
+  const sortId = targetSort?.sort_id
+  const selector = metric.portfolio_selector
+  if (!sortId || !selector) return metric
+
+  const paperHigh = selector[`${sortId}_high`]
+  const paperLow = selector[`${sortId}_low`]
+  const engineLong = portfolio?.legs?.find((leg) => leg.side === "long")?.selector?.[sortId]
+  const engineShort = portfolio?.legs?.find((leg) => leg.side === "short")?.selector?.[sortId]
+  if (paperHigh !== engineShort || paperLow !== engineLong) return metric
+
+  return {
+    ...metric,
+    label: `${metric.label} (direction-aligned to engine long-minus-short)`,
+    estimate: -metric.estimate,
+    statistic: metric.statistic
+      ? { ...metric.statistic, value: -metric.statistic.value }
+      : metric.statistic,
+  }
 }
 
 // Which column of the breakdown table the paper's own `estimate` belongs in

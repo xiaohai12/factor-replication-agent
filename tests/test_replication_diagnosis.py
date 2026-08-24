@@ -329,13 +329,28 @@ class TestTChannelDecomposition:
     a companion to (not a replacement for) the mean_return-based
     gap_decomposition/Shapley attribution."""
 
+    @staticmethod
+    def _track(mean_return, t_stat, n_months):
+        return {
+            "metrics": {
+                "by_sample_period": {
+                    "insamp": {
+                        "mean_monthly_return": mean_return,
+                        "t_stat": t_stat,
+                        "n_months": n_months,
+                    }
+                }
+            }
+        }
+
     def test_non_degenerate_channels_sum_exactly_to_the_log_t_ratio(self):
         tracks = {
-            "original_method": {"metrics": {"mean_return": 0.005, "t_stat": 2.0, "n_months": 400}},
-            "standardized_hxz": {"metrics": {"mean_return": 0.008, "t_stat": 3.6, "n_months": 400}},
+            "original_method": self._track(0.005, 2.0, 400),
+            "standardized_hxz": self._track(0.008, 3.6, 400),
         }
         result = build_t_channel_decomposition(tracks)
         assert result["available"] is True
+        assert result["sample_period"] == "insamp"
         entry = result["tracks"]["standardized_hxz"]
         assert entry["degenerate"] is False
         channels = entry["channels"]
@@ -351,8 +366,8 @@ class TestTChannelDecomposition:
         import math
 
         tracks = {
-            "original_method": {"metrics": {"mean_return": 0.005, "t_stat": 2.0, "n_months": 400}},
-            "double_n": {"metrics": {"mean_return": 0.005, "t_stat": 2.0 * math.sqrt(2), "n_months": 800}},
+            "original_method": self._track(0.005, 2.0, 400),
+            "double_n": self._track(0.005, 2.0 * math.sqrt(2), 800),
         }
         result = build_t_channel_decomposition(tracks)
         entry = result["tracks"]["double_n"]
@@ -362,8 +377,8 @@ class TestTChannelDecomposition:
 
     def test_negative_baseline_mean_return_degenerates_to_abs_t_delta(self):
         tracks = {
-            "original_method": {"metrics": {"mean_return": -0.005, "t_stat": -2.0, "n_months": 400}},
-            "standardized_hxz": {"metrics": {"mean_return": 0.008, "t_stat": 3.6, "n_months": 400}},
+            "original_method": self._track(-0.005, -2.0, 400),
+            "standardized_hxz": self._track(0.008, 3.6, 400),
         }
         result = build_t_channel_decomposition(tracks)
         entry = result["tracks"]["standardized_hxz"]
@@ -376,8 +391,8 @@ class TestTChannelDecomposition:
         # Both individually positive-required-baseline case aside: a track whose
         # mean_return is negative while baseline's is positive must degenerate too.
         tracks = {
-            "original_method": {"metrics": {"mean_return": 0.005, "t_stat": 2.0, "n_months": 400}},
-            "flipped": {"metrics": {"mean_return": -0.003, "t_stat": -1.5, "n_months": 400}},
+            "original_method": self._track(0.005, 2.0, 400),
+            "flipped": self._track(-0.003, -1.5, 400),
         }
         result = build_t_channel_decomposition(tracks)
         entry = result["tracks"]["flipped"]
@@ -385,13 +400,38 @@ class TestTChannelDecomposition:
 
     def test_missing_metrics_degenerates_with_a_reason_not_a_crash(self):
         tracks = {
-            "original_method": {"metrics": {"mean_return": 0.005, "t_stat": 2.0, "n_months": 400}},
+            "original_method": self._track(0.005, 2.0, 400),
             "no_metrics": {"metrics": {}},
         }
         result = build_t_channel_decomposition(tracks)
         entry = result["tracks"]["no_metrics"]
         assert entry["degenerate"] is True
         assert entry["t_stat_abs_delta"] is None
+
+    def test_uses_insample_metrics_not_full_history_metrics(self):
+        import math
+
+        tracks = {
+            "original_method": {
+                "metrics": {
+                    "mean_return": 0.050,
+                    "t_stat": 20.0,
+                    "n_months": 999,
+                    "by_sample_period": {"insamp": {"mean_monthly_return": 0.005, "t_stat": 2.0, "n_months": 400}},
+                }
+            },
+            "standardized_hxz": {
+                "metrics": {
+                    "mean_return": 0.001,
+                    "t_stat": 0.1,
+                    "n_months": 999,
+                    "by_sample_period": {"insamp": {"mean_monthly_return": 0.010, "t_stat": 4.0, "n_months": 400}},
+                }
+            },
+        }
+        result = build_t_channel_decomposition(tracks)
+        assert result["sample_period"] == "insamp"
+        assert result["tracks"]["standardized_hxz"]["log_t_ratio"] == pytest.approx(math.log(2.0))
 
     def test_no_tracks_is_unavailable(self):
         result = build_t_channel_decomposition({})
@@ -2580,4 +2620,3 @@ class TestReportToJsonable:
         report = ReplicationDiagnosisReport(factor_id="t", overall_tag=bundle["derived"]["overall_tag"])
         data = report_to_jsonable(report, bundle)
         assert data["claims"] == []
-

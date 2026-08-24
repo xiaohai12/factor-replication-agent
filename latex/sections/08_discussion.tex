@@ -16,6 +16,20 @@ defaults for unresolved or unsupported fields. ShareVol demonstrates the
 stronger boundary: a paper coefficient and a portfolio-sort spread should not
 be forced into the same replication identity.
 
+The agent's contribution is not to replace the researcher's empirical
+judgment, but to turn an unstructured paper description into a conversational,
+reviewable, and executable research object. It extracts a MethodSpec with
+source evidence and explicit uncertainty labels, and generates only the
+signal-computation code after that specification is approved; consequential
+empirical settings remain governed by human review and a fixed menu. Freezing
+the resulting agent signal then permits the same paper interpretation to be
+run under multiple configurations, separating implementation sensitivity from
+variation that would arise if the model rewrote the strategy each time. A
+researcher can of course reproduce an individual factor manually. The
+incremental value of the agent workflow is to extend that exercise across
+papers while retaining a consistent evidence standard, review interface, and
+versioned audit trail.
+
 The controlled factorial results are therefore the paper's strongest evidence.
 They isolate the effect of moving the same frozen signal between configurations
 and allocate that within-engine difference exactly by Shapley values. OAT
@@ -25,6 +39,21 @@ identity are valuable accounting devices, yet remain observational because
 they absorb external code, data-vintage, sample-window, and estimator
 differences.
 
+Robustness in this study does not mean that a factor is invariant across all
+plausible implementations. Rather, the controlled results show different
+patterns: AssetGrowth remains positive and significant across the baseline,
+C\&Z, and standardized-HXZ configurations, while its return magnitude and
+$t$-statistic change materially; MeanRankRevGrowth weakens under the
+standardized-HXZ configuration; and ShareVol's portfolio-sort tracks remain
+insignificant across the configurations examined. The separate-window results
+add a temporal qualification: a successful paper-window replication need not
+persist after publication. AssetGrowth's baseline loses significance in its
+post-publication window, whereas MeanRankRevGrowth remains significant in its
+own post-publication window. Robustness is thus reported as auditable evidence
+conditional on the chosen configurations and windows, not as proof of a
+factor's general validity; the post-publication comparisons are descriptive
+and do not identify a causal effect of publication.
+
 \subsection{Limitations}
 
 \subsubsection{Agent and specification limits}
@@ -33,6 +62,12 @@ differences.
     extractions of each paper have not been run. Consequently, the analysis
     cannot separate variation induced by model sampling from ambiguity in the
     paper or from a genuine extraction error.
+  \item \textbf{No cross-model or prompt-sensitivity evaluation.} The study
+    does not compare the selected agent model, system prompt, or tool-use
+    policy with alternative models or prompting strategies. Its findings
+    therefore describe this controlled workflow, not a model-agnostic ranking
+    of LLMs or a claim that the same extraction quality will transfer to every
+    agent configuration.
   \item \textbf{No blinded evaluation of the diagnosis layer.} Step~8's
     proposal is structurally constrained by deterministic evidence keys and
     identification labels, but this study does not yet compare its claim
@@ -80,13 +115,27 @@ illustrative cases.
 
 \subsection{Conclusion}
 
-This paper does not treat replication as a binary verdict. It provides a
-controlled workflow that freezes the agent-written signal, varies approved
-configuration choices, records the resulting evidence, and distinguishes
-controlled attribution from observational accounting. On the current sample,
-the workflow identifies exact configuration contributions where a complete
-factorial grid is feasible, reports OAT sensitivity where it is not, and
-refuses a paper-anchored decomposition when the underlying estimands are
-incomparable. Those boundaries are part of the result: they make the
-remaining replication gap auditable rather than presenting it as an opaque
-failure of either the factor or the agent.
+This paper treats replication not as a binary verdict, but as a question of
+which differences can be measured, compared, and identified. It therefore
+separates controlled configuration contrasts from observational external
+accounting and from cases in which the relevant estimands are not comparable
+at all.
+
+The agent's role is deliberately bounded. It turns an unstructured paper into
+an evidence-backed MethodSpec with explicit uncertainty, generates only the
+approved signal-computation code, and then has that signal frozen for every
+subsequent configuration experiment. Human review and the fixed configuration
+menu continue to govern consequential empirical choices. This makes the
+agent's paper interpretation a versioned, auditable object rather than a
+black box that can silently alter the strategy while an experiment is running.
+
+Across the three cases, AssetGrowth is a raw-return reproduction that remains
+materially configuration-sensitive; MeanRankRevGrowth has a
+residual-dominated paper comparison; and ShareVol's paper coefficient cannot
+be identified with a portfolio-sort spread. Where complete factorial grids
+are feasible, the workflow reports exact within-engine Shapley contributions;
+where they are not, it reports non-additive OAT sensitivity; and where
+estimands differ, it declines the paper-anchored decomposition. These
+boundaries are part of the result: they make the remaining replication gap
+auditable rather than presenting it as an opaque failure of either the factor
+or the agent.

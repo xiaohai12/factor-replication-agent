@@ -85,15 +85,39 @@
 \end{center}
 \vspace{1cm}
 
-% TODO: 2026-08-18 draft skeleton. Fill in after Ch.1/Ch.7 numbers are final.
-% Should state: (1) the underdetermination framing (not "replication crisis"),
-% (2) the two research questions RQ1 (why do C&Z/HXZ diverge on a given
-% factor, and can an independent paper-faithful implementation attribute the
-% divergence) and RQ2 (what is the agent's autonomy/capability boundary in
-% producing that implementation), (3) the n=6 factor slate and headline
-% finding, (4) that all empirical numbers are deterministic once the LLM
-% step is frozen.
-Placeholder abstract.
+Factor replication is often treated as binary, although discrepancies can
+reflect paper interpretation, data environment, portfolio construction, or
+estimand. This
+thesis develops a controlled LLM-agent workflow for making those alternatives
+auditable. The agent proposes an evidence-backed MethodSpec from a
+paper, subject to human review, and generates only the signal-computation code
+after approval.
+All consequential empirical settings are selected from a fixed, reviewable
+menu. The resulting signal is frozen before any configuration experiment,
+so all empirical results are deterministic conditional on the approved
+specification and data snapshot.
+
+The workflow is applied to three illustrative equity anomalies. We compare
+the papers' reported endpoints with C\&Z's independent human replication and
+run the frozen agent signal under standardized HXZ configurations.
+AssetGrowth is reproduced on the aligned raw-return metric, but its magnitude
+is materially sensitive to configuration choices. MeanRankRevGrowth exhibits
+a residual-dominated paper comparison, showing that a gap cannot automatically
+be assigned to the agent when important conventions are unresolved or outside
+the menu.
+For ShareVol, the paper reports a Fama--MacBeth coefficient whereas the
+available replications are portfolio-sort spreads; the system therefore
+declines a paper-anchored numerical decomposition rather than comparing
+incommensurable estimands.
+
+Where factorial designs are feasible, Shapley values provide exact
+within-engine attribution of configuration effects; larger designs receive OAT
+sensitivity analysis with its interaction limitation explicit. External
+comparisons and three-term identities remain observational accounting devices.
+The contribution is thus not an autonomous empirical judge, but an
+agent-assisted, human-reviewed process that turns paper interpretations into
+versioned research objects and makes remaining replication gaps traceable
+rather than opaque.
 
 \cleardoublepage
 

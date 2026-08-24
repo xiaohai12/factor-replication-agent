@@ -123,23 +123,27 @@ function ThreeTermChart({ available }: { available: [string, ThreeTermSection][]
     }
     return row
   })
-  const height = Math.max(140, TERM_ORDER.length * 44 + 40)
+  // This comparison has only three categories. Give each one enough vertical
+  // room to read, while capping width so the diverging bars are not stretched
+  // across the full Step 7 panel on a wide monitor.
+  const height = Math.max(260, TERM_ORDER.length * 68 + 48)
   return (
-    <div className="w-full rounded-lg border border-border p-3" style={{ height }}>
+    <div className="w-full max-w-2xl self-center rounded-lg border border-border p-3" style={{ height }}>
       <ResponsiveContainer width="100%" height="100%">
-        <BarChart data={chartRows} layout="vertical" margin={{ top: 8, right: 16, bottom: 8, left: 8 }} barGap={4}>
+        <BarChart data={chartRows} layout="vertical" margin={{ top: 8, right: 16, bottom: 38, left: 8 }} barGap={4}>
           <CartesianGrid strokeDasharray="3 3" className="stroke-border" />
           <XAxis
             type="number"
             tick={{ fontSize: 11 }}
-            label={{ value: "monthly return", position: "insideBottom", offset: -4, fontSize: 11 }}
+            label={{ value: "monthly return", position: "insideBottom", offset: -14, fontSize: 11 }}
           />
           <YAxis type="category" dataKey="term" tick={{ fontSize: 11 }} width={110} />
           <ReferenceLine x={0} className="stroke-border" />
           <Tooltip formatter={(value, name) => [Number(value).toFixed(4), REFERENCE_LABELS[name as string] ?? name]} />
           <Legend
             formatter={(value) => REFERENCE_LABELS[value] ?? value}
-            wrapperStyle={{ fontSize: 11 }}
+            verticalAlign="bottom"
+            wrapperStyle={{ fontSize: 11, bottom: -2 }}
           />
           {available.map(([ref]) => (
             <Bar key={ref} dataKey={ref} fill={REFERENCE_COLORS[ref] ?? "var(--color-primary)"} barSize={16} />

@@ -603,9 +603,11 @@ def build_t_channel_decomposition(
     them, per Q1's decision to keep the two dimensions as separate,
     unmerged evidence blocks.
 
-    Uses ONLY (mean_return, t_stat, n_months), already in `RunMetrics` --
-    no persisted std-dev needed, since sigma is back-solved from the exact
-    identity `t = mean_return / (sigma / sqrt(n_months))`:
+    Uses ONLY the paper-window `by_sample_period.insamp` values
+    (mean_monthly_return, t_stat, n_months), so the diagnostic matches the
+    endpoint comparisons and controlled configuration contrasts elsewhere in
+    Step 7. No persisted std-dev is needed, since sigma is back-solved from
+    the exact identity `t = mean_return / (sigma / sqrt(n_months))`:
 
         log(t_track) - log(t_baseline)
           = [log(mean_return_track) - log(mean_return_baseline)]     (mean_return channel)
@@ -632,7 +634,17 @@ def build_t_channel_decomposition(
     base_name = baseline if baseline in tracks else (
         BASELINE_TRACK if BASELINE_TRACK in tracks else next(iter(tracks))
     )
-    base_metrics = tracks[base_name].get("metrics") or {}
+    def insample_metrics(payload: dict[str, Any]) -> dict[str, Any]:
+        metrics = payload.get("metrics") or {}
+        periods = metrics.get("by_sample_period") or {}
+        insamp = periods.get("insamp") or {}
+        return {
+            "mean_return": insamp.get("mean_monthly_return"),
+            "t_stat": insamp.get("t_stat"),
+            "n_months": insamp.get("n_months"),
+        }
+
+    base_metrics = insample_metrics(tracks[base_name])
     base_mu = _as_float(base_metrics.get("mean_return"))
     base_t = _as_float(base_metrics.get("t_stat"))
     base_n = _as_float(base_metrics.get("n_months"))
@@ -641,7 +653,7 @@ def build_t_channel_decomposition(
     for name, payload in tracks.items():
         if name == base_name:
             continue
-        metrics = payload.get("metrics") or {}
+        metrics = insample_metrics(payload)
         mu = _as_float(metrics.get("mean_return"))
         t = _as_float(metrics.get("t_stat"))
         n = _as_float(metrics.get("n_months"))
@@ -694,6 +706,7 @@ def build_t_channel_decomposition(
         "available": True,
         "identification_level": CONFIG_DIFF_IDENTIFICATION,
         "baseline_track": base_name,
+        "sample_period": "insamp",
         "tracks": per_track,
     }
 

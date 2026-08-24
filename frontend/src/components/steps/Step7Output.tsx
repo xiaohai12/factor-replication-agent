@@ -3,7 +3,7 @@ import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { DiffView } from "@/components/DiffView"
 import { GapWaterfallChart } from "@/components/GapWaterfallChart"
-import { JointTestBanner, MeasuresExplainer, PairedTestsTable, ShapleyAttributionTable, TrackMetricsChart, TrackScatterChart, ForestPlot } from "@/components/AttributionPanel"
+import { JointTestBanner, MeasuresExplainer, PairedTestsTable, ShapleyAttributionTable, ShapleyComparisonChart, TrackMetricsChart, TrackScatterChart, ForestPlot } from "@/components/AttributionPanel"
 import { ThreeTermIdentityPanel } from "@/components/ThreeTermIdentityPanel"
 import { cn } from "@/lib/utils"
 
@@ -140,14 +140,21 @@ export function Step7Output({ bundle }: { bundle: Record<string, unknown> }) {
       <ThreeTermIdentityPanel
         threeTerm={bundle.three_term_identity as Parameters<typeof ThreeTermIdentityPanel>[0]["threeTerm"]}
       />
-      {shapleyLines.map(([line, shapley]) => (
-        <div key={line} className="flex flex-col gap-2 rounded-md border border-border p-2">
-          {LINE_LABELS[line] && <p className="text-xs font-medium">{LINE_LABELS[line]}</p>}
-          <JointTestBanner jointTest={jointLines.get(line)} />
-          <ShapleyAttributionTable shapley={shapley} jointTest={jointLines.get(line)} />
-          <PairedTestsTable pairedTests={pairedLines.get(line)} />
+      {shapleyLines.length > 0 && (
+        <div className="flex flex-col gap-3">
+          <ShapleyComparisonChart lines={shapleyLines.map(([line, shapley]) => ({ line, shapley }))} />
+          <div className="grid grid-cols-1 gap-3 xl:grid-cols-2">
+            {shapleyLines.map(([line, shapley]) => (
+              <div key={line} className="flex flex-col gap-2 rounded-md border border-border p-2">
+                {LINE_LABELS[line] && <p className="text-xs font-medium">{LINE_LABELS[line]}</p>}
+                <JointTestBanner jointTest={jointLines.get(line)} />
+                <ShapleyAttributionTable shapley={shapley} jointTest={jointLines.get(line)} showChart={false} />
+                <PairedTestsTable pairedTests={pairedLines.get(line)} />
+              </div>
+            ))}
+          </div>
         </div>
-      ))}
+      )}
 
       {baselineTrack && allPairTrackNames.length > 0 && (
         <div className="flex flex-col gap-2">
@@ -189,6 +196,12 @@ export function Step7Output({ bundle }: { bundle: Record<string, unknown> }) {
                 tracks={inSampleTracks}
                 trackNames={[baselineTrack, ...visibleTrackNames.filter((t) => t !== baselineTrack)]}
                 baselineTrack={baselineTrack}
+                paperReported={bundle.paper_reported as Parameters<typeof TrackScatterChart>[0]["paperReported"]}
+                externalPerformance={
+                  externalPerformanceComparison
+                    ? { cz: externalPerformanceComparison.cz, hxz: externalPerformanceComparison.hxz }
+                    : undefined
+                }
               />
             </div>
           </div>
