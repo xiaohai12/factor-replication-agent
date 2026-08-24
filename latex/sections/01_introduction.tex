@@ -15,7 +15,8 @@ and working independently.
 
 This is not an isolated case, and it does not require picking a side. Across
 several hundred overlapping anomalies, \citet{HouXueZhang2020} report
-that 65.4\% fail to clear $|t| \geq 1.96$ under their uniform protocol, while
+that 65.3\% fail to clear $|t| \geq 1.96$ under their uniform protocol when
+each anomaly is evaluated over its original-study sample, while
 \citet{ChenZimmermann2022} report that all but a handful of the same
 literature's characteristics replicate under each paper's own stated method.
 These two numbers are not answers to the same question -- one is a failure
@@ -70,12 +71,13 @@ sales-growth reversal, the agent's replication residual alone
 exceeds the total observed gap in magnitude (partially offset by an
 opposing configuration term) -- a residual effect layered on top of the
 breakpoint-and-weighting story already given above for its configuration
-side. For share turnover, the agent's own signal is not robust across the
-four alternative breakpoint/weighting configurations tested against it (a
-$t$-statistic range of 0.79 and one outright sign flip), indicating that
-at least part of the disagreement under study is intrinsic to the signal
-rather than attributable to either team's protocol. Together, both cases
-show that the agent's own replication precision, not just protocol
+side. For share turnover, the agent's own signal remains insignificant across
+the four standardized-side ablations tested against it: all in-sample
+$t$-statistics lie between $0.00$ and $0.24$, with no sign or significance
+flip. This points to a consistently weak portfolio-sort result within the
+configurations examined rather than fragility around the significance
+threshold. Together,
+both cases show that the agent's own replication precision, not just protocol
 choice, is a first-order determinant of the measured gap. Part of that
 replication residual, in turn, is itself a scope limitation rather than a
 reading error: this engine's fixed configuration menu cannot always
@@ -94,31 +96,30 @@ this design answers (\S\ref{sec:intro}.1), fixes the unit of evaluation
 between an external reference ($\CZ$ or $\HXZ$) and the paper's own
 reported result ($\Pref$) is attributable to a difference in signal
 construction (and environment), how much to a difference in portfolio-
-construction configuration, and how much to the agent's own inability to
-replicate the paper exactly? \S\ref{sec:framework}'s paper-anchored
+construction configuration, and how much remains as the agent system's
+residual distance from the paper? \S\ref{sec:framework}'s paper-anchored
 three-term identity answers this by construction rather than by inference:
-each of the three terms is an exact difference between two tracks this
-paper's controlled engine actually runs, not a residual assigned by
-assumption, and the identity holds for every factor whose own headline
-result is a portfolio-sort spread, regardless of whether $\CZ$ and $\HXZ$
-agree or conflict. Where the paper's own headline is instead a regression
-coefficient (share turnover, \S\ref{sec:discussion}), $\Pref$ is not a
+each term is an exact difference between adjacent endpoints in the accounting
+path, so the identity closes by construction rather than assigning an
+unmeasured remainder by assumption. Only the configuration term compares two
+tracks executed by the controlled engine; the other two terms involve
+external reference endpoints and remain observational. The identity holds
+for every factor whose own headline result is a portfolio-sort spread,
+regardless of whether $\CZ$ and $\HXZ$ agree or conflict. Where the paper's
+own headline is instead a regression coefficient (share turnover,
+\S\ref{sec:discussion}), $\Pref$ is not a
 quantity the identity's terms can be taken against at all, and that
 definitional gap is reported directly rather than forced into the three
 terms.
 
-\textbf{RQ2 (capability boundary).} Producing the paper-faithful
-configuration that RQ1's baseline, $\Aref$, depends on is itself a
-nontrivial task for the agent system (\S\ref{sec:intro}.2): what fraction
-of high-impact MethodSpec fields does it resolve without a human
-correction, what fraction of runs reach an executable $\Aref$ end-to-end,
-and where does human correction concentrate -- on purely technical
-mismatches, or on fields where the paper leaves a genuine empirical
-judgment unstated? This is reported as an independent finding (C2), not
-merely as a caveat on RQ1: it costs nothing beyond what RQ1's own pipeline
-already produces, since every MethodSpec field the agent resolves (or
-fails to) while building $\Aref$ is logged regardless of whether it is
-ever used for RQ1's decomposition (\S\ref{sec:results}).
+\textbf{RQ2 (capability boundary).} Producing the reviewed configuration
+that RQ1's baseline, $\Aref$, depends on is itself a nontrivial task for the
+agent system (\S\ref{sec:intro}.2): do the three reviewed MethodSpecs reach
+executable $\Aref$ tracks end-to-end, and where do weak-evidence fields
+remain concentrated? This is reported as an independent finding (C2), not
+merely as a caveat on RQ1. It uses records produced by RQ1's ordinary
+pipeline: executable-track completion and each MethodSpec field's evidence
+status (\S\ref{sec:results}).
 
 \subsection{Measurement unit convention}
 
@@ -132,16 +133,15 @@ intervention that spoils the measurement: a real deployment of this
 pipeline always includes a human confirming ambiguous fields before
 $\Aref$ is built, so excluding that step from the unit of evaluation would
 understate, not idealize, what the deployed system actually does.
-Consequently, RQ2's autonomy footprint (\S\ref{sec:intro}.1) is measured
-as \emph{where the agent's own designed checkpoints trigger} -- which
-fields reach the reviewer, which of those the reviewer resolves without
-escalating to a human, and which require a human correction -- rather than
-as an estimate of raw LLM reading accuracy against some hypothetical
-unsupervised baseline. This distinction matters for how the capability
-results in \S\ref{sec:results} should be read: a high rate of human
-correction on a given field is evidence that this system's checkpoints are
-doing their job, not, by itself, evidence that the underlying model reads
-the paper poorly.
+Consequently, RQ2's capability evidence (\S\ref{sec:intro}.1) consists of
+two observed outputs: whether each reviewed MethodSpec reaches an executable
+track and which fields retain inferred or unspecified evidence status after
+review. It is not an estimate of raw LLM reading accuracy or of the fraction
+of fields resolved without human assistance. This distinction matters for
+how the results in \S\ref{sec:results} should be read: the weak-evidence
+counts locate fields that merit confirmation, but do not identify whether
+the initial extraction, the paper's reporting, or the operational mapping
+created the need for that confirmation.
 
 \subsection{Contributions}
 \begin{itemize}
@@ -151,9 +151,9 @@ the paper poorly.
     term via three controlled counterfactual tracks
     ($\Aref$, $\Acz$, $\Ahxz$) -- an exact identity.
   \item \textbf{C2 (RQ2, agent capability, independent finding).} Report the
-    agent's autonomy footprint and capability boundary across the same
-    three factors, as a free byproduct of running RQ1 -- no separate annotation
-    corpus required.
+    end-to-end completion rate and the concentration of weak-evidence fields
+    across the same three factors, as a byproduct of running RQ1 -- no separate
+    annotation corpus required.
   \item \textbf{C3 (methodological foundation for both).} A controlled,
     auditable, LLM-assisted-but-not-LLM-controlled replication pipeline --
     every extracted field carries a cited quote and source location, the
@@ -174,7 +174,8 @@ replication-crisis literature and the specific HXZ-versus-C\&Z divergence
 it takes as its starting point. \S\ref{sec:framework} formalizes the
 notation used throughout and states the two identities the rest of the
 paper is built to measure: the paper-anchored three-term identity (RQ1)
-and the disagreement-band lower bound on $\ImplSpace{P}$.
+and the conditional disagreement-band lower bound on the range of return
+outcomes generated by $\ImplSpace{P}$.
 \S\ref{sec:pipeline} describes the controlled pipeline itself, step by
 step, including the LLM-assisted-but-not-LLM-controlled boundary that
 makes C3 hold. \S\ref{sec:data} covers data sources, the scope and

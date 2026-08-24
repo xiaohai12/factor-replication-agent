@@ -2,6 +2,39 @@
 
 ## Unreleased
 
+- Expand the thesis's cited literature with targeted work on LLM research
+  assistance, reasoning-and-action agents, tool use, software-engineering
+  agents, computational reproducibility, many-analyst variation, the factor
+  zoo, and the original Shapley value; also cite the existing FF3/FF5 sources
+  where those models first enter the pipeline metrics.
+- Restyle the thesis bibliography with abbreviated given names, cleaner
+  journal-article punctuation, stronger hanging indents, and visible spacing
+  between entries while leaving the reference data unchanged.
+- Narrow RQ2 to the evidence actually reported: end-to-end executable-track
+  completion and the cross-factor concentration of inferred or unspecified
+  MethodSpec fields; remove unsupported claims about the fraction of fields
+  resolved without human assistance.
+- Redefine the disagreement band as an interval in return outcomes rather than
+  a subspace of implementations, and condition its lower-bound interpretation
+  on both endpoints being admissible readings of the paper; align the data
+  limitations with that condition instead of calling every observed range an
+  unconditional lower bound.
+- Correct RQ1's track description: the three-term identity closes across
+  adjacent accounting endpoints, but only its configuration term compares two
+  engine-executed tracks; the external endpoint terms remain observational.
+- Clarify the thesis's `agent replication residual` as the reviewed agent
+  system's residual distance from the paper endpoint, not a pure LLM-error
+  term, while retaining the established decomposition label and numbers.
+- Put the HXZ aggregate failure-rate comparison on one common basis throughout
+  the thesis: original-study samples, with 65.3\% failing under NYSE--VW and
+  43.1\% under All-EW at $|t| \geq 1.96$.
+- Align the ShareVol robustness discussion with the in-sample ablation
+  statistics: report that all $t$-statistics lie between $0.00$ and $0.24$
+  with no sign or significance flip, and interpret the result as consistently
+  weak rather than fragile.
+- Correct the ShareVol C\&Z external-reference endpoint throughout the thesis
+  tables and factor-sample text to $0.91\%$ per month with $t=3.87$, keeping
+  the original paper's regression $t=-8.86$ confined to the paper endpoint.
 - Synchronize all MeanRankRevGrowth thesis text and tables with the rebuilt
   comparison bundle: the normalized paper endpoint is $0.3833\%$ per month
   with $t=4.5$, the C\&Z configuration is paper-aligned, and the updated

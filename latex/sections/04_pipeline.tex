@@ -84,17 +84,12 @@ marked \texttt{human\_confirmed\_applied} (the two are mutually exclusive).
 
 Only a specification with direct textual support or an explicit human
 resolution for every required field is marked \texttt{codegen\_ready}. This
-gate also produces the RQ2 extraction measure (\S\ref{sec:intro}): the
-fraction of high-impact fields resolved without assistance is read from this
-ordinary review record, not a separate annotation exercise. "High-impact" is
-a fixed, enumerated set of fields whose value materially changes the
-backtest -- the signal's direction; the formation rule, rebalance frequency,
-and holding period; the portfolio's construction type, weighting, and
-return-combination rule; the universe description; and, per sort dimension
-or required data field, the breakpoint basis, grouping, and sort mode, the
-missing-data policy, and the source-table/column binding -- rather than a
-per-field judgment made at review time; only fields in this set are scored,
-and every one of them counts as high-impact.
+gate also produces the evidence used for RQ2 (\S\ref{sec:intro}): it records
+whether the reviewed specification reaches an executable track, while each
+field's retained evidence status identifies where the operational mapping is
+still inferred or the paper leaves a required choice unspecified. These are
+ordinary review and execution records, not a separate annotation exercise or
+an estimate of the fraction of fields resolved without human assistance.
 
 \subsection{Step 3: generate the signal and freeze the configuration}
 
@@ -165,7 +160,8 @@ applied by the engine rather than by the plugin), and return calculation; the
 plugin supplies only the signal formula. Execution produces the run's
 track-level metrics: mean monthly return, a Newey-West $t$-statistic, Sharpe
 ratio, and month count, together with CAPM/FF3/FF5 alphas and their own
-$t$-statistics when factor data is available. The same mean/$t$-stat/Sharpe
+$t$-statistics when factor data is available
+\citep{FamaFrench1993,FamaFrench2015}. The same mean/$t$-stat/Sharpe
 are additionally recomputed separately over three windows -- the paper's own
 in-sample period, the gap between the sample's end and the paper's
 publication, and the post-publication period -- so that any decay in the

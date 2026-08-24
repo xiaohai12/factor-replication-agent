@@ -5,9 +5,44 @@
 \usepackage[T1]{fontenc}
 \usepackage{mathpazo}
 
-\usepackage[backend=bibtex,style=authoryear,natbib=true,maxcitenames=2,mincitenames=1]{biblatex}
+\usepackage[
+  backend=bibtex,
+  style=authoryear,
+  natbib=true,
+  maxcitenames=2,
+  mincitenames=1,
+  maxbibnames=99,
+  giveninits=true,
+  doi=false,
+  isbn=false,
+  url=false,
+  eprint=false
+]{biblatex}
 \addbibresource{refs.bib}
 \usepackage[autostyle=true]{csquotes}
+
+% Compact finance-style reference list: initials instead of full given names,
+% unquoted article titles, no redundant "In:" before journal names, and clear
+% visual separation between entries.
+\AtBeginBibliography{%
+  \small
+  \setlength{\bibhang}{2em}%
+  \setlength{\bibitemsep}{0.65\baselineskip}%
+  \setlength{\bibparsep}{0pt}%
+}
+\DeclareFieldFormat[article]{title}{#1}
+\DeclareFieldFormat[article]{volume}{\mkbibbold{#1}}
+\DeclareFieldFormat[article]{number}{\mkbibparens{#1}}
+\DeclareFieldFormat{pages}{#1}
+\renewbibmacro*{in:}{%
+  \ifentrytype{article}
+    {}
+    {\printtext{\bibstring{in}\intitlepunct}}}
+\renewbibmacro*{volume+number+eid}{%
+  \printfield{volume}%
+  \printfield{number}%
+  \setunit{\addcomma\space}%
+  \printfield{eid}}
 
 \usepackage{tikz}
 \usetikzlibrary{positioning,arrows.meta,fit,backgrounds}

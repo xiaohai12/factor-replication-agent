@@ -54,14 +54,15 @@ required it.
 \input{tables/tab_scope_assumptions}
 
 That said, the finite menu introduces a two-sided bias that must be stated
-without qualification. It \emph{understates} underdetermination, because a
-reasonable implementation choice that falls outside the menu can never
-enter the disagreement band -- the band in \S\ref{sec:framework} is a lower
-bound, not an unbiased estimate, for exactly this reason. It simultaneously
-risks \emph{overstating} underdetermination, because a single extraction
-draw conflates genuine paper ambiguity with ordinary language-model sampling
-noise; only a repeated-draw study (\S\ref{sec:discussion}, left to future
-work) could separate the two. Both directions of this bias are revisited
+without qualification. It can \emph{understate} observable implementation
+sensitivity, because a reasonable choice that falls outside the menu cannot
+enter the executed design. It can also \emph{overstate} sensitivity, because
+a single extraction draw can add ordinary language-model sampling noise to
+genuine paper ambiguity. The observed range is therefore descriptive and
+should be interpreted as a lower bound only when the endpoint-admissibility
+condition in \S\ref{sec:framework} is established. Only a repeated-draw study
+(\S\ref{sec:discussion}, left to future work) could separate paper ambiguity
+from model sampling variation. Both directions of this bias are revisited
 where they bear on a specific result in \S\ref{sec:results}.
 
 \subsection{Factor selection criteria}
@@ -107,7 +108,7 @@ clean $-0.19\%$/month
 Share turnover \citep{DatarNaikRadcliffe1998} is an opposite-verdict case
 whose original test is not a portfolio sort at all, so both teams'
 comparison numbers are themselves reconstructions of the paper's method:
-C\&Z's own long-short spread is significant ($t=8.86$), while HXZ's own is
+C\&Z's own long-short spread is $0.91\%$/month ($t=3.87$), while HXZ's own is
 $-0.11\%$/month ($t=0.46$) -- again sign-reversed and insignificant
 (\S\ref{sec:selection}, \S\ref{sec:discussion}; Table~\ref{tab:roster}).
 \input{tables/tab_factor_roster}
