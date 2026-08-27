@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- Revise the thesis's RQ2 audit reporting to separate inferred and
+  unspecified evidence-status items from human-confirmed and
+  accepted-but-unapplied review dispositions; align the reported cross-factor
+  counts with the resolved MethodSpec artifacts and add an AssetGrowth example.
 - Expand the thesis's cited literature with targeted work on LLM research
   assistance, reasoning-and-action agents, tool use, software-engineering
   agents, computational reproducibility, many-analyst variation, the factor

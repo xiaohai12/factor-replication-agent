@@ -13,27 +13,30 @@ evidence and external comparisons retain their lower identification levels.
 
 All three factors reached executable frozen-signal tracks, so the pipeline
 produced auditable outputs for the reviewed MethodSpecs. This is a completion
-result, not an extraction-accuracy claim. The resolved MethodSpecs retain
-their evidence status field by field: the resulting audit flags one weak field
-for AssetGrowth, four for MeanRankRevGrowth, and thirteen for ShareVol. These
-flags identify where human confirmation remains important; they do not
-silently alter a backtest result. Because this study does not repeat
-extraction from the same paper, it does not estimate within-agent sampling
-variation, and the audit counts should not be interpreted as a probability
-that the extracted method is correct.
+result, not an extraction-accuracy claim. The post-resolution audit separates
+evidence status from review disposition. AssetGrowth retains two inferred
+items and no unspecified items; MeanRankRevGrowth retains four inferred items
+and no unspecified items; and ShareVol retains ten inferred and four
+unspecified items. An \emph{inferred} item is one for which the paper gives
+an economic concept or methodological description but not the exact
+executable field or rule. An \emph{unspecified} item is one for which the
+paper does not state the required implementation choice. These counts are
+audit records, not probabilities that an extracted method is correct, and this
+study does not repeat extraction from the same paper to estimate within-agent
+sampling variation.
 
-The flags have two distinct meanings. An \emph{inferred} field is one for
-which the paper gives an economic concept or a data source but not the native
-database field or operational rule required by the engine. AssetGrowth's lone
-flag is an inferred signal-input source column. MeanRankRevGrowth has an
-inferred portfolio-sort mode and three inferred signal-input source columns.
-ShareVol has inferred holding-period and signal-source details, alongside
-three \emph{unspecified} portfolio-sort fields: the breakpoint basis, group
-type, and sorting mode. ``Unspecified'' means that the paper itself does not
-state the required implementation choice. The distinction matters: inference
-is a documented mapping decision that can be checked against the source,
-whereas an unspecified field requires a reviewer to supply a convention or
-accept the engine default.
+Review disposition is reported separately. AssetGrowth has two
+human-confirmed applied filters and one accepted-but-unapplied requirement;
+ShareVol has two human-confirmed applied filters; MeanRankRevGrowth has no
+such recorded filter disposition. A human-confirmed applied item is a
+reviewed choice implemented in the executable track. An accepted-but-unapplied
+item is a paper requirement retained in the audit trail but not implemented
+because of a documented system limitation. For example, AssetGrowth's exchange
+and financial-firm filters were human-confirmed and applied, while its
+two-year Compustat-listing requirement was accepted but unapplied because the
+current engine lacks the required listing-history field. Thus, the audit does
+not collapse reviewed decisions, unresolved evidence, and capability limits
+into one ``weak-field'' count.
 
 Figure~\ref{fig:assetgrowth-audit-trace} provides a representative audit
 trace rather than reproducing every artifact for every factor. It links the
