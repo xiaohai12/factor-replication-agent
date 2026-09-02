@@ -2,6 +2,33 @@
 
 ## Unreleased
 
+- Rewrite and condense the thesis abstract, introduction, and conclusion
+  around the research problem, controlled design, empirical findings, and
+  practical implications for both factor research and investment
+  implementation.
+- Reorganize the introduction explicitly around the motivation, research
+  question, controlled design, findings, and research-and-industry use case;
+  reduce implementation-detail repetition and position the LLM as a bounded
+  research tool rather than the thesis's central contribution.
+- Edit the thesis prose to reduce repeated AI-like parallel constructions and
+  contrast templates, clarify the workflow/LLM distinction, define the role
+  of Shapley and OAT evidence at first use in the discussion, and tighten the
+  conclusion's scope statement.
+- Strengthen the introduction's empirical opening and add a concise
+  contribution statement; compress repeated factor-case discussion, clarify
+  the HXZ sign difference in the conclusion, and make the abstract's closing
+  claim state the framework's diagnostic capability.
+- Remove repeated HXZ/C\&Z framing from the introduction's case example and
+  state the standardized-HXZ comparison as an opposite-sign external
+  reference, while retaining the reported configuration-effect magnitudes.
+- Compress the conclusion's repeated research/practitioner framing and LLM
+  boundary statement; express its remaining scope and extraction-accuracy
+  limitation in direct prose.
+- Reframe the introduction for non-specialist readers by defining factors and
+  replication before introducing HXZ/C\&Z, then ordering the exposition from
+  motivation through design and findings to research and implementation use.
+- Condense the introduction's opening explanation of factors and replication
+  into one background paragraph before the empirical motivation.
 - Revise the thesis's RQ2 audit reporting to separate inferred and
   unspecified evidence-status items from human-confirmed and
   accepted-but-unapplied review dispositions; align the reported cross-factor

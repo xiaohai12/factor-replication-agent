@@ -85,38 +85,21 @@
 \end{center}
 \vspace{1cm}
 
-Factor replication is often treated as binary, although discrepancies can
-reflect paper interpretation, data environment, portfolio construction, or
-estimand. This
-thesis develops a controlled LLM-agent workflow for making those alternatives
-auditable. The agent proposes an evidence-backed MethodSpec from a
-paper, subject to human review, and generates only the signal-computation code
-after approval.
-All consequential empirical settings are selected from a fixed, reviewable
-menu. The resulting signal is frozen before any configuration experiment,
-so all empirical results are deterministic conditional on the approved
-specification and data snapshot.
-
-The workflow is applied to three illustrative equity anomalies. We compare
-the papers' reported endpoints with C\&Z's independent human replication and
-run the frozen agent signal under standardized HXZ configurations.
-AssetGrowth is reproduced on the aligned raw-return metric, but its magnitude
-is materially sensitive to configuration choices. MeanRankRevGrowth is
-successfully reproduced under the C\&Z configuration, while its HXZ-style
-configuration remains an opposite-sign external comparison.
-For ShareVol, the paper reports a Fama--MacBeth coefficient whereas the
-available replications are portfolio-sort spreads; the system therefore
-declines a paper-anchored numerical decomposition rather than comparing
-incommensurable estimands.
-
-Where factorial designs are feasible, Shapley values provide exact
-within-engine attribution of configuration effects; larger designs receive OAT
-sensitivity analysis with its interaction limitation explicit. External
-comparisons and three-term identities remain observational accounting devices.
-The contribution is thus not an autonomous empirical judge, but an
-agent-assisted, human-reviewed process that turns paper interpretations into
-versioned research objects and makes remaining replication gaps traceable
-rather than opaque.
+Factor replications can diverge because papers leave implementation choices
+implicit. Universe, lag, breakpoints, weighting, and data treatment can change
+the estimated premium and its significance. To address this problem, this
+thesis uses a controlled workflow: an LLM produces an evidence-backed,
+structured implementation specification (MethodSpec); human review resolves
+ambiguity; and the approved signal is fixed. The analysis examines asset
+growth, sales-growth reversal, and share turnover. The
+asset-growth premium is replicated on the paper-aligned raw-return metric, but
+a $+0.61\%$ configuration effect explains most of its $+0.68\%$ gap relative
+to Chen and Zimmermann (C\&Z). Sales-growth reversal is replicated under the C\&Z
+configuration but not under Hou, Xue, and Zhang's (HXZ) standardized settings.
+For share turnover, a Fama--MacBeth coefficient and portfolio-sort spreads are
+not comparable. The workflow distinguishes controlled configuration effects,
+external differences, and estimand mismatch, so disagreement can be diagnosed
+rather than reduced to a binary replication verdict.
 
 \cleardoublepage
 

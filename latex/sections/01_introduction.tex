@@ -1,188 +1,76 @@
 \section{Introduction}
 \label{sec:intro}
 
-Consider the sales-growth reversal signal in
-\citet{LakonishokShleiferVishny1994} -- what Chen and Zimmermann code as
-$\mathit{MeanRankRevGrowth}$. \citet{HouXueZhang2020} report that under
-their standardized replication protocol -- value-weighted portfolios, NYSE
-breakpoints -- the signal fails to clear the conventional significance bar
-($t=1.08$). \citet{ChenZimmermann2022}, implementing the same paper's own
-stated method rather than a uniform external protocol, replicate it with a
-$t$-statistic of 3.94, and classify it as a clear predictor. Same factor,
-same underlying economic idea, the same published text to work from -- and
-opposite verdicts, from two teams that are each careful, well-resourced,
-and working independently.
+Asset-pricing research asks whether observable firm characteristics predict
+future stock returns. Characteristics such as asset growth, sales growth, and
+share turnover can be used to form trading signals; the return difference
+between firms with high and low values is called a factor premium. These
+signals inform both asset-pricing tests and quantitative investment research.
+Replication asks whether a published premium can be recovered from a paper's
+description. This is difficult because papers rarely specify every
+implementation choice. Reasonable choices about the stock sample, timing,
+sorting, and portfolio weights can change both the estimated premium and its
+statistical significance. A useful replication must therefore explain not only
+whether two results differ, but also why.
 
-This is not an isolated case, and it does not require picking a side. Across
-several hundred overlapping anomalies, \citet{HouXueZhang2020} report
-that 65.3\% fail to clear $|t| \geq 1.96$ under their uniform protocol when
-each anomaly is evaluated over its original-study sample, while
-\citet{ChenZimmermann2022} report that all but a handful of the same
-literature's characteristics replicate under each paper's own stated method.
-These two numbers are not answers to the same question -- one is a failure
-rate under an externally imposed protocol, the other is a failure rate under
-paper-specific implementation choices -- so it would be a mistake to read
-them as a simple contradiction. But that very fact is itself the point: the
-question "does this factor replicate?" does not have a single, protocol-free
-answer, because a published paper does not, in general, uniquely determine
-every choice its own replication requires.
+Existing evidence shows why this distinction matters. In original-study
+samples under a standardized protocol, \citet{HouXueZhang2020} find that
+65.3\% of characteristics fail to meet $|t|\geq1.96$. By contrast,
+\citet{ChenZimmermann2022} find that almost all characteristics can be
+replicated when each paper's own design is followed. These statistics are not
+a contest between two right or wrong answers: the studies impose different
+implementation conventions. Sales-growth reversal provides a concrete example.
+Under the standardized protocol, HXZ report a $t$-statistic of 1.08 for the
+signal Chen and Zimmermann call $\mathit{MeanRankRevGrowth}$; under a
+paper-specific design, C\&Z report 3.94. The contrast illustrates why a claim
+that a factor has, or has not, replicated is incomplete without a description
+of the implementation.
 
-The right question is therefore not whether a factor replicates, but why two
-careful, independent teams can reach opposite verdicts on the same
-factor -- and whether that disagreement can be attributed to specific,
-falsifiable causes (a breakpoint convention, a weighting rule, a lag
-assumption) rather than treated as an unexplained clash of protocols.
-Answering it requires two things: a controlled execution engine that
-enumerates the menu of implementation choices a paper admits, so that gaps
-between two implementations can be decomposed field by field rather than
-reported as one opaque number; and an independent extraction of what the
-paper itself actually says, uncontaminated by prior exposure to either
-team's implementation, so that a given disagreement can be attributed to a
-specific side's departure from the text rather than merely to "different
-choices." This second requirement is where a controlled LLM agent enters --
-not as a labor-saving substitute for a human replicator, but as an
-auditable, independently-arrived-at reading of the paper -- every field it
-extracts traceable to a cited quote, and arrived at without ever seeing
-either team's implementation -- that can serve as a neutral referee between
-two existing, human-produced implementations.
+This thesis addresses that problem. It does not seek to decide which existing
+replication is the definitive one. Instead, it asks which differences can be
+linked to a controlled change in implementation, which remain attributable to
+data, code, or other external features, and when the reported results do not
+estimate the same quantity in the first place. The framework in
+Section~\ref{sec:framework} separates these cases. A comparison is not forced
+into a numerical gap when the original paper and a replication estimate
+different objects.
 
-Applying this framework to three factors chosen specifically because
-Hou-Xue-Zhang's and Chen-Zimmermann's own reported verdicts on them differ
-in kind rather than merely in degree (\S\ref{sec:data}): sales-growth
-reversal, this section's opening example, whose HXZ-versus-C\&Z conflict is
-attributed to a compounding breakpoint-and-weighting effect rather than to
-either choice alone; asset growth \citep{CooperGulenSchill2008}, the one
-case in this sample where both teams agree the signal is significant; and
-share turnover \citep{DatarNaikRadcliffe1998}, whose original test is a
-firm-level Fama-MacBeth regression rather than a portfolio sort at all, so
-that HXZ's and C\&Z's quantile-sort implementations are both
-equally-unauthorized reconstructions of the paper's actual method, not
-competing readings of a shared design. Running our controlled pipeline on
-these factors, we find that even in the one case where the published
-verdicts agree throughout (asset growth), the magnitude remains materially
-configuration-sensitive. Against the C\&Z reference spread, the total gap
-is $+0.68\%$ per month: the controlled configuration term contributes
-$+0.61\%$, driven primarily by the switch from value to equal weighting;
-the signal/environment term contributes $+0.19\%$; and the agent's
-replication residual partially offsets them at $-0.12\%$. Thus, agreement
-in sign and significance does not imply invariance to portfolio design.
-The two disagreement cases reveal different limitations. For
-sales-growth reversal, the agent's replication residual alone
-exceeds the total observed gap in magnitude (partially offset by an
-opposing configuration term) -- a residual effect layered on top of the
-breakpoint-and-weighting story already given above for its configuration
-side. For share turnover, the agent's own signal remains insignificant across
-the four standardized-side ablations tested against it: all in-sample
-$t$-statistics lie between $0.00$ and $0.24$, with no sign or significance
-flip. This points to a consistently weak portfolio-sort result within the
-configurations examined rather than fragility around the significance
-threshold. Together,
-both cases show that the agent's own replication precision, not just protocol
-choice, is a first-order determinant of the measured gap. Part of that
-replication residual, in turn, is itself a scope limitation rather than a
-reading error: this engine's fixed configuration menu cannot always
-express an off-menu instruction the paper actually gives -- the same
-standardization tradeoff HXZ's own protocol makes in this paper's opening
-example -- a distinction \S\ref{sec:results} and \S\ref{sec:discussion}
-draw out factor by factor. The remainder of this section states two
-research questions
-this design answers (\S\ref{sec:intro}.1), fixes the unit of evaluation
-(\S\ref{sec:intro}.2), and lists the paper's contributions
-(\S\ref{sec:intro}.3).
+The empirical design follows a simple principle: hold the paper
+interpretation fixed, then vary the implementation choices that can be
+examined in a common engine. Each paper is first converted into a reviewed,
+evidence-backed implementation specification (MethodSpec). The language model
+assists in extracting paper evidence and producing the approved signal formula;
+human review resolves ambiguity. The resulting signal is then fixed while
+portfolio-construction choices are changed. This design allows a direct
+comparison of configurations without allowing the model to rewrite the
+strategy between experiments. More detailed implementation, validation, and
+data procedures are described in Section~\ref{sec:pipeline}.
 
-\subsection{Two research questions}
+The analysis examines asset growth \citep{CooperGulenSchill2008},
+sales-growth reversal \citep{LakonishokShleiferVishny1994}, and share turnover
+\citep{DatarNaikRadcliffe1998}. The three cases lead to different diagnoses.
+Asset growth is reproduced on the paper-aligned raw-return metric, yet a
+change in configuration contributes $+0.61\%$ per month to an observed
+$+0.68\%$ gap on the C\&Z side, principally through the move from value to
+equal weighting. Sales-growth reversal is reproduced under the C\&Z
+configuration, whereas the standardized HXZ reference has the opposite sign.
+For share turnover, the original paper reports a Fama--MacBeth coefficient
+while the available replications report portfolio-sort spreads. Since these
+are different quantities, the paper-anchored comparison is reported as
+unidentified.
 
-\textbf{RQ1 (attribution).} For a given factor, how much of the total gap
-between an external reference ($\CZ$ or $\HXZ$) and the paper's own
-reported result ($\Pref$) is attributable to a difference in signal
-construction (and environment), how much to a difference in portfolio-
-construction configuration, and how much remains as the agent system's
-residual distance from the paper? \S\ref{sec:framework}'s paper-anchored
-three-term identity answers this by construction rather than by inference:
-each term is an exact difference between adjacent endpoints in the accounting
-path, so the identity closes by construction rather than assigning an
-unmeasured remainder by assumption. Only the configuration term compares two
-tracks executed by the controlled engine; the other two terms involve
-external reference endpoints and remain observational. The identity holds
-for every factor whose own headline result is a portfolio-sort spread,
-regardless of whether $\CZ$ and $\HXZ$ agree or conflict. Where the paper's
-own headline is instead a regression coefficient (share turnover,
-\S\ref{sec:discussion}), $\Pref$ is not a
-quantity the identity's terms can be taken against at all, and that
-definitional gap is reported directly rather than forced into the three
-terms.
+The thesis makes three contributions. First, it provides a framework that
+separates controlled configuration effects from external differences and from
+comparisons that are not meaningful. Second, the three cases show that
+agreement on sign and statistical significance need not imply similar economic
+magnitudes. Third, the workflow preserves the evidence and implementation
+decisions behind each comparison. For researchers, this creates a record that
+can be checked and extended. For practitioners, it offers a way to assess a
+published factor before applying it to a particular universe and portfolio
+construction rule.
 
-\textbf{RQ2 (capability boundary).} Producing the reviewed configuration
-that RQ1's baseline, $\Aref$, depends on is itself a nontrivial task for the
-agent system (\S\ref{sec:intro}.2): do the three reviewed MethodSpecs reach
-executable $\Aref$ tracks end-to-end, and where do weak-evidence fields
-remain concentrated? This is reported as an independent finding (C2), not
-merely as a caveat on RQ1. It uses records produced by RQ1's ordinary
-pipeline: executable-track completion and each MethodSpec field's evidence
-status (\S\ref{sec:results}).
-
-\subsection{Measurement unit convention}
-
-The unit under evaluation throughout this paper is not a bare language
-model call; it is the agent system as a whole -- the LLM, the tool
-interface it uses to query paper text and prior evidence, the Step 2
-review gate, the Step 4 sandbox validator, and the human confirmation step
-that resolves any field the reviewer flags (\S\ref{sec:pipeline}). Human
-confirmation is a designed component of this system, not an external
-intervention that spoils the measurement: a real deployment of this
-pipeline always includes a human confirming ambiguous fields before
-$\Aref$ is built, so excluding that step from the unit of evaluation would
-understate, not idealize, what the deployed system actually does.
-Consequently, RQ2's capability evidence (\S\ref{sec:intro}.1) consists of
-two observed outputs: whether each reviewed MethodSpec reaches an executable
-track and which fields retain inferred or unspecified evidence status after
-review. It is not an estimate of raw LLM reading accuracy or of the fraction
-of fields resolved without human assistance. This distinction matters for
-how the results in \S\ref{sec:results} should be read: the weak-evidence
-counts locate fields that merit confirmation, but do not identify whether
-the initial extraction, the paper's reporting, or the operational mapping
-created the need for that confirmation.
-
-\subsection{Contributions}
-\begin{itemize}
-  \item \textbf{C1 (RQ1, empirical, main thread).} For each of three factors,
-    decompose the total gap between $\CZ$ (or $\HXZ$) and $\Pref$ into a
-    signal/environment term, a configuration term, and an agent-residual
-    term via three controlled counterfactual tracks
-    ($\Aref$, $\Acz$, $\Ahxz$) -- an exact identity.
-  \item \textbf{C2 (RQ2, agent capability, independent finding).} Report the
-    end-to-end completion rate and the concentration of weak-evidence fields
-    across the same three factors, as a byproduct of running RQ1 -- no separate
-    annotation corpus required.
-  \item \textbf{C3 (methodological foundation for both).} A controlled,
-    auditable, LLM-assisted-but-not-LLM-controlled replication pipeline --
-    every extracted field carries a cited quote and source location, the
-    extraction step is leakage-proof by construction (\S\ref{sec:framework}),
-    and every empirical number is deterministically reproducible with the
-    LLM switched off.
-\end{itemize}
-
-% Explicit, proactive disclosure (do not wait for a reviewer to find this):
-% tightening the leakage-proof boundary given that human confirmation is
-% part of the agent -- see docs/paper-outline.md Ch.1 "\ensuremath{\bigstar}
-% 防泄漏边界的收紧" for the exact three-part mitigation to state here.
-
-\subsection{Roadmap}
-
-\S\ref{sec:related} situates this paper against the existing
-replication-crisis literature and the specific HXZ-versus-C\&Z divergence
-it takes as its starting point. \S\ref{sec:framework} formalizes the
-notation used throughout and states the two identities the rest of the
-paper is built to measure: the paper-anchored three-term identity (RQ1)
-and the conditional disagreement-band lower bound on the range of return
-outcomes generated by $\ImplSpace{P}$.
-\S\ref{sec:pipeline} describes the controlled pipeline itself, step by
-step, including the LLM-assisted-but-not-LLM-controlled boundary that
-makes C3 hold. \S\ref{sec:data} covers data sources, the scope and
-assumptions that make the implementation menu enumerable at all, and the
-resulting three-factor sample. \S\ref{sec:design} lays out the
-experimental design -- the counterfactual tracks and ablations each factor
-is run through -- that produces the numbers \S\ref{sec:results} reports
-for RQ1 and RQ2. \S\ref{sec:discussion} states this design's limitations
-honestly, including the leakage-proof boundary's remaining dependence on
-human discipline (\S\ref{sec:framework}), and concludes.
+Section~\ref{sec:related} places the thesis in the replication and factor
+literatures. Sections~\ref{sec:framework} and \ref{sec:pipeline} develop the
+framework and workflow. Sections~\ref{sec:data}--\ref{sec:design} present the
+data and design; Section~\ref{sec:results} reports the evidence; and
+Section~\ref{sec:discussion} discusses the implications and limitations.

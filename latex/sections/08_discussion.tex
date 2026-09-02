@@ -8,36 +8,28 @@ implementations is an inadequate diagnosis. A difference can arise from a
 controlled configuration change, from the signal and data environment that
 remain outside the experiment, from a mismatch between the engine and the
 paper's requested method, or from an estimand that is not comparable in the
-first place. AssetGrowth demonstrates that substantial configuration effects
-can coexist with agreement about a factor's sign and significance.
-MeanRankRevGrowth demonstrates successful reproduction under a controlled
-C\&Z configuration, while an external standardized
-configuration can still produce an opposite-sign result. ShareVol demonstrates the
-stronger boundary: a paper coefficient and a portfolio-sort spread should not
-be forced into the same replication identity.
+first place. The factor-specific results range from configuration-sensitive
+magnitude despite stable sign and significance (AssetGrowth), to a
+configuration-dependent reproduction (MeanRankRevGrowth), to an estimand
+mismatch (ShareVol). A paper coefficient and a portfolio-sort spread should
+not enter the same replication identity.
 
-The agent's contribution is not to replace the researcher's empirical
-judgment, but to turn an unstructured paper description into a conversational,
-reviewable, and executable research object. It extracts a MethodSpec with
-source evidence and explicit uncertainty labels, and generates only the
-signal-computation code after that specification is approved; consequential
-empirical settings remain governed by human review and a fixed menu. Freezing
-the resulting agent signal then permits the same paper interpretation to be
-run under multiple configurations, separating implementation sensitivity from
-variation that would arise if the model rewrote the strategy each time. A
-researcher can of course reproduce an individual factor manually. The
-incremental value of the agent workflow is to extend that exercise across
-papers while retaining a consistent evidence standard, review interface, and
-versioned audit trail.
+The workflow records a paper interpretation in a source-backed
+implementation specification and generates the signal formula only after that
+specification has been approved. Human review and the fixed configuration menu
+govern the empirical choices. Holding the signal fixed permits the same
+interpretation to be evaluated under several configurations without allowing
+the model to alter the strategy between experiments. The practical gain is a
+consistent evidence standard and a versioned record across papers, rather than
+a substitute for the researcher's empirical judgment.
 
-The controlled factorial results are therefore the paper's strongest evidence.
-They isolate the effect of moving the same frozen signal between configurations
-and allocate that within-engine difference exactly by Shapley values. OAT
-results remain useful for sensitivity analysis, but their interaction caveat
-prevents an additive causal reading. External comparisons and the three-term
-identity are valuable accounting devices, yet remain observational because
-they absorb external code, data-vintage, sample-window, and estimator
-differences.
+The controlled factorial results provide the paper's strongest evidence.
+With a complete factorial design, Shapley values allocate the within-engine
+configuration difference exactly. For larger contrasts, one-at-a-time (OAT)
+ablations provide sensitivity evidence but cannot identify interactions.
+External comparisons and the three-term identity remain observational because
+they absorb differences in external code, data vintage, sample window, and
+estimator.
 
 Robustness in this study does not mean that a factor is invariant across all
 plausible implementations. Rather, the controlled results show different
@@ -49,10 +41,9 @@ insignificant across the configurations examined. The separate-window results
 add a temporal qualification: a successful paper-window replication need not
 persist after publication. AssetGrowth's baseline loses significance in its
 post-publication window, whereas MeanRankRevGrowth remains significant in its
-own post-publication window. Robustness is thus reported as auditable evidence
-conditional on the chosen configurations and windows, not as proof of a
-factor's general validity; the post-publication comparisons are descriptive
-and do not identify a causal effect of publication.
+own post-publication window. These robustness results are conditional on the
+chosen configurations and windows. The post-publication comparisons are
+descriptive and do not identify a causal effect of publication.
 
 \subsection{Limitations}
 
@@ -115,27 +106,27 @@ illustrative cases.
 
 \subsection{Conclusion}
 
-This paper treats replication not as a binary verdict, but as a question of
-which differences can be measured, compared, and identified. It therefore
-separates controlled configuration contrasts from observational external
-accounting and from cases in which the relevant estimands are not comparable
-at all.
+The central result of this thesis is straightforward: a replication gap is
+rarely informative on its own. It becomes informative only after the
+underlying implementation choices and the estimand being compared are made
+explicit. A common label---successful or failed replication---can otherwise
+hide differences in weights, breakpoints, data treatment, or the empirical
+object itself.
 
-The agent's role is deliberately bounded. It turns an unstructured paper into
-an evidence-backed MethodSpec with explicit uncertainty, generates only the
-approved signal-computation code, and then has that signal frozen for every
-subsequent configuration experiment. Human review and the fixed configuration
-menu continue to govern consequential empirical choices. This makes the
-agent's paper interpretation a versioned, auditable object rather than a
-black box that can silently alter the strategy while an experiment is running.
+The cases yield three distinct findings. Asset growth is reproduced on the
+paper-aligned raw-return metric, although its monthly premium is sensitive to
+the configuration. Sales-growth reversal is reproduced under the C\&Z
+configuration, whereas the standardized HXZ reference has the opposite sign.
+For share turnover, the original paper estimates a Fama--MacBeth
+coefficient and the comparison exercises report portfolio-sort spreads. The
+paper-anchored numerical decomposition is therefore unavailable.
 
-Across the three cases, AssetGrowth is a raw-return reproduction that remains
-materially configuration-sensitive; MeanRankRevGrowth is successfully
-reproduced under the C\&Z configuration; and ShareVol's paper
-coefficient cannot be identified with a portfolio-sort spread. Where complete factorial grids
-are feasible, the workflow reports exact within-engine Shapley contributions;
-where they are not, it reports non-additive OAT sensitivity; and where
-estimands differ, it declines the paper-anchored decomposition. These
-boundaries are part of the result: they make the remaining replication gap
-auditable rather than presenting it as an opaque failure of either the factor
-or the agent.
+The workflow makes implementation choices observable and reviewable before
+they enter an empirical conclusion. It preserves a traceable record of the
+paper interpretation and the assumptions driving a result, supporting research
+review and factor validation before implementation.
+
+The framework does not recover the original authors' code or estimate general
+LLM extraction accuracy. It documents the comparisons behind a replication
+disagreement and flags cases in which the endpoints cannot be compared. These
+records provide a basis for subsequent research or implementation decisions.
