@@ -1,0 +1,39 @@
+{
+  "schema_version": "resolution.v2",
+  "factor_id": "073bb1d7c43cd129",
+  "concept_mapping": {
+    "book_value_total_assets": {
+      "source": "comp_funda",
+      "column": "at"
+    },
+    "book_value_common_equity": {
+      "source": "comp_funda",
+      "column": "ceq"
+    },
+    "shares_outstanding": {
+      "source": "crsp_msf",
+      "column": "shrout"
+    },
+    "month_end_price": {
+      "source": "crsp_msf",
+      "column": "prc"
+    },
+    "monthly_return": {
+      "source": "crsp_msf",
+      "column": "ret"
+    },
+    "estimated_beta": {
+      "source": "crsp_msf",
+      "column": "ret"
+    },
+    "log_total_common_equity": {
+      "source": "crsp_msf",
+      "column": "me"
+    }
+  },
+  "returns_source": "us_equity_crsp",
+  "cz_acronym": null,
+  "llm_matched_concepts": [],
+  "entries": [],
+  "approved_substitutions": []
+}

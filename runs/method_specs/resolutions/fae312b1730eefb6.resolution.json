@@ -1,0 +1,27 @@
+{
+  "schema_version": "resolution.v2",
+  "factor_id": "fae312b1730eefb6",
+  "concept_mapping": {
+    "total_assets": {
+      "source": "compustat_fundamental_annual",
+      "column": "at"
+    },
+    "exchcd": {
+      "source": "crsp_msf",
+      "column": "exchcd"
+    },
+    "siccd": {
+      "source": "crsp_msf",
+      "column": "siccd"
+    },
+    "compustat_listing_duration": {
+      "source": "compustat_fundamental_annual",
+      "column": "datadate"
+    }
+  },
+  "returns_source": "us_equity_crsp",
+  "cz_acronym": null,
+  "llm_matched_concepts": [],
+  "entries": [],
+  "approved_substitutions": []
+}

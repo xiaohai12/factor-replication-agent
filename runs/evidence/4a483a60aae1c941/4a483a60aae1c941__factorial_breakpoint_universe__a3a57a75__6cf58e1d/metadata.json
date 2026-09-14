@@ -1,0 +1,153 @@
+{
+  "run_id": "4a483a60aae1c941__factorial_breakpoint_universe__a3a57a75__6cf58e1d",
+  "factor_id": "4a483a60aae1c941",
+  "plugin_id": "4a483a60aae1c941",
+  "track": "factorial_breakpoint_universe",
+  "method_spec_hash": "23069a937ff7a0659ed77cf24baa690d3bbb31b4215beefc9f8f7257089aac3e",
+  "code_hash": "a3a57a7555562af7",
+  "lifecycle_commit": "b4fb8b0cbf48d7c4b2d0897fb9f46d24aea6df55-dirty",
+  "data_snapshot_hash": "e59e6493f8ac05f3af7d090a041787ccf77045eff130b3896022e2c6e32c55e4",
+  "config_hash": "6cf58e1daf5360fc",
+  "runtime_provenance": {
+    "git_commit": "b4fb8b0cbf48d7c4b2d0897fb9f46d24aea6df55",
+    "git_dirty": true,
+    "engine_source_hash": "33fc4c73f586c0c3fbba6aa0c2a697e716df04563441bdfaf0ab94043ef90012",
+    "python_version": "3.14.2",
+    "package_versions": {
+      "pandas": "2.3.3",
+      "numpy": "2.5.2",
+      "statsmodels": "0.14.6",
+      "linearmodels": "not_installed"
+    },
+    "ff_factors_hash": "bfc216e95682647791541224633da1ea806d7ba208331353813ee7103415888b",
+    "liquidity_factors_hash": "bb0569547854ced13cfb08960650137282a2c6656d840d9e730c927e7b8f3fbe"
+  },
+  "experiment_batch_id": "d7673fcceef5",
+  "frozen_plugin_hash": "a3a57a7555562af7",
+  "batch_invalidated": false,
+  "batch_invalidation_reason": "",
+  "switches_flipped": {
+    "universe": [
+      {
+        "field": "exchcd",
+        "op": "in",
+        "value": [
+          1,
+          2,
+          3
+        ]
+      },
+      {
+        "field": "siccd",
+        "op": "not_between",
+        "value": [
+          6000,
+          6999
+        ]
+      },
+      {
+        "field": "ceq",
+        "op": "gt",
+        "value": 0
+      }
+    ],
+    "breakpoint": "nyse"
+  },
+  "metrics": {
+    "mean_return": 0.0026919699764545385,
+    "t_stat": 2.7165634953725797,
+    "sharpe_ratio": 0.3595477182719886,
+    "alpha_capm": 0.0034010949953512983,
+    "alpha_ff3": 0.002642094219657905,
+    "alpha_ff5": 0.0011031276018795663,
+    "coverage": null,
+    "microcap_share": null,
+    "n_months": 764,
+    "by_sample_period": {
+      "insamp": {
+        "mean_monthly_return": 0.003349080904099479,
+        "annualized_return": 0.04018897084919375,
+        "t_stat": 2.173808825289663,
+        "n_months": 276,
+        "sharpe_ratio": 0.4774165826625643,
+        "alpha_capm": 0.00355231542344203,
+        "alpha_capm_tstat": 2.2932962929070833,
+        "beta_capm_mktrf": -0.07240574072356223,
+        "alpha_ff3": 0.002343226189422779,
+        "alpha_ff3_tstat": 1.786198193194883,
+        "beta_ff3_mktrf": -0.13076157066256344,
+        "beta_ff3_smb": 0.4642018964894148,
+        "beta_ff3_hml": 0.20470666348934113,
+        "alpha_ff5": 0.00031436058826894524,
+        "alpha_ff5_tstat": 0.24925309142495844,
+        "beta_ff5_mktrf": -0.08985211739019203,
+        "beta_ff5_smb": 0.5017505308768174,
+        "beta_ff5_hml": -0.041095872545558326,
+        "beta_ff5_rmw": 0.15548776757464633,
+        "beta_ff5_cma": 0.6048705417226746,
+        "alpha_liq": 0.003014246151840575,
+        "alpha_liq_tstat": 1.98693554151824,
+        "beta_liq_ps_vwf": 0.0904514938066941
+      },
+      "between": {
+        "mean_monthly_return": 0.0018540898257728947,
+        "annualized_return": 0.022249077909274738,
+        "t_stat": 0.6396086169778096,
+        "n_months": 36,
+        "sharpe_ratio": 0.294620630789045,
+        "alpha_capm": 0.006536851739208484,
+        "alpha_capm_tstat": 2.295476268576375,
+        "beta_capm_mktrf": -0.4210275446645385,
+        "alpha_ff3": 0.002988255184323885,
+        "alpha_ff3_tstat": 0.9134898755722767,
+        "beta_ff3_mktrf": -0.3575455539293634,
+        "beta_ff3_smb": 0.17124227503258785,
+        "beta_ff3_hml": 0.24140402090710944,
+        "alpha_ff5": 0.0015694552945071949,
+        "alpha_ff5_tstat": 0.5907858076500001,
+        "beta_ff5_mktrf": -0.32965644870844657,
+        "beta_ff5_smb": 0.24155118474979462,
+        "beta_ff5_hml": 0.11606168135263231,
+        "beta_ff5_rmw": 0.35546030523218003,
+        "beta_ff5_cma": 0.4316214936498224,
+        "alpha_liq": 0.002504360098901135,
+        "alpha_liq_tstat": 0.9497093139822177,
+        "beta_liq_ps_vwf": 0.09709767040305523
+      },
+      "postpub": {
+        "mean_monthly_return": 0.001977246966301114,
+        "annualized_return": 0.023726963595613368,
+        "t_stat": 1.4595365702052774,
+        "n_months": 384,
+        "sharpe_ratio": 0.2686793160974748,
+        "alpha_capm": 0.0030843582511765346,
+        "alpha_capm_tstat": 2.185696365967816,
+        "beta_capm_mktrf": -0.1460227840187405,
+        "alpha_ff3": 0.002778568010209143,
+        "alpha_ff3_tstat": 2.051361670182548,
+        "beta_ff3_mktrf": -0.13551548109123573,
+        "beta_ff3_smb": 0.010702357116034098,
+        "beta_ff3_hml": 0.17172212077507948,
+        "alpha_ff5": 0.0015867090590627434,
+        "alpha_ff5_tstat": 1.2523165214137666,
+        "beta_ff5_mktrf": -0.09477278791677772,
+        "beta_ff5_smb": 0.11166592700717591,
+        "beta_ff5_hml": 0.09713200326122355,
+        "beta_ff5_rmw": 0.2673405393962954,
+        "beta_ff5_cma": 0.04311763694214777,
+        "alpha_liq": 0.0023884689962514467,
+        "alpha_liq_tstat": 1.7657906022584382,
+        "beta_liq_ps_vwf": -0.12253448400532432
+      }
+    }
+  },
+  "return_series_path": "/Users/shengzhaolei/Desktop/shengzhao lei/projects/factor-replication-agent/runs/evidence/4a483a60aae1c941/4a483a60aae1c941__factorial_breakpoint_universe__a3a57a75__6cf58e1d/return_series.csv",
+  "signal_series_path": "/Users/shengzhaolei/Desktop/shengzhao lei/projects/factor-replication-agent/runs/evidence/4a483a60aae1c941/4a483a60aae1c941__factorial_breakpoint_universe__a3a57a75__6cf58e1d/signal_series.parquet",
+  "status": "success",
+  "created_at": "2026-08-23T12:36:51.813494",
+  "logs": [
+    "experiment_matrix: family='portfolio_ablation' identification_level='unidentified'",
+    "artifact_sha256: {\"return_series.csv\": \"5c7de6c9083bac0d5824c8e9fd2598c8fa386138ec2550f6b46b5dd84a4ab951\", \"signal_series.parquet\": \"3e40d5ca1131d90770ff7de751f754993ef3f78b58a88dfabab6ccb40e22af42\"}"
+  ],
+  "repair_history": []
+}

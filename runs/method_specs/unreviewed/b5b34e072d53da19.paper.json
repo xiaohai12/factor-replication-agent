@@ -1,0 +1,813 @@
+{
+  "schema_version": "methodspec.v2",
+  "factor_id": "b5b34e072d53da19",
+  "target_name": "O_score",
+  "paper": {
+    "document_id": "Is the risk of bankruptcy a systematic risk.pdf",
+    "title": "Is the Risk of Bankruptcy a Systematic Risk?",
+    "citation": "Dichev, Ilia D. (1998), \"Is the Risk of Bankruptcy a Systematic Risk?\" The Journal of Finance 53(3), 1131-1147.",
+    "publication_year": 1998
+  },
+  "signal": {
+    "definition": {
+      "value": "Ohlson's (1980) Model 1 composite bankruptcy score, where higher values indicate higher probability of bankruptcy.",
+      "evidence": [
+        {
+          "location": "Section I, p. 1133",
+          "quote": "The second bankruptcy risk measure is from Model 1 in Ohlson (1980)",
+          "table_ref": null,
+          "interpretation": ""
+        },
+        {
+          "location": "Table I, p. 1136",
+          "quote": "0 is a measure of bankruptcy risk from Model 1 in Ohlson (1980). Higher values of 0 signify higher probability of bankruptcy.",
+          "table_ref": null,
+          "interpretation": ""
+        }
+      ],
+      "status": "clear",
+      "unsupported_value": null
+    },
+    "economic_intuition": {
+      "value": "The score is an ex ante measure of firm financial distress and probability of bankruptcy.",
+      "evidence": [
+        {
+          "location": "Section I, p. 1134",
+          "quote": "The result is a single composite bankruptcy score that reflects the ex ante probability of bankruptcy for each firm at a given point in time.",
+          "table_ref": null,
+          "interpretation": ""
+        }
+      ],
+      "status": "clear",
+      "unsupported_value": null
+    },
+    "direction": {
+      "value": "negative",
+      "evidence": [
+        {
+          "location": "Section II.A, p. 1142",
+          "quote": "the regression results confirm the strong negative association between 0 and returns",
+          "table_ref": null,
+          "interpretation": ""
+        }
+      ],
+      "status": "clear",
+      "unsupported_value": null
+    },
+    "category": "continuous",
+    "formula": {
+      "paper_expression": "O = -1.32 - 0.407 log(total assets) + 6.03(total liabilities/total assets) - 1.43((current assets - current liabilities)/total assets) + 0.076(current liabilities/current assets) - 1.72(1 if total liabilities > total assets, else 0) - 2.37(net income/total assets) - 1.83(funds from operations/total liabilities) + 0.285(1 if net loss for last two years, else 0) - 0.521(net income_t - net income_t-1)/(|net income_t| + |net income_t-1|). The GNP price-level index adjustment is omitted as stated by the paper.",
+      "steps": [
+        {
+          "step_id": "ohlson_model_1_score",
+          "description": "Apply Ohlson's Model 1 coefficients to annual accounting variables; omit the GNP price-level-index adjustment because it is constant within each monthly cross section.",
+          "expression": "-1.32 - 0.407 * log(total_assets) + 6.03 * (total_liabilities / total_assets) - 1.43 * ((current_assets - current_liabilities) / total_assets) + 0.076 * (current_liabilities / current_assets) - 1.72 * indicator(total_liabilities > total_assets) - 2.37 * (net_income / total_assets) - 1.83 * (funds_from_operations / total_liabilities) + 0.285 * indicator(net_income < 0 and net_income_lag1 < 0) - 0.521 * (net_income - net_income_lag1) / (abs(net_income) + abs(net_income_lag1))",
+          "status": "clear",
+          "evidence": [
+            {
+              "location": "Section I, footnote 4, p. 1133",
+              "quote": "Ohlson's (1980) model 1 is: 0 = -1.32 - 0.407 log(total assets/GNP price-level index) + 6.03 (total liabilities/total assets) - 1.43 (working capital/total assets) + 0.076 (current liabilities/ current assets) - 1.72(1 if total liabilities > total assets, else 0) - 2.37(net income/total assets) - 1.83(funds from operations/total liabilities) + 0.285(1 if net loss for last two years, else 0) - 0.521(net incomet - net incometi,)/(Inet incometi + Inet incomet-1l).",
+              "table_ref": null,
+              "interpretation": ""
+            },
+            {
+              "location": "Section I, footnote 4, p. 1133",
+              "quote": "I use this model without adjusting for the GNP price-level index because the tests in this study employ monthly cross sections, within which the index is the same.",
+              "table_ref": null,
+              "interpretation": ""
+            }
+          ]
+        }
+      ],
+      "inputs": [
+        "total_assets",
+        "total_liabilities",
+        "current_assets",
+        "current_liabilities",
+        "net_income",
+        "net_income_lag1",
+        "funds_from_operations"
+      ],
+      "constants": {},
+      "output_concept": "O_score",
+      "evidence": [
+        {
+          "location": "Section I, p. 1134",
+          "quote": "I use these models to derive bankruptcy measures by applying the original model weights to the model bankruptcy prediction variables.",
+          "table_ref": null,
+          "interpretation": ""
+        }
+      ]
+    },
+    "estimation": null
+  },
+  "data": {
+    "signal_frequency": {
+      "value": "year",
+      "evidence": [
+        {
+          "location": "Section I, p. 1135",
+          "quote": "Market value, book-to-market, and bankruptcy scores are computed from COMPUSTAT as of the fiscal year-end of a given year t.",
+          "table_ref": null,
+          "interpretation": ""
+        }
+      ],
+      "status": "clear",
+      "unsupported_value": null
+    },
+    "return_frequency": {
+      "value": "month",
+      "evidence": [
+        {
+          "location": "Section I, p. 1135",
+          "quote": "returns are monthly returns beginning six months after the fiscal year-end of year t.",
+          "table_ref": null,
+          "interpretation": ""
+        }
+      ],
+      "status": "clear",
+      "unsupported_value": null
+    },
+    "sources": [
+      {
+        "value": "CRSP",
+        "evidence": [
+          {
+            "location": "Section I, p. 1134",
+            "quote": "The sample consists of all industrial firms available simultaneously on the NYSE, AMEX, and Nasdaq Center for Research in Security Prices (CRSP) tapes and the COMPUSTAT annual industrial and research tapes",
+            "table_ref": null,
+            "interpretation": ""
+          }
+        ],
+        "status": "clear",
+        "unsupported_value": null
+      },
+      {
+        "value": "COMPUSTAT annual industrial and research tapes",
+        "evidence": [
+          {
+            "location": "Section I, p. 1134",
+            "quote": "The sample consists of all industrial firms available simultaneously on the NYSE, AMEX, and Nasdaq Center for Research in Security Prices (CRSP) tapes and the COMPUSTAT annual industrial and research tapes",
+            "table_ref": null,
+            "interpretation": ""
+          }
+        ],
+        "status": "clear",
+        "unsupported_value": null
+      }
+    ],
+    "fields": [
+      {
+        "concept_id": "total_assets",
+        "name_in_paper": "total assets",
+        "description": "Total firm assets used in Ohlson's Model 1.",
+        "paper_source_hint": "COMPUSTAT annual industrial and research tapes",
+        "roles": [
+          "signal_input"
+        ],
+        "evidence": [
+          {
+            "location": "Section I, footnote 4, p. 1133",
+            "quote": "log(total assets/GNP price-level index)",
+            "table_ref": null,
+            "interpretation": ""
+          }
+        ],
+        "source_table": {
+          "value": "comp_funda",
+          "evidence": [
+            {
+              "location": "Section I, p. 1134",
+              "quote": "COMPUSTAT annual industrial and research tapes",
+              "table_ref": null,
+              "interpretation": ""
+            }
+          ],
+          "status": "inferred",
+          "unsupported_value": null
+        },
+        "source_column": {
+          "value": "at",
+          "evidence": [
+            {
+              "location": "Data catalog",
+              "quote": "",
+              "table_ref": null,
+              "interpretation": "Catalog definition identifies comp_funda.at as Total Assets."
+            }
+          ],
+          "status": "inferred",
+          "unsupported_value": null
+        }
+      },
+      {
+        "concept_id": "current_assets",
+        "name_in_paper": "current assets",
+        "description": "Current assets used in Ohlson's Model 1.",
+        "paper_source_hint": "COMPUSTAT annual industrial and research tapes",
+        "roles": [
+          "signal_input"
+        ],
+        "evidence": [
+          {
+            "location": "Section I, footnote 4, p. 1133",
+            "quote": "(current liabilities/ current assets)",
+            "table_ref": null,
+            "interpretation": ""
+          }
+        ],
+        "source_table": {
+          "value": "comp_funda",
+          "evidence": [
+            {
+              "location": "Section I, p. 1134",
+              "quote": "COMPUSTAT annual industrial and research tapes",
+              "table_ref": null,
+              "interpretation": ""
+            }
+          ],
+          "status": "inferred",
+          "unsupported_value": null
+        },
+        "source_column": {
+          "value": "act",
+          "evidence": [
+            {
+              "location": "Data catalog",
+              "quote": "",
+              "table_ref": null,
+              "interpretation": "Catalog definition identifies comp_funda.act as Current Assets Total."
+            }
+          ],
+          "status": "inferred",
+          "unsupported_value": null
+        }
+      },
+      {
+        "concept_id": "current_liabilities",
+        "name_in_paper": "current liabilities",
+        "description": "Current liabilities used in Ohlson's Model 1.",
+        "paper_source_hint": "COMPUSTAT annual industrial and research tapes",
+        "roles": [
+          "signal_input"
+        ],
+        "evidence": [
+          {
+            "location": "Section I, footnote 4, p. 1133",
+            "quote": "(current liabilities/ current assets)",
+            "table_ref": null,
+            "interpretation": ""
+          }
+        ],
+        "source_table": {
+          "value": "comp_funda",
+          "evidence": [
+            {
+              "location": "Section I, p. 1134",
+              "quote": "COMPUSTAT annual industrial and research tapes",
+              "table_ref": null,
+              "interpretation": ""
+            }
+          ],
+          "status": "inferred",
+          "unsupported_value": null
+        },
+        "source_column": {
+          "value": "lct",
+          "evidence": [
+            {
+              "location": "Data catalog",
+              "quote": "",
+              "table_ref": null,
+              "interpretation": "Catalog definition identifies comp_funda.lct as Current Liabilities Total."
+            }
+          ],
+          "status": "inferred",
+          "unsupported_value": null
+        }
+      },
+      {
+        "concept_id": "net_income",
+        "name_in_paper": "net income",
+        "description": "Current-period net income used in Ohlson's Model 1.",
+        "paper_source_hint": "COMPUSTAT annual industrial and research tapes",
+        "roles": [
+          "signal_input"
+        ],
+        "evidence": [
+          {
+            "location": "Section I, footnote 4, p. 1133",
+            "quote": "(net income/total assets)",
+            "table_ref": null,
+            "interpretation": ""
+          }
+        ],
+        "source_table": {
+          "value": "comp_funda",
+          "evidence": [
+            {
+              "location": "Section I, p. 1134",
+              "quote": "COMPUSTAT annual industrial and research tapes",
+              "table_ref": null,
+              "interpretation": ""
+            }
+          ],
+          "status": "inferred",
+          "unsupported_value": null
+        },
+        "source_column": {
+          "value": "ib",
+          "evidence": [
+            {
+              "location": "Data catalog",
+              "quote": "",
+              "table_ref": null,
+              "interpretation": "Catalog definition identifies comp_funda.ib as Income Before Extraordinary Items."
+            }
+          ],
+          "status": "inferred",
+          "unsupported_value": null
+        }
+      },
+      {
+        "concept_id": "net_income_lag1",
+        "name_in_paper": "net income t-1",
+        "description": "Prior-period net income used in Ohlson's change-in-income term and two-year-loss indicator.",
+        "paper_source_hint": "COMPUSTAT annual industrial and research tapes",
+        "roles": [
+          "signal_input"
+        ],
+        "evidence": [
+          {
+            "location": "Section I, footnote 4, p. 1133",
+            "quote": "net incomet - net incometi",
+            "table_ref": null,
+            "interpretation": ""
+          }
+        ],
+        "source_table": {
+          "value": "comp_funda",
+          "evidence": [
+            {
+              "location": "Section I, p. 1134",
+              "quote": "COMPUSTAT annual industrial and research tapes",
+              "table_ref": null,
+              "interpretation": ""
+            }
+          ],
+          "status": "inferred",
+          "unsupported_value": null
+        },
+        "source_column": {
+          "value": "ib",
+          "evidence": [
+            {
+              "location": "Data catalog",
+              "quote": "",
+              "table_ref": null,
+              "interpretation": "Catalog definition identifies comp_funda.ib as Income Before Extraordinary Items; the paper requires its prior annual observation."
+            }
+          ],
+          "status": "inferred",
+          "unsupported_value": null
+        }
+      },
+      {
+        "concept_id": "total_liabilities",
+        "name_in_paper": "total liabilities",
+        "description": "Total liabilities used in Ohlson's Model 1 ratios and leverage indicator.",
+        "paper_source_hint": "COMPUSTAT annual industrial and research tapes",
+        "roles": [
+          "signal_input"
+        ],
+        "evidence": [
+          {
+            "location": "Section I, footnote 4, p. 1133",
+            "quote": "(total liabilities/total assets)",
+            "table_ref": null,
+            "interpretation": ""
+          }
+        ],
+        "source_table": {
+          "value": "other",
+          "evidence": [
+            {
+              "location": "Section I, p. 1134",
+              "quote": "COMPUSTAT annual industrial and research tapes",
+              "table_ref": null,
+              "interpretation": ""
+            }
+          ],
+          "status": "inferred",
+          "unsupported_value": "total liabilities"
+        },
+        "source_column": {
+          "value": "",
+          "evidence": [
+            {
+              "location": "Data catalog",
+              "quote": "",
+              "table_ref": null,
+              "interpretation": "No registered physical column plausibly represents total liabilities."
+            }
+          ],
+          "status": "unspecified",
+          "unsupported_value": null
+        }
+      },
+      {
+        "concept_id": "funds_from_operations",
+        "name_in_paper": "funds from operations",
+        "description": "Funds from operations used in Ohlson's Model 1.",
+        "paper_source_hint": "COMPUSTAT annual industrial and research tapes",
+        "roles": [
+          "signal_input"
+        ],
+        "evidence": [
+          {
+            "location": "Section I, footnote 4, p. 1133",
+            "quote": "(funds from operations/total liabilities)",
+            "table_ref": null,
+            "interpretation": ""
+          }
+        ],
+        "source_table": {
+          "value": "other",
+          "evidence": [
+            {
+              "location": "Section I, p. 1134",
+              "quote": "COMPUSTAT annual industrial and research tapes",
+              "table_ref": null,
+              "interpretation": ""
+            }
+          ],
+          "status": "inferred",
+          "unsupported_value": "funds from operations"
+        },
+        "source_column": {
+          "value": "",
+          "evidence": [
+            {
+              "location": "Data catalog",
+              "quote": "",
+              "table_ref": null,
+              "interpretation": "No registered physical funds-from-operations column exists."
+            }
+          ],
+          "status": "unspecified",
+          "unsupported_value": null
+        }
+      },
+      {
+        "concept_id": "sic_code",
+        "name_in_paper": "COMPUSTAT Standard Industrial Classification (SIC) codes",
+        "description": "Industry classification used to restrict the sample to industrial firms.",
+        "paper_source_hint": "COMPUSTAT SIC codes",
+        "roles": [
+          "universe_filter"
+        ],
+        "evidence": [
+          {
+            "location": "Section I, p. 1134",
+            "quote": "I only include firms with COMPUSTAT Standard Industrial Classification (SIC) codes 1 to 3999 and 5000 to 5999.",
+            "table_ref": null,
+            "interpretation": ""
+          }
+        ],
+        "source_table": {
+          "value": "other",
+          "evidence": [
+            {
+              "location": "Section I, p. 1134",
+              "quote": "COMPUSTAT Standard Industrial Classification (SIC) codes",
+              "table_ref": null,
+              "interpretation": ""
+            }
+          ],
+          "status": "clear",
+          "unsupported_value": "COMPUSTAT Standard Industrial Classification (SIC) codes"
+        },
+        "source_column": {
+          "value": "",
+          "evidence": [
+            {
+              "location": "Section I, p. 1134",
+              "quote": "COMPUSTAT Standard Industrial Classification (SIC) codes",
+              "table_ref": null,
+              "interpretation": "The paper identifies Compustat SIC codes, whereas the catalog's siccd is a CRSP column."
+            }
+          ],
+          "status": "unspecified",
+          "unsupported_value": null
+        }
+      }
+    ],
+    "coverage_notes": [
+      "The paper uses the Ohlson model without adjusting for the GNP price-level index because it is constant within a monthly cross section."
+    ]
+  },
+  "sample": {
+    "data_coverage": {
+      "start_year": 1981,
+      "end_year": 1995,
+      "start_month": null,
+      "end_month": null,
+      "evidence": [
+        {
+          "location": "Section I, p. 1134",
+          "quote": "for the period 1981 to 1995.",
+          "table_ref": null,
+          "interpretation": ""
+        }
+      ],
+      "status": "clear"
+    },
+    "formation": {
+      "start_year": 1981,
+      "end_year": 1995,
+      "start_month": null,
+      "end_month": null,
+      "evidence": [
+        {
+          "location": "Table IV, p. 1140",
+          "quote": "during 1981 to 1995",
+          "table_ref": null,
+          "interpretation": ""
+        }
+      ],
+      "status": "clear"
+    },
+    "reported_returns": {
+      "start_year": 1981,
+      "end_year": 1995,
+      "start_month": null,
+      "end_month": null,
+      "evidence": [
+        {
+          "location": "Table V, p. 1144",
+          "quote": "",
+          "table_ref": {
+            "table": "Table V",
+            "row": "1981-1995 and Mean",
+            "column": "Year"
+          },
+          "interpretation": "The table reports annual strategy returns for 1981 through 1995 and their mean."
+        }
+      ],
+      "status": "table_only"
+    }
+  },
+  "timing": {
+    "formation_rule": {
+      "value": "Use fiscal-year-end Compustat accounting data and begin monthly returns six months after the fiscal year-end.",
+      "evidence": [
+        {
+          "location": "Section I, p. 1135",
+          "quote": "returns are monthly returns beginning six months after the fiscal year-end of year t.",
+          "table_ref": null,
+          "interpretation": ""
+        }
+      ],
+      "status": "clear",
+      "unsupported_value": null
+    },
+    "formation_month": null,
+    "rebalance_frequency": {
+      "value": "month",
+      "evidence": [
+        {
+          "location": "Section II.B, p. 1143",
+          "quote": "Firms with high bankruptcy risk are defined monthly as firms in the top decile of bankruptcy risk in the full sample",
+          "table_ref": null,
+          "interpretation": ""
+        }
+      ],
+      "status": "clear",
+      "unsupported_value": null
+    },
+    "holding_period": {
+      "value": 12,
+      "evidence": [
+        {
+          "location": "Table IV, p. 1140",
+          "quote": "Rets is one-year-ahead monthly returns (in percent), starting six months after fiscal-year-end.",
+          "table_ref": null,
+          "interpretation": ""
+        }
+      ],
+      "status": "clear",
+      "unsupported_value": null
+    },
+    "return_window": null,
+    "data_availability": {
+      "lag_value": 6,
+      "lag_unit": "month",
+      "anchor": "fiscal_period_end",
+      "basis": "fixed_calendar_lag",
+      "evidence": [
+        {
+          "location": "Section I, p. 1135",
+          "quote": "To ensure that the accounting data are available to calculate bankruptcy measures, returns are monthly returns beginning six months after the fiscal year-end of year t.",
+          "table_ref": null,
+          "interpretation": ""
+        }
+      ]
+    }
+  },
+  "universe": {
+    "description": {
+      "value": "Industrial firms simultaneously available on NYSE, AMEX, and Nasdaq CRSP tapes and Compustat annual industrial and research tapes, restricted to SIC codes 1-3999 and 5000-5999.",
+      "evidence": [
+        {
+          "location": "Section I, p. 1134",
+          "quote": "The sample consists of all industrial firms available simultaneously on the NYSE, AMEX, and Nasdaq Center for Research in Security Prices (CRSP) tapes and the COMPUSTAT annual industrial and research tapes for the period 1981 to 1995.",
+          "table_ref": null,
+          "interpretation": ""
+        }
+      ],
+      "status": "clear",
+      "unsupported_value": null
+    },
+    "filters": [
+      {
+        "concept_id": "sic_code",
+        "op": "between",
+        "value": [
+          1,
+          3999
+        ],
+        "evidence": [
+          {
+            "location": "Section I, p. 1134",
+            "quote": "I only include firms with COMPUSTAT Standard Industrial Classification (SIC) codes 1 to 3999 and 5000 to 5999.",
+            "table_ref": null,
+            "interpretation": ""
+          }
+        ],
+        "derivation": null,
+        "accepted_unapplied": false,
+        "unapplied_reason": ""
+      },
+      {
+        "concept_id": "sic_code",
+        "op": "between",
+        "value": [
+          5000,
+          5999
+        ],
+        "evidence": [
+          {
+            "location": "Section I, p. 1134",
+            "quote": "I only include firms with COMPUSTAT Standard Industrial Classification (SIC) codes 1 to 3999 and 5000 to 5999.",
+            "table_ref": null,
+            "interpretation": ""
+          }
+        ],
+        "derivation": null,
+        "accepted_unapplied": false,
+        "unapplied_reason": ""
+      }
+    ]
+  },
+  "portfolio": {
+    "construction_type": {
+      "value": "direct_portfolio",
+      "evidence": [
+        {
+          "location": "Section II.B, p. 1143",
+          "quote": "I construct a zero-investment trading strategy based on buying an equally weighted portfolio of firms with low bankruptcy risk and shorting an equally weighted portfolio of firms with high bankruptcy risk.",
+          "table_ref": null,
+          "interpretation": ""
+        }
+      ],
+      "status": "clear",
+      "unsupported_value": null
+    },
+    "sorts": [],
+    "legs": [
+      {
+        "leg_id": "low_bankruptcy_risk",
+        "side": "long",
+        "selector": {},
+        "evidence": [
+          {
+            "location": "Section II.B, p. 1143",
+            "quote": "Firms with low probability of bankruptcy are defined as the 70 percent of all firms with the lowest probability of bankruptcy.",
+            "table_ref": null,
+            "interpretation": ""
+          }
+        ]
+      },
+      {
+        "leg_id": "high_bankruptcy_risk",
+        "side": "short",
+        "selector": {},
+        "evidence": [
+          {
+            "location": "Section II.B, p. 1143",
+            "quote": "Firms with high bankruptcy risk are defined monthly as firms in the top decile of bankruptcy risk in the full sample",
+            "table_ref": null,
+            "interpretation": ""
+          }
+        ]
+      }
+    ],
+    "weighting": {
+      "value": "ew",
+      "evidence": [
+        {
+          "location": "Section II.B, p. 1143",
+          "quote": "buying an equally weighted portfolio of firms with low bankruptcy risk and shorting an equally weighted portfolio of firms with high bankruptcy risk.",
+          "table_ref": null,
+          "interpretation": ""
+        }
+      ],
+      "status": "clear",
+      "unsupported_value": null
+    },
+    "return_combination": {
+      "value": "average_leg_spread",
+      "evidence": [
+        {
+          "location": "Table V, p. 1144",
+          "quote": "Net Ret is the mean return on the low bankruptcy risk portfolio minus the mean return on the high bankruptcy risk portfolio.",
+          "table_ref": null,
+          "interpretation": ""
+        }
+      ],
+      "status": "clear",
+      "unsupported_value": null
+    },
+    "missing_policies": [],
+    "transforms": [
+      {
+        "kind": "winsorize",
+        "stage": "after_signal",
+        "bounds": [
+          0.01,
+          0.99
+        ],
+        "evidence": [
+          {
+            "location": "Section I, p. 1135",
+            "quote": "the top and bottom 1 percent of observations for each variable, except market value, are set at the 1st and the 99th percentile respectively.",
+            "table_ref": null,
+            "interpretation": ""
+          }
+        ]
+      }
+    ]
+  },
+  "reported_results": {
+    "primary_metric_id": "ohlson_low70_minus_high10_mean_monthly_return",
+    "metrics": [
+      {
+        "metric_id": "ohlson_low70_minus_high10_mean_monthly_return",
+        "label": "Mean monthly net return: lowest 70% probability of bankruptcy minus highest 10% probability of bankruptcy",
+        "estimand": "spread",
+        "adjustment_model": "raw",
+        "weighting": "ew",
+        "estimate": 1.17,
+        "unit": "percent",
+        "frequency": "month",
+        "statistic": {
+          "kind": "t_stat",
+          "value": 3.36
+        },
+        "sample_period": {
+          "start_year": 1981,
+          "end_year": 1995,
+          "start_month": null,
+          "end_month": null,
+          "evidence": [
+            {
+              "location": "Table V, p. 1144",
+              "quote": "",
+              "table_ref": {
+                "table": "Table V",
+                "row": "Mean",
+                "column": "Highest 10 percent probability of bankruptcy Net Ret"
+              },
+              "interpretation": "The table's annual rows span 1981-1995 and its Mean row reports 1.17."
+            }
+          ],
+          "status": "table_only"
+        },
+        "evidence": [
+          {
+            "location": "Table V, p. 1144",
+            "quote": "",
+            "table_ref": {
+              "table": "Table V",
+              "row": "Mean / t-stat",
+              "column": "Highest 10 percent probability of bankruptcy Net Ret"
+            },
+            "interpretation": "Mean net return is 1.17 percent and t-statistic is 3.36."
+          }
+        ],
+        "status": "table_only"
+      }
+    ]
+  },
+  "notes": "This specification targets Ohlson's Model 1 O score and the paper's zero-investment strategy: long the lowest 70 percent of bankruptcy-risk firms and short the highest decile. The paper also reports decile portfolios and Fama-MacBeth regressions separately for NYSE-AMEX and Nasdaq subsamples."
+}

@@ -1,0 +1,1135 @@
+{
+  "paper": {
+    "schema_version": "methodspec.v2",
+    "factor_id": "dd915ef49fd849f0",
+    "target_name": "momentum",
+    "paper": {
+      "document_id": "Returns to buying winners and  selling losers- Implications for stock market efficiency.pdf",
+      "title": "Returns to Buying Winners and Selling Losers: Implications for Stock Market Efficiency",
+      "citation": "Jegadeesh, Narasimhan, and Sheridan Titman. 1993. \"Returns to Buying Winners and Selling Losers: Implications for Stock Market Efficiency.\" The Journal of Finance 48(1): 65-91.",
+      "publication_year": 1993
+    },
+    "signal": {
+      "definition": {
+        "value": "Past 6-month stock return used to rank stocks into winner and loser deciles.",
+        "evidence": [
+          {
+            "location": "Section I, Trading Strategies",
+            "quote": "At the beginning of each month t the securities are ranked in ascending order on the basis of their returns in the past J months.",
+            "table_ref": null,
+            "interpretation": ""
+          },
+          {
+            "location": "Section II, The Returns of Relative Strength Portfolios",
+            "quote": "Having established that the relative strength strategies are on average quite profitable, we now examine one specific strategy in detail, the 6-month/6-month strategy that does not skip a week between the portfolio formation period and the holding period.",
+            "table_ref": null,
+            "interpretation": ""
+          }
+        ],
+        "status": "clear",
+        "unsupported_value": null
+      },
+      "economic_intuition": {
+        "value": "Past winners continue to outperform past losers because prices may underreact to firm-specific information.",
+        "evidence": [
+          {
+            "location": "Section III.D, Lead-Lag Effects and Relative Strength Profits",
+            "quote": "This evidence indicates that the lead-lag effect is not an important source of relative strength profits and that the profitability of these strategies is therefore related to market underreaction to the firm-specific information.",
+            "table_ref": null,
+            "interpretation": ""
+          }
+        ],
+        "status": "clear",
+        "unsupported_value": null
+      },
+      "direction": {
+        "value": "positive",
+        "evidence": [
+          {
+            "location": "Section I, Trading Strategies",
+            "quote": "In each month t, the strategy buys the winner portfolio and sells the loser portfolio",
+            "table_ref": null,
+            "interpretation": "Higher past-return stocks are bought and lower past-return stocks are sold."
+          }
+        ],
+        "status": "clear",
+        "unsupported_value": null
+      },
+      "category": "continuous",
+      "formula": {
+        "paper_expression": "Rank securities in ascending order by their returns over the prior 6 months; the highest-return decile is the winner portfolio and the lowest-return decile is the loser portfolio.",
+        "steps": [
+          {
+            "step_id": "past_six_month_return",
+            "description": "Calculate each security's return over the past 6 months before portfolio formation.",
+            "expression": "compound(stock_return, 6)",
+            "status": "clear",
+            "evidence": [
+              {
+                "location": "Section I, Trading Strategies",
+                "quote": "a strategy that selects stocks on the basis of returns over the past J months and holds them for K months",
+                "table_ref": null,
+                "interpretation": "For the focal strategy, J equals 6 months."
+              }
+            ]
+          },
+          {
+            "step_id": "rank_into_deciles",
+            "description": "Rank securities ascending by the past 6-month return and assign them to ten decile portfolios.",
+            "expression": "rank_ascending_deciles(past_six_month_return, 10)",
+            "status": "clear",
+            "evidence": [
+              {
+                "location": "Section I, Trading Strategies",
+                "quote": "At the beginning of each month t the securities are ranked in ascending order on the basis of their returns in the past J months. Based on these rankings, ten decile portfolios are formed",
+                "table_ref": null,
+                "interpretation": ""
+              }
+            ]
+          },
+          {
+            "step_id": "momentum_signal",
+            "description": "Use the past-return decile rank as the momentum signal, with the highest decile representing winners.",
+            "expression": "rank_into_deciles",
+            "status": "clear",
+            "evidence": [
+              {
+                "location": "Section I, Trading Strategies",
+                "quote": "The top decile portfolio is called the \"losers\" decile and the bottom decile is called the \"winners\" decile.",
+                "table_ref": null,
+                "interpretation": "Because ranks are ascending, the top decile has the lowest past returns and the bottom decile has the highest past returns."
+              }
+            ]
+          }
+        ],
+        "inputs": [
+          "stock_return"
+        ],
+        "constants": {
+          "formation_window_months": 6.0,
+          "decile_count": 10.0
+        },
+        "output_concept": "past_six_month_return_decile",
+        "evidence": [
+          {
+            "location": "Table II caption",
+            "quote": "The relative strength portfolios are formed based on 6-month lagged returns and held for 6 months.",
+            "table_ref": null,
+            "interpretation": ""
+          }
+        ]
+      },
+      "estimation": null
+    },
+    "data": {
+      "signal_frequency": {
+        "value": "month",
+        "evidence": [
+          {
+            "location": "Section I, Trading Strategies",
+            "quote": "At the beginning of each month t",
+            "table_ref": null,
+            "interpretation": ""
+          }
+        ],
+        "status": "clear",
+        "unsupported_value": null
+      },
+      "return_frequency": {
+        "value": "month",
+        "evidence": [
+          {
+            "location": "Section II, The Returns of Relative Strength Portfolios",
+            "quote": "Monthly returns were obtained by compounding the daily returns recorded in this data set.",
+            "table_ref": null,
+            "interpretation": ""
+          }
+        ],
+        "status": "clear",
+        "unsupported_value": null
+      },
+      "sources": [
+        {
+          "value": "CRSP daily returns file",
+          "evidence": [
+            {
+              "location": "Section II, The Returns of Relative Strength Portfolios",
+              "quote": "This section documents the returns of the portfolio strategies described in the last section over the 1965 to 1989 period using data from the CRSP daily returns file.",
+              "table_ref": null,
+              "interpretation": ""
+            }
+          ],
+          "status": "clear",
+          "unsupported_value": null
+        }
+      ],
+      "fields": [
+        {
+          "concept_id": "stock_return",
+          "name_in_paper": "returns",
+          "description": "Individual security returns used to calculate trailing 6-month returns and subsequent portfolio returns.",
+          "paper_source_hint": "CRSP daily returns file; monthly returns are compounded from daily returns.",
+          "roles": [
+            "signal_input",
+            "universe_filter"
+          ],
+          "evidence": [
+            {
+              "location": "Section II, The Returns of Relative Strength Portfolios",
+              "quote": "All stocks with available returns data in the J months preceding the portfolio formation date are included in the sample from which the buy and sell portfolios are constructed.",
+              "table_ref": null,
+              "interpretation": ""
+            }
+          ],
+          "source_table": {
+            "value": "crsp_msf",
+            "evidence": [
+              {
+                "location": "Section II, The Returns of Relative Strength Portfolios",
+                "quote": "Monthly returns were obtained by compounding the daily returns recorded in this data set.",
+                "table_ref": null,
+                "interpretation": "The registered monthly CRSP source is the closest available catalog source for the paper's compounded monthly stock returns."
+              }
+            ],
+            "status": "inferred",
+            "unsupported_value": null
+          },
+          "source_column": {
+            "value": "ret",
+            "evidence": [
+              {
+                "location": "Section II, The Returns of Relative Strength Portfolios",
+                "quote": "Monthly returns were obtained by compounding the daily returns recorded in this data set.",
+                "table_ref": null,
+                "interpretation": "The catalog's monthly total-return column corresponds to the paper's monthly stock returns."
+              }
+            ],
+            "status": "inferred",
+            "unsupported_value": null
+          }
+        },
+        {
+          "concept_id": "exchange_code",
+          "name_in_paper": "NYSE and AMEX stocks",
+          "description": "Stock listing exchange used to restrict the study universe to NYSE and AMEX stocks.",
+          "paper_source_hint": "The paper describes its analysis as using NYSE and AMEX stocks.",
+          "roles": [
+            "universe_filter"
+          ],
+          "evidence": [
+            {
+              "location": "Introduction",
+              "quote": "Our analysis of NYSE and AMEX stocks documents significant profits in the 1965 to 1989 sample period",
+              "table_ref": null,
+              "interpretation": ""
+            }
+          ],
+          "source_table": {
+            "value": "crsp_msf",
+            "evidence": [
+              {
+                "location": "Introduction",
+                "quote": "Our analysis of NYSE and AMEX stocks documents significant profits in the 1965 to 1989 sample period",
+                "table_ref": null,
+                "interpretation": "The CRSP monthly-file exchange-code field is the registered catalog field that represents the stated exchange restriction."
+              }
+            ],
+            "status": "inferred",
+            "unsupported_value": null
+          },
+          "source_column": {
+            "value": "exchcd",
+            "evidence": [
+              {
+                "location": "Introduction",
+                "quote": "Our analysis of NYSE and AMEX stocks documents significant profits in the 1965 to 1989 sample period",
+                "table_ref": null,
+                "interpretation": "The catalog defines exchcd 1 as NYSE and 2 as AMEX."
+              }
+            ],
+            "status": "inferred",
+            "unsupported_value": null
+          }
+        }
+      ],
+      "coverage_notes": [
+        "The paper uses the CRSP daily returns file and compounds daily returns to monthly returns."
+      ]
+    },
+    "sample": {
+      "data_coverage": {
+        "start_year": 1962,
+        "end_year": 1989,
+        "start_month": 7,
+        "end_month": 12,
+        "evidence": [
+          {
+            "location": "Section II, footnote 4",
+            "quote": "The latest version of the CRSP daily returns file at the time this study was initiated covered the July 1962 to December 1989 period.",
+            "table_ref": null,
+            "interpretation": ""
+          }
+        ],
+        "status": "clear"
+      },
+      "formation": {
+        "start_year": 1965,
+        "end_year": 1989,
+        "start_month": 1,
+        "end_month": 12,
+        "evidence": [
+          {
+            "location": "Section II, footnote 4",
+            "quote": "the first full calendar year for which we could examine portfolio returns is 1965.",
+            "table_ref": null,
+            "interpretation": ""
+          },
+          {
+            "location": "Table II caption",
+            "quote": "The sample period is January 1965 to December 1989.",
+            "table_ref": null,
+            "interpretation": ""
+          }
+        ],
+        "status": "clear"
+      },
+      "reported_returns": {
+        "start_year": 1965,
+        "end_year": 1989,
+        "start_month": 1,
+        "end_month": 12,
+        "evidence": [
+          {
+            "location": "Table II caption",
+            "quote": "The sample period is January 1965 to December 1989.",
+            "table_ref": null,
+            "interpretation": ""
+          }
+        ],
+        "status": "clear"
+      }
+    },
+    "timing": {
+      "formation_rule": {
+        "value": "At the beginning of each month, rank stocks by their prior 6-month returns and form portfolios immediately after measuring those returns.",
+        "evidence": [
+          {
+            "location": "Section I, Trading Strategies",
+            "quote": "At the beginning of each month t the securities are ranked in ascending order on the basis of their returns in the past J months.",
+            "table_ref": null,
+            "interpretation": ""
+          },
+          {
+            "location": "Table I caption",
+            "quote": "The relative strength portfolios in Panel A are formed immediately after the lagged returns are measured for the purpose of portfolio formation.",
+            "table_ref": null,
+            "interpretation": ""
+          }
+        ],
+        "status": "clear",
+        "unsupported_value": null
+      },
+      "formation_month": null,
+      "rebalance_frequency": {
+        "value": "year",
+        "evidence": [
+          {
+            "location": "Section I, Trading Strategies",
+            "quote": "in any given month t, the strategies hold a series of portfolios that are selected in the current month as well as in the previous K - 1 months",
+            "table_ref": null,
+            "interpretation": ""
+          },
+          {
+            "location": "",
+            "quote": "",
+            "table_ref": null,
+            "interpretation": "human correction"
+          }
+        ],
+        "status": "clear",
+        "unsupported_value": null
+      },
+      "holding_period": {
+        "value": 6,
+        "evidence": [
+          {
+            "location": "Table II caption",
+            "quote": "The relative strength portfolios are formed based on 6-month lagged returns and held for 6 months.",
+            "table_ref": null,
+            "interpretation": ""
+          }
+        ],
+        "status": "clear",
+        "unsupported_value": null
+      },
+      "return_window": null,
+      "data_availability": {
+        "lag_value": 0,
+        "lag_unit": "month",
+        "anchor": "formation_date",
+        "basis": "fixed_calendar_lag",
+        "evidence": [
+          {
+            "location": "Table I caption",
+            "quote": "The relative strength portfolios in Panel A are formed immediately after the lagged returns are measured for the purpose of portfolio formation.",
+            "table_ref": null,
+            "interpretation": ""
+          }
+        ]
+      }
+    },
+    "universe": {
+      "description": {
+        "value": "NYSE and AMEX stocks with available return data during the six months preceding portfolio formation.",
+        "evidence": [
+          {
+            "location": "Introduction",
+            "quote": "Our analysis of NYSE and AMEX stocks documents significant profits in the 1965 to 1989 sample period",
+            "table_ref": null,
+            "interpretation": ""
+          },
+          {
+            "location": "Section II, The Returns of Relative Strength Portfolios",
+            "quote": "All stocks with available returns data in the J months preceding the portfolio formation date are included in the sample from which the buy and sell portfolios are constructed.",
+            "table_ref": null,
+            "interpretation": ""
+          }
+        ],
+        "status": "clear",
+        "unsupported_value": null
+      },
+      "filters": [
+        {
+          "concept_id": "exchange_code",
+          "op": "in",
+          "value": [
+            1,
+            2
+          ],
+          "evidence": [
+            {
+              "location": "Introduction",
+              "quote": "Our analysis of NYSE and AMEX stocks documents significant profits in the 1965 to 1989 sample period",
+              "table_ref": null,
+              "interpretation": "The registered CRSP exchange coding identifies NYSE as 1 and AMEX as 2."
+            }
+          ],
+          "derivation": null,
+          "accepted_unapplied": false,
+          "unapplied_reason": ""
+        },
+        {
+          "concept_id": "stock_return",
+          "op": "nonmissing",
+          "value": null,
+          "evidence": [
+            {
+              "location": "Section II, The Returns of Relative Strength Portfolios",
+              "quote": "All stocks with available returns data in the J months preceding the portfolio formation date are included in the sample from which the buy and sell portfolios are constructed.",
+              "table_ref": null,
+              "interpretation": "For the focal strategy, J equals six months."
+            }
+          ],
+          "derivation": {
+            "paper_expression": "Include stocks only when returns data are available in each of the six months preceding portfolio formation.",
+            "steps": [
+              {
+                "step_id": "trailing_return_availability",
+                "description": "Test whether a security has available stock-return observations in all six months preceding formation.",
+                "expression": "count_nonmissing(stock_return, 6) == 6",
+                "status": "clear",
+                "evidence": [
+                  {
+                    "location": "Section II, The Returns of Relative Strength Portfolios",
+                    "quote": "All stocks with available returns data in the J months preceding the portfolio formation date are included in the sample from which the buy and sell portfolios are constructed.",
+                    "table_ref": null,
+                    "interpretation": "For the focal strategy, J equals six months."
+                  }
+                ]
+              }
+            ],
+            "inputs": [
+              "stock_return"
+            ],
+            "constants": {
+              "required_months": 6.0
+            },
+            "output_concept": "trailing_return_availability",
+            "evidence": [
+              {
+                "location": "Section II, The Returns of Relative Strength Portfolios",
+                "quote": "All stocks with available returns data in the J months preceding the portfolio formation date are included in the sample from which the buy and sell portfolios are constructed.",
+                "table_ref": null,
+                "interpretation": "For the focal strategy, J equals six months."
+              }
+            ]
+          },
+          "accepted_unapplied": false,
+          "unapplied_reason": ""
+        }
+      ]
+    },
+    "portfolio": {
+      "construction_type": {
+        "value": "characteristic_sort",
+        "evidence": [
+          {
+            "location": "Section I, Trading Strategies",
+            "quote": "Based on these rankings, ten decile portfolios are formed",
+            "table_ref": null,
+            "interpretation": ""
+          }
+        ],
+        "status": "clear",
+        "unsupported_value": null
+      },
+      "sorts": [
+        {
+          "sort_id": "past_return",
+          "concept_id": "past_six_month_return_decile",
+          "role": "target",
+          "order": 0,
+          "mode": {
+            "value": "independent",
+            "evidence": [
+              {
+                "location": "Section I, Trading Strategies",
+                "quote": "Based on these rankings, ten decile portfolios are formed",
+                "table_ref": null,
+                "interpretation": "There is one univariate sort."
+              }
+            ],
+            "status": "clear",
+            "unsupported_value": null
+          },
+          "group_type": {
+            "value": "quantile",
+            "evidence": [
+              {
+                "location": "Section I, Trading Strategies",
+                "quote": "Based on these rankings, ten decile portfolios are formed",
+                "table_ref": null,
+                "interpretation": ""
+              }
+            ],
+            "status": "clear",
+            "unsupported_value": null
+          },
+          "group_count": 10,
+          "breakpoints": {
+            "basis": {
+              "value": "full_sample",
+              "evidence": [
+                {
+                  "location": "Section I, Trading Strategies",
+                  "quote": "At the beginning of each month t the securities are ranked in ascending order on the basis of their returns in the past J months. Based on these rankings, ten decile portfolios are formed",
+                  "table_ref": null,
+                  "interpretation": "The method describes deciles of the stated eligible universe but does not explicitly identify a separate breakpoint population."
+                }
+              ],
+              "status": "inferred",
+              "unsupported_value": null
+            },
+            "values": []
+          },
+          "condition_on_sort_id": null,
+          "evidence": [
+            {
+              "location": "Section I, Trading Strategies",
+              "quote": "The top decile portfolio is called the \"losers\" decile and the bottom decile is called the \"winners\" decile.",
+              "table_ref": null,
+              "interpretation": ""
+            }
+          ]
+        }
+      ],
+      "legs": [
+        {
+          "leg_id": "winners",
+          "side": "long",
+          "selector": {
+            "past_return": 9
+          },
+          "evidence": [
+            {
+              "location": "Section I, Trading Strategies",
+              "quote": "In each month t, the strategy buys the winner portfolio",
+              "table_ref": null,
+              "interpretation": "With ascending ranks, the winner portfolio is the highest past-return decile."
+            }
+          ]
+        },
+        {
+          "leg_id": "losers",
+          "side": "short",
+          "selector": {
+            "past_return": 0
+          },
+          "evidence": [
+            {
+              "location": "Section I, Trading Strategies",
+              "quote": "and sells the loser portfolio",
+              "table_ref": null,
+              "interpretation": "With ascending ranks, the loser portfolio is the lowest past-return decile."
+            }
+          ]
+        }
+      ],
+      "weighting": {
+        "value": "ew",
+        "evidence": [
+          {
+            "location": "Section I, Trading Strategies",
+            "quote": "ten decile portfolios are formed that equally weight the stocks contained in the top decile, the second decile, and so on.",
+            "table_ref": null,
+            "interpretation": ""
+          }
+        ],
+        "status": "clear",
+        "unsupported_value": null
+      },
+      "return_combination": {
+        "value": "extreme_group_spread",
+        "evidence": [
+          {
+            "location": "Table VII caption",
+            "quote": "This table reports the average returns of the zero-cost, buy minus sell, portfolio",
+            "table_ref": null,
+            "interpretation": ""
+          }
+        ],
+        "status": "clear",
+        "unsupported_value": null
+      },
+      "missing_policies": [
+        {
+          "stage": "input",
+          "action": {
+            "value": "drop",
+            "evidence": [
+              {
+                "location": "Section II, The Returns of Relative Strength Portfolios",
+                "quote": "All stocks with available returns data in the J months preceding the portfolio formation date are included in the sample from which the buy and sell portfolios are constructed.",
+                "table_ref": null,
+                "interpretation": ""
+              }
+            ],
+            "status": "clear",
+            "unsupported_value": null
+          },
+          "threshold": null
+        }
+      ],
+      "transforms": []
+    },
+    "reported_results": {
+      "primary_metric_id": "six_by_six_monthly_winner_minus_loser",
+      "metrics": [
+        {
+          "metric_id": "six_by_six_monthly_winner_minus_loser",
+          "label": "6-month/6-month zero-cost winners-minus-losers average monthly return",
+          "estimand": "spread",
+          "adjustment_model": "raw",
+          "weighting": "ew",
+          "estimate": 0.0095,
+          "unit": "decimal",
+          "frequency": "month",
+          "statistic": {
+            "kind": "t_stat",
+            "value": 3.07
+          },
+          "sample_period": {
+            "start_year": 1965,
+            "end_year": 1989,
+            "start_month": 1,
+            "end_month": 12,
+            "evidence": [
+              {
+                "location": "Table III, Panel A",
+                "quote": "The sample period is January 1965 to December 1989.",
+                "table_ref": null,
+                "interpretation": ""
+              }
+            ],
+            "status": "clear"
+          },
+          "evidence": [
+            {
+              "location": "Table III, Panel A",
+              "quote": "",
+              "table_ref": {
+                "table": "Table III",
+                "row": "P10-P1",
+                "column": "All"
+              },
+              "interpretation": "The reported average monthly return is 0.0095 and the parenthesized t-statistic is 3.07."
+            }
+          ],
+          "status": "table_only"
+        },
+        {
+          "metric_id": "six_by_six_market_adjusted_winner_minus_loser",
+          "label": "6-month/6-month winners-minus-losers excess return using CRSP value-weighted index as market proxy",
+          "estimand": "alpha",
+          "adjustment_model": "capm",
+          "weighting": "ew",
+          "estimate": 0.01,
+          "unit": "decimal",
+          "frequency": "month",
+          "statistic": {
+            "kind": "t_stat",
+            "value": 3.23
+          },
+          "sample_period": {
+            "start_year": 1965,
+            "end_year": 1989,
+            "start_month": 1,
+            "end_month": 12,
+            "evidence": [
+              {
+                "location": "Table III, Panel B",
+                "quote": "The sample period is January 1965 to December 1989.",
+                "table_ref": null,
+                "interpretation": ""
+              }
+            ],
+            "status": "clear"
+          },
+          "evidence": [
+            {
+              "location": "Table III, Panel B",
+              "quote": "",
+              "table_ref": {
+                "table": "Table III",
+                "row": "P10-P1",
+                "column": "All"
+              },
+              "interpretation": "The reported excess return is 0.0100 and the parenthesized t-statistic is 3.23."
+            }
+          ],
+          "status": "table_only"
+        },
+        {
+          "metric_id": "six_by_six_annual_compounded_excess_return",
+          "label": "6-month/6-month compounded excess return per year",
+          "estimand": "alpha",
+          "adjustment_model": "other",
+          "weighting": "ew",
+          "estimate": 0.1201,
+          "unit": "decimal",
+          "frequency": "year",
+          "statistic": null,
+          "sample_period": {
+            "start_year": 1965,
+            "end_year": 1989,
+            "start_month": 1,
+            "end_month": 12,
+            "evidence": [
+              {
+                "location": "Conclusions",
+                "quote": "Trading strategies that buy past winners and sell past losers realize significant abnormal returns over the 1965 to 1989 period.",
+                "table_ref": null,
+                "interpretation": ""
+              }
+            ],
+            "status": "clear"
+          },
+          "evidence": [
+            {
+              "location": "Conclusions",
+              "quote": "the strategy we examine in most detail, which selects stocks based on their past 6-month returns and holds them for 6 months, realizes a compounded excess return of 12.01% per year on average.",
+              "table_ref": null,
+              "interpretation": ""
+            }
+          ],
+          "status": "clear"
+        }
+      ]
+    },
+    "notes": "This specification selects the 6-month formation/6-month holding, no-week-skip strategy that the paper examines in most detail. It uses overlapping monthly cohorts, with a new cohort formed each month and positions held for six months."
+  },
+  "review": {
+    "schema_version": "methodreview.v2",
+    "factor_id": "dd915ef49fd849f0",
+    "capability_version": "engine_capability.v1",
+    "findings": [
+      {
+        "field_path": "portfolio.sorts[0].breakpoints.basis",
+        "kind": "ambiguous",
+        "reason": "evidence_status=inferred",
+        "empirical_impact": "high",
+        "disposition": "needs_human_confirmation",
+        "paper_value": "full_sample",
+        "evidence": [
+          {
+            "location": "Section I, Trading Strategies",
+            "quote": "At the beginning of each month t the securities are ranked in ascending order on the basis of their returns in the past J months. Based on these rankings, ten decile portfolios are formed",
+            "table_ref": null,
+            "interpretation": "The method describes deciles of the stated eligible universe but does not explicitly identify a separate breakpoint population."
+          }
+        ]
+      },
+      {
+        "field_path": "data.fields[0].source_table",
+        "kind": "ambiguous",
+        "reason": "evidence_status=inferred",
+        "empirical_impact": "high",
+        "disposition": "needs_human_confirmation",
+        "paper_value": "crsp_msf",
+        "evidence": [
+          {
+            "location": "Section II, The Returns of Relative Strength Portfolios",
+            "quote": "Monthly returns were obtained by compounding the daily returns recorded in this data set.",
+            "table_ref": null,
+            "interpretation": "The registered monthly CRSP source is the closest available catalog source for the paper's compounded monthly stock returns."
+          }
+        ]
+      },
+      {
+        "field_path": "data.fields[0].source_column",
+        "kind": "ambiguous",
+        "reason": "evidence_status=inferred",
+        "empirical_impact": "high",
+        "disposition": "needs_human_confirmation",
+        "paper_value": "ret",
+        "evidence": [
+          {
+            "location": "Section II, The Returns of Relative Strength Portfolios",
+            "quote": "Monthly returns were obtained by compounding the daily returns recorded in this data set.",
+            "table_ref": null,
+            "interpretation": "The catalog's monthly total-return column corresponds to the paper's monthly stock returns."
+          }
+        ]
+      },
+      {
+        "field_path": "data.fields[1].source_table",
+        "kind": "ambiguous",
+        "reason": "evidence_status=inferred",
+        "empirical_impact": "high",
+        "disposition": "needs_human_confirmation",
+        "paper_value": "crsp_msf",
+        "evidence": [
+          {
+            "location": "Introduction",
+            "quote": "Our analysis of NYSE and AMEX stocks documents significant profits in the 1965 to 1989 sample period",
+            "table_ref": null,
+            "interpretation": "The CRSP monthly-file exchange-code field is the registered catalog field that represents the stated exchange restriction."
+          }
+        ]
+      },
+      {
+        "field_path": "data.fields[1].source_column",
+        "kind": "ambiguous",
+        "reason": "evidence_status=inferred",
+        "empirical_impact": "high",
+        "disposition": "needs_human_confirmation",
+        "paper_value": "exchcd",
+        "evidence": [
+          {
+            "location": "Introduction",
+            "quote": "Our analysis of NYSE and AMEX stocks documents significant profits in the 1965 to 1989 sample period",
+            "table_ref": null,
+            "interpretation": "The catalog defines exchcd 1 as NYSE and 2 as AMEX."
+          }
+        ]
+      }
+    ],
+    "all_high_impact_fields": [
+      {
+        "field_path": "signal.direction",
+        "kind": "ambiguous",
+        "reason": "evidence_status=clear",
+        "empirical_impact": "high",
+        "disposition": "auto_approve",
+        "paper_value": "positive",
+        "evidence": [
+          {
+            "location": "Section I, Trading Strategies",
+            "quote": "In each month t, the strategy buys the winner portfolio and sells the loser portfolio",
+            "table_ref": null,
+            "interpretation": "Higher past-return stocks are bought and lower past-return stocks are sold."
+          }
+        ]
+      },
+      {
+        "field_path": "timing.formation_rule",
+        "kind": "ambiguous",
+        "reason": "evidence_status=clear",
+        "empirical_impact": "high",
+        "disposition": "auto_approve",
+        "paper_value": "At the beginning of each month, rank stocks by their prior 6-month returns and form portfolios immediately after measuring those returns.",
+        "evidence": [
+          {
+            "location": "Section I, Trading Strategies",
+            "quote": "At the beginning of each month t the securities are ranked in ascending order on the basis of their returns in the past J months.",
+            "table_ref": null,
+            "interpretation": ""
+          },
+          {
+            "location": "Table I caption",
+            "quote": "The relative strength portfolios in Panel A are formed immediately after the lagged returns are measured for the purpose of portfolio formation.",
+            "table_ref": null,
+            "interpretation": ""
+          }
+        ]
+      },
+      {
+        "field_path": "timing.rebalance_frequency",
+        "kind": "ambiguous",
+        "reason": "evidence_status=clear",
+        "empirical_impact": "high",
+        "disposition": "auto_approve",
+        "paper_value": "year",
+        "evidence": [
+          {
+            "location": "Section I, Trading Strategies",
+            "quote": "in any given month t, the strategies hold a series of portfolios that are selected in the current month as well as in the previous K - 1 months",
+            "table_ref": null,
+            "interpretation": ""
+          },
+          {
+            "location": "",
+            "quote": "",
+            "table_ref": null,
+            "interpretation": "human correction"
+          }
+        ]
+      },
+      {
+        "field_path": "timing.holding_period",
+        "kind": "ambiguous",
+        "reason": "evidence_status=clear",
+        "empirical_impact": "high",
+        "disposition": "auto_approve",
+        "paper_value": 6,
+        "evidence": [
+          {
+            "location": "Table II caption",
+            "quote": "The relative strength portfolios are formed based on 6-month lagged returns and held for 6 months.",
+            "table_ref": null,
+            "interpretation": ""
+          }
+        ]
+      },
+      {
+        "field_path": "portfolio.weighting",
+        "kind": "ambiguous",
+        "reason": "evidence_status=clear",
+        "empirical_impact": "high",
+        "disposition": "auto_approve",
+        "paper_value": "ew",
+        "evidence": [
+          {
+            "location": "Section I, Trading Strategies",
+            "quote": "ten decile portfolios are formed that equally weight the stocks contained in the top decile, the second decile, and so on.",
+            "table_ref": null,
+            "interpretation": ""
+          }
+        ]
+      },
+      {
+        "field_path": "portfolio.return_combination",
+        "kind": "ambiguous",
+        "reason": "evidence_status=clear",
+        "empirical_impact": "high",
+        "disposition": "auto_approve",
+        "paper_value": "extreme_group_spread",
+        "evidence": [
+          {
+            "location": "Table VII caption",
+            "quote": "This table reports the average returns of the zero-cost, buy minus sell, portfolio",
+            "table_ref": null,
+            "interpretation": ""
+          }
+        ]
+      },
+      {
+        "field_path": "portfolio.construction_type",
+        "kind": "ambiguous",
+        "reason": "evidence_status=clear",
+        "empirical_impact": "high",
+        "disposition": "auto_approve",
+        "paper_value": "characteristic_sort",
+        "evidence": [
+          {
+            "location": "Section I, Trading Strategies",
+            "quote": "Based on these rankings, ten decile portfolios are formed",
+            "table_ref": null,
+            "interpretation": ""
+          }
+        ]
+      },
+      {
+        "field_path": "universe.description",
+        "kind": "ambiguous",
+        "reason": "evidence_status=clear",
+        "empirical_impact": "high",
+        "disposition": "auto_approve",
+        "paper_value": "NYSE and AMEX stocks with available return data during the six months preceding portfolio formation.",
+        "evidence": [
+          {
+            "location": "Introduction",
+            "quote": "Our analysis of NYSE and AMEX stocks documents significant profits in the 1965 to 1989 sample period",
+            "table_ref": null,
+            "interpretation": ""
+          },
+          {
+            "location": "Section II, The Returns of Relative Strength Portfolios",
+            "quote": "All stocks with available returns data in the J months preceding the portfolio formation date are included in the sample from which the buy and sell portfolios are constructed.",
+            "table_ref": null,
+            "interpretation": ""
+          }
+        ]
+      },
+      {
+        "field_path": "portfolio.sorts[0].breakpoints.basis",
+        "kind": "ambiguous",
+        "reason": "evidence_status=inferred",
+        "empirical_impact": "high",
+        "disposition": "needs_human_confirmation",
+        "paper_value": "full_sample",
+        "evidence": [
+          {
+            "location": "Section I, Trading Strategies",
+            "quote": "At the beginning of each month t the securities are ranked in ascending order on the basis of their returns in the past J months. Based on these rankings, ten decile portfolios are formed",
+            "table_ref": null,
+            "interpretation": "The method describes deciles of the stated eligible universe but does not explicitly identify a separate breakpoint population."
+          }
+        ]
+      },
+      {
+        "field_path": "portfolio.sorts[0].group_type",
+        "kind": "ambiguous",
+        "reason": "evidence_status=clear",
+        "empirical_impact": "high",
+        "disposition": "auto_approve",
+        "paper_value": "quantile",
+        "evidence": [
+          {
+            "location": "Section I, Trading Strategies",
+            "quote": "Based on these rankings, ten decile portfolios are formed",
+            "table_ref": null,
+            "interpretation": ""
+          }
+        ]
+      },
+      {
+        "field_path": "portfolio.sorts[0].mode",
+        "kind": "ambiguous",
+        "reason": "evidence_status=clear",
+        "empirical_impact": "high",
+        "disposition": "auto_approve",
+        "paper_value": "independent",
+        "evidence": [
+          {
+            "location": "Section I, Trading Strategies",
+            "quote": "Based on these rankings, ten decile portfolios are formed",
+            "table_ref": null,
+            "interpretation": "There is one univariate sort."
+          }
+        ]
+      },
+      {
+        "field_path": "portfolio.missing_policies[0].action",
+        "kind": "ambiguous",
+        "reason": "evidence_status=clear",
+        "empirical_impact": "high",
+        "disposition": "auto_approve",
+        "paper_value": "drop",
+        "evidence": [
+          {
+            "location": "Section II, The Returns of Relative Strength Portfolios",
+            "quote": "All stocks with available returns data in the J months preceding the portfolio formation date are included in the sample from which the buy and sell portfolios are constructed.",
+            "table_ref": null,
+            "interpretation": ""
+          }
+        ]
+      },
+      {
+        "field_path": "data.fields[0].source_table",
+        "kind": "ambiguous",
+        "reason": "evidence_status=inferred",
+        "empirical_impact": "high",
+        "disposition": "needs_human_confirmation",
+        "paper_value": "crsp_msf",
+        "evidence": [
+          {
+            "location": "Section II, The Returns of Relative Strength Portfolios",
+            "quote": "Monthly returns were obtained by compounding the daily returns recorded in this data set.",
+            "table_ref": null,
+            "interpretation": "The registered monthly CRSP source is the closest available catalog source for the paper's compounded monthly stock returns."
+          }
+        ]
+      },
+      {
+        "field_path": "data.fields[0].source_column",
+        "kind": "ambiguous",
+        "reason": "evidence_status=inferred",
+        "empirical_impact": "high",
+        "disposition": "needs_human_confirmation",
+        "paper_value": "ret",
+        "evidence": [
+          {
+            "location": "Section II, The Returns of Relative Strength Portfolios",
+            "quote": "Monthly returns were obtained by compounding the daily returns recorded in this data set.",
+            "table_ref": null,
+            "interpretation": "The catalog's monthly total-return column corresponds to the paper's monthly stock returns."
+          }
+        ]
+      },
+      {
+        "field_path": "data.fields[1].source_table",
+        "kind": "ambiguous",
+        "reason": "evidence_status=inferred",
+        "empirical_impact": "high",
+        "disposition": "needs_human_confirmation",
+        "paper_value": "crsp_msf",
+        "evidence": [
+          {
+            "location": "Introduction",
+            "quote": "Our analysis of NYSE and AMEX stocks documents significant profits in the 1965 to 1989 sample period",
+            "table_ref": null,
+            "interpretation": "The CRSP monthly-file exchange-code field is the registered catalog field that represents the stated exchange restriction."
+          }
+        ]
+      },
+      {
+        "field_path": "data.fields[1].source_column",
+        "kind": "ambiguous",
+        "reason": "evidence_status=inferred",
+        "empirical_impact": "high",
+        "disposition": "needs_human_confirmation",
+        "paper_value": "exchcd",
+        "evidence": [
+          {
+            "location": "Introduction",
+            "quote": "Our analysis of NYSE and AMEX stocks documents significant profits in the 1965 to 1989 sample period",
+            "table_ref": null,
+            "interpretation": "The catalog defines exchcd 1 as NYSE and 2 as AMEX."
+          }
+        ]
+      }
+    ],
+    "status_overrides": {},
+    "reextraction_attempts": 0
+  },
+  "resolution": {
+    "schema_version": "resolution.v2",
+    "factor_id": "dd915ef49fd849f0",
+    "concept_mapping": {
+      "stock_return": {
+        "source": "crsp_msf",
+        "column": "ret"
+      },
+      "exchange_code": {
+        "source": "crsp_msf",
+        "column": "exchcd"
+      }
+    },
+    "returns_source": "us_equity_crsp",
+    "cz_acronym": null,
+    "llm_matched_concepts": [],
+    "entries": [],
+    "approved_substitutions": []
+  }
+}

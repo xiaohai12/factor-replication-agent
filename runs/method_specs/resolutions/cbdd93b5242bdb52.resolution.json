@@ -1,0 +1,24 @@
+{
+  "schema_version": "resolution.v2",
+  "factor_id": "cbdd93b5242bdb52",
+  "paper_spec_hash": "ab1595ea5935ab2b57fb286db07aa65f57da4899c999d9537cf77e65158fe7cc",
+  "review_hash": "60c187f81a0002a074b3bc07be9f32d0b20f38ea902bad9b37342f595b5e2e58",
+  "concept_mapping": {
+    "total_assets": {
+      "source": "comp_funda",
+      "column": "at"
+    },
+    "market_equity": {
+      "source": "crsp_msf",
+      "column": "me"
+    },
+    "sic_code": {
+      "source": "crsp_msf",
+      "column": "siccd"
+    }
+  },
+  "returns_source": "us_equity_crsp",
+  "cz_acronym": null,
+  "entries": [],
+  "approved_substitutions": []
+}

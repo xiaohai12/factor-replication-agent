@@ -1,0 +1,1847 @@
+{
+  "paper": {
+    "schema_version": "methodspec.v2",
+    "factor_id": "ce8a2fdbb9ec12f2",
+    "target_name": "Z_score",
+    "paper": {
+      "document_id": "Is the risk of bankruptcy a systematic risk.pdf",
+      "title": "Is the Risk of Bankruptcy a Systematic Risk?",
+      "citation": "Dichev, Ilia D. (1998), \"Is the Risk of Bankruptcy a Systematic Risk?\" The Journal of Finance 53(3), 1131-1147.",
+      "publication_year": 1998
+    },
+    "signal": {
+      "definition": {
+        "value": "Altman's (1968) Z-model bankruptcy score, where higher values indicate lower probability of bankruptcy.",
+        "evidence": [
+          {
+            "location": "Section I, Research Design, Sample Selection, and Empirical Tests",
+            "quote": "The first measure is derived from Altman's (1968) Z-model",
+            "table_ref": null,
+            "interpretation": ""
+          },
+          {
+            "location": "Table III note",
+            "quote": "Z is from Altman (1968), where higher Zs signify lower probability of bankruptcy.",
+            "table_ref": null,
+            "interpretation": ""
+          }
+        ],
+        "status": "clear",
+        "unsupported_value": null
+      },
+      "economic_intuition": {
+        "value": "The score is an ex ante measure of bankruptcy risk used to test whether bankruptcy risk is systematic and priced in subsequent stock returns.",
+        "evidence": [
+          {
+            "location": "Section I, Research Design, Sample Selection, and Empirical Tests",
+            "quote": "The result is a single composite bankruptcy score that reflects the ex ante probability of bankruptcy for each firm at a given point in time.",
+            "table_ref": null,
+            "interpretation": ""
+          },
+          {
+            "location": "Section I, Research Design, Sample Selection, and Empirical Tests",
+            "quote": "This study provides evidence on this question by investigating the empirical relation between risk of bankruptcy and systematic risk.",
+            "table_ref": null,
+            "interpretation": ""
+          }
+        ],
+        "status": "clear",
+        "unsupported_value": null
+      },
+      "direction": {
+        "value": "positive",
+        "evidence": [
+          {
+            "location": "Table III note",
+            "quote": "Z is from Altman (1968), where higher Zs signify lower probability of bankruptcy.",
+            "table_ref": null,
+            "interpretation": "A higher Z score denotes greater financial strength and lower bankruptcy risk."
+          }
+        ],
+        "status": "clear",
+        "unsupported_value": null
+      },
+      "category": "continuous",
+      "formula": {
+        "paper_expression": "Z = 1.2(working capital/total assets) + 1.4(retained earnings/total assets) + 3.3(earnings before interest and taxes/total assets) + 0.6(market value of equity/book value of total liabilities) + (sales/total assets).",
+        "steps": [
+          {
+            "step_id": "working_capital_ratio",
+            "description": "Compute working capital divided by total assets.",
+            "expression": "working_capital / total_assets",
+            "status": "clear",
+            "evidence": [
+              {
+                "location": "Section I, footnote 3",
+                "quote": "Z = 1.2(working capital/total assets)",
+                "table_ref": null,
+                "interpretation": ""
+              }
+            ]
+          },
+          {
+            "step_id": "retained_earnings_ratio",
+            "description": "Compute retained earnings divided by total assets.",
+            "expression": "retained_earnings / total_assets",
+            "status": "clear",
+            "evidence": [
+              {
+                "location": "Section I, footnote 3",
+                "quote": "+ 1.4(retained earnings/total assets)",
+                "table_ref": null,
+                "interpretation": ""
+              }
+            ]
+          },
+          {
+            "step_id": "ebit_ratio",
+            "description": "Compute earnings before interest and taxes divided by total assets.",
+            "expression": "ebit / total_assets",
+            "status": "clear",
+            "evidence": [
+              {
+                "location": "Section I, footnote 3",
+                "quote": "+ 3.3(earnings before interest and taxes/total assets)",
+                "table_ref": null,
+                "interpretation": ""
+              }
+            ]
+          },
+          {
+            "step_id": "market_equity_to_liabilities",
+            "description": "Compute market value of equity divided by book value of total liabilities.",
+            "expression": "market_value_equity / total_liabilities",
+            "status": "clear",
+            "evidence": [
+              {
+                "location": "Section I, footnote 3",
+                "quote": "+ 0.6(market value of equity/book value of total liabilities)",
+                "table_ref": null,
+                "interpretation": ""
+              }
+            ]
+          },
+          {
+            "step_id": "sales_to_assets",
+            "description": "Compute sales divided by total assets.",
+            "expression": "sales / total_assets",
+            "status": "clear",
+            "evidence": [
+              {
+                "location": "Section I, footnote 3",
+                "quote": "+ (sales/total assets).",
+                "table_ref": null,
+                "interpretation": ""
+              }
+            ]
+          },
+          {
+            "step_id": "z_score",
+            "description": "Sum the five weighted Altman Z-model components.",
+            "expression": "1.2 * working_capital_ratio + 1.4 * retained_earnings_ratio + 3.3 * ebit_ratio + 0.6 * market_equity_to_liabilities + sales_to_assets",
+            "status": "clear",
+            "evidence": [
+              {
+                "location": "Section I, footnote 3",
+                "quote": "Altman's (1968) model is: Z = 1.2(working capital/total assets) + 1.4(retained earnings/total assets) + 3.3(earnings before interest and taxes/total assets) + 0.6(market value of equity/book value of total liabilities) + (sales/total assets).",
+                "table_ref": null,
+                "interpretation": ""
+              }
+            ]
+          }
+        ],
+        "inputs": [
+          "working_capital",
+          "total_assets",
+          "retained_earnings",
+          "ebit",
+          "market_value_equity",
+          "total_liabilities",
+          "sales"
+        ],
+        "constants": {
+          "working_capital_weight": 1.2,
+          "retained_earnings_weight": 1.4,
+          "ebit_weight": 3.3,
+          "market_equity_weight": 0.6,
+          "sales_weight": 1.0
+        },
+        "output_concept": "z_score",
+        "evidence": [
+          {
+            "location": "Section I, footnote 3",
+            "quote": "Altman's (1968) model is: Z = 1.2(working capital/total assets) + 1.4(retained earnings/total assets) + 3.3(earnings before interest and taxes/total assets) + 0.6(market value of equity/book value of total liabilities) + (sales/total assets).",
+            "table_ref": null,
+            "interpretation": ""
+          }
+        ]
+      },
+      "estimation": null
+    },
+    "data": {
+      "signal_frequency": {
+        "value": "year",
+        "evidence": [
+          {
+            "location": "Section I, Research Design, Sample Selection, and Empirical Tests",
+            "quote": "Market value, book-to-market, and bankruptcy scores are computed from COMPUSTAT as of the fiscal year-end of a given year t.",
+            "table_ref": null,
+            "interpretation": ""
+          }
+        ],
+        "status": "clear",
+        "unsupported_value": null
+      },
+      "return_frequency": {
+        "value": "month",
+        "evidence": [
+          {
+            "location": "Section I, Research Design, Sample Selection, and Empirical Tests",
+            "quote": "returns are monthly returns beginning six months after the fiscal year-end of year t.",
+            "table_ref": null,
+            "interpretation": ""
+          }
+        ],
+        "status": "clear",
+        "unsupported_value": null
+      },
+      "sources": [
+        {
+          "value": "NYSE, AMEX, and Nasdaq Center for Research in Security Prices (CRSP) tapes",
+          "evidence": [
+            {
+              "location": "Section I, Research Design, Sample Selection, and Empirical Tests",
+              "quote": "The sample consists of all industrial firms available simultaneously on the NYSE, AMEX, and Nasdaq Center for Research in Security Prices (CRSP) tapes",
+              "table_ref": null,
+              "interpretation": ""
+            }
+          ],
+          "status": "clear",
+          "unsupported_value": null
+        },
+        {
+          "value": "COMPUSTAT annual industrial and research tapes",
+          "evidence": [
+            {
+              "location": "Section I, Research Design, Sample Selection, and Empirical Tests",
+              "quote": "and the COMPUSTAT annual industrial and research tapes for the period 1981 to 1995.",
+              "table_ref": null,
+              "interpretation": ""
+            }
+          ],
+          "status": "clear",
+          "unsupported_value": null
+        }
+      ],
+      "fields": [
+        {
+          "concept_id": "working_capital",
+          "name_in_paper": "working capital",
+          "description": "Working capital used in the Altman Z-model numerator.",
+          "paper_source_hint": "COMPUSTAT",
+          "roles": [
+            "signal_input"
+          ],
+          "evidence": [
+            {
+              "location": "Section I, footnote 3",
+              "quote": "working capital/total assets",
+              "table_ref": null,
+              "interpretation": ""
+            }
+          ],
+          "source_table": {
+            "value": "compustat_fundamental_annual",
+            "evidence": [
+              {
+                "location": "Section I, Research Design, Sample Selection, and Empirical Tests",
+                "quote": "Market value, book-to-market, and bankruptcy scores are computed from COMPUSTAT",
+                "table_ref": null,
+                "interpretation": ""
+              }
+            ],
+            "status": "clear",
+            "unsupported_value": null
+          },
+          "source_column": {
+            "value": "wcap",
+            "evidence": [
+              {
+                "location": "Section I, footnote 3",
+                "quote": "working capital/total assets",
+                "table_ref": null,
+                "interpretation": ""
+              }
+            ],
+            "status": "inferred",
+            "unsupported_value": null
+          }
+        },
+        {
+          "concept_id": "total_assets",
+          "name_in_paper": "total assets",
+          "description": "Total assets used as the denominator of three Altman Z-model components.",
+          "paper_source_hint": "COMPUSTAT",
+          "roles": [
+            "signal_input"
+          ],
+          "evidence": [
+            {
+              "location": "Section I, footnote 3",
+              "quote": "working capital/total assets",
+              "table_ref": null,
+              "interpretation": ""
+            }
+          ],
+          "source_table": {
+            "value": "compustat_fundamental_annual",
+            "evidence": [
+              {
+                "location": "Section I, Research Design, Sample Selection, and Empirical Tests",
+                "quote": "Market value, book-to-market, and bankruptcy scores are computed from COMPUSTAT",
+                "table_ref": null,
+                "interpretation": ""
+              }
+            ],
+            "status": "clear",
+            "unsupported_value": null
+          },
+          "source_column": {
+            "value": "at",
+            "evidence": [
+              {
+                "location": "Section I, footnote 3",
+                "quote": "total assets",
+                "table_ref": null,
+                "interpretation": ""
+              }
+            ],
+            "status": "inferred",
+            "unsupported_value": null
+          }
+        },
+        {
+          "concept_id": "retained_earnings",
+          "name_in_paper": "retained earnings",
+          "description": "Retained earnings used in the Altman Z-model.",
+          "paper_source_hint": "COMPUSTAT",
+          "roles": [
+            "signal_input"
+          ],
+          "evidence": [
+            {
+              "location": "Section I, footnote 3",
+              "quote": "retained earnings/total assets",
+              "table_ref": null,
+              "interpretation": ""
+            }
+          ],
+          "source_table": {
+            "value": "compustat_fundamental_annual",
+            "evidence": [
+              {
+                "location": "Section I, Research Design, Sample Selection, and Empirical Tests",
+                "quote": "Market value, book-to-market, and bankruptcy scores are computed from COMPUSTAT",
+                "table_ref": null,
+                "interpretation": ""
+              }
+            ],
+            "status": "clear",
+            "unsupported_value": null
+          },
+          "source_column": {
+            "value": "re",
+            "evidence": [
+              {
+                "location": "Section I, footnote 3",
+                "quote": "retained earnings/total assets",
+                "table_ref": null,
+                "interpretation": ""
+              }
+            ],
+            "status": "inferred",
+            "unsupported_value": null
+          }
+        },
+        {
+          "concept_id": "ebit",
+          "name_in_paper": "earnings before interest and taxes",
+          "description": "Earnings before interest and taxes used in the Altman Z-model.",
+          "paper_source_hint": "COMPUSTAT",
+          "roles": [
+            "signal_input"
+          ],
+          "evidence": [
+            {
+              "location": "Section I, footnote 3",
+              "quote": "earnings before interest and taxes/total assets",
+              "table_ref": null,
+              "interpretation": ""
+            }
+          ],
+          "source_table": {
+            "value": "compustat_fundamental_annual",
+            "evidence": [
+              {
+                "location": "Section I, Research Design, Sample Selection, and Empirical Tests",
+                "quote": "Market value, book-to-market, and bankruptcy scores are computed from COMPUSTAT",
+                "table_ref": null,
+                "interpretation": ""
+              }
+            ],
+            "status": "clear",
+            "unsupported_value": null
+          },
+          "source_column": {
+            "value": "ebit",
+            "evidence": [
+              {
+                "location": "Section I, footnote 3",
+                "quote": "earnings before interest and taxes/total assets",
+                "table_ref": null,
+                "interpretation": ""
+              }
+            ],
+            "status": "inferred",
+            "unsupported_value": null
+          }
+        },
+        {
+          "concept_id": "market_value_equity",
+          "name_in_paper": "market value of equity",
+          "description": "Fiscal-year-end price per share times number of shares outstanding.",
+          "paper_source_hint": "COMPUSTAT",
+          "roles": [
+            "signal_input"
+          ],
+          "evidence": [
+            {
+              "location": "Section I, Research Design, Sample Selection, and Empirical Tests",
+              "quote": "Size (MV) is defined as log[fiscal year-end price per share (COMPUSTAT item #199) times number of shares outstanding (item #25)].",
+              "table_ref": null,
+              "interpretation": ""
+            }
+          ],
+          "source_table": {
+            "value": "compustat_fundamental_annual",
+            "evidence": [
+              {
+                "location": "Section I, Research Design, Sample Selection, and Empirical Tests",
+                "quote": "Market value, book-to-market, and bankruptcy scores are computed from COMPUSTAT",
+                "table_ref": null,
+                "interpretation": ""
+              }
+            ],
+            "status": "clear",
+            "unsupported_value": null
+          },
+          "source_column": {
+            "value": "mkvalt",
+            "evidence": [
+              {
+                "location": "Section I, Research Design, Sample Selection, and Empirical Tests",
+                "quote": "Size (MV) is defined as log[fiscal year-end price per share (COMPUSTAT item #199) times number of shares outstanding (item #25)].",
+                "table_ref": null,
+                "interpretation": "The catalog's fiscal-year-end total market-value field is the closest registered representation; the paper does not name its modern field mnemonic."
+              }
+            ],
+            "status": "inferred",
+            "unsupported_value": null
+          }
+        },
+        {
+          "concept_id": "total_liabilities",
+          "name_in_paper": "book value of total liabilities",
+          "description": "Book value of total liabilities used in the Altman Z-model denominator.",
+          "paper_source_hint": "COMPUSTAT",
+          "roles": [
+            "signal_input"
+          ],
+          "evidence": [
+            {
+              "location": "Section I, footnote 3",
+              "quote": "market value of equity/book value of total liabilities",
+              "table_ref": null,
+              "interpretation": ""
+            }
+          ],
+          "source_table": {
+            "value": "compustat_fundamental_annual",
+            "evidence": [
+              {
+                "location": "Section I, Research Design, Sample Selection, and Empirical Tests",
+                "quote": "Market value, book-to-market, and bankruptcy scores are computed from COMPUSTAT",
+                "table_ref": null,
+                "interpretation": ""
+              }
+            ],
+            "status": "clear",
+            "unsupported_value": null
+          },
+          "source_column": {
+            "value": "lt",
+            "evidence": [
+              {
+                "location": "Section I, footnote 3",
+                "quote": "book value of total liabilities",
+                "table_ref": null,
+                "interpretation": ""
+              }
+            ],
+            "status": "inferred",
+            "unsupported_value": null
+          }
+        },
+        {
+          "concept_id": "sales",
+          "name_in_paper": "sales",
+          "description": "Sales used in the Altman Z-model numerator.",
+          "paper_source_hint": "COMPUSTAT",
+          "roles": [
+            "signal_input"
+          ],
+          "evidence": [
+            {
+              "location": "Section I, footnote 3",
+              "quote": "sales/total assets",
+              "table_ref": null,
+              "interpretation": ""
+            }
+          ],
+          "source_table": {
+            "value": "compustat_fundamental_annual",
+            "evidence": [
+              {
+                "location": "Section I, Research Design, Sample Selection, and Empirical Tests",
+                "quote": "Market value, book-to-market, and bankruptcy scores are computed from COMPUSTAT",
+                "table_ref": null,
+                "interpretation": ""
+              }
+            ],
+            "status": "clear",
+            "unsupported_value": null
+          },
+          "source_column": {
+            "value": "sale",
+            "evidence": [
+              {
+                "location": "Section I, footnote 3",
+                "quote": "sales/total assets",
+                "table_ref": null,
+                "interpretation": ""
+              }
+            ],
+            "status": "inferred",
+            "unsupported_value": null
+          }
+        },
+        {
+          "concept_id": "sic_code",
+          "name_in_paper": "COMPUSTAT Standard Industrial Classification (SIC) codes",
+          "description": "SIC code used to restrict the sample to industrial firms.",
+          "paper_source_hint": "COMPUSTAT",
+          "roles": [
+            "universe_filter"
+          ],
+          "evidence": [
+            {
+              "location": "Section I, Research Design, Sample Selection, and Empirical Tests",
+              "quote": "I only include firms with COMPUSTAT Standard Industrial Classification (SIC) codes 1 to 3999 and 5000 to 5999.",
+              "table_ref": null,
+              "interpretation": ""
+            }
+          ],
+          "source_table": {
+            "value": "compustat_fundamental_annual",
+            "evidence": [
+              {
+                "location": "Section I, Research Design, Sample Selection, and Empirical Tests",
+                "quote": "COMPUSTAT Standard Industrial Classification (SIC) codes",
+                "table_ref": null,
+                "interpretation": ""
+              }
+            ],
+            "status": "clear",
+            "unsupported_value": null
+          },
+          "source_column": {
+            "value": "sic",
+            "evidence": [
+              {
+                "location": "Section I, Research Design, Sample Selection, and Empirical Tests",
+                "quote": "SIC codes 1 to 3999 and 5000 to 5999.",
+                "table_ref": null,
+                "interpretation": ""
+              }
+            ],
+            "status": "inferred",
+            "unsupported_value": null
+          }
+        },
+        {
+          "concept_id": "exchange_code",
+          "name_in_paper": "NYSE, AMEX, and Nasdaq availability",
+          "description": "Exchange membership restriction for the CRSP sample.",
+          "paper_source_hint": "CRSP",
+          "roles": [
+            "universe_filter"
+          ],
+          "evidence": [
+            {
+              "location": "Section I, Research Design, Sample Selection, and Empirical Tests",
+              "quote": "The sample consists of all industrial firms available simultaneously on the NYSE, AMEX, and Nasdaq Center for Research in Security Prices (CRSP) tapes",
+              "table_ref": null,
+              "interpretation": ""
+            }
+          ],
+          "source_table": {
+            "value": "crsp_msf",
+            "evidence": [
+              {
+                "location": "Section I, Research Design, Sample Selection, and Empirical Tests",
+                "quote": "NYSE, AMEX, and Nasdaq Center for Research in Security Prices (CRSP) tapes",
+                "table_ref": null,
+                "interpretation": ""
+              }
+            ],
+            "status": "clear",
+            "unsupported_value": null
+          },
+          "source_column": {
+            "value": "exchcd",
+            "evidence": [
+              {
+                "location": "Section I, Research Design, Sample Selection, and Empirical Tests",
+                "quote": "NYSE, AMEX, and Nasdaq",
+                "table_ref": null,
+                "interpretation": "The catalog maps CRSP exchcd 1, 2, and 3 to these exchanges."
+              }
+            ],
+            "status": "inferred",
+            "unsupported_value": null
+          }
+        }
+      ],
+      "coverage_notes": [
+        "The paper restricts the post-1980 main sample to 1981-1995 because Ohlson's model becomes available in 1980, while the Z-model is also examined over 1965-1980 and 1965-1995 in additional unreported tests."
+      ]
+    },
+    "sample": {
+      "data_coverage": {
+        "start_year": 1981,
+        "end_year": 1995,
+        "start_month": null,
+        "end_month": null,
+        "evidence": [
+          {
+            "location": "Section I, Research Design, Sample Selection, and Empirical Tests",
+            "quote": "the COMPUSTAT annual industrial and research tapes for the period 1981 to 1995.",
+            "table_ref": null,
+            "interpretation": ""
+          }
+        ],
+        "status": "clear"
+      },
+      "formation": {
+        "start_year": 1981,
+        "end_year": 1995,
+        "start_month": null,
+        "end_month": null,
+        "evidence": [
+          {
+            "location": "Table III title",
+            "quote": "Returns during 1981 to 1995",
+            "table_ref": null,
+            "interpretation": "The portfolio assignments and return tests in the main Z results cover this period."
+          }
+        ],
+        "status": "clear"
+      },
+      "reported_returns": {
+        "start_year": 1981,
+        "end_year": 1995,
+        "start_month": null,
+        "end_month": null,
+        "evidence": [
+          {
+            "location": "Table III title",
+            "quote": "Returns during 1981 to 1995",
+            "table_ref": null,
+            "interpretation": ""
+          }
+        ],
+        "status": "clear"
+      }
+    },
+    "timing": {
+      "formation_rule": {
+        "value": "Compute Z from fiscal-year-end COMPUSTAT data; use monthly returns beginning six months after that fiscal year-end.",
+        "evidence": [
+          {
+            "location": "Section I, Research Design, Sample Selection, and Empirical Tests",
+            "quote": "Market value, book-to-market, and bankruptcy scores are computed from COMPUSTAT as of the fiscal year-end of a given year t. To ensure that the accounting data are available to calculate bankruptcy measures, returns are monthly returns beginning six months after the fiscal year-end of year t.",
+            "table_ref": null,
+            "interpretation": ""
+          }
+        ],
+        "status": "clear",
+        "unsupported_value": null
+      },
+      "formation_month": null,
+      "rebalance_frequency": {
+        "value": "year",
+        "evidence": [
+          {
+            "location": "Section I, Research Design, Sample Selection, and Empirical Tests",
+            "quote": "For the portfolio results, each month firms are assigned to decile portfolios based on the magnitude of their bankruptcy score.",
+            "table_ref": null,
+            "interpretation": ""
+          },
+          {
+            "location": "",
+            "quote": "",
+            "table_ref": null,
+            "interpretation": "human correction"
+          }
+        ],
+        "status": "clear",
+        "unsupported_value": null
+      },
+      "holding_period": {
+        "value": 12,
+        "evidence": [
+          {
+            "location": "Table III note",
+            "quote": "Rets is one-year-ahead monthly returns (in percent), starting six months after fiscal-year-end.",
+            "table_ref": null,
+            "interpretation": "Each fiscal-year-end signal is evaluated over a one-year, twelve-month subsequent-return window."
+          }
+        ],
+        "status": "clear",
+        "unsupported_value": null
+      },
+      "return_window": {
+        "start_offset": 6,
+        "end_offset": 17,
+        "unit": "month",
+        "anchor": "fiscal_period_end",
+        "is_expanding": false
+      },
+      "data_availability": {
+        "lag_value": 6,
+        "lag_unit": "month",
+        "anchor": "fiscal_period_end",
+        "basis": "fixed_calendar_lag",
+        "evidence": [
+          {
+            "location": "Section I, Research Design, Sample Selection, and Empirical Tests",
+            "quote": "returns are monthly returns beginning six months after the fiscal year-end of year t.",
+            "table_ref": null,
+            "interpretation": ""
+          }
+        ]
+      }
+    },
+    "universe": {
+      "description": {
+        "value": "Industrial firms jointly available in CRSP and Compustat, listed on NYSE, AMEX, or Nasdaq, with SIC codes 1-3999 or 5000-5999.",
+        "evidence": [
+          {
+            "location": "Section I, Research Design, Sample Selection, and Empirical Tests",
+            "quote": "The sample consists of all industrial firms available simultaneously on the NYSE, AMEX, and Nasdaq Center for Research in Security Prices (CRSP) tapes and the COMPUSTAT annual industrial and research tapes for the period 1981 to 1995.",
+            "table_ref": null,
+            "interpretation": ""
+          },
+          {
+            "location": "Section I, Research Design, Sample Selection, and Empirical Tests",
+            "quote": "I only include firms with COMPUSTAT Standard Industrial Classification (SIC) codes 1 to 3999 and 5000 to 5999.",
+            "table_ref": null,
+            "interpretation": ""
+          }
+        ],
+        "status": "clear",
+        "unsupported_value": null
+      },
+      "filters": [
+        {
+          "concept_id": "exchange_code",
+          "op": "in",
+          "value": [
+            1,
+            2,
+            3
+          ],
+          "evidence": [
+            {
+              "location": "Section I, Research Design, Sample Selection, and Empirical Tests",
+              "quote": "NYSE, AMEX, and Nasdaq",
+              "table_ref": null,
+              "interpretation": "CRSP exchange codes 1, 2, and 3 correspond to NYSE, AMEX, and Nasdaq."
+            }
+          ],
+          "derivation": null,
+          "accepted_unapplied": false,
+          "unapplied_reason": ""
+        },
+        {
+          "concept_id": "sic_code",
+          "op": "gte",
+          "value": 1,
+          "evidence": [
+            {
+              "location": "Section I, Research Design, Sample Selection, and Empirical Tests",
+              "quote": "SIC codes 1 to 3999 and 5000 to 5999.",
+              "table_ref": null,
+              "interpretation": ""
+            }
+          ],
+          "derivation": null,
+          "accepted_unapplied": false,
+          "unapplied_reason": ""
+        },
+        {
+          "concept_id": "sic_code",
+          "op": "lt",
+          "value": 6000,
+          "evidence": [
+            {
+              "location": "Section I, Research Design, Sample Selection, and Empirical Tests",
+              "quote": "SIC codes 1 to 3999 and 5000 to 5999.",
+              "table_ref": null,
+              "interpretation": ""
+            }
+          ],
+          "derivation": null,
+          "accepted_unapplied": false,
+          "unapplied_reason": ""
+        },
+        {
+          "concept_id": "sic_code",
+          "op": "not_between",
+          "value": [
+            4000,
+            4999
+          ],
+          "evidence": [
+            {
+              "location": "Section I, Research Design, Sample Selection, and Empirical Tests",
+              "quote": "SIC codes 1 to 3999 and 5000 to 5999.",
+              "table_ref": null,
+              "interpretation": ""
+            }
+          ],
+          "derivation": null,
+          "accepted_unapplied": false,
+          "unapplied_reason": ""
+        }
+      ]
+    },
+    "portfolio": {
+      "construction_type": {
+        "value": "characteristic_sort",
+        "evidence": [
+          {
+            "location": "Section I, Research Design, Sample Selection, and Empirical Tests",
+            "quote": "For the portfolio results, each month firms are assigned to decile portfolios based on the magnitude of their bankruptcy score.",
+            "table_ref": null,
+            "interpretation": ""
+          }
+        ],
+        "status": "clear",
+        "unsupported_value": null
+      },
+      "sorts": [
+        {
+          "sort_id": "z_score_decile",
+          "concept_id": "z_score",
+          "role": "target",
+          "order": 0,
+          "mode": {
+            "value": "independent",
+            "evidence": [
+              {
+                "location": "Section I, Research Design, Sample Selection, and Empirical Tests",
+                "quote": "For the portfolio results, each month firms are assigned to decile portfolios based on the magnitude of their bankruptcy score.",
+                "table_ref": null,
+                "interpretation": "Only one sort dimension is specified; the independent engine-menu classification follows from this single-dimension design."
+              }
+            ],
+            "status": "inferred",
+            "unsupported_value": null
+          },
+          "group_type": {
+            "value": "quantile",
+            "evidence": [
+              {
+                "location": "Section I, Research Design, Sample Selection, and Empirical Tests",
+                "quote": "each month firms are assigned to decile portfolios",
+                "table_ref": null,
+                "interpretation": ""
+              }
+            ],
+            "status": "clear",
+            "unsupported_value": null
+          },
+          "group_count": 10,
+          "breakpoints": {
+            "basis": {
+              "value": "full_sample",
+              "evidence": [
+                {
+                  "location": "Section I, Research Design, Sample Selection, and Empirical Tests",
+                  "quote": "For the portfolio results, each month firms are assigned to decile portfolios based on the magnitude of their bankruptcy score.",
+                  "table_ref": null,
+                  "interpretation": "The paper does not specify an exchange-based breakpoint subset."
+                },
+                {
+                  "location": "",
+                  "quote": "",
+                  "table_ref": null,
+                  "interpretation": "human correction"
+                }
+              ],
+              "status": "clear",
+              "unsupported_value": null
+            },
+            "values": []
+          },
+          "condition_on_sort_id": null,
+          "evidence": [
+            {
+              "location": "Section I, Research Design, Sample Selection, and Empirical Tests",
+              "quote": "For the portfolio results, each month firms are assigned to decile portfolios based on the magnitude of their bankruptcy score.",
+              "table_ref": null,
+              "interpretation": ""
+            }
+          ]
+        }
+      ],
+      "legs": [],
+      "weighting": {
+        "value": "ew",
+        "evidence": [
+          {
+            "location": "Section I, Research Design, Sample Selection, and Empirical Tests",
+            "quote": "Then I calculate mean bankruptcy score, mean subsequent realized monthly return, mean market value, and mean book-to-market for each portfolio.",
+            "table_ref": null,
+            "interpretation": "The stated portfolio return is the mean of constituent firms' monthly returns."
+          }
+        ],
+        "status": "clear",
+        "unsupported_value": null
+      },
+      "return_combination": {
+        "value": "single_signal_portfolio_return",
+        "evidence": [
+          {
+            "location": "Section I, Research Design, Sample Selection, and Empirical Tests",
+            "quote": "Then I calculate mean bankruptcy score, mean subsequent realized monthly return, mean market value, and mean book-to-market for each portfolio.",
+            "table_ref": null,
+            "interpretation": ""
+          },
+          {
+            "location": "",
+            "quote": "",
+            "table_ref": null,
+            "interpretation": "human correction"
+          }
+        ],
+        "status": "clear",
+        "unsupported_value": null
+      },
+      "missing_policies": [],
+      "transforms": [
+        {
+          "kind": "winsorize",
+          "stage": "after_signal",
+          "bounds": [
+            0.01,
+            0.99
+          ],
+          "evidence": [
+            {
+              "location": "Section I, Research Design, Sample Selection, and Empirical Tests",
+              "quote": "To abstract from the influence of extreme outliers, the top and bottom 1 percent of observations for each variable, except market value, are set at the 1st and the 99th percentile respectively.",
+              "table_ref": null,
+              "interpretation": "Z is a test variable; the paper states that all variables other than market value are winsorized."
+            }
+          ]
+        }
+      ]
+    },
+    "reported_results": {
+      "primary_metric_id": "nyse_amex_z_fama_macbeth_coefficient",
+      "metrics": [
+        {
+          "metric_id": "nyse_amex_z_fama_macbeth_coefficient",
+          "label": "NYSE-AMEX multivariate Fama-MacBeth coefficient on Z",
+          "estimand": "coefficient",
+          "adjustment_model": "raw",
+          "weighting": null,
+          "estimate": 0.06,
+          "unit": "percent",
+          "frequency": "month",
+          "statistic": {
+            "kind": "t_stat",
+            "value": 3.37
+          },
+          "sample_period": {
+            "start_year": 1981,
+            "end_year": 1995,
+            "start_month": null,
+            "end_month": null,
+            "evidence": [
+              {
+                "location": "Table III title",
+                "quote": "Returns during 1981 to 1995",
+                "table_ref": null,
+                "interpretation": ""
+              }
+            ],
+            "status": "clear"
+          },
+          "evidence": [
+            {
+              "location": "Table III, Panel A: NYSE-AMEX Firms",
+              "quote": "",
+              "table_ref": {
+                "table": "Table III",
+                "row": "Panel A: NYSE-AMEX Firms, multivariate regression",
+                "column": "b2*Z"
+              },
+              "interpretation": "The coefficient is 0.06 and the parenthesized t-statistic is 3.37."
+            }
+          ],
+          "status": "table_only"
+        },
+        {
+          "metric_id": "nasdaq_z_fama_macbeth_coefficient",
+          "label": "Nasdaq multivariate Fama-MacBeth coefficient on Z",
+          "estimand": "coefficient",
+          "adjustment_model": "raw",
+          "weighting": null,
+          "estimate": 0.07,
+          "unit": "percent",
+          "frequency": "month",
+          "statistic": {
+            "kind": "t_stat",
+            "value": 1.03
+          },
+          "sample_period": {
+            "start_year": 1981,
+            "end_year": 1995,
+            "start_month": null,
+            "end_month": null,
+            "evidence": [
+              {
+                "location": "Table III title",
+                "quote": "Returns during 1981 to 1995",
+                "table_ref": null,
+                "interpretation": ""
+              }
+            ],
+            "status": "clear"
+          },
+          "evidence": [
+            {
+              "location": "Table III, Panel B: Nasdaq Firms",
+              "quote": "",
+              "table_ref": {
+                "table": "Table III",
+                "row": "Panel B: Nasdaq Firms, multivariate regression",
+                "column": "b2*Z"
+              },
+              "interpretation": "The coefficient is 0.07 and the parenthesized t-statistic is 1.03."
+            }
+          ],
+          "status": "table_only"
+        },
+        {
+          "metric_id": "nyse_amex_low_z_decile_mean_return",
+          "label": "NYSE-AMEX lowest-Z decile mean monthly return",
+          "estimand": "mean_return",
+          "adjustment_model": "raw",
+          "weighting": "ew",
+          "estimate": 0.48,
+          "unit": "percent",
+          "frequency": "month",
+          "statistic": null,
+          "sample_period": {
+            "start_year": 1981,
+            "end_year": 1995,
+            "start_month": null,
+            "end_month": null,
+            "evidence": [
+              {
+                "location": "Table III title",
+                "quote": "Returns during 1981 to 1995",
+                "table_ref": null,
+                "interpretation": ""
+              }
+            ],
+            "status": "clear"
+          },
+          "evidence": [
+            {
+              "location": "Table III, Panel A: NYSE-AMEX Firms",
+              "quote": "",
+              "table_ref": {
+                "table": "Table III",
+                "row": "Portfolio 1",
+                "column": "Rets"
+              },
+              "interpretation": "Portfolio 1 is the lowest-Z, highest-bankruptcy-risk decile and has mean monthly return 0.48 percent."
+            }
+          ],
+          "status": "table_only"
+        },
+        {
+          "metric_id": "nasdaq_low_z_decile_mean_return",
+          "label": "Nasdaq lowest-Z decile mean monthly return",
+          "estimand": "mean_return",
+          "adjustment_model": "raw",
+          "weighting": "ew",
+          "estimate": 0.17,
+          "unit": "percent",
+          "frequency": "month",
+          "statistic": null,
+          "sample_period": {
+            "start_year": 1981,
+            "end_year": 1995,
+            "start_month": null,
+            "end_month": null,
+            "evidence": [
+              {
+                "location": "Table III title",
+                "quote": "Returns during 1981 to 1995",
+                "table_ref": null,
+                "interpretation": ""
+              }
+            ],
+            "status": "clear"
+          },
+          "evidence": [
+            {
+              "location": "Table III, Panel B: Nasdaq Firms",
+              "quote": "",
+              "table_ref": {
+                "table": "Table III",
+                "row": "Portfolio 1",
+                "column": "Rets"
+              },
+              "interpretation": "Portfolio 1 is the lowest-Z, highest-bankruptcy-risk decile and has mean monthly return 0.17 percent."
+            }
+          ],
+          "status": "table_only"
+        }
+      ]
+    },
+    "notes": "This MethodSpec describes Altman's Z-score only. The paper also uses Ohlson's O-score as a separate bankruptcy-risk measure, which is not merged into this target."
+  },
+  "review": {
+    "schema_version": "methodreview.v2",
+    "factor_id": "ce8a2fdbb9ec12f2",
+    "capability_version": "engine_capability.v1",
+    "findings": [
+      {
+        "field_path": "portfolio.sorts[0].mode",
+        "kind": "ambiguous",
+        "reason": "evidence_status=inferred",
+        "empirical_impact": "high",
+        "disposition": "needs_human_confirmation",
+        "paper_value": "independent",
+        "evidence": [
+          {
+            "location": "Section I, Research Design, Sample Selection, and Empirical Tests",
+            "quote": "For the portfolio results, each month firms are assigned to decile portfolios based on the magnitude of their bankruptcy score.",
+            "table_ref": null,
+            "interpretation": "Only one sort dimension is specified; the independent engine-menu classification follows from this single-dimension design."
+          }
+        ]
+      },
+      {
+        "field_path": "data.fields[0].source_column",
+        "kind": "ambiguous",
+        "reason": "evidence_status=inferred",
+        "empirical_impact": "high",
+        "disposition": "needs_human_confirmation",
+        "paper_value": "wcap",
+        "evidence": [
+          {
+            "location": "Section I, footnote 3",
+            "quote": "working capital/total assets",
+            "table_ref": null,
+            "interpretation": ""
+          }
+        ]
+      },
+      {
+        "field_path": "data.fields[1].source_column",
+        "kind": "ambiguous",
+        "reason": "evidence_status=inferred",
+        "empirical_impact": "high",
+        "disposition": "needs_human_confirmation",
+        "paper_value": "at",
+        "evidence": [
+          {
+            "location": "Section I, footnote 3",
+            "quote": "total assets",
+            "table_ref": null,
+            "interpretation": ""
+          }
+        ]
+      },
+      {
+        "field_path": "data.fields[2].source_column",
+        "kind": "ambiguous",
+        "reason": "evidence_status=inferred",
+        "empirical_impact": "high",
+        "disposition": "needs_human_confirmation",
+        "paper_value": "re",
+        "evidence": [
+          {
+            "location": "Section I, footnote 3",
+            "quote": "retained earnings/total assets",
+            "table_ref": null,
+            "interpretation": ""
+          }
+        ]
+      },
+      {
+        "field_path": "data.fields[3].source_column",
+        "kind": "ambiguous",
+        "reason": "evidence_status=inferred",
+        "empirical_impact": "high",
+        "disposition": "needs_human_confirmation",
+        "paper_value": "ebit",
+        "evidence": [
+          {
+            "location": "Section I, footnote 3",
+            "quote": "earnings before interest and taxes/total assets",
+            "table_ref": null,
+            "interpretation": ""
+          }
+        ]
+      },
+      {
+        "field_path": "data.fields[4].source_column",
+        "kind": "ambiguous",
+        "reason": "evidence_status=inferred",
+        "empirical_impact": "high",
+        "disposition": "needs_human_confirmation",
+        "paper_value": "mkvalt",
+        "evidence": [
+          {
+            "location": "Section I, Research Design, Sample Selection, and Empirical Tests",
+            "quote": "Size (MV) is defined as log[fiscal year-end price per share (COMPUSTAT item #199) times number of shares outstanding (item #25)].",
+            "table_ref": null,
+            "interpretation": "The catalog's fiscal-year-end total market-value field is the closest registered representation; the paper does not name its modern field mnemonic."
+          }
+        ]
+      },
+      {
+        "field_path": "data.fields[5].source_column",
+        "kind": "ambiguous",
+        "reason": "evidence_status=inferred",
+        "empirical_impact": "high",
+        "disposition": "needs_human_confirmation",
+        "paper_value": "lt",
+        "evidence": [
+          {
+            "location": "Section I, footnote 3",
+            "quote": "book value of total liabilities",
+            "table_ref": null,
+            "interpretation": ""
+          }
+        ]
+      },
+      {
+        "field_path": "data.fields[6].source_column",
+        "kind": "ambiguous",
+        "reason": "evidence_status=inferred",
+        "empirical_impact": "high",
+        "disposition": "needs_human_confirmation",
+        "paper_value": "sale",
+        "evidence": [
+          {
+            "location": "Section I, footnote 3",
+            "quote": "sales/total assets",
+            "table_ref": null,
+            "interpretation": ""
+          }
+        ]
+      },
+      {
+        "field_path": "data.fields[7].source_column",
+        "kind": "ambiguous",
+        "reason": "evidence_status=inferred",
+        "empirical_impact": "high",
+        "disposition": "needs_human_confirmation",
+        "paper_value": "sic",
+        "evidence": [
+          {
+            "location": "Section I, Research Design, Sample Selection, and Empirical Tests",
+            "quote": "SIC codes 1 to 3999 and 5000 to 5999.",
+            "table_ref": null,
+            "interpretation": ""
+          }
+        ]
+      },
+      {
+        "field_path": "data.fields[8].source_column",
+        "kind": "ambiguous",
+        "reason": "evidence_status=inferred",
+        "empirical_impact": "high",
+        "disposition": "needs_human_confirmation",
+        "paper_value": "exchcd",
+        "evidence": [
+          {
+            "location": "Section I, Research Design, Sample Selection, and Empirical Tests",
+            "quote": "NYSE, AMEX, and Nasdaq",
+            "table_ref": null,
+            "interpretation": "The catalog maps CRSP exchcd 1, 2, and 3 to these exchanges."
+          }
+        ]
+      }
+    ],
+    "all_high_impact_fields": [
+      {
+        "field_path": "signal.direction",
+        "kind": "ambiguous",
+        "reason": "evidence_status=clear",
+        "empirical_impact": "high",
+        "disposition": "auto_approve",
+        "paper_value": "positive",
+        "evidence": [
+          {
+            "location": "Table III note",
+            "quote": "Z is from Altman (1968), where higher Zs signify lower probability of bankruptcy.",
+            "table_ref": null,
+            "interpretation": "A higher Z score denotes greater financial strength and lower bankruptcy risk."
+          }
+        ]
+      },
+      {
+        "field_path": "timing.formation_rule",
+        "kind": "ambiguous",
+        "reason": "evidence_status=clear",
+        "empirical_impact": "high",
+        "disposition": "auto_approve",
+        "paper_value": "Compute Z from fiscal-year-end COMPUSTAT data; use monthly returns beginning six months after that fiscal year-end.",
+        "evidence": [
+          {
+            "location": "Section I, Research Design, Sample Selection, and Empirical Tests",
+            "quote": "Market value, book-to-market, and bankruptcy scores are computed from COMPUSTAT as of the fiscal year-end of a given year t. To ensure that the accounting data are available to calculate bankruptcy measures, returns are monthly returns beginning six months after the fiscal year-end of year t.",
+            "table_ref": null,
+            "interpretation": ""
+          }
+        ]
+      },
+      {
+        "field_path": "timing.rebalance_frequency",
+        "kind": "ambiguous",
+        "reason": "evidence_status=clear",
+        "empirical_impact": "high",
+        "disposition": "auto_approve",
+        "paper_value": "year",
+        "evidence": [
+          {
+            "location": "Section I, Research Design, Sample Selection, and Empirical Tests",
+            "quote": "For the portfolio results, each month firms are assigned to decile portfolios based on the magnitude of their bankruptcy score.",
+            "table_ref": null,
+            "interpretation": ""
+          },
+          {
+            "location": "",
+            "quote": "",
+            "table_ref": null,
+            "interpretation": "human correction"
+          }
+        ]
+      },
+      {
+        "field_path": "timing.holding_period",
+        "kind": "ambiguous",
+        "reason": "evidence_status=clear",
+        "empirical_impact": "high",
+        "disposition": "auto_approve",
+        "paper_value": 12,
+        "evidence": [
+          {
+            "location": "Table III note",
+            "quote": "Rets is one-year-ahead monthly returns (in percent), starting six months after fiscal-year-end.",
+            "table_ref": null,
+            "interpretation": "Each fiscal-year-end signal is evaluated over a one-year, twelve-month subsequent-return window."
+          }
+        ]
+      },
+      {
+        "field_path": "portfolio.weighting",
+        "kind": "ambiguous",
+        "reason": "evidence_status=clear",
+        "empirical_impact": "high",
+        "disposition": "auto_approve",
+        "paper_value": "ew",
+        "evidence": [
+          {
+            "location": "Section I, Research Design, Sample Selection, and Empirical Tests",
+            "quote": "Then I calculate mean bankruptcy score, mean subsequent realized monthly return, mean market value, and mean book-to-market for each portfolio.",
+            "table_ref": null,
+            "interpretation": "The stated portfolio return is the mean of constituent firms' monthly returns."
+          }
+        ]
+      },
+      {
+        "field_path": "portfolio.return_combination",
+        "kind": "ambiguous",
+        "reason": "evidence_status=clear",
+        "empirical_impact": "high",
+        "disposition": "auto_approve",
+        "paper_value": "single_signal_portfolio_return",
+        "evidence": [
+          {
+            "location": "Section I, Research Design, Sample Selection, and Empirical Tests",
+            "quote": "Then I calculate mean bankruptcy score, mean subsequent realized monthly return, mean market value, and mean book-to-market for each portfolio.",
+            "table_ref": null,
+            "interpretation": ""
+          },
+          {
+            "location": "",
+            "quote": "",
+            "table_ref": null,
+            "interpretation": "human correction"
+          }
+        ]
+      },
+      {
+        "field_path": "portfolio.construction_type",
+        "kind": "ambiguous",
+        "reason": "evidence_status=clear",
+        "empirical_impact": "high",
+        "disposition": "auto_approve",
+        "paper_value": "characteristic_sort",
+        "evidence": [
+          {
+            "location": "Section I, Research Design, Sample Selection, and Empirical Tests",
+            "quote": "For the portfolio results, each month firms are assigned to decile portfolios based on the magnitude of their bankruptcy score.",
+            "table_ref": null,
+            "interpretation": ""
+          }
+        ]
+      },
+      {
+        "field_path": "universe.description",
+        "kind": "ambiguous",
+        "reason": "evidence_status=clear",
+        "empirical_impact": "high",
+        "disposition": "auto_approve",
+        "paper_value": "Industrial firms jointly available in CRSP and Compustat, listed on NYSE, AMEX, or Nasdaq, with SIC codes 1-3999 or 5000-5999.",
+        "evidence": [
+          {
+            "location": "Section I, Research Design, Sample Selection, and Empirical Tests",
+            "quote": "The sample consists of all industrial firms available simultaneously on the NYSE, AMEX, and Nasdaq Center for Research in Security Prices (CRSP) tapes and the COMPUSTAT annual industrial and research tapes for the period 1981 to 1995.",
+            "table_ref": null,
+            "interpretation": ""
+          },
+          {
+            "location": "Section I, Research Design, Sample Selection, and Empirical Tests",
+            "quote": "I only include firms with COMPUSTAT Standard Industrial Classification (SIC) codes 1 to 3999 and 5000 to 5999.",
+            "table_ref": null,
+            "interpretation": ""
+          }
+        ]
+      },
+      {
+        "field_path": "portfolio.sorts[0].breakpoints.basis",
+        "kind": "ambiguous",
+        "reason": "evidence_status=clear",
+        "empirical_impact": "high",
+        "disposition": "auto_approve",
+        "paper_value": "full_sample",
+        "evidence": [
+          {
+            "location": "Section I, Research Design, Sample Selection, and Empirical Tests",
+            "quote": "For the portfolio results, each month firms are assigned to decile portfolios based on the magnitude of their bankruptcy score.",
+            "table_ref": null,
+            "interpretation": "The paper does not specify an exchange-based breakpoint subset."
+          },
+          {
+            "location": "",
+            "quote": "",
+            "table_ref": null,
+            "interpretation": "human correction"
+          }
+        ]
+      },
+      {
+        "field_path": "portfolio.sorts[0].group_type",
+        "kind": "ambiguous",
+        "reason": "evidence_status=clear",
+        "empirical_impact": "high",
+        "disposition": "auto_approve",
+        "paper_value": "quantile",
+        "evidence": [
+          {
+            "location": "Section I, Research Design, Sample Selection, and Empirical Tests",
+            "quote": "each month firms are assigned to decile portfolios",
+            "table_ref": null,
+            "interpretation": ""
+          }
+        ]
+      },
+      {
+        "field_path": "portfolio.sorts[0].mode",
+        "kind": "ambiguous",
+        "reason": "evidence_status=inferred",
+        "empirical_impact": "high",
+        "disposition": "needs_human_confirmation",
+        "paper_value": "independent",
+        "evidence": [
+          {
+            "location": "Section I, Research Design, Sample Selection, and Empirical Tests",
+            "quote": "For the portfolio results, each month firms are assigned to decile portfolios based on the magnitude of their bankruptcy score.",
+            "table_ref": null,
+            "interpretation": "Only one sort dimension is specified; the independent engine-menu classification follows from this single-dimension design."
+          }
+        ]
+      },
+      {
+        "field_path": "data.fields[0].source_table",
+        "kind": "ambiguous",
+        "reason": "evidence_status=clear",
+        "empirical_impact": "high",
+        "disposition": "auto_approve",
+        "paper_value": "compustat_fundamental_annual",
+        "evidence": [
+          {
+            "location": "Section I, Research Design, Sample Selection, and Empirical Tests",
+            "quote": "Market value, book-to-market, and bankruptcy scores are computed from COMPUSTAT",
+            "table_ref": null,
+            "interpretation": ""
+          }
+        ]
+      },
+      {
+        "field_path": "data.fields[0].source_column",
+        "kind": "ambiguous",
+        "reason": "evidence_status=inferred",
+        "empirical_impact": "high",
+        "disposition": "needs_human_confirmation",
+        "paper_value": "wcap",
+        "evidence": [
+          {
+            "location": "Section I, footnote 3",
+            "quote": "working capital/total assets",
+            "table_ref": null,
+            "interpretation": ""
+          }
+        ]
+      },
+      {
+        "field_path": "data.fields[1].source_table",
+        "kind": "ambiguous",
+        "reason": "evidence_status=clear",
+        "empirical_impact": "high",
+        "disposition": "auto_approve",
+        "paper_value": "compustat_fundamental_annual",
+        "evidence": [
+          {
+            "location": "Section I, Research Design, Sample Selection, and Empirical Tests",
+            "quote": "Market value, book-to-market, and bankruptcy scores are computed from COMPUSTAT",
+            "table_ref": null,
+            "interpretation": ""
+          }
+        ]
+      },
+      {
+        "field_path": "data.fields[1].source_column",
+        "kind": "ambiguous",
+        "reason": "evidence_status=inferred",
+        "empirical_impact": "high",
+        "disposition": "needs_human_confirmation",
+        "paper_value": "at",
+        "evidence": [
+          {
+            "location": "Section I, footnote 3",
+            "quote": "total assets",
+            "table_ref": null,
+            "interpretation": ""
+          }
+        ]
+      },
+      {
+        "field_path": "data.fields[2].source_table",
+        "kind": "ambiguous",
+        "reason": "evidence_status=clear",
+        "empirical_impact": "high",
+        "disposition": "auto_approve",
+        "paper_value": "compustat_fundamental_annual",
+        "evidence": [
+          {
+            "location": "Section I, Research Design, Sample Selection, and Empirical Tests",
+            "quote": "Market value, book-to-market, and bankruptcy scores are computed from COMPUSTAT",
+            "table_ref": null,
+            "interpretation": ""
+          }
+        ]
+      },
+      {
+        "field_path": "data.fields[2].source_column",
+        "kind": "ambiguous",
+        "reason": "evidence_status=inferred",
+        "empirical_impact": "high",
+        "disposition": "needs_human_confirmation",
+        "paper_value": "re",
+        "evidence": [
+          {
+            "location": "Section I, footnote 3",
+            "quote": "retained earnings/total assets",
+            "table_ref": null,
+            "interpretation": ""
+          }
+        ]
+      },
+      {
+        "field_path": "data.fields[3].source_table",
+        "kind": "ambiguous",
+        "reason": "evidence_status=clear",
+        "empirical_impact": "high",
+        "disposition": "auto_approve",
+        "paper_value": "compustat_fundamental_annual",
+        "evidence": [
+          {
+            "location": "Section I, Research Design, Sample Selection, and Empirical Tests",
+            "quote": "Market value, book-to-market, and bankruptcy scores are computed from COMPUSTAT",
+            "table_ref": null,
+            "interpretation": ""
+          }
+        ]
+      },
+      {
+        "field_path": "data.fields[3].source_column",
+        "kind": "ambiguous",
+        "reason": "evidence_status=inferred",
+        "empirical_impact": "high",
+        "disposition": "needs_human_confirmation",
+        "paper_value": "ebit",
+        "evidence": [
+          {
+            "location": "Section I, footnote 3",
+            "quote": "earnings before interest and taxes/total assets",
+            "table_ref": null,
+            "interpretation": ""
+          }
+        ]
+      },
+      {
+        "field_path": "data.fields[4].source_table",
+        "kind": "ambiguous",
+        "reason": "evidence_status=clear",
+        "empirical_impact": "high",
+        "disposition": "auto_approve",
+        "paper_value": "compustat_fundamental_annual",
+        "evidence": [
+          {
+            "location": "Section I, Research Design, Sample Selection, and Empirical Tests",
+            "quote": "Market value, book-to-market, and bankruptcy scores are computed from COMPUSTAT",
+            "table_ref": null,
+            "interpretation": ""
+          }
+        ]
+      },
+      {
+        "field_path": "data.fields[4].source_column",
+        "kind": "ambiguous",
+        "reason": "evidence_status=inferred",
+        "empirical_impact": "high",
+        "disposition": "needs_human_confirmation",
+        "paper_value": "mkvalt",
+        "evidence": [
+          {
+            "location": "Section I, Research Design, Sample Selection, and Empirical Tests",
+            "quote": "Size (MV) is defined as log[fiscal year-end price per share (COMPUSTAT item #199) times number of shares outstanding (item #25)].",
+            "table_ref": null,
+            "interpretation": "The catalog's fiscal-year-end total market-value field is the closest registered representation; the paper does not name its modern field mnemonic."
+          }
+        ]
+      },
+      {
+        "field_path": "data.fields[5].source_table",
+        "kind": "ambiguous",
+        "reason": "evidence_status=clear",
+        "empirical_impact": "high",
+        "disposition": "auto_approve",
+        "paper_value": "compustat_fundamental_annual",
+        "evidence": [
+          {
+            "location": "Section I, Research Design, Sample Selection, and Empirical Tests",
+            "quote": "Market value, book-to-market, and bankruptcy scores are computed from COMPUSTAT",
+            "table_ref": null,
+            "interpretation": ""
+          }
+        ]
+      },
+      {
+        "field_path": "data.fields[5].source_column",
+        "kind": "ambiguous",
+        "reason": "evidence_status=inferred",
+        "empirical_impact": "high",
+        "disposition": "needs_human_confirmation",
+        "paper_value": "lt",
+        "evidence": [
+          {
+            "location": "Section I, footnote 3",
+            "quote": "book value of total liabilities",
+            "table_ref": null,
+            "interpretation": ""
+          }
+        ]
+      },
+      {
+        "field_path": "data.fields[6].source_table",
+        "kind": "ambiguous",
+        "reason": "evidence_status=clear",
+        "empirical_impact": "high",
+        "disposition": "auto_approve",
+        "paper_value": "compustat_fundamental_annual",
+        "evidence": [
+          {
+            "location": "Section I, Research Design, Sample Selection, and Empirical Tests",
+            "quote": "Market value, book-to-market, and bankruptcy scores are computed from COMPUSTAT",
+            "table_ref": null,
+            "interpretation": ""
+          }
+        ]
+      },
+      {
+        "field_path": "data.fields[6].source_column",
+        "kind": "ambiguous",
+        "reason": "evidence_status=inferred",
+        "empirical_impact": "high",
+        "disposition": "needs_human_confirmation",
+        "paper_value": "sale",
+        "evidence": [
+          {
+            "location": "Section I, footnote 3",
+            "quote": "sales/total assets",
+            "table_ref": null,
+            "interpretation": ""
+          }
+        ]
+      },
+      {
+        "field_path": "data.fields[7].source_table",
+        "kind": "ambiguous",
+        "reason": "evidence_status=clear",
+        "empirical_impact": "high",
+        "disposition": "auto_approve",
+        "paper_value": "compustat_fundamental_annual",
+        "evidence": [
+          {
+            "location": "Section I, Research Design, Sample Selection, and Empirical Tests",
+            "quote": "COMPUSTAT Standard Industrial Classification (SIC) codes",
+            "table_ref": null,
+            "interpretation": ""
+          }
+        ]
+      },
+      {
+        "field_path": "data.fields[7].source_column",
+        "kind": "ambiguous",
+        "reason": "evidence_status=inferred",
+        "empirical_impact": "high",
+        "disposition": "needs_human_confirmation",
+        "paper_value": "sic",
+        "evidence": [
+          {
+            "location": "Section I, Research Design, Sample Selection, and Empirical Tests",
+            "quote": "SIC codes 1 to 3999 and 5000 to 5999.",
+            "table_ref": null,
+            "interpretation": ""
+          }
+        ]
+      },
+      {
+        "field_path": "data.fields[8].source_table",
+        "kind": "ambiguous",
+        "reason": "evidence_status=clear",
+        "empirical_impact": "high",
+        "disposition": "auto_approve",
+        "paper_value": "crsp_msf",
+        "evidence": [
+          {
+            "location": "Section I, Research Design, Sample Selection, and Empirical Tests",
+            "quote": "NYSE, AMEX, and Nasdaq Center for Research in Security Prices (CRSP) tapes",
+            "table_ref": null,
+            "interpretation": ""
+          }
+        ]
+      },
+      {
+        "field_path": "data.fields[8].source_column",
+        "kind": "ambiguous",
+        "reason": "evidence_status=inferred",
+        "empirical_impact": "high",
+        "disposition": "needs_human_confirmation",
+        "paper_value": "exchcd",
+        "evidence": [
+          {
+            "location": "Section I, Research Design, Sample Selection, and Empirical Tests",
+            "quote": "NYSE, AMEX, and Nasdaq",
+            "table_ref": null,
+            "interpretation": "The catalog maps CRSP exchcd 1, 2, and 3 to these exchanges."
+          }
+        ]
+      }
+    ],
+    "status_overrides": {},
+    "reextraction_attempts": 0
+  },
+  "resolution": {
+    "schema_version": "resolution.v2",
+    "factor_id": "ce8a2fdbb9ec12f2",
+    "concept_mapping": {
+      "working_capital": {
+        "source": "compustat_fundamental_annual",
+        "column": "wcap"
+      },
+      "total_assets": {
+        "source": "compustat_fundamental_annual",
+        "column": "at"
+      },
+      "retained_earnings": {
+        "source": "compustat_fundamental_annual",
+        "column": "re"
+      },
+      "ebit": {
+        "source": "compustat_fundamental_annual",
+        "column": "ebit"
+      },
+      "market_value_equity": {
+        "source": "compustat_fundamental_annual",
+        "column": "mkvalt"
+      },
+      "total_liabilities": {
+        "source": "compustat_fundamental_annual",
+        "column": "lt"
+      },
+      "sales": {
+        "source": "compustat_fundamental_annual",
+        "column": "sale"
+      },
+      "sic_code": {
+        "source": "compustat_fundamental_annual",
+        "column": "sic"
+      },
+      "exchange_code": {
+        "source": "crsp_msf",
+        "column": "exchcd"
+      }
+    },
+    "returns_source": "us_equity_crsp",
+    "cz_acronym": null,
+    "llm_matched_concepts": [],
+    "entries": [],
+    "approved_substitutions": []
+  }
+}

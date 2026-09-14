@@ -1,0 +1,47 @@
+{
+  "schema_version": "resolution.v2",
+  "factor_id": "ce8a2fdbb9ec12f2",
+  "concept_mapping": {
+    "working_capital": {
+      "source": "compustat_fundamental_annual",
+      "column": "wcap"
+    },
+    "total_assets": {
+      "source": "compustat_fundamental_annual",
+      "column": "at"
+    },
+    "retained_earnings": {
+      "source": "compustat_fundamental_annual",
+      "column": "re"
+    },
+    "ebit": {
+      "source": "compustat_fundamental_annual",
+      "column": "ebit"
+    },
+    "market_value_equity": {
+      "source": "compustat_fundamental_annual",
+      "column": "mkvalt"
+    },
+    "total_liabilities": {
+      "source": "compustat_fundamental_annual",
+      "column": "lt"
+    },
+    "sales": {
+      "source": "compustat_fundamental_annual",
+      "column": "sale"
+    },
+    "sic_code": {
+      "source": "compustat_fundamental_annual",
+      "column": "sic"
+    },
+    "exchange_code": {
+      "source": "crsp_msf",
+      "column": "exchcd"
+    }
+  },
+  "returns_source": "us_equity_crsp",
+  "cz_acronym": null,
+  "llm_matched_concepts": [],
+  "entries": [],
+  "approved_substitutions": []
+}

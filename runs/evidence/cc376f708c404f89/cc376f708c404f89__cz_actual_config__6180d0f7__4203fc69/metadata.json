@@ -1,0 +1,157 @@
+{
+  "run_id": "cc376f708c404f89__cz_actual_config__6180d0f7__4203fc69",
+  "factor_id": "cc376f708c404f89",
+  "plugin_id": "cc376f708c404f89",
+  "track": "cz_actual_config",
+  "method_spec_hash": "df06e7753675e1c20aaf11599bdfa3d85c5fbeac5bd7d54848cd331264e12ea3",
+  "code_hash": "6180d0f7baa82bfd",
+  "lifecycle_commit": "b4fb8b0cbf48d7c4b2d0897fb9f46d24aea6df55-dirty",
+  "data_snapshot_hash": "e59e6493f8ac05f3af7d090a041787ccf77045eff130b3896022e2c6e32c55e4",
+  "config_hash": "4203fc6901098f3a",
+  "runtime_provenance": {
+    "git_commit": "b4fb8b0cbf48d7c4b2d0897fb9f46d24aea6df55",
+    "git_dirty": true,
+    "engine_source_hash": "33fc4c73f586c0c3fbba6aa0c2a697e716df04563441bdfaf0ab94043ef90012",
+    "python_version": "3.14.2",
+    "package_versions": {
+      "pandas": "2.3.3",
+      "numpy": "2.5.2",
+      "statsmodels": "0.14.6",
+      "linearmodels": "not_installed"
+    },
+    "ff_factors_hash": "bfc216e95682647791541224633da1ea806d7ba208331353813ee7103415888b",
+    "liquidity_factors_hash": "bb0569547854ced13cfb08960650137282a2c6656d840d9e730c927e7b8f3fbe"
+  },
+  "experiment_batch_id": "4e5637fe99fa",
+  "frozen_plugin_hash": "6180d0f7baa82bfd",
+  "batch_invalidated": false,
+  "batch_invalidation_reason": "",
+  "switches_flipped": {
+    "lag": 6,
+    "rebalance": "annual",
+    "weighting": "ew",
+    "quantiles": 5,
+    "universe": [
+      {
+        "field": "shrcd",
+        "op": "in",
+        "value": [
+          10,
+          11,
+          12
+        ]
+      },
+      {
+        "field": "exchcd",
+        "op": "in",
+        "value": [
+          1,
+          2,
+          3
+        ]
+      },
+      {
+        "field": "exchcd",
+        "op": "eq",
+        "value": 1
+      }
+    ]
+  },
+  "metrics": {
+    "mean_return": 0.003225091402949504,
+    "t_stat": 2.5814133640964854,
+    "sharpe_ratio": 0.24792059730154317,
+    "alpha_capm": 0.005132162389976089,
+    "alpha_ff3": 0.005077017849471716,
+    "alpha_ff5": 0.004476670103211111,
+    "coverage": null,
+    "microcap_share": null,
+    "n_months": 1193,
+    "by_sample_period": {
+      "insamp": {
+        "mean_monthly_return": 0.0019442505374419779,
+        "annualized_return": 0.023331006449303734,
+        "t_stat": 0.8936050442655924,
+        "n_months": 360,
+        "sharpe_ratio": 0.1789294286234882,
+        "alpha_capm": 0.004116657126700514,
+        "alpha_capm_tstat": 2.46230128460097,
+        "beta_capm_mktrf": -0.5631643782912604,
+        "alpha_ff3": 0.004167596072270961,
+        "alpha_ff3_tstat": 3.380110351636458,
+        "beta_ff3_mktrf": -0.39467787885205846,
+        "beta_ff3_smb": -0.6083055998000666,
+        "beta_ff3_hml": 0.15849878509230467,
+        "alpha_ff5": 0.003503908647865399,
+        "alpha_ff5_tstat": 2.3345807884658107,
+        "beta_ff5_mktrf": -0.36948827147830066,
+        "beta_ff5_smb": -0.564610626906233,
+        "beta_ff5_hml": -0.05247019508505775,
+        "beta_ff5_rmw": 0.02784246665598261,
+        "beta_ff5_cma": 0.4612308316788146,
+        "alpha_liq": 0.00394080562883647,
+        "alpha_liq_tstat": 1.8802397873783894,
+        "beta_liq_ps_vwf": 0.2693948023181829
+      },
+      "between": {
+        "mean_monthly_return": 0.004640818818813877,
+        "annualized_return": 0.05568982582576652,
+        "t_stat": 2.1315090008311794,
+        "n_months": 84,
+        "sharpe_ratio": 0.589026316076542,
+        "alpha_capm": 0.010765447873965663,
+        "alpha_capm_tstat": 4.262845962164643,
+        "beta_capm_mktrf": -0.5410904928825725,
+        "alpha_ff3": 0.00793063971589651,
+        "alpha_ff3_tstat": 3.0671808687240905,
+        "beta_ff3_mktrf": -0.45251946594196946,
+        "beta_ff3_smb": -0.1339147211663943,
+        "beta_ff3_hml": 0.24738278731895325,
+        "alpha_ff5": 0.007025108354490512,
+        "alpha_ff5_tstat": 2.3000763993224638,
+        "beta_ff5_mktrf": -0.4000092441656702,
+        "beta_ff5_smb": -0.09827828127665303,
+        "beta_ff5_hml": 0.14842623197580987,
+        "beta_ff5_rmw": 0.09860907994098862,
+        "beta_ff5_cma": 0.25750570720059324,
+        "alpha_liq": 0.004636404349758368,
+        "alpha_liq_tstat": 2.089951650843053,
+        "beta_liq_ps_vwf": -0.13046681842466876
+      },
+      "postpub": {
+        "mean_monthly_return": 0.0008140796891394636,
+        "annualized_return": 0.009768956269673564,
+        "t_stat": 0.4206601492667622,
+        "n_months": 324,
+        "sharpe_ratio": 0.08392775870441066,
+        "alpha_capm": 0.0042021688946892845,
+        "alpha_capm_tstat": 2.905314682887203,
+        "beta_capm_mktrf": -0.522211551590382,
+        "alpha_ff3": 0.004292445617160839,
+        "alpha_ff3_tstat": 3.1273977055960636,
+        "beta_ff3_mktrf": -0.4837147937004187,
+        "beta_ff3_smb": -0.21169396399009804,
+        "beta_ff3_hml": -0.0403932995544604,
+        "alpha_ff5": 0.0033038142980678807,
+        "alpha_ff5_tstat": 2.544981073530818,
+        "beta_ff5_mktrf": -0.444469753321954,
+        "beta_ff5_smb": -0.14901182252030656,
+        "beta_ff5_hml": -0.13563036920428234,
+        "beta_ff5_rmw": 0.1664750840042663,
+        "beta_ff5_cma": 0.13538785572495712,
+        "alpha_liq": 0.0011334043541480442,
+        "alpha_liq_tstat": 0.5666518843597235,
+        "beta_liq_ps_vwf": -0.09256571773802474
+      }
+    }
+  },
+  "return_series_path": "/Users/shengzhaolei/Desktop/shengzhao lei/projects/factor-replication-agent/runs/evidence/cc376f708c404f89/cc376f708c404f89__cz_actual_config__6180d0f7__4203fc69/return_series.csv",
+  "signal_series_path": "/Users/shengzhaolei/Desktop/shengzhao lei/projects/factor-replication-agent/runs/evidence/cc376f708c404f89/cc376f708c404f89__cz_actual_config__6180d0f7__4203fc69/signal_series.parquet",
+  "status": "success",
+  "created_at": "2026-08-23T13:52:42.181574",
+  "logs": [
+    "experiment_matrix: family='portfolio_ablation' identification_level='unidentified'",
+    "artifact_sha256: {\"return_series.csv\": \"49b85427a7dfdd62cde8363d1ee23fceac558cdc0b3173b55b06716e85a72165\", \"signal_series.parquet\": \"9e645c3e0032021e2e40ede3927568a76438c7f95687f0a336f1fd8491379881\"}"
+  ],
+  "repair_history": []
+}

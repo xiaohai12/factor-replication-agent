@@ -1,0 +1,1353 @@
+{
+  "paper": {
+    "schema_version": "methodspec.v2",
+    "factor_id": "fae312b1730eefb6",
+    "target_name": "AssetGrowth",
+    "paper": {
+      "document_id": "Asset Growth and the Cross Section of Stock Returns.pdf",
+      "title": "Asset Growth and the Cross-Section of Stock Returns",
+      "citation": "Cooper, Michael J., Huseyin Gulen, and Michael J. Schill, 2008, Asset Growth and the Cross-Section of Stock Returns, The Journal of Finance 63(4), 1609–1651.",
+      "publication_year": 2008
+    },
+    "signal": {
+      "definition": {
+        "value": "Annual percentage change in total assets.",
+        "evidence": [
+          {
+            "location": "Section I, Data",
+            "quote": "Our main variable of concern, the annual firm asset growth rate (ASSETG), is calculated using the year-on-year percentage change in total assets (Compustat data item 6).",
+            "table_ref": null,
+            "interpretation": ""
+          }
+        ],
+        "status": "clear",
+        "unsupported_value": null
+      },
+      "economic_intuition": {
+        "value": "Higher firm asset growth is associated with lower subsequent stock returns, consistent with investor overextrapolation of past growth.",
+        "evidence": [
+          {
+            "location": "Conclusion",
+            "quote": "Overall, our findings are most consistent with the interpretation that investors overextrapolate past gains to growth.",
+            "table_ref": null,
+            "interpretation": ""
+          }
+        ],
+        "status": "clear",
+        "unsupported_value": null
+      },
+      "direction": {
+        "value": "negative",
+        "evidence": [
+          {
+            "location": "Abstract",
+            "quote": "we document a strong negative correlation between a firm’s asset growth and subsequent abnormal returns.",
+            "table_ref": null,
+            "interpretation": ""
+          }
+        ],
+        "status": "clear",
+        "unsupported_value": null
+      },
+      "category": "continuous",
+      "formula": {
+        "paper_expression": "ASSETG(t) = [Data6(t − 1) − Data6(t − 2)] / Data6(t − 2)",
+        "steps": [
+          {
+            "step_id": "lagged_total_assets",
+            "description": "Obtain total assets for fiscal years ending in calendar years t-1 and t-2.",
+            "expression": "total_assets_t_minus_1, total_assets_t_minus_2",
+            "status": "clear",
+            "evidence": [
+              {
+                "location": "Section I, Data",
+                "quote": "The firm asset growth rate for year t is estimated as the percentage change in data item 6 from fiscal year ending in calendar year t−2 to fiscal year ending in calendar year t−1",
+                "table_ref": null,
+                "interpretation": ""
+              }
+            ]
+          },
+          {
+            "step_id": "asset_growth",
+            "description": "Compute the year-on-year percentage change in total assets.",
+            "expression": "(total_assets_t_minus_1 - total_assets_t_minus_2) / total_assets_t_minus_2",
+            "status": "clear",
+            "evidence": [
+              {
+                "location": "Equation (1)",
+                "quote": "ASSETG(t) = Data6(t −1) −Data6(t −2) / Data6(t −2)",
+                "table_ref": null,
+                "interpretation": "The displayed equation is rendered as a fraction in the paper."
+              }
+            ]
+          }
+        ],
+        "inputs": [
+          "total_assets"
+        ],
+        "constants": {},
+        "output_concept": "asset_growth",
+        "evidence": [
+          {
+            "location": "Section I, Data",
+            "quote": "ASSETG(t) = Data6(t −1) −Data6(t −2) / Data6(t −2)",
+            "table_ref": null,
+            "interpretation": "The displayed equation is rendered as a fraction in the paper."
+          }
+        ]
+      },
+      "estimation": null
+    },
+    "data": {
+      "signal_frequency": {
+        "value": "year",
+        "evidence": [
+          {
+            "location": "Section I, Data",
+            "quote": "All of the variables are updated annually, at the end of June each year.",
+            "table_ref": null,
+            "interpretation": ""
+          }
+        ],
+        "status": "clear",
+        "unsupported_value": null
+      },
+      "return_frequency": {
+        "value": "month",
+        "evidence": [
+          {
+            "location": "Section II.A, Cross-Sectional Tests",
+            "quote": "After assigning firms to one of 10 deciles based on annual asset growth rates, we calculate monthly returns for EW and VW portfolios for the next 12 months",
+            "table_ref": null,
+            "interpretation": ""
+          }
+        ],
+        "status": "clear",
+        "unsupported_value": null
+      },
+      "sources": [
+        {
+          "value": "CRSP monthly stock return files",
+          "evidence": [
+            {
+              "location": "Section I, Data",
+              "quote": "We use all NYSE, Amex, and NASDAQ nonfinancial firms (excluding firms with four-digit SIC codes between 6000 and 6999) listed on the CRSP monthly stock return files",
+              "table_ref": null,
+              "interpretation": ""
+            }
+          ],
+          "status": "clear",
+          "unsupported_value": null
+        },
+        {
+          "value": "Compustat annual industrial files",
+          "evidence": [
+            {
+              "location": "Section I, Data",
+              "quote": "We use all NYSE, Amex, and NASDAQ nonfinancial firms (excluding firms with four-digit SIC codes between 6000 and 6999) listed on the CRSP monthly stock return files and the Compustat annual industrial files from 1963 through 2003.",
+              "table_ref": null,
+              "interpretation": ""
+            }
+          ],
+          "status": "clear",
+          "unsupported_value": null
+        }
+      ],
+      "fields": [
+        {
+          "concept_id": "total_assets",
+          "name_in_paper": "total assets (Compustat data item 6)",
+          "description": "Total firm assets used to calculate annual asset growth.",
+          "paper_source_hint": "Compustat annual industrial files, data item 6.",
+          "roles": [
+            "signal_input"
+          ],
+          "evidence": [
+            {
+              "location": "Section I, Data",
+              "quote": "Our main variable of concern, the annual firm asset growth rate (ASSETG), is calculated using the year-on-year percentage change in total assets (Compustat data item 6).",
+              "table_ref": null,
+              "interpretation": ""
+            }
+          ],
+          "source_table": {
+            "value": "compustat_fundamental_annual",
+            "evidence": [
+              {
+                "location": "Section I, Data",
+                "quote": "total assets (Compustat data item 6)",
+                "table_ref": null,
+                "interpretation": "Catalog mapping: Compustat annual total assets is AT."
+              }
+            ],
+            "status": "clear",
+            "unsupported_value": null
+          },
+          "source_column": {
+            "value": "at",
+            "evidence": [
+              {
+                "location": "Section I, Data",
+                "quote": "total assets (Compustat data item 6)",
+                "table_ref": null,
+                "interpretation": "Catalog mapping: Compustat annual total assets is AT."
+              }
+            ],
+            "status": "clear",
+            "unsupported_value": null
+          }
+        },
+        {
+          "concept_id": "exchcd",
+          "name_in_paper": "NYSE, Amex, and NASDAQ listing",
+          "description": "CRSP listing exchange code used to restrict the stock universe.",
+          "paper_source_hint": "CRSP monthly stock return files.",
+          "roles": [
+            "universe_filter"
+          ],
+          "evidence": [
+            {
+              "location": "Section I, Data",
+              "quote": "We use all NYSE, Amex, and NASDAQ nonfinancial firms",
+              "table_ref": null,
+              "interpretation": ""
+            }
+          ],
+          "source_table": {
+            "value": "crsp_msf",
+            "evidence": [
+              {
+                "location": "Section I, Data",
+                "quote": "listed on the CRSP monthly stock return files",
+                "table_ref": null,
+                "interpretation": "Catalog mapping: CRSP exchange code is exchcd."
+              }
+            ],
+            "status": "clear",
+            "unsupported_value": null
+          },
+          "source_column": {
+            "value": "exchcd",
+            "evidence": [
+              {
+                "location": "Section I, Data",
+                "quote": "We use all NYSE, Amex, and NASDAQ nonfinancial firms",
+                "table_ref": null,
+                "interpretation": "Catalog mapping: exchcd values 1, 2, and 3 denote NYSE, AMEX, and NASDAQ."
+              }
+            ],
+            "status": "clear",
+            "unsupported_value": null
+          }
+        },
+        {
+          "concept_id": "siccd",
+          "name_in_paper": "four-digit SIC code",
+          "description": "Industry code used to exclude financial firms.",
+          "paper_source_hint": "The paper excludes firms with SIC codes from 6000 through 6999.",
+          "roles": [
+            "universe_filter"
+          ],
+          "evidence": [
+            {
+              "location": "Section I, Data",
+              "quote": "excluding firms with four-digit SIC codes between 6000 and 6999",
+              "table_ref": null,
+              "interpretation": ""
+            }
+          ],
+          "source_table": {
+            "value": "crsp_msf",
+            "evidence": [
+              {
+                "location": "Section I, Data",
+                "quote": "listed on the CRSP monthly stock return files",
+                "table_ref": null,
+                "interpretation": "Catalog mapping: CRSP SIC code is siccd."
+              }
+            ],
+            "status": "clear",
+            "unsupported_value": null
+          },
+          "source_column": {
+            "value": "siccd",
+            "evidence": [
+              {
+                "location": "Section I, Data",
+                "quote": "excluding firms with four-digit SIC codes between 6000 and 6999",
+                "table_ref": null,
+                "interpretation": "Catalog mapping: CRSP SIC code is siccd."
+              }
+            ],
+            "status": "clear",
+            "unsupported_value": null
+          }
+        },
+        {
+          "concept_id": "compustat_listing_duration",
+          "name_in_paper": "years listed on Compustat",
+          "description": "Duration of Compustat listing required to mitigate backfilling bias.",
+          "paper_source_hint": "Compustat annual industrial files.",
+          "roles": [
+            "universe_filter"
+          ],
+          "evidence": [
+            {
+              "location": "Section I, Data",
+              "quote": "a firm must be listed on Compustat for 2 years before it is included in the data set",
+              "table_ref": null,
+              "interpretation": ""
+            }
+          ],
+          "source_table": {
+            "value": "compustat_fundamental_annual",
+            "evidence": [
+              {
+                "location": "Section I, Data",
+                "quote": "a firm must be listed on Compustat for 2 years before it is included in the data set",
+                "table_ref": null,
+                "interpretation": "Listing duration is derived from annual Compustat observations."
+              }
+            ],
+            "status": "clear",
+            "unsupported_value": null
+          },
+          "source_column": {
+            "value": "datadate",
+            "evidence": [
+              {
+                "location": "Section I, Data",
+                "quote": "a firm must be listed on Compustat for 2 years before it is included in the data set",
+                "table_ref": null,
+                "interpretation": "Annual fiscal-year-end observations are used to derive listing duration; the paper does not specify implementation mechanics."
+              }
+            ],
+            "status": "inferred",
+            "unsupported_value": null
+          }
+        }
+      ],
+      "coverage_notes": [
+        "The portfolio tests begin at the end of June 1968; Compustat and CRSP source data are stated to cover 1963 through 2003."
+      ]
+    },
+    "sample": {
+      "data_coverage": {
+        "start_year": 1963,
+        "end_year": 2003,
+        "start_month": null,
+        "end_month": null,
+        "evidence": [
+          {
+            "location": "Section I, Data",
+            "quote": "the Compustat annual industrial files from 1963 through 2003.",
+            "table_ref": null,
+            "interpretation": ""
+          }
+        ],
+        "status": "clear"
+      },
+      "formation": {
+        "start_year": 1968,
+        "end_year": 2002,
+        "start_month": 6,
+        "end_month": 6,
+        "evidence": [
+          {
+            "location": "Table II caption",
+            "quote": "At the end of June of each year t over 1968 to 2002, stocks are allocated into deciles based on asset growth rates",
+            "table_ref": null,
+            "interpretation": ""
+          }
+        ],
+        "status": "clear"
+      },
+      "reported_returns": {
+        "start_year": 1968,
+        "end_year": 2003,
+        "start_month": 7,
+        "end_month": 6,
+        "evidence": [
+          {
+            "location": "Section II.A, Cross-Sectional Tests",
+            "quote": "After forming the portfolios, we obtain a time series of returns to each portfolio from July 1968 to June 2003.",
+            "table_ref": null,
+            "interpretation": ""
+          }
+        ],
+        "status": "clear"
+      }
+    },
+    "timing": {
+      "formation_rule": {
+        "value": "At the end of June each year, sort stocks into deciles based on annual asset growth measured from fiscal year t-2 to t-1; hold portfolios from July through the following June.",
+        "evidence": [
+          {
+            "location": "Section I, Data",
+            "quote": "At the end of June of each year t stocks are allocated into deciles based on annual asset growth rates (defined in equation (1)) and portfolios are formed from July of year t to June of year t+1.",
+            "table_ref": null,
+            "interpretation": ""
+          }
+        ],
+        "status": "clear",
+        "unsupported_value": null
+      },
+      "formation_month": {
+        "value": 6,
+        "evidence": [
+          {
+            "location": "Section I, Data",
+            "quote": "At the end of June of each year t stocks are allocated into deciles",
+            "table_ref": null,
+            "interpretation": ""
+          }
+        ],
+        "status": "clear",
+        "unsupported_value": null
+      },
+      "rebalance_frequency": {
+        "value": "year",
+        "evidence": [
+          {
+            "location": "Section I, Data",
+            "quote": "The portfolios are held for 1 year and then rebalanced.",
+            "table_ref": null,
+            "interpretation": ""
+          }
+        ],
+        "status": "clear",
+        "unsupported_value": null
+      },
+      "holding_period": {
+        "value": 12,
+        "evidence": [
+          {
+            "location": "Section I, Data",
+            "quote": "The portfolios are held for 1 year and then rebalanced.",
+            "table_ref": null,
+            "interpretation": "Converted from one year to 12 months."
+          }
+        ],
+        "status": "clear",
+        "unsupported_value": null
+      },
+      "return_window": {
+        "start_offset": 1,
+        "end_offset": 12,
+        "unit": "month",
+        "anchor": "formation_date",
+        "is_expanding": false
+      },
+      "data_availability": {
+        "lag_value": 6,
+        "lag_unit": "month",
+        "anchor": "fiscal_period_end",
+        "basis": "fixed_calendar_lag",
+        "evidence": [
+          {
+            "location": "Section I, Data",
+            "quote": "we form all of our accounting variables at the end of June in year t, using accounting information from fiscal year-end t−1 from Compustat.",
+            "table_ref": null,
+            "interpretation": "Uses the standing six-month fiscal-period-end lag for the cited Fama-French June formation convention."
+          }
+        ]
+      }
+    },
+    "universe": {
+      "description": {
+        "value": "NYSE, Amex, and NASDAQ nonfinancial firms listed on CRSP monthly stock return files and Compustat annual industrial files, excluding firms with four-digit SIC codes from 6000 through 6999.",
+        "evidence": [
+          {
+            "location": "Section I, Data",
+            "quote": "We use all NYSE, Amex, and NASDAQ nonfinancial firms (excluding firms with four-digit SIC codes between 6000 and 6999) listed on the CRSP monthly stock return files and the Compustat annual industrial files from 1963 through 2003.",
+            "table_ref": null,
+            "interpretation": "The exchange and financial-industry restrictions are encoded by the cited exchcd and siccd filters; the two-year Compustat-listing requirement is encoded separately."
+          }
+        ],
+        "status": "clear",
+        "unsupported_value": null
+      },
+      "filters": [
+        {
+          "concept_id": "exchcd",
+          "op": "in",
+          "value": [
+            1,
+            2,
+            3
+          ],
+          "evidence": [
+            {
+              "location": "Section I, Data",
+              "quote": "We use all NYSE, Amex, and NASDAQ nonfinancial firms",
+              "table_ref": null,
+              "interpretation": "CRSP exchange-code mapping: 1=NYSE, 2=AMEX, 3=NASDAQ."
+            }
+          ],
+          "derivation": null,
+          "accepted_unapplied": false,
+          "unapplied_reason": "",
+          "human_confirmed_applied": true,
+          "applied_reason": "approved"
+        },
+        {
+          "concept_id": "siccd",
+          "op": "not_between",
+          "value": [
+            6000,
+            6999
+          ],
+          "evidence": [
+            {
+              "location": "Section I, Data",
+              "quote": "excluding firms with four-digit SIC codes between 6000 and 6999",
+              "table_ref": null,
+              "interpretation": ""
+            }
+          ],
+          "derivation": null,
+          "accepted_unapplied": false,
+          "unapplied_reason": "",
+          "human_confirmed_applied": true,
+          "applied_reason": "approved"
+        },
+        {
+          "concept_id": "compustat_listing_duration",
+          "op": "gte",
+          "value": 2,
+          "evidence": [
+            {
+              "location": "Section I, Data",
+              "quote": "a firm must be listed on Compustat for 2 years before it is included in the data set",
+              "table_ref": null,
+              "interpretation": "The stated threshold is applied by deriving elapsed annual Compustat observation duration from datadate."
+            }
+          ],
+          "derivation": {
+            "paper_expression": "a firm must be listed on Compustat for 2 years before it is included in the data set",
+            "steps": [
+              {
+                "step_id": "compute_listing_duration",
+                "description": "Measure the number of years from the firm's first available Compustat annual observation through the formation observation.",
+                "expression": "formation_year - first_compustat_year + 1",
+                "status": "inferred",
+                "evidence": [
+                  {
+                    "location": "Section I, Data",
+                    "quote": "a firm must be listed on Compustat for 2 years before it is included in the data set",
+                    "table_ref": null,
+                    "interpretation": "The paper states the duration requirement but not the calculation mechanics."
+                  }
+                ]
+              }
+            ],
+            "inputs": [
+              "compustat_listing_duration"
+            ],
+            "constants": {},
+            "output_concept": "compustat_listing_duration",
+            "evidence": [
+              {
+                "location": "Section I, Data",
+                "quote": "a firm must be listed on Compustat for 2 years before it is included in the data set",
+                "table_ref": null,
+                "interpretation": ""
+              }
+            ]
+          },
+          "accepted_unapplied": true,
+          "unapplied_reason": "no need",
+          "human_confirmed_applied": false,
+          "applied_reason": ""
+        }
+      ]
+    },
+    "portfolio": {
+      "construction_type": {
+        "value": "characteristic_sort",
+        "evidence": [
+          {
+            "location": "Section II.A, Cross-Sectional Tests",
+            "quote": "After assigning firms to one of 10 deciles based on annual asset growth rates",
+            "table_ref": null,
+            "interpretation": ""
+          }
+        ],
+        "status": "clear",
+        "unsupported_value": null
+      },
+      "sorts": [
+        {
+          "sort_id": "asset_growth_decile",
+          "concept_id": "asset_growth",
+          "role": "target",
+          "order": 1,
+          "mode": {
+            "value": "independent",
+            "evidence": [
+              {
+                "location": "Section I, Data",
+                "quote": "stocks are allocated into deciles based on annual asset growth rates",
+                "table_ref": null,
+                "interpretation": "Single univariate sort."
+              }
+            ],
+            "status": "clear",
+            "unsupported_value": null
+          },
+          "group_type": {
+            "value": "quantile",
+            "evidence": [
+              {
+                "location": "Section I, Data",
+                "quote": "stocks are allocated into deciles based on annual asset growth rates",
+                "table_ref": null,
+                "interpretation": ""
+              }
+            ],
+            "status": "clear",
+            "unsupported_value": null
+          },
+          "group_count": 10,
+          "breakpoints": {
+            "basis": {
+              "value": "full_sample",
+              "evidence": [
+                {
+                  "location": "Section II.A, Cross-Sectional Tests",
+                  "quote": "we form portfolios using all stocks",
+                  "table_ref": null,
+                  "interpretation": "This is the headline all-firms one-way sort reported in Table II."
+                }
+              ],
+              "status": "clear",
+              "unsupported_value": null
+            },
+            "values": []
+          },
+          "condition_on_sort_id": null,
+          "evidence": [
+            {
+              "location": "Section I, Data",
+              "quote": "At the end of June of each year t stocks are allocated into deciles based on annual asset growth rates",
+              "table_ref": null,
+              "interpretation": ""
+            }
+          ]
+        }
+      ],
+      "legs": [
+        {
+          "leg_id": "low_asset_growth",
+          "side": "long",
+          "selector": {
+            "asset_growth_decile": 0
+          },
+          "evidence": [
+            {
+              "location": "Figure 3 caption",
+              "quote": "The spread is the difference between the returns of the low growth stocks and those of the high growth stocks.",
+              "table_ref": null,
+              "interpretation": "Because the signal has negative direction, the low-growth extreme is the long leg."
+            }
+          ]
+        },
+        {
+          "leg_id": "high_asset_growth",
+          "side": "short",
+          "selector": {
+            "asset_growth_decile": 9
+          },
+          "evidence": [
+            {
+              "location": "Figure 3 caption",
+              "quote": "The spread is the difference between the returns of the low growth stocks and those of the high growth stocks.",
+              "table_ref": null,
+              "interpretation": "Because the signal has negative direction, the high-growth extreme is the short leg."
+            }
+          ]
+        }
+      ],
+      "weighting": {
+        "value": "vw",
+        "evidence": [
+          {
+            "location": "Section II.A, Cross-Sectional Tests",
+            "quote": "Using VW to form the portfolios (Panel B.2), the low growth firms (decile 1) earn average monthly returns of 1.48% and the high growth firms earn returns of 0.43%",
+            "table_ref": null,
+            "interpretation": "The primary reported metric below is the value-weighted three-factor alpha spread."
+          }
+        ],
+        "status": "clear",
+        "unsupported_value": null
+      },
+      "return_combination": {
+        "value": "extreme_group_spread",
+        "evidence": [
+          {
+            "location": "Figure 3 caption",
+            "quote": "The spread is the difference between the returns of the low growth stocks and those of the high growth stocks.",
+            "table_ref": null,
+            "interpretation": ""
+          }
+        ],
+        "status": "clear",
+        "unsupported_value": null
+      },
+      "missing_policies": [
+        {
+          "stage": "signal",
+          "action": {
+            "value": "drop",
+            "evidence": [
+              {
+                "location": "Section I, Data",
+                "quote": "To compute this measure, a firm must have nonzero total assets in both years t−1 and t−2.",
+                "table_ref": null,
+                "interpretation": "Firms lacking usable denominator or numerator inputs cannot receive the signal."
+              }
+            ],
+            "status": "clear",
+            "unsupported_value": null
+          },
+          "threshold": null
+        }
+      ],
+      "transforms": []
+    },
+    "reported_results": {
+      "primary_metric_id": "vw_raw_return_high_minus_low",
+      "metrics": [
+        {
+          "metric_id": "vw_ff3_alpha_high_minus_low",
+          "label": "Value-weighted Fama-French three-factor alpha, high asset-growth decile minus low asset-growth decile",
+          "estimand": "alpha",
+          "adjustment_model": "ff3",
+          "weighting": "vw",
+          "estimate": -0.007,
+          "unit": "decimal",
+          "frequency": "month",
+          "portfolio_selector": {
+            "asset_growth_decile_high": 9,
+            "asset_growth_decile_low": 0
+          },
+          "statistic": {
+            "kind": "t_stat",
+            "value": -3.84
+          },
+          "sample_period": {
+            "start_year": 1968,
+            "end_year": 2003,
+            "start_month": 7,
+            "end_month": 6,
+            "evidence": [
+              {
+                "location": "Section II.A, Cross-Sectional Tests",
+                "quote": "After forming the portfolios, we obtain a time series of returns to each portfolio from July 1968 to June 2003.",
+                "table_ref": null,
+                "interpretation": ""
+              }
+            ],
+            "status": "clear"
+          },
+          "evidence": [
+            {
+              "location": "Table II, Panel C.2, All Firms, Spread (10-1)",
+              "quote": "",
+              "table_ref": {
+                "table": "Table II, Panel C.2: Value-Weighted Portfolio Fama–French Monthly Alphas",
+                "row": "All Firms",
+                "column": "Spread (10-1)"
+              },
+              "interpretation": "The table reports -0.007 with t-statistic -3.84."
+            }
+          ],
+          "status": "table_only"
+        },
+        {
+          "metric_id": "ew_ff3_alpha_high_minus_low",
+          "label": "Equal-weighted Fama-French three-factor alpha, high asset-growth decile minus low asset-growth decile",
+          "estimand": "alpha",
+          "adjustment_model": "ff3",
+          "weighting": "ew",
+          "estimate": -0.0163,
+          "unit": "decimal",
+          "frequency": "month",
+          "portfolio_selector": {
+            "asset_growth_decile_high": 9,
+            "asset_growth_decile_low": 0
+          },
+          "statistic": {
+            "kind": "t_stat",
+            "value": -8.33
+          },
+          "sample_period": {
+            "start_year": 1968,
+            "end_year": 2003,
+            "start_month": 7,
+            "end_month": 6,
+            "evidence": [
+              {
+                "location": "Section II.A, Cross-Sectional Tests",
+                "quote": "After forming the portfolios, we obtain a time series of returns to each portfolio from July 1968 to June 2003.",
+                "table_ref": null,
+                "interpretation": ""
+              }
+            ],
+            "status": "clear"
+          },
+          "evidence": [
+            {
+              "location": "Table II, Panel C.1, All Firms, Spread (10-1)",
+              "quote": "",
+              "table_ref": {
+                "table": "Table II, Panel C.1: Equal-Weighted Portfolio Fama–French Monthly Alphas",
+                "row": "All Firms",
+                "column": "Spread (10-1)"
+              },
+              "interpretation": "The table reports -0.0163 with t-statistic -8.33."
+            }
+          ],
+          "status": "table_only"
+        },
+        {
+          "metric_id": "vw_raw_return_high_minus_low",
+          "label": "Value-weighted raw monthly return, high asset-growth decile minus low asset-growth decile in Year 1",
+          "estimand": "spread",
+          "adjustment_model": "raw",
+          "weighting": "vw",
+          "estimate": -0.0105,
+          "unit": "decimal",
+          "frequency": "month",
+          "portfolio_selector": {
+            "asset_growth_decile_high": 9,
+            "asset_growth_decile_low": 0
+          },
+          "statistic": {
+            "kind": "t_stat",
+            "value": -5.04
+          },
+          "sample_period": {
+            "start_year": 1968,
+            "end_year": 2003,
+            "start_month": 7,
+            "end_month": 6,
+            "evidence": [
+              {
+                "location": "Section II.A, Cross-Sectional Tests",
+                "quote": "After forming the portfolios, we obtain a time series of returns to each portfolio from July 1968 to June 2003.",
+                "table_ref": null,
+                "interpretation": ""
+              }
+            ],
+            "status": "clear"
+          },
+          "evidence": [
+            {
+              "location": "Table II, Panel B.2, Year 1",
+              "quote": "",
+              "table_ref": {
+                "table": "Table II, Panel B.2: Value-Weighted Portfolio Average Monthly Raw Returns",
+                "row": "1",
+                "column": "Spread (10-1)"
+              },
+              "interpretation": "The table reports -0.0105 with t-statistic -5.04."
+            }
+          ],
+          "status": "table_only"
+        }
+      ],
+      "comparison_derivation": null
+    },
+    "notes": "Target is the paper's headline all-firms annual asset-growth decile portfolio. Table II convention reports the spread as high growth minus low growth (10-1); the executable negative-direction strategy instead holds low asset-growth firms long and high asset-growth firms short."
+  },
+  "review": {
+    "schema_version": "methodreview.v2",
+    "factor_id": "fae312b1730eefb6",
+    "capability_version": "engine_capability.v1",
+    "findings": [
+      {
+        "field_path": "data.fields[3].source_column",
+        "kind": "ambiguous",
+        "reason": "evidence_status=inferred",
+        "empirical_impact": "high",
+        "disposition": "needs_human_confirmation",
+        "paper_value": "datadate",
+        "evidence": [
+          {
+            "location": "Section I, Data",
+            "quote": "a firm must be listed on Compustat for 2 years before it is included in the data set",
+            "table_ref": null,
+            "interpretation": "Annual fiscal-year-end observations are used to derive listing duration; the paper does not specify implementation mechanics."
+          }
+        ]
+      },
+      {
+        "field_path": "universe.description.evidence[0]",
+        "kind": "incomplete",
+        "reason": "Universe evidence is not attached to an executable universe.filters entry. Add a cited filter with a real data.fields source/column mapping, record the stated restriction as accepted_unapplied with a reason, or -- if the filter should actually run (e.g. its evidence is inferred/derived rather than a directly-quoted paper value) -- mark it human_confirmed_applied with a reason.",
+        "empirical_impact": "high",
+        "disposition": "needs_human_confirmation",
+        "paper_value": "We use all NYSE, Amex, and NASDAQ nonfinancial firms (excluding firms with four-digit SIC codes between 6000 and 6999) listed on the CRSP monthly stock return files and the Compustat annual industrial files from 1963 through 2003.",
+        "evidence": [
+          {
+            "location": "Section I, Data",
+            "quote": "We use all NYSE, Amex, and NASDAQ nonfinancial firms (excluding firms with four-digit SIC codes between 6000 and 6999) listed on the CRSP monthly stock return files and the Compustat annual industrial files from 1963 through 2003.",
+            "table_ref": null,
+            "interpretation": "The exchange and financial-industry restrictions are encoded by the cited exchcd and siccd filters; the two-year Compustat-listing requirement is encoded separately."
+          }
+        ]
+      }
+    ],
+    "all_high_impact_fields": [
+      {
+        "field_path": "signal.direction",
+        "kind": "ambiguous",
+        "reason": "evidence_status=clear",
+        "empirical_impact": "high",
+        "disposition": "auto_approve",
+        "paper_value": "negative",
+        "evidence": [
+          {
+            "location": "Abstract",
+            "quote": "we document a strong negative correlation between a firm’s asset growth and subsequent abnormal returns.",
+            "table_ref": null,
+            "interpretation": ""
+          }
+        ]
+      },
+      {
+        "field_path": "timing.formation_rule",
+        "kind": "ambiguous",
+        "reason": "evidence_status=clear",
+        "empirical_impact": "high",
+        "disposition": "auto_approve",
+        "paper_value": "At the end of June each year, sort stocks into deciles based on annual asset growth measured from fiscal year t-2 to t-1; hold portfolios from July through the following June.",
+        "evidence": [
+          {
+            "location": "Section I, Data",
+            "quote": "At the end of June of each year t stocks are allocated into deciles based on annual asset growth rates (defined in equation (1)) and portfolios are formed from July of year t to June of year t+1.",
+            "table_ref": null,
+            "interpretation": ""
+          }
+        ]
+      },
+      {
+        "field_path": "timing.rebalance_frequency",
+        "kind": "ambiguous",
+        "reason": "evidence_status=clear",
+        "empirical_impact": "high",
+        "disposition": "auto_approve",
+        "paper_value": "year",
+        "evidence": [
+          {
+            "location": "Section I, Data",
+            "quote": "The portfolios are held for 1 year and then rebalanced.",
+            "table_ref": null,
+            "interpretation": ""
+          }
+        ]
+      },
+      {
+        "field_path": "timing.holding_period",
+        "kind": "ambiguous",
+        "reason": "evidence_status=clear",
+        "empirical_impact": "high",
+        "disposition": "auto_approve",
+        "paper_value": 12,
+        "evidence": [
+          {
+            "location": "Section I, Data",
+            "quote": "The portfolios are held for 1 year and then rebalanced.",
+            "table_ref": null,
+            "interpretation": "Converted from one year to 12 months."
+          }
+        ]
+      },
+      {
+        "field_path": "portfolio.weighting",
+        "kind": "ambiguous",
+        "reason": "evidence_status=clear",
+        "empirical_impact": "high",
+        "disposition": "auto_approve",
+        "paper_value": "vw",
+        "evidence": [
+          {
+            "location": "Section II.A, Cross-Sectional Tests",
+            "quote": "Using VW to form the portfolios (Panel B.2), the low growth firms (decile 1) earn average monthly returns of 1.48% and the high growth firms earn returns of 0.43%",
+            "table_ref": null,
+            "interpretation": "The primary reported metric below is the value-weighted three-factor alpha spread."
+          }
+        ]
+      },
+      {
+        "field_path": "portfolio.return_combination",
+        "kind": "ambiguous",
+        "reason": "evidence_status=clear",
+        "empirical_impact": "high",
+        "disposition": "auto_approve",
+        "paper_value": "extreme_group_spread",
+        "evidence": [
+          {
+            "location": "Figure 3 caption",
+            "quote": "The spread is the difference between the returns of the low growth stocks and those of the high growth stocks.",
+            "table_ref": null,
+            "interpretation": ""
+          }
+        ]
+      },
+      {
+        "field_path": "portfolio.construction_type",
+        "kind": "ambiguous",
+        "reason": "evidence_status=clear",
+        "empirical_impact": "high",
+        "disposition": "auto_approve",
+        "paper_value": "characteristic_sort",
+        "evidence": [
+          {
+            "location": "Section II.A, Cross-Sectional Tests",
+            "quote": "After assigning firms to one of 10 deciles based on annual asset growth rates",
+            "table_ref": null,
+            "interpretation": ""
+          }
+        ]
+      },
+      {
+        "field_path": "universe.description",
+        "kind": "ambiguous",
+        "reason": "evidence_status=clear",
+        "empirical_impact": "high",
+        "disposition": "auto_approve",
+        "paper_value": "NYSE, Amex, and NASDAQ nonfinancial firms listed on CRSP monthly stock return files and Compustat annual industrial files, excluding firms with four-digit SIC codes from 6000 through 6999.",
+        "evidence": [
+          {
+            "location": "Section I, Data",
+            "quote": "We use all NYSE, Amex, and NASDAQ nonfinancial firms (excluding firms with four-digit SIC codes between 6000 and 6999) listed on the CRSP monthly stock return files and the Compustat annual industrial files from 1963 through 2003.",
+            "table_ref": null,
+            "interpretation": "The exchange and financial-industry restrictions are encoded by the cited exchcd and siccd filters; the two-year Compustat-listing requirement is encoded separately."
+          }
+        ]
+      },
+      {
+        "field_path": "portfolio.sorts[0].breakpoints.basis",
+        "kind": "ambiguous",
+        "reason": "evidence_status=clear",
+        "empirical_impact": "high",
+        "disposition": "auto_approve",
+        "paper_value": "full_sample",
+        "evidence": [
+          {
+            "location": "Section II.A, Cross-Sectional Tests",
+            "quote": "we form portfolios using all stocks",
+            "table_ref": null,
+            "interpretation": "This is the headline all-firms one-way sort reported in Table II."
+          }
+        ]
+      },
+      {
+        "field_path": "portfolio.sorts[0].group_type",
+        "kind": "ambiguous",
+        "reason": "evidence_status=clear",
+        "empirical_impact": "high",
+        "disposition": "auto_approve",
+        "paper_value": "quantile",
+        "evidence": [
+          {
+            "location": "Section I, Data",
+            "quote": "stocks are allocated into deciles based on annual asset growth rates",
+            "table_ref": null,
+            "interpretation": ""
+          }
+        ]
+      },
+      {
+        "field_path": "portfolio.sorts[0].mode",
+        "kind": "ambiguous",
+        "reason": "evidence_status=clear",
+        "empirical_impact": "high",
+        "disposition": "auto_approve",
+        "paper_value": "independent",
+        "evidence": [
+          {
+            "location": "Section I, Data",
+            "quote": "stocks are allocated into deciles based on annual asset growth rates",
+            "table_ref": null,
+            "interpretation": "Single univariate sort."
+          }
+        ]
+      },
+      {
+        "field_path": "portfolio.missing_policies[0].action",
+        "kind": "ambiguous",
+        "reason": "evidence_status=clear",
+        "empirical_impact": "high",
+        "disposition": "auto_approve",
+        "paper_value": "drop",
+        "evidence": [
+          {
+            "location": "Section I, Data",
+            "quote": "To compute this measure, a firm must have nonzero total assets in both years t−1 and t−2.",
+            "table_ref": null,
+            "interpretation": "Firms lacking usable denominator or numerator inputs cannot receive the signal."
+          }
+        ]
+      },
+      {
+        "field_path": "data.fields[0].source_table",
+        "kind": "ambiguous",
+        "reason": "evidence_status=clear",
+        "empirical_impact": "high",
+        "disposition": "auto_approve",
+        "paper_value": "compustat_fundamental_annual",
+        "evidence": [
+          {
+            "location": "Section I, Data",
+            "quote": "total assets (Compustat data item 6)",
+            "table_ref": null,
+            "interpretation": "Catalog mapping: Compustat annual total assets is AT."
+          }
+        ]
+      },
+      {
+        "field_path": "data.fields[0].source_column",
+        "kind": "ambiguous",
+        "reason": "evidence_status=clear",
+        "empirical_impact": "high",
+        "disposition": "auto_approve",
+        "paper_value": "at",
+        "evidence": [
+          {
+            "location": "Section I, Data",
+            "quote": "total assets (Compustat data item 6)",
+            "table_ref": null,
+            "interpretation": "Catalog mapping: Compustat annual total assets is AT."
+          }
+        ]
+      },
+      {
+        "field_path": "data.fields[1].source_table",
+        "kind": "ambiguous",
+        "reason": "evidence_status=clear",
+        "empirical_impact": "high",
+        "disposition": "auto_approve",
+        "paper_value": "crsp_msf",
+        "evidence": [
+          {
+            "location": "Section I, Data",
+            "quote": "listed on the CRSP monthly stock return files",
+            "table_ref": null,
+            "interpretation": "Catalog mapping: CRSP exchange code is exchcd."
+          }
+        ]
+      },
+      {
+        "field_path": "data.fields[1].source_column",
+        "kind": "ambiguous",
+        "reason": "evidence_status=clear",
+        "empirical_impact": "high",
+        "disposition": "auto_approve",
+        "paper_value": "exchcd",
+        "evidence": [
+          {
+            "location": "Section I, Data",
+            "quote": "We use all NYSE, Amex, and NASDAQ nonfinancial firms",
+            "table_ref": null,
+            "interpretation": "Catalog mapping: exchcd values 1, 2, and 3 denote NYSE, AMEX, and NASDAQ."
+          }
+        ]
+      },
+      {
+        "field_path": "data.fields[2].source_table",
+        "kind": "ambiguous",
+        "reason": "evidence_status=clear",
+        "empirical_impact": "high",
+        "disposition": "auto_approve",
+        "paper_value": "crsp_msf",
+        "evidence": [
+          {
+            "location": "Section I, Data",
+            "quote": "listed on the CRSP monthly stock return files",
+            "table_ref": null,
+            "interpretation": "Catalog mapping: CRSP SIC code is siccd."
+          }
+        ]
+      },
+      {
+        "field_path": "data.fields[2].source_column",
+        "kind": "ambiguous",
+        "reason": "evidence_status=clear",
+        "empirical_impact": "high",
+        "disposition": "auto_approve",
+        "paper_value": "siccd",
+        "evidence": [
+          {
+            "location": "Section I, Data",
+            "quote": "excluding firms with four-digit SIC codes between 6000 and 6999",
+            "table_ref": null,
+            "interpretation": "Catalog mapping: CRSP SIC code is siccd."
+          }
+        ]
+      },
+      {
+        "field_path": "data.fields[3].source_table",
+        "kind": "ambiguous",
+        "reason": "evidence_status=clear",
+        "empirical_impact": "high",
+        "disposition": "auto_approve",
+        "paper_value": "compustat_fundamental_annual",
+        "evidence": [
+          {
+            "location": "Section I, Data",
+            "quote": "a firm must be listed on Compustat for 2 years before it is included in the data set",
+            "table_ref": null,
+            "interpretation": "Listing duration is derived from annual Compustat observations."
+          }
+        ]
+      },
+      {
+        "field_path": "data.fields[3].source_column",
+        "kind": "ambiguous",
+        "reason": "evidence_status=inferred",
+        "empirical_impact": "high",
+        "disposition": "needs_human_confirmation",
+        "paper_value": "datadate",
+        "evidence": [
+          {
+            "location": "Section I, Data",
+            "quote": "a firm must be listed on Compustat for 2 years before it is included in the data set",
+            "table_ref": null,
+            "interpretation": "Annual fiscal-year-end observations are used to derive listing duration; the paper does not specify implementation mechanics."
+          }
+        ]
+      },
+      {
+        "field_path": "universe.filters[0]",
+        "kind": "universe_filter",
+        "reason": "Universe membership restriction; confirm its evidence and runtime applicability.",
+        "empirical_impact": "high",
+        "disposition": "needs_human_confirmation",
+        "paper_value": {
+          "concept_id": "exchcd",
+          "op": "in",
+          "value": [
+            1,
+            2,
+            3
+          ]
+        },
+        "evidence": [
+          {
+            "location": "Section I, Data",
+            "quote": "We use all NYSE, Amex, and NASDAQ nonfinancial firms",
+            "table_ref": null,
+            "interpretation": "CRSP exchange-code mapping: 1=NYSE, 2=AMEX, 3=NASDAQ."
+          }
+        ]
+      },
+      {
+        "field_path": "universe.filters[1]",
+        "kind": "universe_filter",
+        "reason": "Universe membership restriction; confirm its evidence and runtime applicability.",
+        "empirical_impact": "high",
+        "disposition": "needs_human_confirmation",
+        "paper_value": {
+          "concept_id": "siccd",
+          "op": "not_between",
+          "value": [
+            6000,
+            6999
+          ]
+        },
+        "evidence": [
+          {
+            "location": "Section I, Data",
+            "quote": "excluding firms with four-digit SIC codes between 6000 and 6999",
+            "table_ref": null,
+            "interpretation": ""
+          }
+        ]
+      },
+      {
+        "field_path": "universe.filters[2]",
+        "kind": "universe_filter",
+        "reason": "Universe membership restriction; confirm its evidence and runtime applicability.",
+        "empirical_impact": "high",
+        "disposition": "needs_human_confirmation",
+        "paper_value": {
+          "concept_id": "compustat_listing_duration",
+          "op": "gte",
+          "value": 2
+        },
+        "evidence": [
+          {
+            "location": "Section I, Data",
+            "quote": "a firm must be listed on Compustat for 2 years before it is included in the data set",
+            "table_ref": null,
+            "interpretation": "The stated threshold is applied by deriving elapsed annual Compustat observation duration from datadate."
+          }
+        ]
+      },
+      {
+        "field_path": "sample.reported_returns.start_year",
+        "kind": "ambiguous",
+        "reason": "evidence_status=clear",
+        "empirical_impact": "high",
+        "disposition": "auto_approve",
+        "paper_value": 1968,
+        "evidence": [
+          {
+            "location": "Section II.A, Cross-Sectional Tests",
+            "quote": "After forming the portfolios, we obtain a time series of returns to each portfolio from July 1968 to June 2003.",
+            "table_ref": null,
+            "interpretation": ""
+          }
+        ]
+      },
+      {
+        "field_path": "sample.reported_returns.end_year",
+        "kind": "ambiguous",
+        "reason": "evidence_status=clear",
+        "empirical_impact": "high",
+        "disposition": "auto_approve",
+        "paper_value": 2003,
+        "evidence": [
+          {
+            "location": "Section II.A, Cross-Sectional Tests",
+            "quote": "After forming the portfolios, we obtain a time series of returns to each portfolio from July 1968 to June 2003.",
+            "table_ref": null,
+            "interpretation": ""
+          }
+        ]
+      }
+    ],
+    "status_overrides": {},
+    "reextraction_attempts": 0
+  },
+  "resolution": {
+    "schema_version": "resolution.v2",
+    "factor_id": "fae312b1730eefb6",
+    "concept_mapping": {
+      "total_assets": {
+        "source": "compustat_fundamental_annual",
+        "column": "at"
+      },
+      "exchcd": {
+        "source": "crsp_msf",
+        "column": "exchcd"
+      },
+      "siccd": {
+        "source": "crsp_msf",
+        "column": "siccd"
+      },
+      "compustat_listing_duration": {
+        "source": "compustat_fundamental_annual",
+        "column": "datadate"
+      }
+    },
+    "returns_source": "us_equity_crsp",
+    "cz_acronym": null,
+    "llm_matched_concepts": [],
+    "entries": [],
+    "approved_substitutions": []
+  }
+}

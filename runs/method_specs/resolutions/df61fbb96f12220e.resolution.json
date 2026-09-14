@@ -1,0 +1,27 @@
+{
+  "schema_version": "resolution.v2",
+  "factor_id": "df61fbb96f12220e",
+  "concept_mapping": {
+    "trading_volume": {
+      "source": "crsp_msf",
+      "column": "mthvol"
+    },
+    "shares_outstanding": {
+      "source": "crsp_msf",
+      "column": "shrout"
+    },
+    "exchcd": {
+      "source": "crsp_msf",
+      "column": "exchcd"
+    },
+    "siccd": {
+      "source": "crsp_msf",
+      "column": "siccd"
+    }
+  },
+  "returns_source": "us_equity_crsp",
+  "cz_acronym": null,
+  "llm_matched_concepts": [],
+  "entries": [],
+  "approved_substitutions": []
+}

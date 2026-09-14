@@ -1,0 +1,342 @@
+{
+  "schema_version": "methodreview.v2",
+  "factor_id": "099f6e1136bd316c",
+  "capability_version": "engine_capability.v1",
+  "findings": [],
+  "all_high_impact_fields": [
+    {
+      "field_path": "signal.direction",
+      "kind": "ambiguous",
+      "reason": "evidence_status=clear",
+      "empirical_impact": "high",
+      "disposition": "auto_approve",
+      "paper_value": "negative",
+      "evidence": [
+        {
+          "location": "Introduction, p. 1610",
+          "quote": "we document a strong negative correlation between a firm’s asset growth and subsequent abnormal returns.",
+          "table_ref": null,
+          "interpretation": ""
+        }
+      ]
+    },
+    {
+      "field_path": "timing.formation_rule",
+      "kind": "ambiguous",
+      "reason": "evidence_status=clear",
+      "empirical_impact": "high",
+      "disposition": "auto_approve",
+      "paper_value": "At the end of June of year t, use total-assets data from fiscal years ending in calendar years t−1 and t−2 to calculate ASSETG and assign stocks to deciles.",
+      "evidence": [
+        {
+          "location": "Section I. Data, pp. 1613–1614",
+          "quote": "The firm asset growth rate for year t is estimated as the percentage change in data item 6 from fiscal year ending in calendar year t−2 to fiscal year ending in calendar year t−1",
+          "table_ref": null,
+          "interpretation": ""
+        },
+        {
+          "location": "Section I. Data, p. 1614",
+          "quote": "At the end of June of each year t stocks are allocated into deciles based on annual asset growth rates",
+          "table_ref": null,
+          "interpretation": ""
+        }
+      ]
+    },
+    {
+      "field_path": "timing.rebalance_frequency",
+      "kind": "ambiguous",
+      "reason": "evidence_status=clear",
+      "empirical_impact": "high",
+      "disposition": "auto_approve",
+      "paper_value": "year",
+      "evidence": [
+        {
+          "location": "Section I. Data, p. 1614",
+          "quote": "The portfolios are held for 1 year and then rebalanced.",
+          "table_ref": null,
+          "interpretation": ""
+        }
+      ]
+    },
+    {
+      "field_path": "timing.holding_period",
+      "kind": "ambiguous",
+      "reason": "evidence_status=clear",
+      "empirical_impact": "high",
+      "disposition": "auto_approve",
+      "paper_value": 12,
+      "evidence": [
+        {
+          "location": "Section I. Data, p. 1614",
+          "quote": "portfolios are formed from July of year t to June of year t+1. The portfolios are held for 1 year",
+          "table_ref": null,
+          "interpretation": ""
+        }
+      ]
+    },
+    {
+      "field_path": "portfolio.weighting",
+      "kind": "ambiguous",
+      "reason": "evidence_status=clear",
+      "empirical_impact": "high",
+      "disposition": "auto_approve",
+      "paper_value": "ew",
+      "evidence": [
+        {
+          "location": "Section II.A, p. 1616",
+          "quote": "we calculate monthly returns for EW and VW portfolios for the next 12 months",
+          "table_ref": null,
+          "interpretation": "The MethodSpec chooses the value-weighted specification among the paper's reported EW and VW analyses."
+        },
+        {
+          "location": "",
+          "quote": "",
+          "table_ref": null,
+          "interpretation": "human correction"
+        }
+      ]
+    },
+    {
+      "field_path": "portfolio.return_combination",
+      "kind": "ambiguous",
+      "reason": "evidence_status=clear",
+      "empirical_impact": "high",
+      "disposition": "auto_approve",
+      "paper_value": "extreme_group_spread",
+      "evidence": [
+        {
+          "location": "Figure 3 caption, p. 1626",
+          "quote": "The spread is the difference between the returns of the low growth stocks and those of the high growth stocks.",
+          "table_ref": null,
+          "interpretation": ""
+        }
+      ]
+    },
+    {
+      "field_path": "portfolio.construction_type",
+      "kind": "ambiguous",
+      "reason": "evidence_status=clear",
+      "empirical_impact": "high",
+      "disposition": "auto_approve",
+      "paper_value": "characteristic_sort",
+      "evidence": [
+        {
+          "location": "Section I. Data, p. 1614",
+          "quote": "At the end of June of each year t stocks are allocated into deciles based on annual asset growth rates",
+          "table_ref": null,
+          "interpretation": ""
+        }
+      ]
+    },
+    {
+      "field_path": "universe.description",
+      "kind": "ambiguous",
+      "reason": "evidence_status=clear",
+      "empirical_impact": "high",
+      "disposition": "auto_approve",
+      "paper_value": "NYSE, Amex, and NASDAQ nonfinancial firms listed on CRSP monthly stock return files and Compustat annual industrial files, excluding SIC 6000–6999 financial firms.",
+      "evidence": [
+        {
+          "location": "Section I. Data, p. 1612",
+          "quote": "We use all NYSE, Amex, and NASDAQ nonfinancial firms (excluding firms with four-digit SIC codes between 6000 and 6999) listed on the CRSP monthly stock return files and the Compustat annual industrial files",
+          "table_ref": null,
+          "interpretation": ""
+        }
+      ]
+    },
+    {
+      "field_path": "portfolio.sorts[0].breakpoints.basis",
+      "kind": "ambiguous",
+      "reason": "evidence_status=clear",
+      "empirical_impact": "high",
+      "disposition": "auto_approve",
+      "paper_value": "full_sample",
+      "evidence": [
+        {
+          "location": "Section I. Data, p. 1614",
+          "quote": "stocks are allocated into deciles based on annual asset growth rates",
+          "table_ref": null,
+          "interpretation": "The paper does not state an exchange-restricted breakpoint universe for the one-way asset-growth deciles."
+        },
+        {
+          "location": "",
+          "quote": "",
+          "table_ref": null,
+          "interpretation": "human correction"
+        }
+      ]
+    },
+    {
+      "field_path": "portfolio.sorts[0].group_type",
+      "kind": "ambiguous",
+      "reason": "evidence_status=clear",
+      "empirical_impact": "high",
+      "disposition": "auto_approve",
+      "paper_value": "quantile",
+      "evidence": [
+        {
+          "location": "Section I. Data, p. 1614",
+          "quote": "stocks are allocated into deciles based on annual asset growth rates",
+          "table_ref": null,
+          "interpretation": ""
+        }
+      ]
+    },
+    {
+      "field_path": "portfolio.sorts[0].mode",
+      "kind": "ambiguous",
+      "reason": "evidence_status=clear",
+      "empirical_impact": "high",
+      "disposition": "auto_approve",
+      "paper_value": "independent",
+      "evidence": [
+        {
+          "location": "Section I. Data, p. 1614",
+          "quote": "stocks are allocated into deciles based on annual asset growth rates",
+          "table_ref": null,
+          "interpretation": "The paper describes a one-way sort, so no conditioning sort is specified."
+        },
+        {
+          "location": "",
+          "quote": "",
+          "table_ref": null,
+          "interpretation": "human correction"
+        }
+      ]
+    },
+    {
+      "field_path": "data.fields[0].source_table",
+      "kind": "ambiguous",
+      "reason": "evidence_status=clear",
+      "empirical_impact": "high",
+      "disposition": "auto_approve",
+      "paper_value": "comp_funda",
+      "evidence": [
+        {
+          "location": "Section I. Data, p. 1612",
+          "quote": "the Compustat annual industrial files from 1963 through 2003",
+          "table_ref": null,
+          "interpretation": "The registered annual Compustat source corresponding to the paper's annual industrial files is comp_funda."
+        },
+        {
+          "location": "",
+          "quote": "",
+          "table_ref": null,
+          "interpretation": "human correction"
+        }
+      ]
+    },
+    {
+      "field_path": "data.fields[0].source_column",
+      "kind": "ambiguous",
+      "reason": "evidence_status=clear",
+      "empirical_impact": "high",
+      "disposition": "auto_approve",
+      "paper_value": "at",
+      "evidence": [
+        {
+          "location": "Section I. Data, p. 1613",
+          "quote": "total assets (Compustat data item 6)",
+          "table_ref": null,
+          "interpretation": "The registered Compustat annual total-assets column corresponding to data item 6 is at."
+        },
+        {
+          "location": "",
+          "quote": "",
+          "table_ref": null,
+          "interpretation": "human correction"
+        }
+      ]
+    },
+    {
+      "field_path": "data.fields[1].source_table",
+      "kind": "ambiguous",
+      "reason": "evidence_status=clear",
+      "empirical_impact": "high",
+      "disposition": "auto_approve",
+      "paper_value": "crsp_msf",
+      "evidence": [
+        {
+          "location": "Section I. Data, p. 1612",
+          "quote": "listed on the CRSP monthly stock return files",
+          "table_ref": null,
+          "interpretation": "The registered CRSP monthly source is crsp_msf."
+        },
+        {
+          "location": "",
+          "quote": "",
+          "table_ref": null,
+          "interpretation": "human correction"
+        }
+      ]
+    },
+    {
+      "field_path": "data.fields[1].source_column",
+      "kind": "ambiguous",
+      "reason": "evidence_status=clear",
+      "empirical_impact": "high",
+      "disposition": "auto_approve",
+      "paper_value": "siccd",
+      "evidence": [
+        {
+          "location": "Section I. Data, p. 1612",
+          "quote": "excluding firms with four-digit SIC codes between 6000 and 6999",
+          "table_ref": null,
+          "interpretation": "The registered CRSP SIC-code column is siccd."
+        },
+        {
+          "location": "",
+          "quote": "",
+          "table_ref": null,
+          "interpretation": "human correction"
+        }
+      ]
+    },
+    {
+      "field_path": "data.fields[2].source_table",
+      "kind": "ambiguous",
+      "reason": "evidence_status=clear",
+      "empirical_impact": "high",
+      "disposition": "auto_approve",
+      "paper_value": "comp_funda",
+      "evidence": [
+        {
+          "location": "Section I. Data, p. 1612",
+          "quote": "the Compustat annual industrial files from 1963 through 2003",
+          "table_ref": null,
+          "interpretation": "The registered annual Compustat source corresponding to the paper's annual industrial files is comp_funda."
+        },
+        {
+          "location": "",
+          "quote": "",
+          "table_ref": null,
+          "interpretation": "human correction"
+        }
+      ]
+    },
+    {
+      "field_path": "data.fields[2].source_column",
+      "kind": "ambiguous",
+      "reason": "evidence_status=clear",
+      "empirical_impact": "high",
+      "disposition": "auto_approve",
+      "paper_value": "datadate",
+      "evidence": [
+        {
+          "location": "Section I. Data, p. 1613",
+          "quote": "a firm must be listed on Compustat for 2 years before it is included in the data set",
+          "table_ref": null,
+          "interpretation": "The registered annual Compustat fiscal-year-end observation-date column is datadate."
+        },
+        {
+          "location": "",
+          "quote": "",
+          "table_ref": null,
+          "interpretation": "human correction"
+        }
+      ]
+    }
+  ],
+  "status_overrides": {},
+  "reextraction_attempts": 0
+}

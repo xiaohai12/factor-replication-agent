@@ -1,0 +1,139 @@
+{
+  "schema_version": "methodspec.v2",
+  "factor_id": "6798864affe02478",
+  "target_name": "y",
+  "paper": {
+    "document_id": "x",
+    "title": "",
+    "citation": "",
+    "publication_year": null
+  },
+  "signal": {
+    "definition": {
+      "value": null,
+      "evidence": [],
+      "status": "unspecified"
+    },
+    "economic_intuition": {
+      "value": null,
+      "evidence": [],
+      "status": "unspecified"
+    },
+    "direction": {
+      "value": null,
+      "evidence": [],
+      "status": "unspecified"
+    },
+    "category": "continuous",
+    "formula": {
+      "paper_expression": "",
+      "steps": [],
+      "inputs": [],
+      "constants": {},
+      "output_concept": "",
+      "evidence": []
+    },
+    "estimation": null
+  },
+  "data": {
+    "signal_frequency": {
+      "value": null,
+      "evidence": [],
+      "status": "unspecified"
+    },
+    "return_frequency": {
+      "value": null,
+      "evidence": [],
+      "status": "unspecified"
+    },
+    "sources": [],
+    "fields": [],
+    "coverage_notes": []
+  },
+  "sample": {
+    "data_coverage": {
+      "start_year": null,
+      "end_year": null,
+      "start_month": null,
+      "end_month": null,
+      "evidence": [],
+      "status": "unspecified"
+    },
+    "formation": {
+      "start_year": null,
+      "end_year": null,
+      "start_month": null,
+      "end_month": null,
+      "evidence": [],
+      "status": "unspecified"
+    },
+    "reported_returns": {
+      "start_year": null,
+      "end_year": null,
+      "start_month": null,
+      "end_month": null,
+      "evidence": [],
+      "status": "unspecified"
+    }
+  },
+  "timing": {
+    "formation_rule": {
+      "value": null,
+      "evidence": [],
+      "status": "unspecified"
+    },
+    "formation_month": null,
+    "rebalance_frequency": {
+      "value": null,
+      "evidence": [],
+      "status": "unspecified"
+    },
+    "holding_period": {
+      "value": null,
+      "evidence": [],
+      "status": "unspecified"
+    },
+    "return_window": null,
+    "data_availability": {
+      "lag_value": null,
+      "lag_unit": "month",
+      "anchor": "fiscal_period_end",
+      "basis": "fixed_calendar_lag",
+      "evidence": []
+    }
+  },
+  "universe": {
+    "description": {
+      "value": null,
+      "evidence": [],
+      "status": "unspecified"
+    },
+    "filters": []
+  },
+  "portfolio": {
+    "construction_type": {
+      "value": null,
+      "evidence": [],
+      "status": "unspecified"
+    },
+    "sorts": [],
+    "legs": [],
+    "weighting": {
+      "value": null,
+      "evidence": [],
+      "status": "unspecified"
+    },
+    "return_combination": {
+      "value": null,
+      "evidence": [],
+      "status": "unspecified"
+    },
+    "missing_policies": [],
+    "transforms": []
+  },
+  "reported_results": {
+    "primary_metric_id": "",
+    "metrics": []
+  },
+  "notes": ""
+}

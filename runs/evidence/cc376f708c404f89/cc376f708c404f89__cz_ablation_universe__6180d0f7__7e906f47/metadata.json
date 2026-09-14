@@ -1,0 +1,153 @@
+{
+  "run_id": "cc376f708c404f89__cz_ablation_universe__6180d0f7__7e906f47",
+  "factor_id": "cc376f708c404f89",
+  "plugin_id": "cc376f708c404f89",
+  "track": "cz_ablation_universe",
+  "method_spec_hash": "df06e7753675e1c20aaf11599bdfa3d85c5fbeac5bd7d54848cd331264e12ea3",
+  "code_hash": "6180d0f7baa82bfd",
+  "lifecycle_commit": "b4fb8b0cbf48d7c4b2d0897fb9f46d24aea6df55-dirty",
+  "data_snapshot_hash": "e59e6493f8ac05f3af7d090a041787ccf77045eff130b3896022e2c6e32c55e4",
+  "config_hash": "7e906f47a0e62bc2",
+  "runtime_provenance": {
+    "git_commit": "b4fb8b0cbf48d7c4b2d0897fb9f46d24aea6df55",
+    "git_dirty": true,
+    "engine_source_hash": "33fc4c73f586c0c3fbba6aa0c2a697e716df04563441bdfaf0ab94043ef90012",
+    "python_version": "3.14.2",
+    "package_versions": {
+      "pandas": "2.3.3",
+      "numpy": "2.5.2",
+      "statsmodels": "0.14.6",
+      "linearmodels": "not_installed"
+    },
+    "ff_factors_hash": "bfc216e95682647791541224633da1ea806d7ba208331353813ee7103415888b",
+    "liquidity_factors_hash": "bb0569547854ced13cfb08960650137282a2c6656d840d9e730c927e7b8f3fbe"
+  },
+  "experiment_batch_id": "4e5637fe99fa",
+  "frozen_plugin_hash": "6180d0f7baa82bfd",
+  "batch_invalidated": false,
+  "batch_invalidation_reason": "",
+  "switches_flipped": {
+    "universe": [
+      {
+        "field": "shrcd",
+        "op": "in",
+        "value": [
+          10,
+          11,
+          12
+        ]
+      },
+      {
+        "field": "exchcd",
+        "op": "in",
+        "value": [
+          1,
+          2,
+          3
+        ]
+      },
+      {
+        "field": "exchcd",
+        "op": "eq",
+        "value": 1
+      }
+    ]
+  },
+  "metrics": {
+    "mean_return": 0.0004261804216021226,
+    "t_stat": 0.2743528231477462,
+    "sharpe_ratio": 0.02787289752188286,
+    "alpha_capm": 0.0049126305846443835,
+    "alpha_ff3": 0.003998600260488206,
+    "alpha_ff5": 0.0027418148941620053,
+    "coverage": null,
+    "microcap_share": null,
+    "n_months": 1198,
+    "by_sample_period": {
+      "insamp": {
+        "mean_monthly_return": 0.0003224653795673006,
+        "annualized_return": 0.0038695845548076067,
+        "t_stat": 0.10720405364700299,
+        "n_months": 348,
+        "sharpe_ratio": 0.022251352495307592,
+        "alpha_capm": 0.0030808357351270158,
+        "alpha_capm_tstat": 1.2460067965034207,
+        "beta_capm_mktrf": -0.6385371407801376,
+        "alpha_ff3": 0.00265768127323973,
+        "alpha_ff3_tstat": 1.3427906061825123,
+        "beta_ff3_mktrf": -0.41116275554777215,
+        "beta_ff3_smb": -0.7251663440545282,
+        "beta_ff3_hml": 0.3181361734988007,
+        "alpha_ff5": 0.001469200252413302,
+        "alpha_ff5_tstat": 0.6033585162125908,
+        "beta_ff5_mktrf": -0.37093870584862865,
+        "beta_ff5_smb": -0.6723137267936996,
+        "beta_ff5_hml": 0.04229826647072834,
+        "beta_ff5_rmw": 0.11220256429354607,
+        "beta_ff5_cma": 0.62693984885869,
+        "alpha_liq": 0.0030240336153131123,
+        "alpha_liq_tstat": 0.9834695643980794,
+        "beta_liq_ps_vwf": 0.38568103237845325
+      },
+      "between": {
+        "mean_monthly_return": 0.002023220548462528,
+        "annualized_return": 0.024278646581550337,
+        "t_stat": 0.5534924564815517,
+        "n_months": 84,
+        "sharpe_ratio": 0.16024136780174936,
+        "alpha_capm": 0.008525284116719423,
+        "alpha_capm_tstat": 2.314008271509355,
+        "beta_capm_mktrf": -0.5744355697660697,
+        "alpha_ff3": 0.0032993743567920524,
+        "alpha_ff3_tstat": 1.1144512199642873,
+        "beta_ff3_mktrf": -0.4235900090439024,
+        "beta_ff3_smb": -0.5250305705790338,
+        "beta_ff3_hml": 0.33536629501700005,
+        "alpha_ff5": 0.00023411991266817343,
+        "alpha_ff5_tstat": 0.061685530583861316,
+        "beta_ff5_mktrf": -0.25218718077147284,
+        "beta_ff5_smb": -0.4019855128943369,
+        "beta_ff5_hml": 0.029073918700457627,
+        "beta_ff5_rmw": 0.35169937632088005,
+        "beta_ff5_cma": 0.8144179937653131,
+        "alpha_liq": 0.0020209780902551984,
+        "alpha_liq_tstat": 0.5423248725325177,
+        "beta_liq_ps_vwf": -0.0662744226048079
+      },
+      "postpub": {
+        "mean_monthly_return": 0.0016132641480963966,
+        "annualized_return": 0.019359169777156758,
+        "t_stat": 0.5476211876704538,
+        "n_months": 324,
+        "sharpe_ratio": 0.10999013270286041,
+        "alpha_capm": 0.005669486533608193,
+        "alpha_capm_tstat": 2.482306967596679,
+        "beta_capm_mktrf": -0.6251919760743172,
+        "alpha_ff3": 0.00537642316201881,
+        "alpha_ff3_tstat": 2.7439405066595204,
+        "beta_ff3_mktrf": -0.5368024486978233,
+        "beta_ff3_smb": -0.4103909159058259,
+        "beta_ff3_hml": 0.25135263095597626,
+        "alpha_ff5": 0.003433792129484791,
+        "alpha_ff5_tstat": 1.9906510760510054,
+        "beta_ff5_mktrf": -0.45724278319299944,
+        "beta_ff5_smb": -0.29882861342313827,
+        "beta_ff5_hml": 0.04887086707867375,
+        "beta_ff5_rmw": 0.3027108639790925,
+        "beta_ff5_cma": 0.3173643934860112,
+        "alpha_liq": 0.002547061657150482,
+        "alpha_liq_tstat": 0.8750261482358662,
+        "beta_liq_ps_vwf": -0.27068888225483156
+      }
+    }
+  },
+  "return_series_path": "/Users/shengzhaolei/Desktop/shengzhao lei/projects/factor-replication-agent/runs/evidence/cc376f708c404f89/cc376f708c404f89__cz_ablation_universe__6180d0f7__7e906f47/return_series.csv",
+  "signal_series_path": "/Users/shengzhaolei/Desktop/shengzhao lei/projects/factor-replication-agent/runs/evidence/cc376f708c404f89/cc376f708c404f89__cz_ablation_universe__6180d0f7__7e906f47/signal_series.parquet",
+  "status": "success",
+  "created_at": "2026-08-23T14:39:48.825605",
+  "logs": [
+    "experiment_matrix: family='portfolio_ablation' identification_level='controlled'",
+    "artifact_sha256: {\"return_series.csv\": \"344e3eefcec939dced0108229d78861652ef786daff1b5b3739674270b807a88\", \"signal_series.parquet\": \"9e645c3e0032021e2e40ede3927568a76438c7f95687f0a336f1fd8491379881\"}"
+  ],
+  "repair_history": []
+}

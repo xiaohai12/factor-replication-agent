@@ -1,0 +1,51 @@
+{
+  "acronym": "AssetGrowth",
+  "raw": {
+    "stock_weight": "ew",
+    "ls_quantile": 0.1,
+    "quantile_filter": null,
+    "portfolio_period": 12,
+    "start_month": 6,
+    "sample_start_year": 1968,
+    "sample_end_year": 2003,
+    "filter_expr": null
+  },
+  "config_override": {
+    "weighting_rule": "ew",
+    "breakpoint_quantiles": 10,
+    "breakpoint_source": "full_sample",
+    "accounting_lag_months": 6,
+    "missing_action": "drop",
+    "formation_lag_months": 1,
+    "universe_filters": [
+      {
+        "field": "shrcd",
+        "op": "in",
+        "value": [
+          10,
+          11,
+          12
+        ]
+      },
+      {
+        "field": "exchcd",
+        "op": "in",
+        "value": [
+          1,
+          2,
+          3
+        ]
+      }
+    ],
+    "holding_period_months": 12,
+    "rebalance_frequency": "annual",
+    "formation_month": 6,
+    "sample_start_year": 1968,
+    "sample_end_year": 2003
+  },
+  "cz_reported": {
+    "mean_return": 0.0173,
+    "t_stat": 8.45,
+    "sign": -1
+  }
+}

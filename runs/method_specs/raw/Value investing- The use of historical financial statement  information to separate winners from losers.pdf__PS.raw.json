@@ -1,0 +1,1250 @@
+{
+  "target_name": "PS",
+  "paper": {
+    "document_id": "Value investing- The use of historical financial statement  information to separate winners from losers.pdf",
+    "title": "Value Investing: The Use of Historical Financial Statement Information to Separate Winners from Losers",
+    "citation": "Piotroski, Joseph D. (2000). \"Value Investing: The Use of Historical Financial Statement Information to Separate Winners from Losers.\" Journal of Accounting Research 38 (Supplement): 1-41.",
+    "publication_year": 2000
+  },
+  "signal": {
+    "definition": {
+      "value": "F-SCORE, the sum of nine binary financial-performance signals measuring profitability, leverage/liquidity, and operating efficiency.",
+      "evidence": [
+        {
+          "location": "Section 2.3",
+          "quote": "I define the aggregate signal measure, F-SCORE, as the sum of the nine binary signals.",
+          "table_ref": null,
+          "interpretation": ""
+        }
+      ],
+      "status": "clear",
+      "unsupported_value": null
+    },
+    "economic_intuition": {
+      "value": "A higher F-SCORE identifies financially stronger high book-to-market firms whose historical financial information indicates better future performance and returns.",
+      "evidence": [
+        {
+          "location": "Section 2.3.4",
+          "quote": "To the extent current fundamentals predict future fundamentals, I expect F-SCORE to be positively associated with changes in future firm performance and stock returns.",
+          "table_ref": null,
+          "interpretation": ""
+        }
+      ],
+      "status": "clear",
+      "unsupported_value": null
+    },
+    "direction": {
+      "value": "positive",
+      "evidence": [
+        {
+          "location": "Section 2.3.4",
+          "quote": "To the extent current fundamentals predict future fundamentals, I expect F-SCORE to be positively associated with changes in future firm performance and stock returns.",
+          "table_ref": null,
+          "interpretation": ""
+        }
+      ],
+      "status": "clear",
+      "unsupported_value": null
+    },
+    "category": "categorical",
+    "formula": {
+      "paper_expression": "F-SCORE = F_ROA + F_AROA + F_CFO + F_ACCRUAL + F_AMARGIN + F_ATURN + F_ALEVER + F_ALIQUID + EQOFFER.",
+      "steps": [
+        {
+          "step_id": "roa",
+          "description": "Calculate return on assets as net income before extraordinary items scaled by beginning-of-year total assets.",
+          "expression": "net_income_before_extraordinary / lag(total_assets, 1)",
+          "status": "clear",
+          "evidence": [
+            {
+              "location": "Section 2.3.1",
+              "quote": "I define ROA and CFO as net income before extraordinary items and cash flow from operations, respectively, scaled by beginning-of-the-year total assets.",
+              "table_ref": null,
+              "interpretation": ""
+            }
+          ]
+        },
+        {
+          "step_id": "cfo",
+          "description": "Calculate cash flow from operations scaled by beginning-of-year total assets.",
+          "expression": "cash_flow_from_operations / lag(total_assets, 1)",
+          "status": "clear",
+          "evidence": [
+            {
+              "location": "Section 2.3.1",
+              "quote": "I define ROA and CFO as net income before extraordinary items and cash flow from operations, respectively, scaled by beginning-of-the-year total assets.",
+              "table_ref": null,
+              "interpretation": ""
+            }
+          ]
+        },
+        {
+          "step_id": "f_roa",
+          "description": "Assign one when ROA is positive and zero otherwise.",
+          "expression": "indicator(roa > 0)",
+          "status": "clear",
+          "evidence": [
+            {
+              "location": "Section 2.3.1",
+              "quote": "If the firm's ROA (CFO) is positive, I define the indicator variable F_ROA (F_CFO) equal to one, zero otherwise.",
+              "table_ref": null,
+              "interpretation": ""
+            }
+          ]
+        },
+        {
+          "step_id": "f_cfo",
+          "description": "Assign one when CFO is positive and zero otherwise.",
+          "expression": "indicator(cfo > 0)",
+          "status": "clear",
+          "evidence": [
+            {
+              "location": "Section 2.3.1",
+              "quote": "If the firm's ROA (CFO) is positive, I define the indicator variable F_ROA (F_CFO) equal to one, zero otherwise.",
+              "table_ref": null,
+              "interpretation": ""
+            }
+          ]
+        },
+        {
+          "step_id": "f_aroa",
+          "description": "Assign one when current ROA exceeds prior-year ROA and zero otherwise.",
+          "expression": "indicator(roa - lag(roa, 1) > 0)",
+          "status": "clear",
+          "evidence": [
+            {
+              "location": "Section 2.3.1",
+              "quote": "I define AROA as the current year's ROA less the prior year's ROA. If AROA > 0, the indicator variable F-AROA equals one, zero otherwise.",
+              "table_ref": null,
+              "interpretation": ""
+            }
+          ]
+        },
+        {
+          "step_id": "f_accrual",
+          "description": "Assign one when CFO exceeds ROA and zero otherwise.",
+          "expression": "indicator(cfo > roa)",
+          "status": "clear",
+          "evidence": [
+            {
+              "location": "Section 2.3.1",
+              "quote": "The indicator variable F_ACCRUAL equals one if CFO > ROA, zero otherwise.",
+              "table_ref": null,
+              "interpretation": ""
+            }
+          ]
+        },
+        {
+          "step_id": "f_alever",
+          "description": "Assign one when the long-term-debt-to-average-assets ratio falls from the prior year and zero otherwise.",
+          "expression": "indicator((long_term_debt + debt_current) / average(total_assets, lag(total_assets, 1)) < lag((long_term_debt + debt_current) / average(total_assets, lag(total_assets, 1)), 1))",
+          "status": "clear",
+          "evidence": [
+            {
+              "location": "Section 2.3.2",
+              "quote": "I define the indicator variable F_ALEVER as equal to one (zero) if the firm's leverage ratio fell (rose) in the year preceding portfolio formation.",
+              "table_ref": null,
+              "interpretation": ""
+            }
+          ]
+        },
+        {
+          "step_id": "f_aliquid",
+          "description": "Assign one when the current ratio increases from the prior year and zero otherwise.",
+          "expression": "indicator(current_assets / current_liabilities > lag(current_assets / current_liabilities, 1))",
+          "status": "clear",
+          "evidence": [
+            {
+              "location": "Section 2.3.2",
+              "quote": "The indicator variable F_ALIQUID equals one if the firm's liquidity improved, zero otherwise.",
+              "table_ref": null,
+              "interpretation": ""
+            }
+          ]
+        },
+        {
+          "step_id": "f_eqoffer",
+          "description": "Assign one when the firm did not issue common equity in the year preceding portfolio formation and zero otherwise.",
+          "expression": "indicator(common_equity_issued == 0)",
+          "status": "clear",
+          "evidence": [
+            {
+              "location": "Section 2.3.2",
+              "quote": "I define the indicator variable EQOFFER as equal to one if the firm did not issue common equity in the year preceding portfolio formation, zero otherwise.",
+              "table_ref": null,
+              "interpretation": ""
+            }
+          ]
+        },
+        {
+          "step_id": "f_amargin",
+          "description": "Assign one when gross margin divided by sales increases from the prior year and zero otherwise.",
+          "expression": "indicator((net_sales - cost_of_goods_sold) / net_sales > lag((net_sales - cost_of_goods_sold) / net_sales, 1))",
+          "status": "clear",
+          "evidence": [
+            {
+              "location": "Section 2.3.3",
+              "quote": "The indicator variable F_AMARGIN equals one if AAMARGIN is positive, zero otherwise.",
+              "table_ref": null,
+              "interpretation": ""
+            }
+          ]
+        },
+        {
+          "step_id": "f_aturn",
+          "description": "Assign one when sales divided by beginning-of-year assets increases from the prior year and zero otherwise.",
+          "expression": "indicator(net_sales / lag(total_assets, 1) > lag(net_sales / lag(total_assets, 1), 1))",
+          "status": "clear",
+          "evidence": [
+            {
+              "location": "Section 2.3.3",
+              "quote": "The indicator variable F-ATURN equals one if ATURN is positive, zero otherwise.",
+              "table_ref": null,
+              "interpretation": ""
+            }
+          ]
+        },
+        {
+          "step_id": "f_score",
+          "description": "Sum the nine binary financial-performance indicators.",
+          "expression": "f_roa + f_aroa + f_cfo + f_accrual + f_amargin + f_aturn + f_alever + f_aliquid + f_eqoffer",
+          "status": "clear",
+          "evidence": [
+            {
+              "location": "Section 2.3.4",
+              "quote": "I define F-SCORE as the sum of the individual binary signals, or FESCORE = FROA + F_ AROA + FCFO + F-ACCRUAL + FIAMARGIN + F-ATURN + FJALEVER + F-ALIQUID + EQOFFER.",
+              "table_ref": null,
+              "interpretation": ""
+            }
+          ]
+        }
+      ],
+      "inputs": [
+        "net_income_before_extraordinary",
+        "cash_flow_from_operations",
+        "total_assets",
+        "long_term_debt",
+        "debt_current",
+        "current_assets",
+        "current_liabilities",
+        "common_equity_issued",
+        "net_sales",
+        "cost_of_goods_sold"
+      ],
+      "constants": {},
+      "output_concept": "f_score",
+      "evidence": [
+        {
+          "location": "Section 2.3.4",
+          "quote": "Given the nine underlying signals, F-SCORE can range from a low of 0 to a high of 9, where a low (high) F-SCORE represents a firm with very few (mostly) good signals.",
+          "table_ref": null,
+          "interpretation": ""
+        }
+      ]
+    },
+    "estimation": null
+  },
+  "data": {
+    "signal_frequency": {
+      "value": "year",
+      "evidence": [
+        {
+          "location": "Section 3.1",
+          "quote": "Each fiscal year (i.e., financial report year), I rank all firms with sufficient data to identify book-to-market quintile and size tercile cutoffs.",
+          "table_ref": null,
+          "interpretation": ""
+        }
+      ],
+      "status": "clear",
+      "unsupported_value": null
+    },
+    "return_frequency": {
+      "value": "year",
+      "evidence": [
+        {
+          "location": "Section 3.2",
+          "quote": "I measure firm-specific returns as one-year (two-year) buy-and-hold returns",
+          "table_ref": null,
+          "interpretation": ""
+        }
+      ],
+      "status": "clear",
+      "unsupported_value": null
+    },
+    "sources": [
+      {
+        "value": "Compustat",
+        "evidence": [
+          {
+            "location": "Section 3.1",
+            "quote": "Each year between 1976 and 1996, I identify firms with sufficient stock price and book value data on Compustat.",
+            "table_ref": null,
+            "interpretation": ""
+          }
+        ],
+        "status": "clear",
+        "unsupported_value": null
+      },
+      {
+        "value": "CRSP",
+        "evidence": [
+          {
+            "location": "Section 3.2",
+            "quote": "Return compounding ends the earlier of one year (two years) after return compounding began or the last day of CRSP traded returns.",
+            "table_ref": null,
+            "interpretation": ""
+          }
+        ],
+        "status": "clear",
+        "unsupported_value": null
+      }
+    ],
+    "fields": [
+      {
+        "concept_id": "net_income_before_extraordinary",
+        "name_in_paper": "net income before extraordinary items",
+        "description": "Annual income before extraordinary items used in ROA and accruals.",
+        "paper_source_hint": "Compustat annual financial statements",
+        "roles": [
+          "signal_input"
+        ],
+        "evidence": [
+          {
+            "location": "Section 2.3.1",
+            "quote": "I define ROA and CFO as net income before extraordinary items and cash flow from operations, respectively, scaled by beginning-of-the-year total assets.",
+            "table_ref": null,
+            "interpretation": ""
+          }
+        ],
+        "source_table": {
+          "value": "comp_funda",
+          "evidence": [
+            {
+              "location": "Section 2.3.1",
+              "quote": "net income before extraordinary items",
+              "table_ref": null,
+              "interpretation": "Mapped to Compustat annual item IB."
+            }
+          ],
+          "status": "inferred",
+          "unsupported_value": null
+        },
+        "source_column": {
+          "value": "ib",
+          "evidence": [
+            {
+              "location": "Section 2.3.1",
+              "quote": "net income before extraordinary items",
+              "table_ref": null,
+              "interpretation": "Mapped to Compustat annual item IB."
+            }
+          ],
+          "status": "inferred",
+          "unsupported_value": null
+        }
+      },
+      {
+        "concept_id": "cash_flow_from_operations",
+        "name_in_paper": "cash flow from operations",
+        "description": "Annual cash flow from operations used in CFO and ACCRUAL.",
+        "paper_source_hint": "Compustat annual financial statements",
+        "roles": [
+          "signal_input"
+        ],
+        "evidence": [
+          {
+            "location": "Section 2.3.1",
+            "quote": "I define ROA and CFO as net income before extraordinary items and cash flow from operations, respectively, scaled by beginning-of-the-year total assets.",
+            "table_ref": null,
+            "interpretation": ""
+          }
+        ],
+        "source_table": {
+          "value": "other",
+          "evidence": [
+            {
+              "location": "Section 2.3.1",
+              "quote": "cash flow from operations",
+              "table_ref": null,
+              "interpretation": "The paper identifies the measure, but the registered catalog has no cash-flow-from-operations column."
+            }
+          ],
+          "status": "clear",
+          "unsupported_value": "Compustat annual cash flow from operations"
+        },
+        "source_column": {
+          "value": null,
+          "evidence": [],
+          "status": "unspecified",
+          "unsupported_value": null
+        }
+      },
+      {
+        "concept_id": "total_assets",
+        "name_in_paper": "total assets",
+        "description": "Annual total assets used as denominator in profitability, leverage, and turnover ratios.",
+        "paper_source_hint": "Compustat annual financial statements",
+        "roles": [
+          "signal_input"
+        ],
+        "evidence": [
+          {
+            "location": "Table 1 notes",
+            "quote": "ASSETS= total assets reported at the end of the fiscal year t.",
+            "table_ref": null,
+            "interpretation": ""
+          }
+        ],
+        "source_table": {
+          "value": "comp_funda",
+          "evidence": [
+            {
+              "location": "Table 1 notes",
+              "quote": "total assets reported at the end of the fiscal year t",
+              "table_ref": null,
+              "interpretation": "Mapped to Compustat annual item AT."
+            }
+          ],
+          "status": "inferred",
+          "unsupported_value": null
+        },
+        "source_column": {
+          "value": "at",
+          "evidence": [
+            {
+              "location": "Table 1 notes",
+              "quote": "total assets reported at the end of the fiscal year t",
+              "table_ref": null,
+              "interpretation": "Mapped to Compustat annual item AT."
+            }
+          ],
+          "status": "inferred",
+          "unsupported_value": null
+        }
+      },
+      {
+        "concept_id": "long_term_debt",
+        "name_in_paper": "total long-term debt",
+        "description": "Long-term debt including its current portion for the leverage ratio.",
+        "paper_source_hint": "Compustat annual financial statements",
+        "roles": [
+          "signal_input"
+        ],
+        "evidence": [
+          {
+            "location": "Table 1 notes",
+            "quote": "The debt-to-asset ratio is defined as the firm's total long-term debt (including the portion of long-term debt classified as current) scaled by average total assets.",
+            "table_ref": null,
+            "interpretation": ""
+          }
+        ],
+        "source_table": {
+          "value": "comp_funda",
+          "evidence": [
+            {
+              "location": "Table 1 notes",
+              "quote": "total long-term debt",
+              "table_ref": null,
+              "interpretation": "Mapped to Compustat annual item DLTT."
+            }
+          ],
+          "status": "inferred",
+          "unsupported_value": null
+        },
+        "source_column": {
+          "value": "dltt",
+          "evidence": [
+            {
+              "location": "Table 1 notes",
+              "quote": "total long-term debt",
+              "table_ref": null,
+              "interpretation": "Mapped to Compustat annual item DLTT."
+            }
+          ],
+          "status": "inferred",
+          "unsupported_value": null
+        }
+      },
+      {
+        "concept_id": "debt_current",
+        "name_in_paper": "portion of long-term debt classified as current",
+        "description": "Current portion of long-term debt included in the leverage ratio.",
+        "paper_source_hint": "Compustat annual financial statements",
+        "roles": [
+          "signal_input"
+        ],
+        "evidence": [
+          {
+            "location": "Table 1 notes",
+            "quote": "including the portion of long-term debt classified as current",
+            "table_ref": null,
+            "interpretation": ""
+          }
+        ],
+        "source_table": {
+          "value": "comp_funda",
+          "evidence": [
+            {
+              "location": "Table 1 notes",
+              "quote": "portion of long-term debt classified as current",
+              "table_ref": null,
+              "interpretation": "Mapped to Compustat annual item DLC."
+            }
+          ],
+          "status": "inferred",
+          "unsupported_value": null
+        },
+        "source_column": {
+          "value": "dlc",
+          "evidence": [
+            {
+              "location": "Table 1 notes",
+              "quote": "portion of long-term debt classified as current",
+              "table_ref": null,
+              "interpretation": "Mapped to Compustat annual item DLC."
+            }
+          ],
+          "status": "inferred",
+          "unsupported_value": null
+        }
+      },
+      {
+        "concept_id": "current_assets",
+        "name_in_paper": "current assets",
+        "description": "Numerator of the current ratio.",
+        "paper_source_hint": "Compustat annual financial statements",
+        "roles": [
+          "signal_input"
+        ],
+        "evidence": [
+          {
+            "location": "Section 2.3.2",
+            "quote": "I define the current ratio as the ratio of current assets to current liabilities at fiscal year-end.",
+            "table_ref": null,
+            "interpretation": ""
+          }
+        ],
+        "source_table": {
+          "value": "comp_funda",
+          "evidence": [
+            {
+              "location": "Section 2.3.2",
+              "quote": "current assets",
+              "table_ref": null,
+              "interpretation": "Mapped to Compustat annual item ACT."
+            }
+          ],
+          "status": "inferred",
+          "unsupported_value": null
+        },
+        "source_column": {
+          "value": "act",
+          "evidence": [
+            {
+              "location": "Section 2.3.2",
+              "quote": "current assets",
+              "table_ref": null,
+              "interpretation": "Mapped to Compustat annual item ACT."
+            }
+          ],
+          "status": "inferred",
+          "unsupported_value": null
+        }
+      },
+      {
+        "concept_id": "current_liabilities",
+        "name_in_paper": "current liabilities",
+        "description": "Denominator of the current ratio.",
+        "paper_source_hint": "Compustat annual financial statements",
+        "roles": [
+          "signal_input"
+        ],
+        "evidence": [
+          {
+            "location": "Section 2.3.2",
+            "quote": "I define the current ratio as the ratio of current assets to current liabilities at fiscal year-end.",
+            "table_ref": null,
+            "interpretation": ""
+          }
+        ],
+        "source_table": {
+          "value": "comp_funda",
+          "evidence": [
+            {
+              "location": "Section 2.3.2",
+              "quote": "current liabilities",
+              "table_ref": null,
+              "interpretation": "Mapped to Compustat annual item LCT."
+            }
+          ],
+          "status": "inferred",
+          "unsupported_value": null
+        },
+        "source_column": {
+          "value": "lct",
+          "evidence": [
+            {
+              "location": "Section 2.3.2",
+              "quote": "current liabilities",
+              "table_ref": null,
+              "interpretation": "Mapped to Compustat annual item LCT."
+            }
+          ],
+          "status": "inferred",
+          "unsupported_value": null
+        }
+      },
+      {
+        "concept_id": "common_equity_issued",
+        "name_in_paper": "common equity issued",
+        "description": "Indicator of whether common equity was issued in the preceding fiscal year.",
+        "paper_source_hint": "Statement of cash flows or statement of sources and uses of funds through Compustat",
+        "roles": [
+          "signal_input"
+        ],
+        "evidence": [
+          {
+            "location": "Section 5",
+            "quote": "Equity offerings were identified through the firm's statement of cash flows or statement of sources and uses of funds (through Compustat) for the year preceding portfolio formation.",
+            "table_ref": null,
+            "interpretation": ""
+          }
+        ],
+        "source_table": {
+          "value": "other",
+          "evidence": [
+            {
+              "location": "Section 5",
+              "quote": "statement of cash flows or statement of sources and uses of funds (through Compustat)",
+              "table_ref": null,
+              "interpretation": "The registered catalog does not include a common-equity-issuance column."
+            }
+          ],
+          "status": "clear",
+          "unsupported_value": "Compustat statement of cash flows or statement of sources and uses of funds"
+        },
+        "source_column": {
+          "value": null,
+          "evidence": [],
+          "status": "unspecified",
+          "unsupported_value": null
+        }
+      },
+      {
+        "concept_id": "net_sales",
+        "name_in_paper": "total sales",
+        "description": "Annual sales used in gross margin and asset turnover.",
+        "paper_source_hint": "Compustat annual financial statements",
+        "roles": [
+          "signal_input"
+        ],
+        "evidence": [
+          {
+            "location": "Section 2.3.3",
+            "quote": "I define A TURN as the firm's current year asset turnover ratio (total sales scaled by beginning-of-the-year total assets)",
+            "table_ref": null,
+            "interpretation": ""
+          }
+        ],
+        "source_table": {
+          "value": "comp_funda",
+          "evidence": [
+            {
+              "location": "Section 2.3.3",
+              "quote": "total sales",
+              "table_ref": null,
+              "interpretation": "Mapped to Compustat annual item SALE."
+            }
+          ],
+          "status": "inferred",
+          "unsupported_value": null
+        },
+        "source_column": {
+          "value": "sale",
+          "evidence": [
+            {
+              "location": "Section 2.3.3",
+              "quote": "total sales",
+              "table_ref": null,
+              "interpretation": "Mapped to Compustat annual item SALE."
+            }
+          ],
+          "status": "inferred",
+          "unsupported_value": null
+        }
+      },
+      {
+        "concept_id": "cost_of_goods_sold",
+        "name_in_paper": "cost of goods sold",
+        "description": "Expense subtracted from net sales to calculate gross margin.",
+        "paper_source_hint": "Compustat annual financial statements",
+        "roles": [
+          "signal_input"
+        ],
+        "evidence": [
+          {
+            "location": "Table 1 notes",
+            "quote": "AMARGIN= gross margin (net sales less cost of good sold)",
+            "table_ref": null,
+            "interpretation": ""
+          }
+        ],
+        "source_table": {
+          "value": "comp_funda",
+          "evidence": [
+            {
+              "location": "Table 1 notes",
+              "quote": "cost of good sold",
+              "table_ref": null,
+              "interpretation": "Mapped to Compustat annual item COGS."
+            }
+          ],
+          "status": "inferred",
+          "unsupported_value": null
+        },
+        "source_column": {
+          "value": "cogs",
+          "evidence": [
+            {
+              "location": "Table 1 notes",
+              "quote": "cost of good sold",
+              "table_ref": null,
+              "interpretation": "Mapped to Compustat annual item COGS."
+            }
+          ],
+          "status": "inferred",
+          "unsupported_value": null
+        }
+      },
+      {
+        "concept_id": "book_equity",
+        "name_in_paper": "book value of equity",
+        "description": "Book value used as the numerator of the book-to-market ratio.",
+        "paper_source_hint": "Compustat",
+        "roles": [
+          "universe_filter"
+        ],
+        "evidence": [
+          {
+            "location": "Section 3.1",
+            "quote": "For each firm, I calculate the market value of equity and BM ratio at fiscal year-end.",
+            "table_ref": null,
+            "interpretation": ""
+          }
+        ],
+        "source_table": {
+          "value": "comp_funda",
+          "evidence": [
+            {
+              "location": "Section 3.1",
+              "quote": "book value data on Compustat",
+              "table_ref": null,
+              "interpretation": "Mapped to Compustat total common equity."
+            }
+          ],
+          "status": "inferred",
+          "unsupported_value": null
+        },
+        "source_column": {
+          "value": "ceq",
+          "evidence": [
+            {
+              "location": "Section 3.1",
+              "quote": "book value data on Compustat",
+              "table_ref": null,
+              "interpretation": "Mapped to Compustat total common equity."
+            }
+          ],
+          "status": "inferred",
+          "unsupported_value": null
+        }
+      },
+      {
+        "concept_id": "market_value_equity",
+        "name_in_paper": "market value of equity",
+        "description": "Fiscal-year-end market value used as the denominator of book-to-market.",
+        "paper_source_hint": "Stock price and shares outstanding",
+        "roles": [
+          "universe_filter"
+        ],
+        "evidence": [
+          {
+            "location": "Table 1 notes",
+            "quote": "Market value is calculated as the number of shares outstanding at fiscal year-end times closing share price.",
+            "table_ref": null,
+            "interpretation": ""
+          }
+        ],
+        "source_table": {
+          "value": "crsp_msf",
+          "evidence": [
+            {
+              "location": "Table 1 notes",
+              "quote": "number of shares outstanding at fiscal year-end times closing share price",
+              "table_ref": null,
+              "interpretation": "Mapped to CRSP monthly market equity, which is price times shares outstanding."
+            }
+          ],
+          "status": "inferred",
+          "unsupported_value": null
+        },
+        "source_column": {
+          "value": "me",
+          "evidence": [
+            {
+              "location": "Table 1 notes",
+              "quote": "number of shares outstanding at fiscal year-end times closing share price",
+              "table_ref": null,
+              "interpretation": "Mapped to CRSP monthly market equity."
+            }
+          ],
+          "status": "inferred",
+          "unsupported_value": null
+        }
+      },
+      {
+        "concept_id": "book_to_market",
+        "name_in_paper": "BM ratio",
+        "description": "Book value of equity scaled by market value of equity at fiscal year-end, used to select the highest BM quintile.",
+        "paper_source_hint": "Calculated from Compustat book value and fiscal-year-end market value",
+        "roles": [
+          "universe_filter"
+        ],
+        "evidence": [
+          {
+            "location": "Table 1 notes",
+            "quote": "BM= book value of equity at the end of fiscal year t, scaled by MVE.",
+            "table_ref": null,
+            "interpretation": ""
+          }
+        ],
+        "source_table": {
+          "value": "other",
+          "evidence": [
+            {
+              "location": "Table 1 notes",
+              "quote": "BM= book value of equity at the end of fiscal year t, scaled by MVE.",
+              "table_ref": null,
+              "interpretation": "BM is a derived ratio rather than a single registered physical column."
+            }
+          ],
+          "status": "clear",
+          "unsupported_value": "Derived book-to-market ratio from fiscal-year-end book equity and market value of equity"
+        },
+        "source_column": {
+          "value": null,
+          "evidence": [],
+          "status": "unspecified",
+          "unsupported_value": null
+        }
+      }
+    ],
+    "coverage_notes": [
+      "The paper requires sufficient financial statement data to calculate the performance signals.",
+      "The AROA requirement needs three years of historical data before a firm-year can be assigned to a portfolio."
+    ]
+  },
+  "sample": {
+    "data_coverage": {
+      "start_year": 1976,
+      "end_year": 1996,
+      "start_month": null,
+      "end_month": null,
+      "evidence": [
+        {
+          "location": "Section 3.1",
+          "quote": "Each year between 1976 and 1996, I identify firms with sufficient stock price and book value data on Compustat.",
+          "table_ref": null,
+          "interpretation": ""
+        }
+      ],
+      "status": "clear"
+    },
+    "formation": {
+      "start_year": 1976,
+      "end_year": 1996,
+      "start_month": null,
+      "end_month": null,
+      "evidence": [
+        {
+          "location": "Section 3.1",
+          "quote": "Each year between 1976 and 1996, I identify firms with sufficient stock price and book value data on Compustat.",
+          "table_ref": null,
+          "interpretation": ""
+        }
+      ],
+      "status": "clear"
+    },
+    "reported_returns": {
+      "start_year": 1976,
+      "end_year": 1996,
+      "start_month": null,
+      "end_month": null,
+      "evidence": [
+        {
+          "location": "Abstract",
+          "quote": "an investment strategy that buys expected winners and shorts expected losers generates a 23% annual return between 1976 and 1996",
+          "table_ref": null,
+          "interpretation": ""
+        }
+      ],
+      "status": "clear"
+    }
+  },
+  "timing": {
+    "formation_rule": {
+      "value": "Form portfolios at the beginning of the fifth month after fiscal year-end, using annual financial information.",
+      "evidence": [
+        {
+          "location": "Section 3.2",
+          "quote": "I chose the fifth month to ensure that the necessary annual financial information is available to investors at the time of portfolio formation.",
+          "table_ref": null,
+          "interpretation": ""
+        }
+      ],
+      "status": "clear",
+      "unsupported_value": null
+    },
+    "formation_month": null,
+    "rebalance_frequency": {
+      "value": "year",
+      "evidence": [
+        {
+          "location": "Section 3.1",
+          "quote": "Each fiscal year (i.e., financial report year), I rank all firms with sufficient data to identify book-to-market quintile and size tercile cutoffs.",
+          "table_ref": null,
+          "interpretation": ""
+        }
+      ],
+      "status": "clear",
+      "unsupported_value": null
+    },
+    "holding_period": {
+      "value": 12,
+      "evidence": [
+        {
+          "location": "Table 3 notes",
+          "quote": "A raw return is calculated as the 12-month buy-and-hold return of the firm starting at the beginning or the fifth month after fiscal year-end.",
+          "table_ref": null,
+          "interpretation": ""
+        }
+      ],
+      "status": "clear",
+      "unsupported_value": null
+    },
+    "return_window": {
+      "start_offset": 4,
+      "end_offset": 16,
+      "unit": "month",
+      "anchor": "fiscal_period_end",
+      "is_expanding": false
+    },
+    "data_availability": {
+      "lag_value": 4,
+      "lag_unit": "month",
+      "anchor": "fiscal_period_end",
+      "basis": "fixed_calendar_lag",
+      "evidence": [
+        {
+          "location": "Appendix A",
+          "quote": "Returns are cumulated over a one-year period starting four months after fiscal year-end.",
+          "table_ref": null,
+          "interpretation": ""
+        }
+      ]
+    }
+  },
+  "universe": {
+    "description": {
+      "value": "Firms in the highest prior-year book-to-market quintile with sufficient financial statement data to calculate the performance signals.",
+      "evidence": [
+        {
+          "location": "Section 3.1",
+          "quote": "After the BM quintiles are formed, I retain firms in the highest BM quintile with sufficient financial statement data to calculate the various performance signals.",
+          "table_ref": null,
+          "interpretation": ""
+        }
+      ],
+      "status": "clear",
+      "unsupported_value": null
+    },
+    "filters": [
+      {
+        "concept_id": "book_to_market",
+        "op": "in",
+        "value": "highest quintile using prior fiscal year's BM distribution",
+        "evidence": [
+          {
+            "location": "Section 3.1",
+            "quote": "The prior fiscal year's BM distribution is used to classify firms into BM quintiles.",
+            "table_ref": null,
+            "interpretation": ""
+          }
+        ],
+        "derivation": {
+          "paper_expression": "BM equals book value of equity at fiscal year-end scaled by market value of equity at fiscal year-end.",
+          "steps": [
+            {
+              "step_id": "bm_ratio",
+              "description": "Calculate book-to-market as fiscal-year-end book value of equity divided by fiscal-year-end market value of equity.",
+              "expression": "book_equity / market_value_equity",
+              "status": "clear",
+              "evidence": [
+                {
+                  "location": "Table 1 notes",
+                  "quote": "BM= book value of equity at the end of fiscal year t, scaled by MVE.",
+                  "table_ref": null,
+                  "interpretation": ""
+                }
+              ]
+            }
+          ],
+          "inputs": [
+            "book_equity",
+            "market_value_equity"
+          ],
+          "constants": {},
+          "output_concept": "book_to_market",
+          "evidence": [
+            {
+              "location": "Table 1 notes",
+              "quote": "BM= book value of equity at the end of fiscal year t, scaled by MVE.",
+              "table_ref": null,
+              "interpretation": ""
+            }
+          ]
+        },
+        "accepted_unapplied": false,
+        "unapplied_reason": ""
+      }
+    ]
+  },
+  "portfolio": {
+    "construction_type": {
+      "value": "characteristic_sort",
+      "evidence": [
+        {
+          "location": "Section 3.3",
+          "quote": "The primary methodology of this paper is to form portfolios based on the firm's aggregate score (F-SCORE).",
+          "table_ref": null,
+          "interpretation": ""
+        }
+      ],
+      "status": "clear",
+      "unsupported_value": null
+    },
+    "sorts": [
+      {
+        "sort_id": "f_score_threshold",
+        "concept_id": "f_score",
+        "role": "target",
+        "order": 0,
+        "mode": {
+          "value": "independent",
+          "evidence": [
+            {
+              "location": "Section 3.3",
+              "quote": "I classify firms with the lowest aggregate signals (F-SCORE equals 0 or 1) as low F-SCORE firms",
+              "table_ref": null,
+              "interpretation": "A single sort is conducted on F-SCORE."
+            }
+          ],
+          "status": "clear",
+          "unsupported_value": null
+        },
+        "group_type": {
+          "value": "threshold",
+          "evidence": [
+            {
+              "location": "Section 3.3",
+              "quote": "firms receiving the highest score (i.e., F-SCORE equals 8 or 9) have the strongest fundamental signals and are classified as high F-SCORE firms.",
+              "table_ref": null,
+              "interpretation": ""
+            }
+          ],
+          "status": "clear",
+          "unsupported_value": null
+        },
+        "group_count": 2,
+        "breakpoints": {
+          "basis": {
+            "value": "full_sample",
+            "evidence": [
+              {
+                "location": "Section 3.3",
+                "quote": "I classify firms with the lowest aggregate signals (F-SCORE equals 0 or 1) as low F-SCORE firms",
+                "table_ref": null,
+                "interpretation": "The thresholds use all retained high-BM firms, rather than an exchange-specific reference subset."
+              }
+            ],
+            "status": "inferred",
+            "unsupported_value": null
+          },
+          "values": [
+            1.0,
+            8.0
+          ]
+        },
+        "condition_on_sort_id": null,
+        "evidence": [
+          {
+            "location": "Table 3",
+            "quote": "The Low F-SCORE portfolio consists of firms with an aggregate score of 0 or 1; the High FSCORE portfolio consists of firms with a score of 8 or 9.",
+            "table_ref": null,
+            "interpretation": ""
+          }
+        ]
+      }
+    ],
+    "legs": [
+      {
+        "leg_id": "high_f_score",
+        "side": "long",
+        "selector": {
+          "f_score_threshold": 1
+        },
+        "evidence": [
+          {
+            "location": "Abstract",
+            "quote": "an investment strategy that buys expected winners and shorts expected losers generates a 23% annual return between 1976 and 1996",
+            "table_ref": null,
+            "interpretation": "High F-SCORE firms are the expected winners."
+          }
+        ]
+      },
+      {
+        "leg_id": "low_f_score",
+        "side": "short",
+        "selector": {
+          "f_score_threshold": 0
+        },
+        "evidence": [
+          {
+            "location": "Abstract",
+            "quote": "an investment strategy that buys expected winners and shorts expected losers generates a 23% annual return between 1976 and 1996",
+            "table_ref": null,
+            "interpretation": "Low F-SCORE firms are the expected losers."
+          }
+        ]
+      }
+    ],
+    "weighting": {
+      "value": "other",
+      "evidence": [
+        {
+          "location": "Section 3.3",
+          "quote": "I calculate the difference between the mean returns of these two pseudo-portfolios",
+          "table_ref": null,
+          "interpretation": "The paper reports mean firm-level portfolio returns and does not explicitly state conventional equal- or value-weight portfolio weights."
+        }
+      ],
+      "status": "clear",
+      "unsupported_value": "Mean of constituent firms' buy-and-hold returns"
+    },
+    "return_combination": {
+      "value": "extreme_group_spread",
+      "evidence": [
+        {
+          "location": "Section 4.2",
+          "quote": "high F-SCORE firms significantly outperform low F-SCORE firms in the year following portfolio formation",
+          "table_ref": null,
+          "interpretation": ""
+        }
+      ],
+      "status": "clear",
+      "unsupported_value": null
+    },
+    "missing_policies": [],
+    "transforms": []
+  },
+  "reported_results": {
+    "primary_metric_id": "high_minus_low_one_year_market_adjusted",
+    "metrics": [
+      {
+        "metric_id": "high_minus_low_one_year_market_adjusted",
+        "label": "High minus Low F-SCORE one-year market-adjusted return",
+        "estimand": "spread",
+        "adjustment_model": "other",
+        "weighting": null,
+        "estimate": 0.23,
+        "unit": "decimal",
+        "frequency": "year",
+        "statistic": {
+          "kind": "t_stat",
+          "value": 5.59
+        },
+        "sample_period": {
+          "start_year": 1976,
+          "end_year": 1996,
+          "start_month": null,
+          "end_month": null,
+          "evidence": [
+            {
+              "location": "Section 3.1",
+              "quote": "Each year between 1976 and 1996",
+              "table_ref": null,
+              "interpretation": ""
+            }
+          ],
+          "status": "clear"
+        },
+        "evidence": [
+          {
+            "location": "Table 3, Panel B",
+            "quote": "",
+            "table_ref": {
+              "table": "Table 3, Panel B",
+              "row": "High-Low",
+              "column": "Mean"
+            },
+            "interpretation": "The one-year market-adjusted High-Low mean is 0.230; the table reports a t-statistic of 5.590."
+          }
+        ],
+        "status": "table_only"
+      },
+      {
+        "metric_id": "high_minus_all_one_year_market_adjusted",
+        "label": "High F-SCORE minus all high-BM firms one-year market-adjusted return",
+        "estimand": "spread",
+        "adjustment_model": "other",
+        "weighting": null,
+        "estimate": 0.075,
+        "unit": "decimal",
+        "frequency": "year",
+        "statistic": {
+          "kind": "t_stat",
+          "value": 3.14
+        },
+        "sample_period": {
+          "start_year": 1976,
+          "end_year": 1996,
+          "start_month": null,
+          "end_month": null,
+          "evidence": [
+            {
+              "location": "Section 3.1",
+              "quote": "Each year between 1976 and 1996",
+              "table_ref": null,
+              "interpretation": ""
+            }
+          ],
+          "status": "clear"
+        },
+        "evidence": [
+          {
+            "location": "Table 3, Panel B",
+            "quote": "",
+            "table_ref": {
+              "table": "Table 3, Panel B",
+              "row": "High-All",
+              "column": "Mean"
+            },
+            "interpretation": "The one-year market-adjusted High-All mean is 0.075; the table reports a t-statistic of 3.140."
+          }
+        ],
+        "status": "table_only"
+      }
+    ]
+  },
+  "notes": "This specification targets the paper's primary binary F-SCORE strategy: high book-to-market firms with F-SCORE 8 or 9 versus those with F-SCORE 0 or 1. The paper also reports alternative ranked-signal and annual majority-good-versus-majority-bad variants, which are separate executable targets and are not merged into this specification."
+}

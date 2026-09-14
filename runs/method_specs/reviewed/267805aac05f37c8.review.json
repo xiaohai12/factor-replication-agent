@@ -1,0 +1,9 @@
+{
+  "schema_version": "methodreview.v2",
+  "factor_id": "267805aac05f37c8",
+  "paper_spec_hash": "d5415a8feba0d8c6b6e56780837b0ce3a3b138b1b3c23ffb7766118c62ac33a0",
+  "capability_version": "engine_capability.v1",
+  "findings": [],
+  "status_overrides": {},
+  "reextraction_attempts": 0
+}

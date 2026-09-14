@@ -1,0 +1,19 @@
+{
+  "schema_version": "resolution.v2",
+  "factor_id": "dd915ef49fd849f0",
+  "concept_mapping": {
+    "stock_return": {
+      "source": "crsp_msf",
+      "column": "ret"
+    },
+    "exchange_code": {
+      "source": "crsp_msf",
+      "column": "exchcd"
+    }
+  },
+  "returns_source": "us_equity_crsp",
+  "cz_acronym": null,
+  "llm_matched_concepts": [],
+  "entries": [],
+  "approved_substitutions": []
+}

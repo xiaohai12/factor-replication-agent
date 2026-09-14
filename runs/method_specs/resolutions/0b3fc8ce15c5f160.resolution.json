@@ -1,0 +1,25 @@
+{
+  "schema_version": "resolution.v2",
+  "factor_id": "0b3fc8ce15c5f160",
+  "concept_mapping": {
+    "total_assets": {
+      "source": "comp_funda",
+      "column": "at"
+    },
+    "sic_code": {
+      "source": "crsp_msf",
+      "column": "siccd"
+    },
+    "compustat_listing_history": {
+      "source": "comp_funda",
+      "column": "datadate"
+    }
+  },
+  "returns_source": "us_equity_crsp",
+  "cz_acronym": null,
+  "llm_matched_concepts": [
+    "compustat_listing_history"
+  ],
+  "entries": [],
+  "approved_substitutions": []
+}

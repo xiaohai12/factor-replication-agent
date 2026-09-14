@@ -1,0 +1,1189 @@
+{
+  "paper": {
+    "schema_version": "methodspec.v2",
+    "factor_id": "bed8718637a20b7b",
+    "target_name": "GP",
+    "paper": {
+      "document_id": "The other side of value- The gross profitability premium.pdf",
+      "title": "The other side of value: The gross profitability premium",
+      "citation": "Novy-Marx, R. (2013). The other side of value: The gross profitability premium. Journal of Financial Economics, 108, 1–28.",
+      "publication_year": 2013
+    },
+    "signal": {
+      "definition": {
+        "value": "Gross profits scaled by total assets.",
+        "evidence": [
+          {
+            "location": "Section 2",
+            "quote": "Profitability, as measured by the ratio of a firm’s gross profits (revenues minus cost of goods sold) to its assets",
+            "table_ref": null,
+            "interpretation": ""
+          }
+        ],
+        "status": "clear",
+        "unsupported_value": null
+      },
+      "economic_intuition": {
+        "value": "Gross profits are a clean accounting measure of economic profitability, and productive assets should earn higher average returns than unproductive assets.",
+        "evidence": [
+          {
+            "location": "Section 2",
+            "quote": "Gross profits is the cleanest accounting measure of true economic profitability.",
+            "table_ref": null,
+            "interpretation": ""
+          },
+          {
+            "location": "Introduction",
+            "quote": "Similar arguments suggest that firms with productive assets should yield higher average returns than firms with unproductive assets.",
+            "table_ref": null,
+            "interpretation": ""
+          }
+        ],
+        "status": "clear",
+        "unsupported_value": null
+      },
+      "direction": {
+        "value": "positive",
+        "evidence": [
+          {
+            "location": "Section 2.2",
+            "quote": "the gross profits-to-assets portfolios’ average excess returns are generally increasing with profitability",
+            "table_ref": null,
+            "interpretation": ""
+          }
+        ],
+        "status": "clear",
+        "unsupported_value": null
+      },
+      "category": "continuous",
+      "formula": {
+        "paper_expression": "(REVT - COGS) / AT",
+        "steps": [
+          {
+            "step_id": "gross_profits",
+            "description": "Calculate gross profits as total revenues minus cost of goods sold.",
+            "expression": "revenue - cost_of_goods_sold",
+            "status": "clear",
+            "evidence": [
+              {
+                "location": "Table 2",
+                "quote": "gross profits-to-assets [(REVT − COGS)/AT]",
+                "table_ref": null,
+                "interpretation": ""
+              }
+            ]
+          },
+          {
+            "step_id": "gross_profitability",
+            "description": "Scale gross profits by total assets.",
+            "expression": "gross_profits / total_assets",
+            "status": "clear",
+            "evidence": [
+              {
+                "location": "Table 2",
+                "quote": "gross profits-to-assets [(REVT − COGS)/AT]",
+                "table_ref": null,
+                "interpretation": ""
+              }
+            ]
+          }
+        ],
+        "inputs": [
+          "revenue",
+          "cost_of_goods_sold",
+          "total_assets"
+        ],
+        "constants": {},
+        "output_concept": "gross_profitability",
+        "evidence": [
+          {
+            "location": "Table 2",
+            "quote": "gross profits-to-assets [(REVT − COGS)/AT]",
+            "table_ref": null,
+            "interpretation": ""
+          }
+        ]
+      },
+      "estimation": null
+    },
+    "data": {
+      "signal_frequency": {
+        "value": "year",
+        "evidence": [
+          {
+            "location": "Footnote 3",
+            "quote": "I focus on gross profitability measured using annual data.",
+            "table_ref": null,
+            "interpretation": ""
+          }
+        ],
+        "status": "clear",
+        "unsupported_value": null
+      },
+      "return_frequency": {
+        "value": "month",
+        "evidence": [
+          {
+            "location": "Table 2",
+            "quote": "monthly value-weighted average excess returns",
+            "table_ref": null,
+            "interpretation": ""
+          }
+        ],
+        "status": "clear",
+        "unsupported_value": null
+      },
+      "sources": [
+        {
+          "value": "Compustat",
+          "evidence": [
+            {
+              "location": "Section 2.1",
+              "quote": "I use Compustat data starting in 1962",
+              "table_ref": null,
+              "interpretation": ""
+            }
+          ],
+          "status": "clear",
+          "unsupported_value": null
+        }
+      ],
+      "fields": [
+        {
+          "concept_id": "revenue",
+          "name_in_paper": "REVT",
+          "description": "Total revenue used to calculate gross profits.",
+          "paper_source_hint": "Compustat data item REVT",
+          "roles": [
+            "signal_input"
+          ],
+          "evidence": [
+            {
+              "location": "Footnote 2",
+              "quote": "Gross profits is also defined as total revenue (REVT) minus cost of goods sold (COGS)",
+              "table_ref": null,
+              "interpretation": ""
+            }
+          ],
+          "source_table": {
+            "value": "comp_funda",
+            "evidence": [
+              {
+                "location": "Footnote 2",
+                "quote": "total revenue (REVT)",
+                "table_ref": null,
+                "interpretation": ""
+              }
+            ],
+            "status": "clear",
+            "unsupported_value": null
+          },
+          "source_column": {
+            "value": "revt",
+            "evidence": [
+              {
+                "location": "Footnote 2",
+                "quote": "total revenue (REVT)",
+                "table_ref": null,
+                "interpretation": ""
+              }
+            ],
+            "status": "clear",
+            "unsupported_value": null
+          }
+        },
+        {
+          "concept_id": "cost_of_goods_sold",
+          "name_in_paper": "COGS",
+          "description": "Cost of goods sold subtracted from revenue to calculate gross profits.",
+          "paper_source_hint": "Compustat data item COGS",
+          "roles": [
+            "signal_input"
+          ],
+          "evidence": [
+            {
+              "location": "Footnote 2",
+              "quote": "Gross profits is also defined as total revenue (REVT) minus cost of goods sold (COGS)",
+              "table_ref": null,
+              "interpretation": ""
+            }
+          ],
+          "source_table": {
+            "value": "comp_funda",
+            "evidence": [
+              {
+                "location": "Footnote 2",
+                "quote": "cost of goods sold (COGS)",
+                "table_ref": null,
+                "interpretation": ""
+              }
+            ],
+            "status": "clear",
+            "unsupported_value": null
+          },
+          "source_column": {
+            "value": "cogs",
+            "evidence": [
+              {
+                "location": "Footnote 2",
+                "quote": "cost of goods sold (COGS)",
+                "table_ref": null,
+                "interpretation": ""
+              }
+            ],
+            "status": "clear",
+            "unsupported_value": null
+          }
+        },
+        {
+          "concept_id": "total_assets",
+          "name_in_paper": "AT",
+          "description": "Total assets used to scale gross profits.",
+          "paper_source_hint": "Compustat data item AT",
+          "roles": [
+            "signal_input"
+          ],
+          "evidence": [
+            {
+              "location": "Table 2",
+              "quote": "gross profits-to-assets [(REVT − COGS)/AT]",
+              "table_ref": null,
+              "interpretation": ""
+            }
+          ],
+          "source_table": {
+            "value": "comp_funda",
+            "evidence": [
+              {
+                "location": "Table 2",
+                "quote": "gross profits-to-assets [(REVT − COGS)/AT]",
+                "table_ref": null,
+                "interpretation": ""
+              }
+            ],
+            "status": "clear",
+            "unsupported_value": null
+          },
+          "source_column": {
+            "value": "at",
+            "evidence": [
+              {
+                "location": "Table 2",
+                "quote": "gross profits-to-assets [(REVT − COGS)/AT]",
+                "table_ref": null,
+                "interpretation": ""
+              }
+            ],
+            "status": "clear",
+            "unsupported_value": null
+          }
+        },
+        {
+          "concept_id": "sic_code",
+          "name_in_paper": "one-digit SIC code",
+          "description": "Standard Industrial Classification code used to exclude financial firms.",
+          "paper_source_hint": "one-digit SIC code",
+          "roles": [
+            "universe_filter"
+          ],
+          "evidence": [
+            {
+              "location": "Table 2",
+              "quote": "The sample excludes financial firms (those with one-digit SIC codes of six)",
+              "table_ref": null,
+              "interpretation": ""
+            }
+          ],
+          "source_table": {
+            "value": "crsp_msf",
+            "evidence": [
+              {
+                "location": "Table 2",
+                "quote": "one-digit SIC codes",
+                "table_ref": null,
+                "interpretation": ""
+              }
+            ],
+            "status": "inferred",
+            "unsupported_value": null
+          },
+          "source_column": {
+            "value": "siccd",
+            "evidence": [
+              {
+                "location": "Table 2",
+                "quote": "one-digit SIC codes",
+                "table_ref": null,
+                "interpretation": ""
+              }
+            ],
+            "status": "inferred",
+            "unsupported_value": null
+          }
+        },
+        {
+          "concept_id": "market_equity",
+          "name_in_paper": "market capitalization",
+          "description": "Market capitalization used for value weighting.",
+          "paper_source_hint": "market capitalization",
+          "roles": [
+            "weighting_input"
+          ],
+          "evidence": [
+            {
+              "location": "Table 2",
+              "quote": "The table shows the portfolios’ value-weighted average excess returns",
+              "table_ref": null,
+              "interpretation": ""
+            }
+          ],
+          "source_table": {
+            "value": "crsp_msf",
+            "evidence": [
+              {
+                "location": "Table 2",
+                "quote": "market capitalizations (ME)",
+                "table_ref": null,
+                "interpretation": ""
+              }
+            ],
+            "status": "clear",
+            "unsupported_value": null
+          },
+          "source_column": {
+            "value": "me",
+            "evidence": [
+              {
+                "location": "Table 2",
+                "quote": "market capitalizations (ME)",
+                "table_ref": null,
+                "interpretation": ""
+              }
+            ],
+            "status": "clear",
+            "unsupported_value": null
+          }
+        }
+      ],
+      "coverage_notes": [
+        "Compustat data start in 1962; asset-pricing tests cover July 1963 through December 2010."
+      ]
+    },
+    "sample": {
+      "data_coverage": {
+        "start_year": 1962,
+        "end_year": 2010,
+        "start_month": null,
+        "end_month": null,
+        "evidence": [
+          {
+            "location": "Section 2.1",
+            "quote": "I use Compustat data starting in 1962, the year of the American Stock Exchange (Amex) inclusion, and employ accounting data for a given fiscal year starting at the end of June of the following calendar year. Asset pricing tests consequently cover July 1963 through December 2010.",
+            "table_ref": null,
+            "interpretation": "The annual Compustat inputs support the reported asset-pricing tests through 2010."
+          }
+        ],
+        "status": "clear"
+      },
+      "formation": {
+        "start_year": 1963,
+        "end_year": 2010,
+        "start_month": 6,
+        "end_month": 6,
+        "evidence": [
+          {
+            "location": "Section 2.2",
+            "quote": "are rebalanced each year at the end of June.",
+            "table_ref": null,
+            "interpretation": "Annual June formations produce the July 1963–December 2010 return series."
+          }
+        ],
+        "status": "inferred"
+      },
+      "reported_returns": {
+        "start_year": 1963,
+        "end_year": 2010,
+        "start_month": 7,
+        "end_month": 12,
+        "evidence": [
+          {
+            "location": "Table 2",
+            "quote": "The sample excludes financial firms (those with one-digit SIC codes of six) and covers July 1963 to December 2010.",
+            "table_ref": null,
+            "interpretation": ""
+          }
+        ],
+        "status": "clear"
+      }
+    },
+    "timing": {
+      "formation_rule": {
+        "value": "Use accounting data for a fiscal year beginning at the end of June of the following calendar year.",
+        "evidence": [
+          {
+            "location": "Section 2.1",
+            "quote": "employ accounting data for a given fiscal year starting at the end of June of the following calendar year.",
+            "table_ref": null,
+            "interpretation": ""
+          }
+        ],
+        "status": "clear",
+        "unsupported_value": null
+      },
+      "formation_month": {
+        "value": 6,
+        "evidence": [
+          {
+            "location": "Section 2.2",
+            "quote": "are rebalanced each year at the end of June.",
+            "table_ref": null,
+            "interpretation": ""
+          }
+        ],
+        "status": "clear",
+        "unsupported_value": null
+      },
+      "rebalance_frequency": {
+        "value": "year",
+        "evidence": [
+          {
+            "location": "Section 2.2",
+            "quote": "are rebalanced each year at the end of June.",
+            "table_ref": null,
+            "interpretation": ""
+          }
+        ],
+        "status": "clear",
+        "unsupported_value": null
+      },
+      "holding_period": {
+        "value": 12,
+        "evidence": [
+          {
+            "location": "Section 2.2",
+            "quote": "are rebalanced each year at the end of June.",
+            "table_ref": null,
+            "interpretation": "Annual rebalancing implies a 12-month holding period."
+          }
+        ],
+        "status": "inferred",
+        "unsupported_value": null
+      },
+      "return_window": null,
+      "data_availability": {
+        "lag_value": null,
+        "lag_unit": "year",
+        "anchor": "fiscal_period_end",
+        "basis": "fixed_calendar_lag",
+        "evidence": [
+          {
+            "location": "Section 2.1",
+            "quote": "employ accounting data for a given fiscal year starting at the end of June of the following calendar year.",
+            "table_ref": null,
+            "interpretation": ""
+          }
+        ]
+      }
+    },
+    "universe": {
+      "description": {
+        "value": "US stocks excluding financial firms.",
+        "evidence": [
+          {
+            "location": "Table 2",
+            "quote": "The sample excludes financial firms (those with one-digit SIC codes of six)",
+            "table_ref": null,
+            "interpretation": ""
+          }
+        ],
+        "status": "clear",
+        "unsupported_value": null
+      },
+      "filters": [
+        {
+          "concept_id": "sic_code",
+          "op": "neq",
+          "value": 6,
+          "evidence": [
+            {
+              "location": "Table 2",
+              "quote": "The sample excludes financial firms (those with one-digit SIC codes of six)",
+              "table_ref": null,
+              "interpretation": ""
+            }
+          ],
+          "derivation": null,
+          "accepted_unapplied": false,
+          "unapplied_reason": ""
+        }
+      ]
+    },
+    "portfolio": {
+      "construction_type": {
+        "value": "characteristic_sort",
+        "evidence": [
+          {
+            "location": "Section 2.2",
+            "quote": "considering the performance of value-weighted portfolios sorted on profitability",
+            "table_ref": null,
+            "interpretation": ""
+          }
+        ],
+        "status": "clear",
+        "unsupported_value": null
+      },
+      "sorts": [
+        {
+          "sort_id": "gross_profitability",
+          "concept_id": "gross_profitability",
+          "role": "target",
+          "order": 0,
+          "mode": {
+            "value": "independent",
+            "evidence": [
+              {
+                "location": "Section 2.2",
+                "quote": "Table 2 shows results of univariate sorts on gross profits-to-assets",
+                "table_ref": null,
+                "interpretation": ""
+              },
+              {
+                "location": "",
+                "quote": "",
+                "table_ref": null,
+                "interpretation": "human correction"
+              }
+            ],
+            "status": "clear",
+            "unsupported_value": null
+          },
+          "group_type": {
+            "value": "quantile",
+            "evidence": [
+              {
+                "location": "Section 2.2",
+                "quote": "Portfolios are constructed using a quintile sort",
+                "table_ref": null,
+                "interpretation": ""
+              }
+            ],
+            "status": "clear",
+            "unsupported_value": null
+          },
+          "group_count": 5,
+          "breakpoints": {
+            "basis": {
+              "value": "nyse",
+              "evidence": [
+                {
+                  "location": "Section 2.2",
+                  "quote": "based on New York Stock Exchange (NYSE) break points",
+                  "table_ref": null,
+                  "interpretation": ""
+                }
+              ],
+              "status": "clear",
+              "unsupported_value": null
+            },
+            "values": []
+          },
+          "condition_on_sort_id": null,
+          "evidence": [
+            {
+              "location": "Section 2.2",
+              "quote": "Table 2 shows results of univariate sorts on gross profits-to-assets",
+              "table_ref": null,
+              "interpretation": ""
+            }
+          ]
+        }
+      ],
+      "legs": [
+        {
+          "leg_id": "high_profitability",
+          "side": "long",
+          "selector": {
+            "gross_profitability": 4
+          },
+          "evidence": [
+            {
+              "location": "Table 2",
+              "quote": "High–low",
+              "table_ref": {
+                "table": "Table 2",
+                "row": "High–low",
+                "column": "Portfolio"
+              },
+              "interpretation": "The strategy is long the high gross-profitability quintile."
+            }
+          ]
+        },
+        {
+          "leg_id": "low_profitability",
+          "side": "short",
+          "selector": {
+            "gross_profitability": 0
+          },
+          "evidence": [
+            {
+              "location": "Table 2",
+              "quote": "High–low",
+              "table_ref": {
+                "table": "Table 2",
+                "row": "High–low",
+                "column": "Portfolio"
+              },
+              "interpretation": "The strategy is short the low gross-profitability quintile."
+            }
+          ]
+        }
+      ],
+      "weighting": {
+        "value": "vw",
+        "evidence": [
+          {
+            "location": "Section 2.2",
+            "quote": "value-weighted portfolios sorted on profitability",
+            "table_ref": null,
+            "interpretation": ""
+          }
+        ],
+        "status": "clear",
+        "unsupported_value": null
+      },
+      "return_combination": {
+        "value": "extreme_group_spread",
+        "evidence": [
+          {
+            "location": "Section 2.2",
+            "quote": "the most profitable firms earning 0.31% per month higher average returns than the least profitable firms",
+            "table_ref": null,
+            "interpretation": ""
+          }
+        ],
+        "status": "clear",
+        "unsupported_value": null
+      },
+      "missing_policies": [],
+      "transforms": []
+    },
+    "reported_results": {
+      "primary_metric_id": "gp_high_low_excess_return",
+      "metrics": [
+        {
+          "metric_id": "gp_high_low_excess_return",
+          "label": "Gross profitability high-minus-low average excess return",
+          "estimand": "spread",
+          "adjustment_model": "raw",
+          "weighting": "vw",
+          "estimate": 0.31,
+          "unit": "percent",
+          "frequency": "month",
+          "statistic": {
+            "kind": "t_stat",
+            "value": 2.49
+          },
+          "sample_period": {
+            "start_year": 1963,
+            "end_year": 2010,
+            "start_month": 7,
+            "end_month": 12,
+            "evidence": [
+              {
+                "location": "Table 2",
+                "quote": "The sample excludes financial firms (those with one-digit SIC codes of six) and covers July 1963 to December 2010.",
+                "table_ref": null,
+                "interpretation": ""
+              }
+            ],
+            "status": "clear"
+          },
+          "evidence": [
+            {
+              "location": "Table 2",
+              "quote": "High–low 0.31",
+              "table_ref": {
+                "table": "Table 2",
+                "row": "High–low",
+                "column": "re"
+              },
+              "interpretation": ""
+            }
+          ],
+          "status": "table_only"
+        },
+        {
+          "metric_id": "gp_high_low_ff3_alpha",
+          "label": "Gross profitability high-minus-low Fama-French three-factor alpha",
+          "estimand": "alpha",
+          "adjustment_model": "ff3",
+          "weighting": "vw",
+          "estimate": 0.52,
+          "unit": "percent",
+          "frequency": "month",
+          "statistic": {
+            "kind": "t_stat",
+            "value": 4.49
+          },
+          "sample_period": {
+            "start_year": 1963,
+            "end_year": 2010,
+            "start_month": 7,
+            "end_month": 12,
+            "evidence": [
+              {
+                "location": "Table 2",
+                "quote": "The sample excludes financial firms (those with one-digit SIC codes of six) and covers July 1963 to December 2010.",
+                "table_ref": null,
+                "interpretation": ""
+              }
+            ],
+            "status": "clear"
+          },
+          "evidence": [
+            {
+              "location": "Section 2.2",
+              "quote": "the abnormal returns of the profitable minus unprofitable return spread relative to the Fama and French three-factor model is 0.52% per month, with a test-statistic of 4.49.",
+              "table_ref": null,
+              "interpretation": ""
+            }
+          ],
+          "status": "clear"
+        }
+      ]
+    },
+    "notes": "This MethodSpec targets the annual-data, US univariate gross-profitability strategy reported in Table 2, rather than the paper's international, conditional, industry-adjusted, or high-frequency variants."
+  },
+  "review": {
+    "schema_version": "methodreview.v2",
+    "factor_id": "bed8718637a20b7b",
+    "capability_version": "engine_capability.v1",
+    "findings": [
+      {
+        "field_path": "timing.holding_period",
+        "kind": "ambiguous",
+        "reason": "evidence_status=inferred",
+        "empirical_impact": "high",
+        "disposition": "needs_human_confirmation",
+        "paper_value": 12,
+        "evidence": [
+          {
+            "location": "Section 2.2",
+            "quote": "are rebalanced each year at the end of June.",
+            "table_ref": null,
+            "interpretation": "Annual rebalancing implies a 12-month holding period."
+          }
+        ]
+      },
+      {
+        "field_path": "data.fields[3].source_table",
+        "kind": "ambiguous",
+        "reason": "evidence_status=inferred",
+        "empirical_impact": "high",
+        "disposition": "needs_human_confirmation",
+        "paper_value": "crsp_msf",
+        "evidence": [
+          {
+            "location": "Table 2",
+            "quote": "one-digit SIC codes",
+            "table_ref": null,
+            "interpretation": ""
+          }
+        ]
+      },
+      {
+        "field_path": "data.fields[3].source_column",
+        "kind": "ambiguous",
+        "reason": "evidence_status=inferred",
+        "empirical_impact": "high",
+        "disposition": "needs_human_confirmation",
+        "paper_value": "siccd",
+        "evidence": [
+          {
+            "location": "Table 2",
+            "quote": "one-digit SIC codes",
+            "table_ref": null,
+            "interpretation": ""
+          }
+        ]
+      }
+    ],
+    "all_high_impact_fields": [
+      {
+        "field_path": "signal.direction",
+        "kind": "ambiguous",
+        "reason": "evidence_status=clear",
+        "empirical_impact": "high",
+        "disposition": "auto_approve",
+        "paper_value": "positive",
+        "evidence": [
+          {
+            "location": "Section 2.2",
+            "quote": "the gross profits-to-assets portfolios’ average excess returns are generally increasing with profitability",
+            "table_ref": null,
+            "interpretation": ""
+          }
+        ]
+      },
+      {
+        "field_path": "timing.formation_rule",
+        "kind": "ambiguous",
+        "reason": "evidence_status=clear",
+        "empirical_impact": "high",
+        "disposition": "auto_approve",
+        "paper_value": "Use accounting data for a fiscal year beginning at the end of June of the following calendar year.",
+        "evidence": [
+          {
+            "location": "Section 2.1",
+            "quote": "employ accounting data for a given fiscal year starting at the end of June of the following calendar year.",
+            "table_ref": null,
+            "interpretation": ""
+          }
+        ]
+      },
+      {
+        "field_path": "timing.rebalance_frequency",
+        "kind": "ambiguous",
+        "reason": "evidence_status=clear",
+        "empirical_impact": "high",
+        "disposition": "auto_approve",
+        "paper_value": "year",
+        "evidence": [
+          {
+            "location": "Section 2.2",
+            "quote": "are rebalanced each year at the end of June.",
+            "table_ref": null,
+            "interpretation": ""
+          }
+        ]
+      },
+      {
+        "field_path": "timing.holding_period",
+        "kind": "ambiguous",
+        "reason": "evidence_status=inferred",
+        "empirical_impact": "high",
+        "disposition": "needs_human_confirmation",
+        "paper_value": 12,
+        "evidence": [
+          {
+            "location": "Section 2.2",
+            "quote": "are rebalanced each year at the end of June.",
+            "table_ref": null,
+            "interpretation": "Annual rebalancing implies a 12-month holding period."
+          }
+        ]
+      },
+      {
+        "field_path": "portfolio.weighting",
+        "kind": "ambiguous",
+        "reason": "evidence_status=clear",
+        "empirical_impact": "high",
+        "disposition": "auto_approve",
+        "paper_value": "vw",
+        "evidence": [
+          {
+            "location": "Section 2.2",
+            "quote": "value-weighted portfolios sorted on profitability",
+            "table_ref": null,
+            "interpretation": ""
+          }
+        ]
+      },
+      {
+        "field_path": "portfolio.return_combination",
+        "kind": "ambiguous",
+        "reason": "evidence_status=clear",
+        "empirical_impact": "high",
+        "disposition": "auto_approve",
+        "paper_value": "extreme_group_spread",
+        "evidence": [
+          {
+            "location": "Section 2.2",
+            "quote": "the most profitable firms earning 0.31% per month higher average returns than the least profitable firms",
+            "table_ref": null,
+            "interpretation": ""
+          }
+        ]
+      },
+      {
+        "field_path": "portfolio.construction_type",
+        "kind": "ambiguous",
+        "reason": "evidence_status=clear",
+        "empirical_impact": "high",
+        "disposition": "auto_approve",
+        "paper_value": "characteristic_sort",
+        "evidence": [
+          {
+            "location": "Section 2.2",
+            "quote": "considering the performance of value-weighted portfolios sorted on profitability",
+            "table_ref": null,
+            "interpretation": ""
+          }
+        ]
+      },
+      {
+        "field_path": "universe.description",
+        "kind": "ambiguous",
+        "reason": "evidence_status=clear",
+        "empirical_impact": "high",
+        "disposition": "auto_approve",
+        "paper_value": "US stocks excluding financial firms.",
+        "evidence": [
+          {
+            "location": "Table 2",
+            "quote": "The sample excludes financial firms (those with one-digit SIC codes of six)",
+            "table_ref": null,
+            "interpretation": ""
+          }
+        ]
+      },
+      {
+        "field_path": "portfolio.sorts[0].breakpoints.basis",
+        "kind": "ambiguous",
+        "reason": "evidence_status=clear",
+        "empirical_impact": "high",
+        "disposition": "auto_approve",
+        "paper_value": "nyse",
+        "evidence": [
+          {
+            "location": "Section 2.2",
+            "quote": "based on New York Stock Exchange (NYSE) break points",
+            "table_ref": null,
+            "interpretation": ""
+          }
+        ]
+      },
+      {
+        "field_path": "portfolio.sorts[0].group_type",
+        "kind": "ambiguous",
+        "reason": "evidence_status=clear",
+        "empirical_impact": "high",
+        "disposition": "auto_approve",
+        "paper_value": "quantile",
+        "evidence": [
+          {
+            "location": "Section 2.2",
+            "quote": "Portfolios are constructed using a quintile sort",
+            "table_ref": null,
+            "interpretation": ""
+          }
+        ]
+      },
+      {
+        "field_path": "portfolio.sorts[0].mode",
+        "kind": "ambiguous",
+        "reason": "evidence_status=clear",
+        "empirical_impact": "high",
+        "disposition": "auto_approve",
+        "paper_value": "independent",
+        "evidence": [
+          {
+            "location": "Section 2.2",
+            "quote": "Table 2 shows results of univariate sorts on gross profits-to-assets",
+            "table_ref": null,
+            "interpretation": ""
+          },
+          {
+            "location": "",
+            "quote": "",
+            "table_ref": null,
+            "interpretation": "human correction"
+          }
+        ]
+      },
+      {
+        "field_path": "data.fields[0].source_table",
+        "kind": "ambiguous",
+        "reason": "evidence_status=clear",
+        "empirical_impact": "high",
+        "disposition": "auto_approve",
+        "paper_value": "comp_funda",
+        "evidence": [
+          {
+            "location": "Footnote 2",
+            "quote": "total revenue (REVT)",
+            "table_ref": null,
+            "interpretation": ""
+          }
+        ]
+      },
+      {
+        "field_path": "data.fields[0].source_column",
+        "kind": "ambiguous",
+        "reason": "evidence_status=clear",
+        "empirical_impact": "high",
+        "disposition": "auto_approve",
+        "paper_value": "revt",
+        "evidence": [
+          {
+            "location": "Footnote 2",
+            "quote": "total revenue (REVT)",
+            "table_ref": null,
+            "interpretation": ""
+          }
+        ]
+      },
+      {
+        "field_path": "data.fields[1].source_table",
+        "kind": "ambiguous",
+        "reason": "evidence_status=clear",
+        "empirical_impact": "high",
+        "disposition": "auto_approve",
+        "paper_value": "comp_funda",
+        "evidence": [
+          {
+            "location": "Footnote 2",
+            "quote": "cost of goods sold (COGS)",
+            "table_ref": null,
+            "interpretation": ""
+          }
+        ]
+      },
+      {
+        "field_path": "data.fields[1].source_column",
+        "kind": "ambiguous",
+        "reason": "evidence_status=clear",
+        "empirical_impact": "high",
+        "disposition": "auto_approve",
+        "paper_value": "cogs",
+        "evidence": [
+          {
+            "location": "Footnote 2",
+            "quote": "cost of goods sold (COGS)",
+            "table_ref": null,
+            "interpretation": ""
+          }
+        ]
+      },
+      {
+        "field_path": "data.fields[2].source_table",
+        "kind": "ambiguous",
+        "reason": "evidence_status=clear",
+        "empirical_impact": "high",
+        "disposition": "auto_approve",
+        "paper_value": "comp_funda",
+        "evidence": [
+          {
+            "location": "Table 2",
+            "quote": "gross profits-to-assets [(REVT − COGS)/AT]",
+            "table_ref": null,
+            "interpretation": ""
+          }
+        ]
+      },
+      {
+        "field_path": "data.fields[2].source_column",
+        "kind": "ambiguous",
+        "reason": "evidence_status=clear",
+        "empirical_impact": "high",
+        "disposition": "auto_approve",
+        "paper_value": "at",
+        "evidence": [
+          {
+            "location": "Table 2",
+            "quote": "gross profits-to-assets [(REVT − COGS)/AT]",
+            "table_ref": null,
+            "interpretation": ""
+          }
+        ]
+      },
+      {
+        "field_path": "data.fields[3].source_table",
+        "kind": "ambiguous",
+        "reason": "evidence_status=inferred",
+        "empirical_impact": "high",
+        "disposition": "needs_human_confirmation",
+        "paper_value": "crsp_msf",
+        "evidence": [
+          {
+            "location": "Table 2",
+            "quote": "one-digit SIC codes",
+            "table_ref": null,
+            "interpretation": ""
+          }
+        ]
+      },
+      {
+        "field_path": "data.fields[3].source_column",
+        "kind": "ambiguous",
+        "reason": "evidence_status=inferred",
+        "empirical_impact": "high",
+        "disposition": "needs_human_confirmation",
+        "paper_value": "siccd",
+        "evidence": [
+          {
+            "location": "Table 2",
+            "quote": "one-digit SIC codes",
+            "table_ref": null,
+            "interpretation": ""
+          }
+        ]
+      },
+      {
+        "field_path": "data.fields[4].source_table",
+        "kind": "ambiguous",
+        "reason": "evidence_status=clear",
+        "empirical_impact": "high",
+        "disposition": "auto_approve",
+        "paper_value": "crsp_msf",
+        "evidence": [
+          {
+            "location": "Table 2",
+            "quote": "market capitalizations (ME)",
+            "table_ref": null,
+            "interpretation": ""
+          }
+        ]
+      },
+      {
+        "field_path": "data.fields[4].source_column",
+        "kind": "ambiguous",
+        "reason": "evidence_status=clear",
+        "empirical_impact": "high",
+        "disposition": "auto_approve",
+        "paper_value": "me",
+        "evidence": [
+          {
+            "location": "Table 2",
+            "quote": "market capitalizations (ME)",
+            "table_ref": null,
+            "interpretation": ""
+          }
+        ]
+      }
+    ],
+    "status_overrides": {},
+    "reextraction_attempts": 0
+  },
+  "resolution": {
+    "schema_version": "resolution.v2",
+    "factor_id": "bed8718637a20b7b",
+    "concept_mapping": {
+      "revenue": {
+        "source": "comp_funda",
+        "column": "revt"
+      },
+      "cost_of_goods_sold": {
+        "source": "comp_funda",
+        "column": "cogs"
+      },
+      "total_assets": {
+        "source": "comp_funda",
+        "column": "at"
+      },
+      "sic_code": {
+        "source": "crsp_msf",
+        "column": "siccd"
+      },
+      "market_equity": {
+        "source": "crsp_msf",
+        "column": "me"
+      }
+    },
+    "returns_source": "us_equity_crsp",
+    "cz_acronym": null,
+    "llm_matched_concepts": [],
+    "entries": [],
+    "approved_substitutions": []
+  }
+}

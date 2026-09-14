@@ -1,0 +1,919 @@
+{
+  "schema_version": "methodreview.v2",
+  "factor_id": "0b6e2414f487bf42",
+  "capability_version": "engine_capability.v1",
+  "findings": [
+    {
+      "field_path": "portfolio.sorts[0].breakpoints.basis",
+      "kind": "ambiguous",
+      "reason": "evidence_status=inferred",
+      "empirical_impact": "high",
+      "disposition": "needs_human_confirmation",
+      "paper_value": "full_sample",
+      "evidence": [
+        {
+          "location": "Table 10",
+          "quote": "We rank observations annually on each accrual component and use the ranks to group observations into ten equal-sized portfolios (deciles).",
+          "table_ref": null,
+          "interpretation": "The paper does not state a restricted breakpoint population."
+        }
+      ]
+    },
+    {
+      "field_path": "data.fields[0].source_table",
+      "kind": "ambiguous",
+      "reason": "evidence_status=inferred",
+      "empirical_impact": "high",
+      "disposition": "needs_human_confirmation",
+      "paper_value": "comp_funda",
+      "evidence": [
+        {
+          "location": "Data catalog",
+          "quote": "",
+          "table_ref": null,
+          "interpretation": "Catalog column ACT is Current Assets Total."
+        }
+      ]
+    },
+    {
+      "field_path": "data.fields[0].source_column",
+      "kind": "ambiguous",
+      "reason": "evidence_status=inferred",
+      "empirical_impact": "high",
+      "disposition": "needs_human_confirmation",
+      "paper_value": "act",
+      "evidence": [
+        {
+          "location": "Data catalog",
+          "quote": "",
+          "table_ref": null,
+          "interpretation": "Catalog column ACT is Current Assets Total."
+        }
+      ]
+    },
+    {
+      "field_path": "data.fields[1].source_table",
+      "kind": "ambiguous",
+      "reason": "evidence_status=inferred",
+      "empirical_impact": "high",
+      "disposition": "needs_human_confirmation",
+      "paper_value": "comp_funda",
+      "evidence": [
+        {
+          "location": "Data catalog",
+          "quote": "",
+          "table_ref": null,
+          "interpretation": "Catalog column CHE is Cash and Short-Term Investments."
+        }
+      ]
+    },
+    {
+      "field_path": "data.fields[1].source_column",
+      "kind": "ambiguous",
+      "reason": "evidence_status=inferred",
+      "empirical_impact": "high",
+      "disposition": "needs_human_confirmation",
+      "paper_value": "che",
+      "evidence": [
+        {
+          "location": "Data catalog",
+          "quote": "",
+          "table_ref": null,
+          "interpretation": "Catalog column CHE is Cash and Short-Term Investments."
+        }
+      ]
+    },
+    {
+      "field_path": "data.fields[2].source_table",
+      "kind": "ambiguous",
+      "reason": "evidence_status=inferred",
+      "empirical_impact": "high",
+      "disposition": "needs_human_confirmation",
+      "paper_value": "comp_funda",
+      "evidence": [
+        {
+          "location": "Data catalog",
+          "quote": "",
+          "table_ref": null,
+          "interpretation": "Catalog column LCT is Current Liabilities Total."
+        }
+      ]
+    },
+    {
+      "field_path": "data.fields[2].source_column",
+      "kind": "ambiguous",
+      "reason": "evidence_status=inferred",
+      "empirical_impact": "high",
+      "disposition": "needs_human_confirmation",
+      "paper_value": "lct",
+      "evidence": [
+        {
+          "location": "Data catalog",
+          "quote": "",
+          "table_ref": null,
+          "interpretation": "Catalog column LCT is Current Liabilities Total."
+        }
+      ]
+    },
+    {
+      "field_path": "data.fields[3].source_table",
+      "kind": "ambiguous",
+      "reason": "evidence_status=inferred",
+      "empirical_impact": "high",
+      "disposition": "needs_human_confirmation",
+      "paper_value": "comp_funda",
+      "evidence": [
+        {
+          "location": "Data catalog",
+          "quote": "",
+          "table_ref": null,
+          "interpretation": "Catalog column DLC is Debt in Current Liabilities."
+        }
+      ]
+    },
+    {
+      "field_path": "data.fields[3].source_column",
+      "kind": "ambiguous",
+      "reason": "evidence_status=inferred",
+      "empirical_impact": "high",
+      "disposition": "needs_human_confirmation",
+      "paper_value": "dlc",
+      "evidence": [
+        {
+          "location": "Data catalog",
+          "quote": "",
+          "table_ref": null,
+          "interpretation": "Catalog column DLC is Debt in Current Liabilities."
+        }
+      ]
+    },
+    {
+      "field_path": "data.fields[4].source_table",
+      "kind": "ambiguous",
+      "reason": "evidence_status=inferred",
+      "empirical_impact": "high",
+      "disposition": "needs_human_confirmation",
+      "paper_value": "comp_funda",
+      "evidence": [
+        {
+          "location": "Data catalog",
+          "quote": "",
+          "table_ref": null,
+          "interpretation": "Catalog column AT is Total Assets."
+        }
+      ]
+    },
+    {
+      "field_path": "data.fields[4].source_column",
+      "kind": "ambiguous",
+      "reason": "evidence_status=inferred",
+      "empirical_impact": "high",
+      "disposition": "needs_human_confirmation",
+      "paper_value": "at",
+      "evidence": [
+        {
+          "location": "Data catalog",
+          "quote": "",
+          "table_ref": null,
+          "interpretation": "Catalog column AT is Total Assets."
+        }
+      ]
+    },
+    {
+      "field_path": "data.fields[5].source_table",
+      "kind": "unsupported",
+      "reason": "paper's stated method ('Compustat annual Item #32, Investments and Advances') is not in the engine's menu; the backtest will use a documented default unless corrected (see resolved config's defaults_applied).",
+      "empirical_impact": "high",
+      "disposition": "needs_human_confirmation",
+      "paper_value": "Compustat annual Item #32, Investments and Advances",
+      "evidence": [
+        {
+          "location": "Data catalog",
+          "quote": "",
+          "table_ref": null,
+          "interpretation": "No registered annual Compustat column matches Item #32."
+        }
+      ]
+    },
+    {
+      "field_path": "data.fields[5].source_column",
+      "kind": "ambiguous",
+      "reason": "evidence_status=unspecified",
+      "empirical_impact": "high",
+      "disposition": "needs_human_confirmation",
+      "paper_value": "",
+      "evidence": [
+        {
+          "location": "Data catalog",
+          "quote": "",
+          "table_ref": null,
+          "interpretation": "No matching registered column."
+        }
+      ]
+    },
+    {
+      "field_path": "data.fields[6].source_table",
+      "kind": "unsupported",
+      "reason": "paper's stated method ('Compustat annual Item #181, Total Liabilities') is not in the engine's menu; the backtest will use a documented default unless corrected (see resolved config's defaults_applied).",
+      "empirical_impact": "high",
+      "disposition": "needs_human_confirmation",
+      "paper_value": "Compustat annual Item #181, Total Liabilities",
+      "evidence": [
+        {
+          "location": "Data catalog",
+          "quote": "",
+          "table_ref": null,
+          "interpretation": "No registered annual Compustat column matches Item #181."
+        }
+      ]
+    },
+    {
+      "field_path": "data.fields[6].source_column",
+      "kind": "ambiguous",
+      "reason": "evidence_status=unspecified",
+      "empirical_impact": "high",
+      "disposition": "needs_human_confirmation",
+      "paper_value": "",
+      "evidence": [
+        {
+          "location": "Data catalog",
+          "quote": "",
+          "table_ref": null,
+          "interpretation": "No matching registered column."
+        }
+      ]
+    },
+    {
+      "field_path": "data.fields[7].source_table",
+      "kind": "ambiguous",
+      "reason": "evidence_status=inferred",
+      "empirical_impact": "high",
+      "disposition": "needs_human_confirmation",
+      "paper_value": "comp_funda",
+      "evidence": [
+        {
+          "location": "Data catalog",
+          "quote": "",
+          "table_ref": null,
+          "interpretation": "Catalog column DLTT is Long-Term Debt Total."
+        }
+      ]
+    },
+    {
+      "field_path": "data.fields[7].source_column",
+      "kind": "ambiguous",
+      "reason": "evidence_status=inferred",
+      "empirical_impact": "high",
+      "disposition": "needs_human_confirmation",
+      "paper_value": "dltt",
+      "evidence": [
+        {
+          "location": "Data catalog",
+          "quote": "",
+          "table_ref": null,
+          "interpretation": "Catalog column DLTT is Long-Term Debt Total."
+        }
+      ]
+    },
+    {
+      "field_path": "data.fields[8].source_table",
+      "kind": "unsupported",
+      "reason": "paper's stated method ('Compustat annual Item #193, Short Term Investments') is not in the engine's menu; the backtest will use a documented default unless corrected (see resolved config's defaults_applied).",
+      "empirical_impact": "high",
+      "disposition": "needs_human_confirmation",
+      "paper_value": "Compustat annual Item #193, Short Term Investments",
+      "evidence": [
+        {
+          "location": "Data catalog",
+          "quote": "",
+          "table_ref": null,
+          "interpretation": "No registered annual Compustat column matches Item #193."
+        }
+      ]
+    },
+    {
+      "field_path": "data.fields[8].source_column",
+      "kind": "ambiguous",
+      "reason": "evidence_status=unspecified",
+      "empirical_impact": "high",
+      "disposition": "needs_human_confirmation",
+      "paper_value": "",
+      "evidence": [
+        {
+          "location": "Data catalog",
+          "quote": "",
+          "table_ref": null,
+          "interpretation": "No matching registered column."
+        }
+      ]
+    },
+    {
+      "field_path": "data.fields[9].source_table",
+      "kind": "ambiguous",
+      "reason": "evidence_status=inferred",
+      "empirical_impact": "high",
+      "disposition": "needs_human_confirmation",
+      "paper_value": "comp_funda",
+      "evidence": [
+        {
+          "location": "Data catalog",
+          "quote": "",
+          "table_ref": null,
+          "interpretation": "Catalog column PSTK is Preferred/Preference Stock."
+        }
+      ]
+    },
+    {
+      "field_path": "data.fields[9].source_column",
+      "kind": "ambiguous",
+      "reason": "evidence_status=inferred",
+      "empirical_impact": "high",
+      "disposition": "needs_human_confirmation",
+      "paper_value": "pstk",
+      "evidence": [
+        {
+          "location": "Data catalog",
+          "quote": "",
+          "table_ref": null,
+          "interpretation": "Catalog column PSTK is Preferred/Preference Stock."
+        }
+      ]
+    },
+    {
+      "field_path": "data.fields[10].source_table",
+      "kind": "ambiguous",
+      "reason": "evidence_status=inferred",
+      "empirical_impact": "high",
+      "disposition": "needs_human_confirmation",
+      "paper_value": "crsp_msf",
+      "evidence": [
+        {
+          "location": "Data catalog",
+          "quote": "",
+          "table_ref": null,
+          "interpretation": "Catalog column SICCD is the 4-digit Standard Industrial Classification code."
+        }
+      ]
+    }
+  ],
+  "all_high_impact_fields": [
+    {
+      "field_path": "signal.direction",
+      "kind": "ambiguous",
+      "reason": "evidence_status=clear",
+      "empirical_impact": "high",
+      "disposition": "auto_approve",
+      "paper_value": "negative",
+      "evidence": [
+        {
+          "location": "Table 10",
+          "quote": "Hedge represents the net return generated by taking a long position in the ‘Low’ portfolio and an equal sized short position in the ‘High’ portfolio.",
+          "table_ref": null,
+          "interpretation": ""
+        }
+      ]
+    },
+    {
+      "field_path": "timing.formation_rule",
+      "kind": "ambiguous",
+      "reason": "evidence_status=clear",
+      "empirical_impact": "high",
+      "disposition": "auto_approve",
+      "paper_value": "Rank firm-year observations annually on total accruals and assign them in equal numbers to decile portfolios; cumulate returns beginning four months after fiscal year-end.",
+      "evidence": [
+        {
+          "location": "Table 10",
+          "quote": "Firm-year observations are ranked annually and assigned in equal numbers to decile portfolios based on the respective accrual component.",
+          "table_ref": null,
+          "interpretation": ""
+        }
+      ]
+    },
+    {
+      "field_path": "timing.rebalance_frequency",
+      "kind": "ambiguous",
+      "reason": "evidence_status=clear",
+      "empirical_impact": "high",
+      "disposition": "auto_approve",
+      "paper_value": "year",
+      "evidence": [
+        {
+          "location": "Table 10",
+          "quote": "Firm-year observations are ranked annually",
+          "table_ref": null,
+          "interpretation": ""
+        }
+      ]
+    },
+    {
+      "field_path": "timing.holding_period",
+      "kind": "ambiguous",
+      "reason": "evidence_status=clear",
+      "empirical_impact": "high",
+      "disposition": "auto_approve",
+      "paper_value": 12,
+      "evidence": [
+        {
+          "location": "Section 3, Data",
+          "quote": "Returns are calculated for a twelve-month period beginning four months after the end of the fiscal year.",
+          "table_ref": null,
+          "interpretation": ""
+        }
+      ]
+    },
+    {
+      "field_path": "portfolio.weighting",
+      "kind": "ambiguous",
+      "reason": "evidence_status=clear",
+      "empirical_impact": "high",
+      "disposition": "auto_approve",
+      "paper_value": "ew",
+      "evidence": [
+        {
+          "location": "Table 10",
+          "quote": "The portfolio returns are equal-weighted mean annual buy-hold size-adjusted return.",
+          "table_ref": null,
+          "interpretation": ""
+        }
+      ]
+    },
+    {
+      "field_path": "portfolio.return_combination",
+      "kind": "ambiguous",
+      "reason": "evidence_status=clear",
+      "empirical_impact": "high",
+      "disposition": "auto_approve",
+      "paper_value": "extreme_group_spread",
+      "evidence": [
+        {
+          "location": "Table 10",
+          "quote": "Hedge represents the net return generated by taking a long position in the ‘Low’ portfolio and an equal sized short position in the ‘High’ portfolio.",
+          "table_ref": null,
+          "interpretation": ""
+        }
+      ]
+    },
+    {
+      "field_path": "portfolio.construction_type",
+      "kind": "ambiguous",
+      "reason": "evidence_status=clear",
+      "empirical_impact": "high",
+      "disposition": "auto_approve",
+      "paper_value": "characteristic_sort",
+      "evidence": [
+        {
+          "location": "Table 10",
+          "quote": "Portfolios are formed based on total accruals and its components.",
+          "table_ref": null,
+          "interpretation": ""
+        }
+      ]
+    },
+    {
+      "field_path": "universe.description",
+      "kind": "ambiguous",
+      "reason": "evidence_status=clear",
+      "empirical_impact": "high",
+      "disposition": "auto_approve",
+      "paper_value": "Firm-years with available Compustat and CRSP data, excluding financial companies with SIC codes from 6000 through 6999 and observations with insufficient Compustat data for primary financial-statement variables.",
+      "evidence": [
+        {
+          "location": "Section 3, Data",
+          "quote": "Our sample period covers all firm-years with available data on Compustat and CRSP for the period 1962-2001. We exclude all firm-year observations with SIC codes in the range 6000-6999 (financial companies) because the demarcation between operating and financing activities is not clear in these firms. We eliminate firm-year observations with insufficient data on Compustat to compute the primary financial statement variables used in our tests.",
+          "table_ref": null,
+          "interpretation": ""
+        }
+      ]
+    },
+    {
+      "field_path": "portfolio.sorts[0].breakpoints.basis",
+      "kind": "ambiguous",
+      "reason": "evidence_status=inferred",
+      "empirical_impact": "high",
+      "disposition": "needs_human_confirmation",
+      "paper_value": "full_sample",
+      "evidence": [
+        {
+          "location": "Table 10",
+          "quote": "We rank observations annually on each accrual component and use the ranks to group observations into ten equal-sized portfolios (deciles).",
+          "table_ref": null,
+          "interpretation": "The paper does not state a restricted breakpoint population."
+        }
+      ]
+    },
+    {
+      "field_path": "portfolio.sorts[0].group_type",
+      "kind": "ambiguous",
+      "reason": "evidence_status=clear",
+      "empirical_impact": "high",
+      "disposition": "auto_approve",
+      "paper_value": "quantile",
+      "evidence": [
+        {
+          "location": "Table 10",
+          "quote": "assigned in equal numbers to decile portfolios",
+          "table_ref": null,
+          "interpretation": ""
+        }
+      ]
+    },
+    {
+      "field_path": "portfolio.sorts[0].mode",
+      "kind": "ambiguous",
+      "reason": "evidence_status=clear",
+      "empirical_impact": "high",
+      "disposition": "auto_approve",
+      "paper_value": "independent",
+      "evidence": [
+        {
+          "location": "Table 10",
+          "quote": "Firm-year observations are ranked annually and assigned in equal numbers to decile portfolios",
+          "table_ref": null,
+          "interpretation": ""
+        }
+      ]
+    },
+    {
+      "field_path": "portfolio.missing_policies[0].action",
+      "kind": "ambiguous",
+      "reason": "evidence_status=clear",
+      "empirical_impact": "high",
+      "disposition": "auto_approve",
+      "paper_value": "drop",
+      "evidence": [
+        {
+          "location": "Section 3, Data, footnote 12",
+          "quote": "If data items 9, 32, 34, 130 or 193 are missing, we set them equal to zero rather than eliminating the observation.",
+          "table_ref": null,
+          "interpretation": ""
+        },
+        {
+          "location": "",
+          "quote": "",
+          "table_ref": null,
+          "interpretation": "human correction"
+        }
+      ]
+    },
+    {
+      "field_path": "data.fields[0].source_table",
+      "kind": "ambiguous",
+      "reason": "evidence_status=inferred",
+      "empirical_impact": "high",
+      "disposition": "needs_human_confirmation",
+      "paper_value": "comp_funda",
+      "evidence": [
+        {
+          "location": "Data catalog",
+          "quote": "",
+          "table_ref": null,
+          "interpretation": "Catalog column ACT is Current Assets Total."
+        }
+      ]
+    },
+    {
+      "field_path": "data.fields[0].source_column",
+      "kind": "ambiguous",
+      "reason": "evidence_status=inferred",
+      "empirical_impact": "high",
+      "disposition": "needs_human_confirmation",
+      "paper_value": "act",
+      "evidence": [
+        {
+          "location": "Data catalog",
+          "quote": "",
+          "table_ref": null,
+          "interpretation": "Catalog column ACT is Current Assets Total."
+        }
+      ]
+    },
+    {
+      "field_path": "data.fields[1].source_table",
+      "kind": "ambiguous",
+      "reason": "evidence_status=inferred",
+      "empirical_impact": "high",
+      "disposition": "needs_human_confirmation",
+      "paper_value": "comp_funda",
+      "evidence": [
+        {
+          "location": "Data catalog",
+          "quote": "",
+          "table_ref": null,
+          "interpretation": "Catalog column CHE is Cash and Short-Term Investments."
+        }
+      ]
+    },
+    {
+      "field_path": "data.fields[1].source_column",
+      "kind": "ambiguous",
+      "reason": "evidence_status=inferred",
+      "empirical_impact": "high",
+      "disposition": "needs_human_confirmation",
+      "paper_value": "che",
+      "evidence": [
+        {
+          "location": "Data catalog",
+          "quote": "",
+          "table_ref": null,
+          "interpretation": "Catalog column CHE is Cash and Short-Term Investments."
+        }
+      ]
+    },
+    {
+      "field_path": "data.fields[2].source_table",
+      "kind": "ambiguous",
+      "reason": "evidence_status=inferred",
+      "empirical_impact": "high",
+      "disposition": "needs_human_confirmation",
+      "paper_value": "comp_funda",
+      "evidence": [
+        {
+          "location": "Data catalog",
+          "quote": "",
+          "table_ref": null,
+          "interpretation": "Catalog column LCT is Current Liabilities Total."
+        }
+      ]
+    },
+    {
+      "field_path": "data.fields[2].source_column",
+      "kind": "ambiguous",
+      "reason": "evidence_status=inferred",
+      "empirical_impact": "high",
+      "disposition": "needs_human_confirmation",
+      "paper_value": "lct",
+      "evidence": [
+        {
+          "location": "Data catalog",
+          "quote": "",
+          "table_ref": null,
+          "interpretation": "Catalog column LCT is Current Liabilities Total."
+        }
+      ]
+    },
+    {
+      "field_path": "data.fields[3].source_table",
+      "kind": "ambiguous",
+      "reason": "evidence_status=inferred",
+      "empirical_impact": "high",
+      "disposition": "needs_human_confirmation",
+      "paper_value": "comp_funda",
+      "evidence": [
+        {
+          "location": "Data catalog",
+          "quote": "",
+          "table_ref": null,
+          "interpretation": "Catalog column DLC is Debt in Current Liabilities."
+        }
+      ]
+    },
+    {
+      "field_path": "data.fields[3].source_column",
+      "kind": "ambiguous",
+      "reason": "evidence_status=inferred",
+      "empirical_impact": "high",
+      "disposition": "needs_human_confirmation",
+      "paper_value": "dlc",
+      "evidence": [
+        {
+          "location": "Data catalog",
+          "quote": "",
+          "table_ref": null,
+          "interpretation": "Catalog column DLC is Debt in Current Liabilities."
+        }
+      ]
+    },
+    {
+      "field_path": "data.fields[4].source_table",
+      "kind": "ambiguous",
+      "reason": "evidence_status=inferred",
+      "empirical_impact": "high",
+      "disposition": "needs_human_confirmation",
+      "paper_value": "comp_funda",
+      "evidence": [
+        {
+          "location": "Data catalog",
+          "quote": "",
+          "table_ref": null,
+          "interpretation": "Catalog column AT is Total Assets."
+        }
+      ]
+    },
+    {
+      "field_path": "data.fields[4].source_column",
+      "kind": "ambiguous",
+      "reason": "evidence_status=inferred",
+      "empirical_impact": "high",
+      "disposition": "needs_human_confirmation",
+      "paper_value": "at",
+      "evidence": [
+        {
+          "location": "Data catalog",
+          "quote": "",
+          "table_ref": null,
+          "interpretation": "Catalog column AT is Total Assets."
+        }
+      ]
+    },
+    {
+      "field_path": "data.fields[5].source_table",
+      "kind": "unsupported",
+      "reason": "paper's stated method ('Compustat annual Item #32, Investments and Advances') is not in the engine's menu; the backtest will use a documented default unless corrected (see resolved config's defaults_applied).",
+      "empirical_impact": "high",
+      "disposition": "needs_human_confirmation",
+      "paper_value": "Compustat annual Item #32, Investments and Advances",
+      "evidence": [
+        {
+          "location": "Data catalog",
+          "quote": "",
+          "table_ref": null,
+          "interpretation": "No registered annual Compustat column matches Item #32."
+        }
+      ]
+    },
+    {
+      "field_path": "data.fields[5].source_column",
+      "kind": "ambiguous",
+      "reason": "evidence_status=unspecified",
+      "empirical_impact": "high",
+      "disposition": "needs_human_confirmation",
+      "paper_value": "",
+      "evidence": [
+        {
+          "location": "Data catalog",
+          "quote": "",
+          "table_ref": null,
+          "interpretation": "No matching registered column."
+        }
+      ]
+    },
+    {
+      "field_path": "data.fields[6].source_table",
+      "kind": "unsupported",
+      "reason": "paper's stated method ('Compustat annual Item #181, Total Liabilities') is not in the engine's menu; the backtest will use a documented default unless corrected (see resolved config's defaults_applied).",
+      "empirical_impact": "high",
+      "disposition": "needs_human_confirmation",
+      "paper_value": "Compustat annual Item #181, Total Liabilities",
+      "evidence": [
+        {
+          "location": "Data catalog",
+          "quote": "",
+          "table_ref": null,
+          "interpretation": "No registered annual Compustat column matches Item #181."
+        }
+      ]
+    },
+    {
+      "field_path": "data.fields[6].source_column",
+      "kind": "ambiguous",
+      "reason": "evidence_status=unspecified",
+      "empirical_impact": "high",
+      "disposition": "needs_human_confirmation",
+      "paper_value": "",
+      "evidence": [
+        {
+          "location": "Data catalog",
+          "quote": "",
+          "table_ref": null,
+          "interpretation": "No matching registered column."
+        }
+      ]
+    },
+    {
+      "field_path": "data.fields[7].source_table",
+      "kind": "ambiguous",
+      "reason": "evidence_status=inferred",
+      "empirical_impact": "high",
+      "disposition": "needs_human_confirmation",
+      "paper_value": "comp_funda",
+      "evidence": [
+        {
+          "location": "Data catalog",
+          "quote": "",
+          "table_ref": null,
+          "interpretation": "Catalog column DLTT is Long-Term Debt Total."
+        }
+      ]
+    },
+    {
+      "field_path": "data.fields[7].source_column",
+      "kind": "ambiguous",
+      "reason": "evidence_status=inferred",
+      "empirical_impact": "high",
+      "disposition": "needs_human_confirmation",
+      "paper_value": "dltt",
+      "evidence": [
+        {
+          "location": "Data catalog",
+          "quote": "",
+          "table_ref": null,
+          "interpretation": "Catalog column DLTT is Long-Term Debt Total."
+        }
+      ]
+    },
+    {
+      "field_path": "data.fields[8].source_table",
+      "kind": "unsupported",
+      "reason": "paper's stated method ('Compustat annual Item #193, Short Term Investments') is not in the engine's menu; the backtest will use a documented default unless corrected (see resolved config's defaults_applied).",
+      "empirical_impact": "high",
+      "disposition": "needs_human_confirmation",
+      "paper_value": "Compustat annual Item #193, Short Term Investments",
+      "evidence": [
+        {
+          "location": "Data catalog",
+          "quote": "",
+          "table_ref": null,
+          "interpretation": "No registered annual Compustat column matches Item #193."
+        }
+      ]
+    },
+    {
+      "field_path": "data.fields[8].source_column",
+      "kind": "ambiguous",
+      "reason": "evidence_status=unspecified",
+      "empirical_impact": "high",
+      "disposition": "needs_human_confirmation",
+      "paper_value": "",
+      "evidence": [
+        {
+          "location": "Data catalog",
+          "quote": "",
+          "table_ref": null,
+          "interpretation": "No matching registered column."
+        }
+      ]
+    },
+    {
+      "field_path": "data.fields[9].source_table",
+      "kind": "ambiguous",
+      "reason": "evidence_status=inferred",
+      "empirical_impact": "high",
+      "disposition": "needs_human_confirmation",
+      "paper_value": "comp_funda",
+      "evidence": [
+        {
+          "location": "Data catalog",
+          "quote": "",
+          "table_ref": null,
+          "interpretation": "Catalog column PSTK is Preferred/Preference Stock."
+        }
+      ]
+    },
+    {
+      "field_path": "data.fields[9].source_column",
+      "kind": "ambiguous",
+      "reason": "evidence_status=inferred",
+      "empirical_impact": "high",
+      "disposition": "needs_human_confirmation",
+      "paper_value": "pstk",
+      "evidence": [
+        {
+          "location": "Data catalog",
+          "quote": "",
+          "table_ref": null,
+          "interpretation": "Catalog column PSTK is Preferred/Preference Stock."
+        }
+      ]
+    },
+    {
+      "field_path": "data.fields[10].source_table",
+      "kind": "ambiguous",
+      "reason": "evidence_status=inferred",
+      "empirical_impact": "high",
+      "disposition": "needs_human_confirmation",
+      "paper_value": "crsp_msf",
+      "evidence": [
+        {
+          "location": "Data catalog",
+          "quote": "",
+          "table_ref": null,
+          "interpretation": "Catalog column SICCD is the 4-digit Standard Industrial Classification code."
+        }
+      ]
+    },
+    {
+      "field_path": "data.fields[10].source_column",
+      "kind": "ambiguous",
+      "reason": "evidence_status=clear",
+      "empirical_impact": "high",
+      "disposition": "auto_approve",
+      "paper_value": "siccd",
+      "evidence": [
+        {
+          "location": "Data catalog",
+          "quote": "",
+          "table_ref": null,
+          "interpretation": "Catalog column SICCD is the 4-digit Standard Industrial Classification code."
+        },
+        {
+          "location": "",
+          "quote": "",
+          "table_ref": null,
+          "interpretation": "human correction"
+        }
+      ]
+    }
+  ],
+  "status_overrides": {},
+  "reextraction_attempts": 0
+}

@@ -1,0 +1,43 @@
+{
+  "schema_version": "resolution.v2",
+  "factor_id": "0b6e2414f487bf42",
+  "concept_mapping": {
+    "current_assets": {
+      "source": "comp_funda",
+      "column": "act"
+    },
+    "cash_and_short_term_investments": {
+      "source": "comp_funda",
+      "column": "che"
+    },
+    "current_liabilities": {
+      "source": "comp_funda",
+      "column": "lct"
+    },
+    "debt_in_current_liabilities": {
+      "source": "comp_funda",
+      "column": "dlc"
+    },
+    "total_assets": {
+      "source": "comp_funda",
+      "column": "at"
+    },
+    "long_term_debt": {
+      "source": "comp_funda",
+      "column": "dltt"
+    },
+    "preferred_stock": {
+      "source": "comp_funda",
+      "column": "pstk"
+    },
+    "sic_code": {
+      "source": "crsp_msf",
+      "column": "siccd"
+    }
+  },
+  "returns_source": "us_equity_crsp",
+  "cz_acronym": null,
+  "llm_matched_concepts": [],
+  "entries": [],
+  "approved_substitutions": []
+}

@@ -1,0 +1,37 @@
+{
+  "schema_version": "methodreview.v2",
+  "factor_id": "cbdd93b5242bdb52",
+  "paper_spec_hash": "ab1595ea5935ab2b57fb286db07aa65f57da4899c999d9537cf77e65158fe7cc",
+  "capability_version": "engine_capability.v1",
+  "findings": [
+    {
+      "field_path": "universe.filters[0].concept_id",
+      "kind": "unsupported",
+      "reason": "universe filter concept is not declared in data.fields, so it can never resolve to a physical column -- add a data.fields entry for it (with a real paper_name/paper_source_hint) or drop the filter",
+      "empirical_impact": "high",
+      "disposition": "blocked",
+      "paper_value": "sic_code",
+      "evidence": []
+    },
+    {
+      "field_path": "universe.filters[1].concept_id",
+      "kind": "unsupported",
+      "reason": "universe filter concept is not declared in data.fields, so it can never resolve to a physical column -- add a data.fields entry for it (with a real paper_name/paper_source_hint) or drop the filter",
+      "empirical_impact": "high",
+      "disposition": "blocked",
+      "paper_value": "total_assets_t_minus_1",
+      "evidence": []
+    },
+    {
+      "field_path": "universe.filters[2].concept_id",
+      "kind": "unsupported",
+      "reason": "universe filter concept is not declared in data.fields, so it can never resolve to a physical column -- add a data.fields entry for it (with a real paper_name/paper_source_hint) or drop the filter",
+      "empirical_impact": "high",
+      "disposition": "blocked",
+      "paper_value": "total_assets_t_minus_2",
+      "evidence": []
+    }
+  ],
+  "status_overrides": {},
+  "reextraction_attempts": 0
+}

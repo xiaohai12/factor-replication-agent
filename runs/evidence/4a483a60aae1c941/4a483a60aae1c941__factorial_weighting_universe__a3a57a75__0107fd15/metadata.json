@@ -1,0 +1,153 @@
+{
+  "run_id": "4a483a60aae1c941__factorial_weighting_universe__a3a57a75__0107fd15",
+  "factor_id": "4a483a60aae1c941",
+  "plugin_id": "4a483a60aae1c941",
+  "track": "factorial_weighting_universe",
+  "method_spec_hash": "23069a937ff7a0659ed77cf24baa690d3bbb31b4215beefc9f8f7257089aac3e",
+  "code_hash": "a3a57a7555562af7",
+  "lifecycle_commit": "b4fb8b0cbf48d7c4b2d0897fb9f46d24aea6df55-dirty",
+  "data_snapshot_hash": "e59e6493f8ac05f3af7d090a041787ccf77045eff130b3896022e2c6e32c55e4",
+  "config_hash": "0107fd151fdd59be",
+  "runtime_provenance": {
+    "git_commit": "b4fb8b0cbf48d7c4b2d0897fb9f46d24aea6df55",
+    "git_dirty": true,
+    "engine_source_hash": "33fc4c73f586c0c3fbba6aa0c2a697e716df04563441bdfaf0ab94043ef90012",
+    "python_version": "3.14.2",
+    "package_versions": {
+      "pandas": "2.3.3",
+      "numpy": "2.5.2",
+      "statsmodels": "0.14.6",
+      "linearmodels": "not_installed"
+    },
+    "ff_factors_hash": "bfc216e95682647791541224633da1ea806d7ba208331353813ee7103415888b",
+    "liquidity_factors_hash": "bb0569547854ced13cfb08960650137282a2c6656d840d9e730c927e7b8f3fbe"
+  },
+  "experiment_batch_id": "d7673fcceef5",
+  "frozen_plugin_hash": "a3a57a7555562af7",
+  "batch_invalidated": false,
+  "batch_invalidation_reason": "",
+  "switches_flipped": {
+    "weighting": "vw",
+    "universe": [
+      {
+        "field": "exchcd",
+        "op": "in",
+        "value": [
+          1,
+          2,
+          3
+        ]
+      },
+      {
+        "field": "siccd",
+        "op": "not_between",
+        "value": [
+          6000,
+          6999
+        ]
+      },
+      {
+        "field": "ceq",
+        "op": "gt",
+        "value": 0
+      }
+    ]
+  },
+  "metrics": {
+    "mean_return": 0.0017046369059388552,
+    "t_stat": 1.2616312490035213,
+    "sharpe_ratio": 0.16654964966018493,
+    "alpha_capm": 0.00217234011779308,
+    "alpha_ff3": 0.0007400680561964862,
+    "alpha_ff5": -0.0016640825732137086,
+    "coverage": null,
+    "microcap_share": null,
+    "n_months": 764,
+    "by_sample_period": {
+      "insamp": {
+        "mean_monthly_return": 0.004112868817704058,
+        "annualized_return": 0.04935442581244869,
+        "t_stat": 2.1417527794212416,
+        "n_months": 276,
+        "sharpe_ratio": 0.46097031121073806,
+        "alpha_capm": 0.00394493834011451,
+        "alpha_capm_tstat": 2.0352006366926405,
+        "beta_capm_mktrf": 0.05982807772649517,
+        "alpha_ff3": 0.002068465150667899,
+        "alpha_ff3_tstat": 1.2527157295063518,
+        "beta_ff3_mktrf": 0.01936807289819131,
+        "beta_ff3_smb": 0.5067204286984327,
+        "beta_ff3_hml": 0.3289457596276221,
+        "alpha_ff5": 0.0005501190661345739,
+        "alpha_ff5_tstat": 0.34718897441863705,
+        "beta_ff5_mktrf": 0.05654790325418946,
+        "beta_ff5_smb": 0.530421788587984,
+        "beta_ff5_hml": 0.016838449948612347,
+        "beta_ff5_rmw": 0.0031404917285179305,
+        "beta_ff5_cma": 0.6300951658251466,
+        "alpha_liq": 0.003872303108762278,
+        "alpha_liq_tstat": 2.0532539032113033,
+        "beta_liq_ps_vwf": 0.06498587015133157
+      },
+      "between": {
+        "mean_monthly_return": 0.00014245248556088026,
+        "annualized_return": 0.001709429826730563,
+        "t_stat": 0.0434395005412046,
+        "n_months": 36,
+        "sharpe_ratio": 0.023007616414193195,
+        "alpha_capm": 0.0042013399187062275,
+        "alpha_capm_tstat": 1.2741861632062903,
+        "beta_capm_mktrf": -0.36493493404903216,
+        "alpha_ff3": -0.0006591614816192698,
+        "alpha_ff3_tstat": -0.2475111198195613,
+        "beta_ff3_mktrf": -0.2923993332272512,
+        "beta_ff3_smb": 0.28353670565668965,
+        "beta_ff3_hml": 0.3037830150042494,
+        "alpha_ff5": -0.0006203191372577102,
+        "alpha_ff5_tstat": -0.2045853211163645,
+        "beta_ff5_mktrf": -0.24699749363051485,
+        "beta_ff5_smb": 0.2905033235415608,
+        "beta_ff5_hml": 0.08523407284463165,
+        "beta_ff5_rmw": 0.09178270538988775,
+        "beta_ff5_cma": 0.47669321235337836,
+        "alpha_liq": 0.00038013312668386734,
+        "alpha_liq_tstat": 0.1179593411036918,
+        "beta_liq_ps_vwf": 0.03549022230698742
+      },
+      "postpub": {
+        "mean_monthly_return": -0.0014723987898025957,
+        "annualized_return": -0.01766878547763115,
+        "t_stat": -0.742859938390764,
+        "n_months": 384,
+        "sharpe_ratio": -0.13259798388619362,
+        "alpha_capm": -0.00014875545704619905,
+        "alpha_capm_tstat": -0.07681704271706873,
+        "beta_capm_mktrf": -0.17458234518735183,
+        "alpha_ff3": -0.0007629804049057875,
+        "alpha_ff3_tstat": -0.4629201479147773,
+        "beta_ff3_mktrf": -0.16553831555095488,
+        "beta_ff3_smb": 0.11545707246685114,
+        "beta_ff3_hml": 0.40245384917474997,
+        "alpha_ff5": -0.0027783903132898927,
+        "alpha_ff5_tstat": -1.7186515154430346,
+        "beta_ff5_mktrf": -0.06953744646625087,
+        "beta_ff5_smb": 0.18607729462735106,
+        "beta_ff5_hml": 0.12674359945303448,
+        "beta_ff5_rmw": 0.2173790099101297,
+        "beta_ff5_cma": 0.5512164900531411,
+        "alpha_liq": -0.0008487185501254019,
+        "alpha_liq_tstat": -0.42728525599872275,
+        "beta_liq_ps_vwf": -0.18584202884848428
+      }
+    }
+  },
+  "return_series_path": "/Users/shengzhaolei/Desktop/shengzhao lei/projects/factor-replication-agent/runs/evidence/4a483a60aae1c941/4a483a60aae1c941__factorial_weighting_universe__a3a57a75__0107fd15/return_series.csv",
+  "signal_series_path": "/Users/shengzhaolei/Desktop/shengzhao lei/projects/factor-replication-agent/runs/evidence/4a483a60aae1c941/4a483a60aae1c941__factorial_weighting_universe__a3a57a75__0107fd15/signal_series.parquet",
+  "status": "success",
+  "created_at": "2026-08-23T12:33:10.542549",
+  "logs": [
+    "experiment_matrix: family='portfolio_ablation' identification_level='unidentified'",
+    "artifact_sha256: {\"return_series.csv\": \"b103ef2dfe0a9b8a63fc947e51c616585523a60b3fe95e291018da05477ac4c6\", \"signal_series.parquet\": \"3e40d5ca1131d90770ff7de751f754993ef3f78b58a88dfabab6ccb40e22af42\"}"
+  ],
+  "repair_history": []
+}

@@ -1,0 +1,1959 @@
+{
+  "paper": {
+    "schema_version": "methodspec.v2",
+    "factor_id": "073bb1d7c43cd129",
+    "target_name": "leverage",
+    "paper": {
+      "document_id": "Debt:equity ratio and expected common stock returns- Empirical evidence.pdf",
+      "title": "Debt/Equity Ratio and Expected Common Stock Returns: Empirical Evidence",
+      "citation": "Bhandari, Laxmi Chand (1988), The Journal of Finance, 43(2), 507-528.",
+      "publication_year": 1988
+    },
+    "signal": {
+      "definition": {
+        "value": "Debt/equity ratio (DER), defined as the book value of total assets minus the book value of common equity, divided by the market value of common equity, measured at accounting year-ends.",
+        "evidence": [
+          {
+            "location": "Section I, Model, Data, and Test Design",
+            "quote": "DER is the ratio: book value of total assets - book value of common equity / market value of common equity measured at the accounting year-ends.",
+            "table_ref": null,
+            "interpretation": ""
+          }
+        ],
+        "status": "clear",
+        "unsupported_value": null
+      },
+      "economic_intuition": {
+        "value": "Higher debt/equity increases the risk of common equity and is expected to be positively correlated with expected common stock returns when other explanatory variables do not adequately control for risk.",
+        "evidence": [
+          {
+            "location": "Introduction",
+            "quote": "An increase in the DER of a firm increases the risk of its common equity, measuring risk in any reasonable way.",
+            "table_ref": null,
+            "interpretation": ""
+          },
+          {
+            "location": "Introduction",
+            "quote": "With risk-averse investors, we expect a positive correlation between DER and the expected common stock returns when the other explanatory variables used are inadequate to control for risk.",
+            "table_ref": null,
+            "interpretation": ""
+          }
+        ],
+        "status": "clear",
+        "unsupported_value": null
+      },
+      "direction": {
+        "value": "positive",
+        "evidence": [
+          {
+            "location": "Section III, Summary and Conclusions",
+            "quote": "The expected returns on common stocks are positively related to the debt/equity ratio (DER), controlling for the beta and firm size, both including and excluding January.",
+            "table_ref": null,
+            "interpretation": ""
+          }
+        ],
+        "status": "clear",
+        "unsupported_value": null
+      },
+      "category": "continuous",
+      "formula": {
+        "paper_expression": "DER = (book value of total assets - book value of common equity) / market value of common equity, measured at accounting year-ends.",
+        "steps": [
+          {
+            "step_id": "market_common_equity",
+            "description": "Calculate market value of common equity as shares outstanding times month-end price per share.",
+            "expression": "shares_outstanding * month_end_price",
+            "status": "clear",
+            "evidence": [
+              {
+                "location": "Section I, Model, Data, and Test Design",
+                "quote": "total common equity is the number of shares outstanding times (month-end) price per share",
+                "table_ref": null,
+                "interpretation": ""
+              }
+            ]
+          },
+          {
+            "step_id": "debt_equity_ratio",
+            "description": "Divide the difference between book total assets and book common equity by market common equity.",
+            "expression": "(book_value_total_assets - book_value_common_equity) / market_common_equity",
+            "status": "clear",
+            "evidence": [
+              {
+                "location": "Section I, Model, Data, and Test Design",
+                "quote": "book value of total assets - book value of common equity / market value of common equity",
+                "table_ref": null,
+                "interpretation": ""
+              }
+            ]
+          }
+        ],
+        "inputs": [
+          "book_value_total_assets",
+          "book_value_common_equity",
+          "shares_outstanding",
+          "month_end_price"
+        ],
+        "constants": {},
+        "output_concept": "debt_equity_ratio",
+        "evidence": [
+          {
+            "location": "Section I, Model, Data, and Test Design",
+            "quote": "measured at the accounting year-ends.",
+            "table_ref": null,
+            "interpretation": ""
+          }
+        ]
+      },
+      "estimation": null
+    },
+    "data": {
+      "signal_frequency": {
+        "value": "year",
+        "evidence": [
+          {
+            "location": "Section I, Model, Data, and Test Design",
+            "quote": "measured at the accounting year-ends.",
+            "table_ref": null,
+            "interpretation": ""
+          }
+        ],
+        "status": "clear",
+        "unsupported_value": null
+      },
+      "return_frequency": {
+        "value": "month",
+        "evidence": [
+          {
+            "location": "Section I, Model, Data, and Test Design",
+            "quote": "The monthly real rate of return",
+            "table_ref": null,
+            "interpretation": ""
+          }
+        ],
+        "status": "clear",
+        "unsupported_value": null
+      },
+      "sources": [
+        {
+          "value": "CRSP monthly stock returns file",
+          "evidence": [
+            {
+              "location": "Section I, Model, Data, and Test Design",
+              "quote": "Number of shares outstanding, price per share, and nominal returns are taken from the CRSP monthly stock returns file.",
+              "table_ref": null,
+              "interpretation": ""
+            }
+          ],
+          "status": "clear",
+          "unsupported_value": null
+        },
+        {
+          "value": "COMPUSTAT files",
+          "evidence": [
+            {
+              "location": "Section I, Model, Data, and Test Design",
+              "quote": "The COMPUSTAT files provide the book values of total assets and common equity",
+              "table_ref": null,
+              "interpretation": ""
+            }
+          ],
+          "status": "clear",
+          "unsupported_value": null
+        },
+        {
+          "value": "Ibbotson-Sinquefield file",
+          "evidence": [
+            {
+              "location": "Section I, Model, Data, and Test Design",
+              "quote": "the CPI is from the Ibbotson-Sinquefield file.",
+              "table_ref": null,
+              "interpretation": ""
+            }
+          ],
+          "status": "clear",
+          "unsupported_value": null
+        }
+      ],
+      "fields": [
+        {
+          "concept_id": "book_value_total_assets",
+          "name_in_paper": "book value of total assets",
+          "description": "Annual book value of total assets used in the numerator of DER.",
+          "paper_source_hint": "COMPUSTAT files",
+          "roles": [
+            "signal_input"
+          ],
+          "evidence": [
+            {
+              "location": "Section I, Model, Data, and Test Design",
+              "quote": "The COMPUSTAT files provide the book values of total assets",
+              "table_ref": null,
+              "interpretation": ""
+            }
+          ],
+          "source_table": {
+            "value": "comp_funda",
+            "evidence": [
+              {
+                "location": "Data catalog mapping",
+                "quote": "",
+                "table_ref": null,
+                "interpretation": "The registered Compustat annual total-assets field is the closest physical mapping to the paper's annual book value of total assets."
+              }
+            ],
+            "status": "inferred",
+            "unsupported_value": null
+          },
+          "source_column": {
+            "value": "at",
+            "evidence": [
+              {
+                "location": "Data catalog mapping",
+                "quote": "",
+                "table_ref": null,
+                "interpretation": "Catalog column AT is defined as total balance-sheet assets."
+              }
+            ],
+            "status": "inferred",
+            "unsupported_value": null
+          }
+        },
+        {
+          "concept_id": "book_value_common_equity",
+          "name_in_paper": "book value of common equity",
+          "description": "Annual book value of common equity used in the numerator of DER.",
+          "paper_source_hint": "COMPUSTAT files",
+          "roles": [
+            "signal_input"
+          ],
+          "evidence": [
+            {
+              "location": "Section I, Model, Data, and Test Design",
+              "quote": "The COMPUSTAT files provide the book values of total assets and common equity",
+              "table_ref": null,
+              "interpretation": ""
+            }
+          ],
+          "source_table": {
+            "value": "comp_funda",
+            "evidence": [
+              {
+                "location": "Data catalog mapping",
+                "quote": "",
+                "table_ref": null,
+                "interpretation": "The registered Compustat annual common-equity field is the closest physical mapping to the paper's book value of common equity."
+              }
+            ],
+            "status": "inferred",
+            "unsupported_value": null
+          },
+          "source_column": {
+            "value": "ceq",
+            "evidence": [
+              {
+                "location": "Data catalog mapping",
+                "quote": "",
+                "table_ref": null,
+                "interpretation": "Catalog column CEQ is defined as total common/ordinary equity."
+              }
+            ],
+            "status": "inferred",
+            "unsupported_value": null
+          }
+        },
+        {
+          "concept_id": "shares_outstanding",
+          "name_in_paper": "number of shares outstanding",
+          "description": "Shares outstanding used to calculate market value of common equity.",
+          "paper_source_hint": "CRSP monthly stock returns file",
+          "roles": [
+            "signal_input"
+          ],
+          "evidence": [
+            {
+              "location": "Section I, Model, Data, and Test Design",
+              "quote": "Number of shares outstanding, price per share, and nominal returns are taken from the CRSP monthly stock returns file.",
+              "table_ref": null,
+              "interpretation": ""
+            }
+          ],
+          "source_table": {
+            "value": "crsp_msf",
+            "evidence": [
+              {
+                "location": "Data catalog mapping",
+                "quote": "",
+                "table_ref": null,
+                "interpretation": "The paper identifies the CRSP monthly stock returns file."
+              }
+            ],
+            "status": "inferred",
+            "unsupported_value": null
+          },
+          "source_column": {
+            "value": "shrout",
+            "evidence": [
+              {
+                "location": "Data catalog mapping",
+                "quote": "",
+                "table_ref": null,
+                "interpretation": "Catalog column SHROUT is shares outstanding."
+              }
+            ],
+            "status": "inferred",
+            "unsupported_value": null
+          }
+        },
+        {
+          "concept_id": "month_end_price",
+          "name_in_paper": "month-end price per share",
+          "description": "Month-end price per share used to calculate market value of common equity.",
+          "paper_source_hint": "CRSP monthly stock returns file",
+          "roles": [
+            "signal_input"
+          ],
+          "evidence": [
+            {
+              "location": "Section I, Model, Data, and Test Design",
+              "quote": "total common equity is the number of shares outstanding times (month-end) price per share",
+              "table_ref": null,
+              "interpretation": ""
+            }
+          ],
+          "source_table": {
+            "value": "crsp_msf",
+            "evidence": [
+              {
+                "location": "Data catalog mapping",
+                "quote": "",
+                "table_ref": null,
+                "interpretation": "The paper identifies the CRSP monthly stock returns file."
+              }
+            ],
+            "status": "inferred",
+            "unsupported_value": null
+          },
+          "source_column": {
+            "value": "prc",
+            "evidence": [
+              {
+                "location": "Data catalog mapping",
+                "quote": "",
+                "table_ref": null,
+                "interpretation": "Catalog column PRC is month-end closing price."
+              }
+            ],
+            "status": "inferred",
+            "unsupported_value": null
+          }
+        },
+        {
+          "concept_id": "monthly_return",
+          "name_in_paper": "nominal returns",
+          "description": "Monthly stock returns used for the dependent variable, beta estimation, and sample inclusion.",
+          "paper_source_hint": "CRSP monthly stock returns file",
+          "roles": [
+            "universe_filter",
+            "estimation_input"
+          ],
+          "evidence": [
+            {
+              "location": "Section I, Model, Data, and Test Design",
+              "quote": "Number of shares outstanding, price per share, and nominal returns are taken from the CRSP monthly stock returns file.",
+              "table_ref": null,
+              "interpretation": ""
+            }
+          ],
+          "source_table": {
+            "value": "crsp_msf",
+            "evidence": [
+              {
+                "location": "Data catalog mapping",
+                "quote": "",
+                "table_ref": null,
+                "interpretation": "The paper identifies the CRSP monthly stock returns file."
+              }
+            ],
+            "status": "inferred",
+            "unsupported_value": null
+          },
+          "source_column": {
+            "value": "ret",
+            "evidence": [
+              {
+                "location": "Data catalog mapping",
+                "quote": "",
+                "table_ref": null,
+                "interpretation": "Catalog column RET is the monthly total return."
+              }
+            ],
+            "status": "inferred",
+            "unsupported_value": null
+          }
+        },
+        {
+          "concept_id": "estimated_beta",
+          "name_in_paper": "BETA",
+          "description": "OLS estimate of the slope coefficient in the regression of real stock returns on the equally weighted NYSE market portfolio.",
+          "paper_source_hint": "CRSP monthly stock returns and stock index files",
+          "roles": [
+            "estimation_input"
+          ],
+          "evidence": [
+            {
+              "location": "Section I, Model, Data, and Test Design",
+              "quote": "BETA is the ordinary least squares (OLS) estimate of the slope coefficient in the regression of (real) returns on a market proxy.",
+              "table_ref": null,
+              "interpretation": ""
+            }
+          ],
+          "source_table": {
+            "value": "crsp_msf",
+            "evidence": [
+              {
+                "location": "Data catalog mapping",
+                "quote": "",
+                "table_ref": null,
+                "interpretation": "Individual stock return observations used to estimate BETA map to the CRSP monthly stock file."
+              }
+            ],
+            "status": "inferred",
+            "unsupported_value": null
+          },
+          "source_column": {
+            "value": "ret",
+            "evidence": [
+              {
+                "location": "Data catalog mapping",
+                "quote": "",
+                "table_ref": null,
+                "interpretation": "BETA is estimated from stock returns."
+              }
+            ],
+            "status": "inferred",
+            "unsupported_value": null
+          }
+        },
+        {
+          "concept_id": "log_total_common_equity",
+          "name_in_paper": "LTEQ",
+          "description": "Natural logarithm of total common equity, a control variable used in portfolio formation and cross-sectional regressions.",
+          "paper_source_hint": "CRSP monthly stock returns file",
+          "roles": [
+            "estimation_input"
+          ],
+          "evidence": [
+            {
+              "location": "Section I, Model, Data, and Test Design",
+              "quote": "LTEQ is the natural logarithm of total common equity",
+              "table_ref": null,
+              "interpretation": ""
+            }
+          ],
+          "source_table": {
+            "value": "crsp_msf",
+            "evidence": [
+              {
+                "location": "Data catalog mapping",
+                "quote": "",
+                "table_ref": null,
+                "interpretation": "Market equity is the registered CRSP field corresponding to total common equity before the paper's logarithmic transform."
+              }
+            ],
+            "status": "inferred",
+            "unsupported_value": null
+          },
+          "source_column": {
+            "value": "me",
+            "evidence": [
+              {
+                "location": "Data catalog mapping",
+                "quote": "",
+                "table_ref": null,
+                "interpretation": "Catalog column ME is market equity."
+              }
+            ],
+            "status": "inferred",
+            "unsupported_value": null
+          }
+        }
+      ],
+      "coverage_notes": [
+        "The paper states that the test period is essentially restricted by COMPUSTAT files, which contain data from 1946.",
+        "Real returns and constant-dollar size use CPI from the Ibbotson-Sinquefield file, but no matching CPI source is registered in the supplied data catalog."
+      ]
+    },
+    "sample": {
+      "data_coverage": {
+        "start_year": 1946,
+        "end_year": null,
+        "start_month": null,
+        "end_month": null,
+        "evidence": [
+          {
+            "location": "Section I, Model, Data, and Test Design",
+            "quote": "Our test period is essentially restricted by the COMPUSTAT files, which contain data from 1946.",
+            "table_ref": null,
+            "interpretation": ""
+          }
+        ],
+        "status": "clear"
+      },
+      "formation": {
+        "start_year": 1948,
+        "end_year": 1981,
+        "start_month": null,
+        "end_month": null,
+        "evidence": [
+          {
+            "location": "Section I.A, Sample Selection and Model Estimation",
+            "quote": "We use two-year subperiods that go from 1948-1949 to 1980-1981.",
+            "table_ref": null,
+            "interpretation": ""
+          }
+        ],
+        "status": "clear"
+      },
+      "reported_returns": {
+        "start_year": 1948,
+        "end_year": 1979,
+        "start_month": null,
+        "end_month": null,
+        "evidence": [
+          {
+            "location": "Table I title",
+            "quote": "",
+            "table_ref": {
+              "table": "Table I",
+              "row": "title",
+              "column": "1948-1979"
+            },
+            "interpretation": "Table I reports results for 1948-1979."
+          }
+        ],
+        "status": "table_only"
+      }
+    },
+    "timing": {
+      "formation_rule": {
+        "value": "For each two-year test subperiod, use the latest available LTEQ and DER values from the preceding two years; portfolios and explanatory-variable values are then updated at the next subperiod.",
+        "evidence": [
+          {
+            "location": "Section I.A, Sample Selection and Model Estimation",
+            "quote": "For the 1948-1949 subperiod, LTEQ and DER are their latest available values during 1946-1947.",
+            "table_ref": null,
+            "interpretation": ""
+          },
+          {
+            "location": "Section I.A, Sample Selection and Model Estimation",
+            "quote": "Both the portfolios and the values of explanatory variables are updated for each new subperiod.",
+            "table_ref": null,
+            "interpretation": ""
+          }
+        ],
+        "status": "clear",
+        "unsupported_value": null
+      },
+      "formation_month": null,
+      "rebalance_frequency": {
+        "value": "year",
+        "evidence": [
+          {
+            "location": "Section I.A, Sample Selection and Model Estimation",
+            "quote": "We use two-year subperiods that go from 1948-1949 to 1980-1981.",
+            "table_ref": null,
+            "interpretation": "The paper rebalances every two years; the schema menu cannot encode a biennial frequency, so year is retained as its nearest available calendar unit."
+          }
+        ],
+        "status": "inferred",
+        "unsupported_value": null
+      },
+      "holding_period": {
+        "value": 24,
+        "evidence": [
+          {
+            "location": "Section I.A, Sample Selection and Model Estimation",
+            "quote": "We use two-year subperiods",
+            "table_ref": null,
+            "interpretation": "Two years is converted to 24 months."
+          }
+        ],
+        "status": "clear",
+        "unsupported_value": null
+      },
+      "return_window": null,
+      "data_availability": {
+        "lag_value": null,
+        "lag_unit": "year",
+        "anchor": "fiscal_period_end",
+        "basis": "fixed_calendar_lag",
+        "evidence": [
+          {
+            "location": "Section I.A, Sample Selection and Model Estimation",
+            "quote": "For the 1948-1949 subperiod, LTEQ and DER are their latest available values during 1946-1947.",
+            "table_ref": null,
+            "interpretation": "The paper uses latest available accounting values from the preceding two calendar years, but does not specify a publication lag."
+          }
+        ]
+      }
+    },
+    "universe": {
+      "description": {
+        "value": "Common stocks with at least one nonmissing monthly return during the test subperiod and sufficient data to calculate the explanatory variables and portfolio-formation beta.",
+        "evidence": [
+          {
+            "location": "Section I.A, Sample Selection and Model Estimation",
+            "quote": "All common stocks that have at least one nonmissing monthly return during 1948-1949 and have enough data available to calculate the explanatory variables as well as the portfolio-formation BETA are included in the sample.",
+            "table_ref": null,
+            "interpretation": ""
+          }
+        ],
+        "status": "clear",
+        "unsupported_value": null
+      },
+      "filters": [
+        {
+          "concept_id": "monthly_return",
+          "op": "nonmissing",
+          "value": null,
+          "evidence": [
+            {
+              "location": "Section I.A, Sample Selection and Model Estimation",
+              "quote": "All common stocks that have at least one nonmissing monthly return during 1948-1949",
+              "table_ref": null,
+              "interpretation": ""
+            }
+          ],
+          "derivation": {
+            "paper_expression": "at least one nonmissing monthly return during the two-year test subperiod",
+            "steps": [
+              {
+                "step_id": "has_nonmissing_return",
+                "description": "Determine whether a stock has at least one nonmissing monthly return in the current two-year test subperiod.",
+                "expression": "count_nonmissing(monthly_return, test_subperiod) >= 1",
+                "status": "clear",
+                "evidence": [
+                  {
+                    "location": "Section I.A, Sample Selection and Model Estimation",
+                    "quote": "at least one nonmissing monthly return during 1948-1949",
+                    "table_ref": null,
+                    "interpretation": ""
+                  }
+                ]
+              }
+            ],
+            "inputs": [
+              "monthly_return"
+            ],
+            "constants": {},
+            "output_concept": "has_nonmissing_return",
+            "evidence": [
+              {
+                "location": "Section I.A, Sample Selection and Model Estimation",
+                "quote": "at least one nonmissing monthly return during 1948-1949",
+                "table_ref": null,
+                "interpretation": ""
+              }
+            ]
+          },
+          "accepted_unapplied": false,
+          "unapplied_reason": ""
+        }
+      ]
+    },
+    "portfolio": {
+      "construction_type": {
+        "value": "fama_macbeth",
+        "evidence": [
+          {
+            "location": "Section I.A, Sample Selection and Model Estimation",
+            "quote": "We use the Fama-MacBeth [5] (henceforth FM) methodology with some improvements.",
+            "table_ref": null,
+            "interpretation": ""
+          }
+        ],
+        "status": "clear",
+        "unsupported_value": null
+      },
+      "sorts": [
+        {
+          "sort_id": "size",
+          "concept_id": "log_total_common_equity",
+          "role": "control",
+          "order": 1,
+          "mode": {
+            "value": "independent",
+            "evidence": [
+              {
+                "location": "Section I.A, Sample Selection and Model Estimation",
+                "quote": "All sample stocks are first ranked on LTEQ and divided into three groups containing equal numbers of stocks.",
+                "table_ref": null,
+                "interpretation": ""
+              }
+            ],
+            "status": "clear",
+            "unsupported_value": null
+          },
+          "group_type": {
+            "value": "quantile",
+            "evidence": [
+              {
+                "location": "Section I.A, Sample Selection and Model Estimation",
+                "quote": "divided into three groups containing equal numbers of stocks.",
+                "table_ref": null,
+                "interpretation": ""
+              }
+            ],
+            "status": "clear",
+            "unsupported_value": null
+          },
+          "group_count": 3,
+          "breakpoints": {
+            "basis": {
+              "value": "full_sample",
+              "evidence": [
+                {
+                  "location": "Section I.A, Sample Selection and Model Estimation",
+                  "quote": "All sample stocks are first ranked on LTEQ",
+                  "table_ref": null,
+                  "interpretation": ""
+                }
+              ],
+              "status": "clear",
+              "unsupported_value": null
+            },
+            "values": []
+          },
+          "condition_on_sort_id": null,
+          "evidence": [
+            {
+              "location": "Section I.A, Sample Selection and Model Estimation",
+              "quote": "All sample stocks are first ranked on LTEQ and divided into three groups containing equal numbers of stocks.",
+              "table_ref": null,
+              "interpretation": ""
+            }
+          ]
+        },
+        {
+          "sort_id": "beta",
+          "concept_id": "estimated_beta",
+          "role": "control",
+          "order": 2,
+          "mode": {
+            "value": "sequential",
+            "evidence": [
+              {
+                "location": "Section I.A, Sample Selection and Model Estimation",
+                "quote": "Within each of these groups, the stocks are ranked on the portfolio-formation BETA and subdivided into three equal-sized groups.",
+                "table_ref": null,
+                "interpretation": ""
+              }
+            ],
+            "status": "clear",
+            "unsupported_value": null
+          },
+          "group_type": {
+            "value": "quantile",
+            "evidence": [
+              {
+                "location": "Section I.A, Sample Selection and Model Estimation",
+                "quote": "subdivided into three equal-sized groups.",
+                "table_ref": null,
+                "interpretation": ""
+              }
+            ],
+            "status": "clear",
+            "unsupported_value": null
+          },
+          "group_count": 3,
+          "breakpoints": {
+            "basis": {
+              "value": "other",
+              "evidence": [
+                {
+                  "location": "Section I.A, Sample Selection and Model Estimation",
+                  "quote": "Within each of these groups, the stocks are ranked on the portfolio-formation BETA and subdivided into three equal-sized groups.",
+                  "table_ref": null,
+                  "interpretation": ""
+                }
+              ],
+              "status": "clear",
+              "unsupported_value": "Within each LTEQ group"
+            },
+            "values": []
+          },
+          "condition_on_sort_id": "size",
+          "evidence": [
+            {
+              "location": "Section I.A, Sample Selection and Model Estimation",
+              "quote": "Within each of these groups, the stocks are ranked on the portfolio-formation BETA and subdivided into three equal-sized groups.",
+              "table_ref": null,
+              "interpretation": ""
+            }
+          ]
+        },
+        {
+          "sort_id": "leverage",
+          "concept_id": "debt_equity_ratio",
+          "role": "target",
+          "order": 3,
+          "mode": {
+            "value": "sequential",
+            "evidence": [
+              {
+                "location": "Section I.A, Sample Selection and Model Estimation",
+                "quote": "They are further subdivided into three equal-sized groups each after ranking the stocks on DER.",
+                "table_ref": null,
+                "interpretation": ""
+              }
+            ],
+            "status": "clear",
+            "unsupported_value": null
+          },
+          "group_type": {
+            "value": "quantile",
+            "evidence": [
+              {
+                "location": "Section I.A, Sample Selection and Model Estimation",
+                "quote": "three equal-sized groups",
+                "table_ref": null,
+                "interpretation": ""
+              }
+            ],
+            "status": "clear",
+            "unsupported_value": null
+          },
+          "group_count": 3,
+          "breakpoints": {
+            "basis": {
+              "value": "other",
+              "evidence": [
+                {
+                  "location": "Section I.A, Sample Selection and Model Estimation",
+                  "quote": "They are further subdivided into three equal-sized groups each after ranking the stocks on DER.",
+                  "table_ref": null,
+                  "interpretation": ""
+                }
+              ],
+              "status": "clear",
+              "unsupported_value": "Within each prior LTEQ-by-portfolio-formation-BETA group"
+            },
+            "values": []
+          },
+          "condition_on_sort_id": "beta",
+          "evidence": [
+            {
+              "location": "Section I.A, Sample Selection and Model Estimation",
+              "quote": "They are further subdivided into three equal-sized groups each after ranking the stocks on DER.",
+              "table_ref": null,
+              "interpretation": ""
+            }
+          ]
+        }
+      ],
+      "legs": [],
+      "weighting": {
+        "value": "ew",
+        "evidence": [
+          {
+            "location": "Section I.A, Sample Selection and Model Estimation",
+            "quote": "The individual stocks are given equal weights (that sum to one) within a portfolio",
+            "table_ref": null,
+            "interpretation": ""
+          }
+        ],
+        "status": "clear",
+        "unsupported_value": null
+      },
+      "return_combination": {
+        "value": "other",
+        "evidence": [
+          {
+            "location": "Section I.A, Sample Selection and Model Estimation",
+            "quote": "The OLS estimates of E(j)'s are calculated for each month in our test period using (3).",
+            "table_ref": null,
+            "interpretation": "The target is a Fama-MacBeth regression coefficient, not a long-short portfolio return."
+          }
+        ],
+        "status": "clear",
+        "unsupported_value": "Monthly Fama-MacBeth cross-sectional regression coefficient on DER"
+      },
+      "missing_policies": [
+        {
+          "stage": "portfolio",
+          "action": {
+            "value": "drop",
+            "evidence": [
+              {
+                "location": "Section I.A, Sample Selection and Model Estimation",
+                "quote": "except for the stocks having missing returns for a month, which are excluded for that month.",
+                "table_ref": null,
+                "interpretation": ""
+              }
+            ],
+            "status": "clear",
+            "unsupported_value": null
+          },
+          "threshold": null
+        }
+      ],
+      "transforms": []
+    },
+    "reported_results": {
+      "primary_metric_id": "all_firms_der_sa_including_january",
+      "metrics": [
+        {
+          "metric_id": "all_firms_der_sa_including_january",
+          "label": "All-firms DER coefficient, simple average of subperiod mean estimates, including January",
+          "estimand": "coefficient",
+          "adjustment_model": "raw",
+          "weighting": "ew",
+          "estimate": 0.13,
+          "unit": "percent",
+          "frequency": "month",
+          "statistic": {
+            "kind": "t_stat",
+            "value": 3.84
+          },
+          "sample_period": {
+            "start_year": 1948,
+            "end_year": 1979,
+            "start_month": null,
+            "end_month": null,
+            "evidence": [
+              {
+                "location": "Table I title",
+                "quote": "",
+                "table_ref": {
+                  "table": "Table I",
+                  "row": "title",
+                  "column": "1948-1979"
+                },
+                "interpretation": ""
+              }
+            ],
+            "status": "table_only"
+          },
+          "evidence": [
+            {
+              "location": "Table I, Panel B",
+              "quote": "",
+              "table_ref": {
+                "table": "Table I",
+                "row": "Panel B: Simple Averages of the Subperiod Mean Estimates; Including January",
+                "column": "All-Firms Sample, DER"
+              },
+              "interpretation": "The DER estimate is 0.13 percent per month and the reported t-statistic is 3.84."
+            }
+          ],
+          "status": "table_only"
+        },
+        {
+          "metric_id": "all_firms_der_wa_including_january",
+          "label": "All-firms DER coefficient, inverse-standard-error weighted average, including January",
+          "estimand": "coefficient",
+          "adjustment_model": "raw",
+          "weighting": "ew",
+          "estimate": 0.09,
+          "unit": "percent",
+          "frequency": "month",
+          "statistic": {
+            "kind": "t_stat",
+            "value": 3.93
+          },
+          "sample_period": {
+            "start_year": 1948,
+            "end_year": 1979,
+            "start_month": null,
+            "end_month": null,
+            "evidence": [
+              {
+                "location": "Table I title",
+                "quote": "",
+                "table_ref": {
+                  "table": "Table I",
+                  "row": "title",
+                  "column": "1948-1979"
+                },
+                "interpretation": ""
+              }
+            ],
+            "status": "table_only"
+          },
+          "evidence": [
+            {
+              "location": "Table I, Panel A",
+              "quote": "",
+              "table_ref": {
+                "table": "Table I",
+                "row": "Panel A: Weighted (in Inverse Proportion to Estimated Standard Errors) Averages of the Subperiod Mean Estimates; Including January",
+                "column": "All-Firms Sample, DER"
+              },
+              "interpretation": "The DER estimate is 0.09 percent per month and the reported t-statistic is 3.93."
+            }
+          ],
+          "status": "table_only"
+        },
+        {
+          "metric_id": "manufacturing_der_sa_including_january",
+          "label": "Manufacturing-firms DER coefficient, simple average of subperiod mean estimates, including January",
+          "estimand": "coefficient",
+          "adjustment_model": "raw",
+          "weighting": "ew",
+          "estimate": 0.18,
+          "unit": "percent",
+          "frequency": "month",
+          "statistic": {
+            "kind": "t_stat",
+            "value": 3.47
+          },
+          "sample_period": {
+            "start_year": 1948,
+            "end_year": 1979,
+            "start_month": null,
+            "end_month": null,
+            "evidence": [
+              {
+                "location": "Table I title",
+                "quote": "",
+                "table_ref": {
+                  "table": "Table I",
+                  "row": "title",
+                  "column": "1948-1979"
+                },
+                "interpretation": ""
+              }
+            ],
+            "status": "table_only"
+          },
+          "evidence": [
+            {
+              "location": "Table I, Panel B",
+              "quote": "",
+              "table_ref": {
+                "table": "Table I",
+                "row": "Panel B: Simple Averages of the Subperiod Mean Estimates; Including January",
+                "column": "Manufacturing-Firms Sample, DER"
+              },
+              "interpretation": "The DER estimate is 0.18 percent per month and the reported t-statistic is 3.47."
+            }
+          ],
+          "status": "table_only"
+        },
+        {
+          "metric_id": "all_firms_der_sa_excluding_january",
+          "label": "All-firms DER coefficient, simple average of subperiod mean estimates, excluding January",
+          "estimand": "coefficient",
+          "adjustment_model": "raw",
+          "weighting": "ew",
+          "estimate": 0.09,
+          "unit": "percent",
+          "frequency": "month",
+          "statistic": {
+            "kind": "t_stat",
+            "value": 2.47
+          },
+          "sample_period": {
+            "start_year": 1948,
+            "end_year": 1979,
+            "start_month": null,
+            "end_month": null,
+            "evidence": [
+              {
+                "location": "Table I title",
+                "quote": "",
+                "table_ref": {
+                  "table": "Table I",
+                  "row": "title",
+                  "column": "1948-1979"
+                },
+                "interpretation": ""
+              }
+            ],
+            "status": "table_only"
+          },
+          "evidence": [
+            {
+              "location": "Table I, Panel B",
+              "quote": "",
+              "table_ref": {
+                "table": "Table I",
+                "row": "Panel B: Simple Averages of the Subperiod Mean Estimates; Excluding January",
+                "column": "All-Firms Sample, DER"
+              },
+              "interpretation": "The DER estimate is 0.09 percent per month and the reported t-statistic is 2.47."
+            }
+          ],
+          "status": "table_only"
+        }
+      ]
+    },
+    "notes": "This paper's target is the monthly Fama-MacBeth expected-return regression coefficient on DER, conditional on LTEQ and BETA, rather than a conventional long-short factor return. The paper uses sequential 3-by-3-by-3 portfolio formation to create 27 portfolios before estimating monthly cross-sectional regressions."
+  },
+  "review": {
+    "schema_version": "methodreview.v2",
+    "factor_id": "073bb1d7c43cd129",
+    "capability_version": "engine_capability.v1",
+    "findings": [
+      {
+        "field_path": "timing.rebalance_frequency",
+        "kind": "ambiguous",
+        "reason": "evidence_status=inferred",
+        "empirical_impact": "high",
+        "disposition": "needs_human_confirmation",
+        "paper_value": "year",
+        "evidence": [
+          {
+            "location": "Section I.A, Sample Selection and Model Estimation",
+            "quote": "We use two-year subperiods that go from 1948-1949 to 1980-1981.",
+            "table_ref": null,
+            "interpretation": "The paper rebalances every two years; the schema menu cannot encode a biennial frequency, so year is retained as its nearest available calendar unit."
+          }
+        ]
+      },
+      {
+        "field_path": "portfolio.return_combination",
+        "kind": "unsupported",
+        "reason": "paper's stated method ('Monthly Fama-MacBeth cross-sectional regression coefficient on DER') is not in the engine's menu; the backtest will use a documented default unless corrected (see resolved config's defaults_applied).",
+        "empirical_impact": "high",
+        "disposition": "needs_human_confirmation",
+        "paper_value": "Monthly Fama-MacBeth cross-sectional regression coefficient on DER",
+        "evidence": [
+          {
+            "location": "Section I.A, Sample Selection and Model Estimation",
+            "quote": "The OLS estimates of E(j)'s are calculated for each month in our test period using (3).",
+            "table_ref": null,
+            "interpretation": "The target is a Fama-MacBeth regression coefficient, not a long-short portfolio return."
+          }
+        ]
+      },
+      {
+        "field_path": "portfolio.sorts[1].breakpoints.basis",
+        "kind": "unsupported",
+        "reason": "paper's stated method ('Within each LTEQ group') is not in the engine's menu; the backtest will use a documented default unless corrected (see resolved config's defaults_applied).",
+        "empirical_impact": "high",
+        "disposition": "needs_human_confirmation",
+        "paper_value": "Within each LTEQ group",
+        "evidence": [
+          {
+            "location": "Section I.A, Sample Selection and Model Estimation",
+            "quote": "Within each of these groups, the stocks are ranked on the portfolio-formation BETA and subdivided into three equal-sized groups.",
+            "table_ref": null,
+            "interpretation": ""
+          }
+        ]
+      },
+      {
+        "field_path": "portfolio.sorts[2].breakpoints.basis",
+        "kind": "unsupported",
+        "reason": "paper's stated method ('Within each prior LTEQ-by-portfolio-formation-BETA group') is not in the engine's menu; the backtest will use a documented default unless corrected (see resolved config's defaults_applied).",
+        "empirical_impact": "high",
+        "disposition": "needs_human_confirmation",
+        "paper_value": "Within each prior LTEQ-by-portfolio-formation-BETA group",
+        "evidence": [
+          {
+            "location": "Section I.A, Sample Selection and Model Estimation",
+            "quote": "They are further subdivided into three equal-sized groups each after ranking the stocks on DER.",
+            "table_ref": null,
+            "interpretation": ""
+          }
+        ]
+      },
+      {
+        "field_path": "data.fields[0].source_table",
+        "kind": "ambiguous",
+        "reason": "evidence_status=inferred",
+        "empirical_impact": "high",
+        "disposition": "needs_human_confirmation",
+        "paper_value": "comp_funda",
+        "evidence": [
+          {
+            "location": "Data catalog mapping",
+            "quote": "",
+            "table_ref": null,
+            "interpretation": "The registered Compustat annual total-assets field is the closest physical mapping to the paper's annual book value of total assets."
+          }
+        ]
+      },
+      {
+        "field_path": "data.fields[0].source_column",
+        "kind": "ambiguous",
+        "reason": "evidence_status=inferred",
+        "empirical_impact": "high",
+        "disposition": "needs_human_confirmation",
+        "paper_value": "at",
+        "evidence": [
+          {
+            "location": "Data catalog mapping",
+            "quote": "",
+            "table_ref": null,
+            "interpretation": "Catalog column AT is defined as total balance-sheet assets."
+          }
+        ]
+      },
+      {
+        "field_path": "data.fields[1].source_table",
+        "kind": "ambiguous",
+        "reason": "evidence_status=inferred",
+        "empirical_impact": "high",
+        "disposition": "needs_human_confirmation",
+        "paper_value": "comp_funda",
+        "evidence": [
+          {
+            "location": "Data catalog mapping",
+            "quote": "",
+            "table_ref": null,
+            "interpretation": "The registered Compustat annual common-equity field is the closest physical mapping to the paper's book value of common equity."
+          }
+        ]
+      },
+      {
+        "field_path": "data.fields[1].source_column",
+        "kind": "ambiguous",
+        "reason": "evidence_status=inferred",
+        "empirical_impact": "high",
+        "disposition": "needs_human_confirmation",
+        "paper_value": "ceq",
+        "evidence": [
+          {
+            "location": "Data catalog mapping",
+            "quote": "",
+            "table_ref": null,
+            "interpretation": "Catalog column CEQ is defined as total common/ordinary equity."
+          }
+        ]
+      },
+      {
+        "field_path": "data.fields[2].source_table",
+        "kind": "ambiguous",
+        "reason": "evidence_status=inferred",
+        "empirical_impact": "high",
+        "disposition": "needs_human_confirmation",
+        "paper_value": "crsp_msf",
+        "evidence": [
+          {
+            "location": "Data catalog mapping",
+            "quote": "",
+            "table_ref": null,
+            "interpretation": "The paper identifies the CRSP monthly stock returns file."
+          }
+        ]
+      },
+      {
+        "field_path": "data.fields[2].source_column",
+        "kind": "ambiguous",
+        "reason": "evidence_status=inferred",
+        "empirical_impact": "high",
+        "disposition": "needs_human_confirmation",
+        "paper_value": "shrout",
+        "evidence": [
+          {
+            "location": "Data catalog mapping",
+            "quote": "",
+            "table_ref": null,
+            "interpretation": "Catalog column SHROUT is shares outstanding."
+          }
+        ]
+      },
+      {
+        "field_path": "data.fields[3].source_table",
+        "kind": "ambiguous",
+        "reason": "evidence_status=inferred",
+        "empirical_impact": "high",
+        "disposition": "needs_human_confirmation",
+        "paper_value": "crsp_msf",
+        "evidence": [
+          {
+            "location": "Data catalog mapping",
+            "quote": "",
+            "table_ref": null,
+            "interpretation": "The paper identifies the CRSP monthly stock returns file."
+          }
+        ]
+      },
+      {
+        "field_path": "data.fields[3].source_column",
+        "kind": "ambiguous",
+        "reason": "evidence_status=inferred",
+        "empirical_impact": "high",
+        "disposition": "needs_human_confirmation",
+        "paper_value": "prc",
+        "evidence": [
+          {
+            "location": "Data catalog mapping",
+            "quote": "",
+            "table_ref": null,
+            "interpretation": "Catalog column PRC is month-end closing price."
+          }
+        ]
+      },
+      {
+        "field_path": "data.fields[4].source_table",
+        "kind": "ambiguous",
+        "reason": "evidence_status=inferred",
+        "empirical_impact": "high",
+        "disposition": "needs_human_confirmation",
+        "paper_value": "crsp_msf",
+        "evidence": [
+          {
+            "location": "Data catalog mapping",
+            "quote": "",
+            "table_ref": null,
+            "interpretation": "The paper identifies the CRSP monthly stock returns file."
+          }
+        ]
+      },
+      {
+        "field_path": "data.fields[4].source_column",
+        "kind": "ambiguous",
+        "reason": "evidence_status=inferred",
+        "empirical_impact": "high",
+        "disposition": "needs_human_confirmation",
+        "paper_value": "ret",
+        "evidence": [
+          {
+            "location": "Data catalog mapping",
+            "quote": "",
+            "table_ref": null,
+            "interpretation": "Catalog column RET is the monthly total return."
+          }
+        ]
+      },
+      {
+        "field_path": "data.fields[5].source_table",
+        "kind": "ambiguous",
+        "reason": "evidence_status=inferred",
+        "empirical_impact": "high",
+        "disposition": "needs_human_confirmation",
+        "paper_value": "crsp_msf",
+        "evidence": [
+          {
+            "location": "Data catalog mapping",
+            "quote": "",
+            "table_ref": null,
+            "interpretation": "Individual stock return observations used to estimate BETA map to the CRSP monthly stock file."
+          }
+        ]
+      },
+      {
+        "field_path": "data.fields[5].source_column",
+        "kind": "ambiguous",
+        "reason": "evidence_status=inferred",
+        "empirical_impact": "high",
+        "disposition": "needs_human_confirmation",
+        "paper_value": "ret",
+        "evidence": [
+          {
+            "location": "Data catalog mapping",
+            "quote": "",
+            "table_ref": null,
+            "interpretation": "BETA is estimated from stock returns."
+          }
+        ]
+      },
+      {
+        "field_path": "data.fields[6].source_table",
+        "kind": "ambiguous",
+        "reason": "evidence_status=inferred",
+        "empirical_impact": "high",
+        "disposition": "needs_human_confirmation",
+        "paper_value": "crsp_msf",
+        "evidence": [
+          {
+            "location": "Data catalog mapping",
+            "quote": "",
+            "table_ref": null,
+            "interpretation": "Market equity is the registered CRSP field corresponding to total common equity before the paper's logarithmic transform."
+          }
+        ]
+      },
+      {
+        "field_path": "data.fields[6].source_column",
+        "kind": "ambiguous",
+        "reason": "evidence_status=inferred",
+        "empirical_impact": "high",
+        "disposition": "needs_human_confirmation",
+        "paper_value": "me",
+        "evidence": [
+          {
+            "location": "Data catalog mapping",
+            "quote": "",
+            "table_ref": null,
+            "interpretation": "Catalog column ME is market equity."
+          }
+        ]
+      },
+      {
+        "field_path": "portfolio.sorts",
+        "kind": "unsupported",
+        "reason": "3 sort dimensions declared, but the engine supports at most 2 -- the target dimension plus the lowest-order control dimension(s) will be kept, the rest dropped, unless corrected.",
+        "empirical_impact": "high",
+        "disposition": "needs_human_confirmation",
+        "paper_value": 3,
+        "evidence": []
+      }
+    ],
+    "all_high_impact_fields": [
+      {
+        "field_path": "signal.direction",
+        "kind": "ambiguous",
+        "reason": "evidence_status=clear",
+        "empirical_impact": "high",
+        "disposition": "auto_approve",
+        "paper_value": "positive",
+        "evidence": [
+          {
+            "location": "Section III, Summary and Conclusions",
+            "quote": "The expected returns on common stocks are positively related to the debt/equity ratio (DER), controlling for the beta and firm size, both including and excluding January.",
+            "table_ref": null,
+            "interpretation": ""
+          }
+        ]
+      },
+      {
+        "field_path": "timing.formation_rule",
+        "kind": "ambiguous",
+        "reason": "evidence_status=clear",
+        "empirical_impact": "high",
+        "disposition": "auto_approve",
+        "paper_value": "For each two-year test subperiod, use the latest available LTEQ and DER values from the preceding two years; portfolios and explanatory-variable values are then updated at the next subperiod.",
+        "evidence": [
+          {
+            "location": "Section I.A, Sample Selection and Model Estimation",
+            "quote": "For the 1948-1949 subperiod, LTEQ and DER are their latest available values during 1946-1947.",
+            "table_ref": null,
+            "interpretation": ""
+          },
+          {
+            "location": "Section I.A, Sample Selection and Model Estimation",
+            "quote": "Both the portfolios and the values of explanatory variables are updated for each new subperiod.",
+            "table_ref": null,
+            "interpretation": ""
+          }
+        ]
+      },
+      {
+        "field_path": "timing.rebalance_frequency",
+        "kind": "ambiguous",
+        "reason": "evidence_status=inferred",
+        "empirical_impact": "high",
+        "disposition": "needs_human_confirmation",
+        "paper_value": "year",
+        "evidence": [
+          {
+            "location": "Section I.A, Sample Selection and Model Estimation",
+            "quote": "We use two-year subperiods that go from 1948-1949 to 1980-1981.",
+            "table_ref": null,
+            "interpretation": "The paper rebalances every two years; the schema menu cannot encode a biennial frequency, so year is retained as its nearest available calendar unit."
+          }
+        ]
+      },
+      {
+        "field_path": "timing.holding_period",
+        "kind": "ambiguous",
+        "reason": "evidence_status=clear",
+        "empirical_impact": "high",
+        "disposition": "auto_approve",
+        "paper_value": 24,
+        "evidence": [
+          {
+            "location": "Section I.A, Sample Selection and Model Estimation",
+            "quote": "We use two-year subperiods",
+            "table_ref": null,
+            "interpretation": "Two years is converted to 24 months."
+          }
+        ]
+      },
+      {
+        "field_path": "portfolio.weighting",
+        "kind": "ambiguous",
+        "reason": "evidence_status=clear",
+        "empirical_impact": "high",
+        "disposition": "auto_approve",
+        "paper_value": "ew",
+        "evidence": [
+          {
+            "location": "Section I.A, Sample Selection and Model Estimation",
+            "quote": "The individual stocks are given equal weights (that sum to one) within a portfolio",
+            "table_ref": null,
+            "interpretation": ""
+          }
+        ]
+      },
+      {
+        "field_path": "portfolio.return_combination",
+        "kind": "unsupported",
+        "reason": "paper's stated method ('Monthly Fama-MacBeth cross-sectional regression coefficient on DER') is not in the engine's menu; the backtest will use a documented default unless corrected (see resolved config's defaults_applied).",
+        "empirical_impact": "high",
+        "disposition": "needs_human_confirmation",
+        "paper_value": "Monthly Fama-MacBeth cross-sectional regression coefficient on DER",
+        "evidence": [
+          {
+            "location": "Section I.A, Sample Selection and Model Estimation",
+            "quote": "The OLS estimates of E(j)'s are calculated for each month in our test period using (3).",
+            "table_ref": null,
+            "interpretation": "The target is a Fama-MacBeth regression coefficient, not a long-short portfolio return."
+          }
+        ]
+      },
+      {
+        "field_path": "portfolio.construction_type",
+        "kind": "ambiguous",
+        "reason": "evidence_status=clear",
+        "empirical_impact": "high",
+        "disposition": "auto_approve",
+        "paper_value": "fama_macbeth",
+        "evidence": [
+          {
+            "location": "Section I.A, Sample Selection and Model Estimation",
+            "quote": "We use the Fama-MacBeth [5] (henceforth FM) methodology with some improvements.",
+            "table_ref": null,
+            "interpretation": ""
+          }
+        ]
+      },
+      {
+        "field_path": "universe.description",
+        "kind": "ambiguous",
+        "reason": "evidence_status=clear",
+        "empirical_impact": "high",
+        "disposition": "auto_approve",
+        "paper_value": "Common stocks with at least one nonmissing monthly return during the test subperiod and sufficient data to calculate the explanatory variables and portfolio-formation beta.",
+        "evidence": [
+          {
+            "location": "Section I.A, Sample Selection and Model Estimation",
+            "quote": "All common stocks that have at least one nonmissing monthly return during 1948-1949 and have enough data available to calculate the explanatory variables as well as the portfolio-formation BETA are included in the sample.",
+            "table_ref": null,
+            "interpretation": ""
+          }
+        ]
+      },
+      {
+        "field_path": "portfolio.sorts[0].breakpoints.basis",
+        "kind": "ambiguous",
+        "reason": "evidence_status=clear",
+        "empirical_impact": "high",
+        "disposition": "auto_approve",
+        "paper_value": "full_sample",
+        "evidence": [
+          {
+            "location": "Section I.A, Sample Selection and Model Estimation",
+            "quote": "All sample stocks are first ranked on LTEQ",
+            "table_ref": null,
+            "interpretation": ""
+          }
+        ]
+      },
+      {
+        "field_path": "portfolio.sorts[0].group_type",
+        "kind": "ambiguous",
+        "reason": "evidence_status=clear",
+        "empirical_impact": "high",
+        "disposition": "auto_approve",
+        "paper_value": "quantile",
+        "evidence": [
+          {
+            "location": "Section I.A, Sample Selection and Model Estimation",
+            "quote": "divided into three groups containing equal numbers of stocks.",
+            "table_ref": null,
+            "interpretation": ""
+          }
+        ]
+      },
+      {
+        "field_path": "portfolio.sorts[0].mode",
+        "kind": "ambiguous",
+        "reason": "evidence_status=clear",
+        "empirical_impact": "high",
+        "disposition": "auto_approve",
+        "paper_value": "independent",
+        "evidence": [
+          {
+            "location": "Section I.A, Sample Selection and Model Estimation",
+            "quote": "All sample stocks are first ranked on LTEQ and divided into three groups containing equal numbers of stocks.",
+            "table_ref": null,
+            "interpretation": ""
+          }
+        ]
+      },
+      {
+        "field_path": "portfolio.sorts[1].breakpoints.basis",
+        "kind": "unsupported",
+        "reason": "paper's stated method ('Within each LTEQ group') is not in the engine's menu; the backtest will use a documented default unless corrected (see resolved config's defaults_applied).",
+        "empirical_impact": "high",
+        "disposition": "needs_human_confirmation",
+        "paper_value": "Within each LTEQ group",
+        "evidence": [
+          {
+            "location": "Section I.A, Sample Selection and Model Estimation",
+            "quote": "Within each of these groups, the stocks are ranked on the portfolio-formation BETA and subdivided into three equal-sized groups.",
+            "table_ref": null,
+            "interpretation": ""
+          }
+        ]
+      },
+      {
+        "field_path": "portfolio.sorts[1].group_type",
+        "kind": "ambiguous",
+        "reason": "evidence_status=clear",
+        "empirical_impact": "high",
+        "disposition": "auto_approve",
+        "paper_value": "quantile",
+        "evidence": [
+          {
+            "location": "Section I.A, Sample Selection and Model Estimation",
+            "quote": "subdivided into three equal-sized groups.",
+            "table_ref": null,
+            "interpretation": ""
+          }
+        ]
+      },
+      {
+        "field_path": "portfolio.sorts[1].mode",
+        "kind": "ambiguous",
+        "reason": "evidence_status=clear",
+        "empirical_impact": "high",
+        "disposition": "auto_approve",
+        "paper_value": "sequential",
+        "evidence": [
+          {
+            "location": "Section I.A, Sample Selection and Model Estimation",
+            "quote": "Within each of these groups, the stocks are ranked on the portfolio-formation BETA and subdivided into three equal-sized groups.",
+            "table_ref": null,
+            "interpretation": ""
+          }
+        ]
+      },
+      {
+        "field_path": "portfolio.sorts[2].breakpoints.basis",
+        "kind": "unsupported",
+        "reason": "paper's stated method ('Within each prior LTEQ-by-portfolio-formation-BETA group') is not in the engine's menu; the backtest will use a documented default unless corrected (see resolved config's defaults_applied).",
+        "empirical_impact": "high",
+        "disposition": "needs_human_confirmation",
+        "paper_value": "Within each prior LTEQ-by-portfolio-formation-BETA group",
+        "evidence": [
+          {
+            "location": "Section I.A, Sample Selection and Model Estimation",
+            "quote": "They are further subdivided into three equal-sized groups each after ranking the stocks on DER.",
+            "table_ref": null,
+            "interpretation": ""
+          }
+        ]
+      },
+      {
+        "field_path": "portfolio.sorts[2].group_type",
+        "kind": "ambiguous",
+        "reason": "evidence_status=clear",
+        "empirical_impact": "high",
+        "disposition": "auto_approve",
+        "paper_value": "quantile",
+        "evidence": [
+          {
+            "location": "Section I.A, Sample Selection and Model Estimation",
+            "quote": "three equal-sized groups",
+            "table_ref": null,
+            "interpretation": ""
+          }
+        ]
+      },
+      {
+        "field_path": "portfolio.sorts[2].mode",
+        "kind": "ambiguous",
+        "reason": "evidence_status=clear",
+        "empirical_impact": "high",
+        "disposition": "auto_approve",
+        "paper_value": "sequential",
+        "evidence": [
+          {
+            "location": "Section I.A, Sample Selection and Model Estimation",
+            "quote": "They are further subdivided into three equal-sized groups each after ranking the stocks on DER.",
+            "table_ref": null,
+            "interpretation": ""
+          }
+        ]
+      },
+      {
+        "field_path": "portfolio.missing_policies[0].action",
+        "kind": "ambiguous",
+        "reason": "evidence_status=clear",
+        "empirical_impact": "high",
+        "disposition": "auto_approve",
+        "paper_value": "drop",
+        "evidence": [
+          {
+            "location": "Section I.A, Sample Selection and Model Estimation",
+            "quote": "except for the stocks having missing returns for a month, which are excluded for that month.",
+            "table_ref": null,
+            "interpretation": ""
+          }
+        ]
+      },
+      {
+        "field_path": "data.fields[0].source_table",
+        "kind": "ambiguous",
+        "reason": "evidence_status=inferred",
+        "empirical_impact": "high",
+        "disposition": "needs_human_confirmation",
+        "paper_value": "comp_funda",
+        "evidence": [
+          {
+            "location": "Data catalog mapping",
+            "quote": "",
+            "table_ref": null,
+            "interpretation": "The registered Compustat annual total-assets field is the closest physical mapping to the paper's annual book value of total assets."
+          }
+        ]
+      },
+      {
+        "field_path": "data.fields[0].source_column",
+        "kind": "ambiguous",
+        "reason": "evidence_status=inferred",
+        "empirical_impact": "high",
+        "disposition": "needs_human_confirmation",
+        "paper_value": "at",
+        "evidence": [
+          {
+            "location": "Data catalog mapping",
+            "quote": "",
+            "table_ref": null,
+            "interpretation": "Catalog column AT is defined as total balance-sheet assets."
+          }
+        ]
+      },
+      {
+        "field_path": "data.fields[1].source_table",
+        "kind": "ambiguous",
+        "reason": "evidence_status=inferred",
+        "empirical_impact": "high",
+        "disposition": "needs_human_confirmation",
+        "paper_value": "comp_funda",
+        "evidence": [
+          {
+            "location": "Data catalog mapping",
+            "quote": "",
+            "table_ref": null,
+            "interpretation": "The registered Compustat annual common-equity field is the closest physical mapping to the paper's book value of common equity."
+          }
+        ]
+      },
+      {
+        "field_path": "data.fields[1].source_column",
+        "kind": "ambiguous",
+        "reason": "evidence_status=inferred",
+        "empirical_impact": "high",
+        "disposition": "needs_human_confirmation",
+        "paper_value": "ceq",
+        "evidence": [
+          {
+            "location": "Data catalog mapping",
+            "quote": "",
+            "table_ref": null,
+            "interpretation": "Catalog column CEQ is defined as total common/ordinary equity."
+          }
+        ]
+      },
+      {
+        "field_path": "data.fields[2].source_table",
+        "kind": "ambiguous",
+        "reason": "evidence_status=inferred",
+        "empirical_impact": "high",
+        "disposition": "needs_human_confirmation",
+        "paper_value": "crsp_msf",
+        "evidence": [
+          {
+            "location": "Data catalog mapping",
+            "quote": "",
+            "table_ref": null,
+            "interpretation": "The paper identifies the CRSP monthly stock returns file."
+          }
+        ]
+      },
+      {
+        "field_path": "data.fields[2].source_column",
+        "kind": "ambiguous",
+        "reason": "evidence_status=inferred",
+        "empirical_impact": "high",
+        "disposition": "needs_human_confirmation",
+        "paper_value": "shrout",
+        "evidence": [
+          {
+            "location": "Data catalog mapping",
+            "quote": "",
+            "table_ref": null,
+            "interpretation": "Catalog column SHROUT is shares outstanding."
+          }
+        ]
+      },
+      {
+        "field_path": "data.fields[3].source_table",
+        "kind": "ambiguous",
+        "reason": "evidence_status=inferred",
+        "empirical_impact": "high",
+        "disposition": "needs_human_confirmation",
+        "paper_value": "crsp_msf",
+        "evidence": [
+          {
+            "location": "Data catalog mapping",
+            "quote": "",
+            "table_ref": null,
+            "interpretation": "The paper identifies the CRSP monthly stock returns file."
+          }
+        ]
+      },
+      {
+        "field_path": "data.fields[3].source_column",
+        "kind": "ambiguous",
+        "reason": "evidence_status=inferred",
+        "empirical_impact": "high",
+        "disposition": "needs_human_confirmation",
+        "paper_value": "prc",
+        "evidence": [
+          {
+            "location": "Data catalog mapping",
+            "quote": "",
+            "table_ref": null,
+            "interpretation": "Catalog column PRC is month-end closing price."
+          }
+        ]
+      },
+      {
+        "field_path": "data.fields[4].source_table",
+        "kind": "ambiguous",
+        "reason": "evidence_status=inferred",
+        "empirical_impact": "high",
+        "disposition": "needs_human_confirmation",
+        "paper_value": "crsp_msf",
+        "evidence": [
+          {
+            "location": "Data catalog mapping",
+            "quote": "",
+            "table_ref": null,
+            "interpretation": "The paper identifies the CRSP monthly stock returns file."
+          }
+        ]
+      },
+      {
+        "field_path": "data.fields[4].source_column",
+        "kind": "ambiguous",
+        "reason": "evidence_status=inferred",
+        "empirical_impact": "high",
+        "disposition": "needs_human_confirmation",
+        "paper_value": "ret",
+        "evidence": [
+          {
+            "location": "Data catalog mapping",
+            "quote": "",
+            "table_ref": null,
+            "interpretation": "Catalog column RET is the monthly total return."
+          }
+        ]
+      },
+      {
+        "field_path": "data.fields[5].source_table",
+        "kind": "ambiguous",
+        "reason": "evidence_status=inferred",
+        "empirical_impact": "high",
+        "disposition": "needs_human_confirmation",
+        "paper_value": "crsp_msf",
+        "evidence": [
+          {
+            "location": "Data catalog mapping",
+            "quote": "",
+            "table_ref": null,
+            "interpretation": "Individual stock return observations used to estimate BETA map to the CRSP monthly stock file."
+          }
+        ]
+      },
+      {
+        "field_path": "data.fields[5].source_column",
+        "kind": "ambiguous",
+        "reason": "evidence_status=inferred",
+        "empirical_impact": "high",
+        "disposition": "needs_human_confirmation",
+        "paper_value": "ret",
+        "evidence": [
+          {
+            "location": "Data catalog mapping",
+            "quote": "",
+            "table_ref": null,
+            "interpretation": "BETA is estimated from stock returns."
+          }
+        ]
+      },
+      {
+        "field_path": "data.fields[6].source_table",
+        "kind": "ambiguous",
+        "reason": "evidence_status=inferred",
+        "empirical_impact": "high",
+        "disposition": "needs_human_confirmation",
+        "paper_value": "crsp_msf",
+        "evidence": [
+          {
+            "location": "Data catalog mapping",
+            "quote": "",
+            "table_ref": null,
+            "interpretation": "Market equity is the registered CRSP field corresponding to total common equity before the paper's logarithmic transform."
+          }
+        ]
+      },
+      {
+        "field_path": "data.fields[6].source_column",
+        "kind": "ambiguous",
+        "reason": "evidence_status=inferred",
+        "empirical_impact": "high",
+        "disposition": "needs_human_confirmation",
+        "paper_value": "me",
+        "evidence": [
+          {
+            "location": "Data catalog mapping",
+            "quote": "",
+            "table_ref": null,
+            "interpretation": "Catalog column ME is market equity."
+          }
+        ]
+      }
+    ],
+    "status_overrides": {},
+    "reextraction_attempts": 0
+  },
+  "resolution": {
+    "schema_version": "resolution.v2",
+    "factor_id": "073bb1d7c43cd129",
+    "concept_mapping": {
+      "book_value_total_assets": {
+        "source": "comp_funda",
+        "column": "at"
+      },
+      "book_value_common_equity": {
+        "source": "comp_funda",
+        "column": "ceq"
+      },
+      "shares_outstanding": {
+        "source": "crsp_msf",
+        "column": "shrout"
+      },
+      "month_end_price": {
+        "source": "crsp_msf",
+        "column": "prc"
+      },
+      "monthly_return": {
+        "source": "crsp_msf",
+        "column": "ret"
+      },
+      "estimated_beta": {
+        "source": "crsp_msf",
+        "column": "ret"
+      },
+      "log_total_common_equity": {
+        "source": "crsp_msf",
+        "column": "me"
+      }
+    },
+    "returns_source": "us_equity_crsp",
+    "cz_acronym": null,
+    "llm_matched_concepts": [],
+    "entries": [],
+    "approved_substitutions": []
+  }
+}

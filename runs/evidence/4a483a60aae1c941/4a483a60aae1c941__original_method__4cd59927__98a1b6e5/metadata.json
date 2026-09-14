@@ -1,0 +1,72 @@
+{
+  "run_id": "4a483a60aae1c941__original_method__4cd59927__98a1b6e5",
+  "factor_id": "4a483a60aae1c941",
+  "plugin_id": "4a483a60aae1c941",
+  "track": "original_method",
+  "method_spec_hash": "71dda9e0a7f0c934d1f08147eab8f93aa9edd4b8d8d9e970c6acc24cf54a515b",
+  "code_hash": "4cd599272104e3be",
+  "lifecycle_commit": "d2171631da23ce9971899797a9148a84fcff550b-dirty",
+  "data_snapshot_hash": "e59e6493f8ac05f3af7d090a041787ccf77045eff130b3896022e2c6e32c55e4",
+  "config_hash": "98a1b6e527671433",
+  "runtime_provenance": {
+    "git_commit": "d2171631da23ce9971899797a9148a84fcff550b",
+    "git_dirty": true,
+    "engine_source_hash": "84dbb7984472a7f5294d81b6233df6bbac986a9769ad4c6485e8c2eb5718eebb",
+    "python_version": "3.14.2",
+    "package_versions": {
+      "pandas": "2.3.3",
+      "numpy": "2.5.2",
+      "statsmodels": "not_installed",
+      "linearmodels": "not_installed"
+    },
+    "ff_factors_hash": "bfc216e95682647791541224633da1ea806d7ba208331353813ee7103415888b",
+    "liquidity_factors_hash": "bb0569547854ced13cfb08960650137282a2c6656d840d9e730c927e7b8f3fbe"
+  },
+  "experiment_batch_id": "",
+  "frozen_plugin_hash": "",
+  "batch_invalidated": false,
+  "batch_invalidation_reason": "",
+  "switches_flipped": null,
+  "metrics": {
+    "mean_return": 0.004045032866717718,
+    "t_stat": 3.9004645829319915,
+    "sharpe_ratio": 0.48910129358191423,
+    "alpha_capm": null,
+    "alpha_ff3": null,
+    "alpha_ff5": null,
+    "coverage": null,
+    "microcap_share": null,
+    "n_months": 836,
+    "by_sample_period": {
+      "insamp": {
+        "mean_monthly_return": 0.006772937551688962,
+        "annualized_return": 0.08127525062026754,
+        "t_stat": 3.719384499847158,
+        "n_months": 264,
+        "sharpe_ratio": 0.8026546356672699
+      },
+      "between": {
+        "mean_monthly_return": 0.009650711515703419,
+        "annualized_return": 0.11580853818844103,
+        "t_stat": 1.9774727776477035,
+        "n_months": 48,
+        "sharpe_ratio": 0.8524537737963647
+      },
+      "postpub": {
+        "mean_monthly_return": 0.0026480073695098025,
+        "annualized_return": 0.03177608843411763,
+        "t_stat": 1.7086474671715999,
+        "n_months": 384,
+        "sharpe_ratio": 0.321881983743885
+      }
+    }
+  },
+  "return_series_path": "/Users/shengzhaolei/Desktop/shengzhao lei/projects/factor-replication-agent/runs/evidence/4a483a60aae1c941/4a483a60aae1c941__original_method__4cd59927__98a1b6e5/return_series.csv",
+  "signal_series_path": "/Users/shengzhaolei/Desktop/shengzhao lei/projects/factor-replication-agent/runs/evidence/4a483a60aae1c941/4a483a60aae1c941__original_method__4cd59927__98a1b6e5/signal_series.parquet",
+  "status": "success",
+  "created_at": "2026-08-22T08:23:18.767806",
+  "logs": [
+    "artifact_sha256: {\"return_series.csv\": \"591fdc16bcd5475f3d60fda842c3706d014464073f6cf1d9be1091252d7d9b3b\", \"signal_series.parquet\": \"b385c7f34afe79b22fddb397249db0860a9697c9ce3fcd1c94c2d319dc15d1ff\"}"
+  ],
+  "repair_history": []
+}

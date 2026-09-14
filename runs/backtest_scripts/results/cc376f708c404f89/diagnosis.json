@@ -1,0 +1,285 @@
+{
+  "factor_id": "cc376f708c404f89",
+  "schema_version": 2,
+  "generated_at": "2026-08-24T09:35:33.175645+00:00",
+  "llm_model": "gpt-5.6-terra",
+  "status": "llm_assisted_proposal",
+  "overall_tag": "inconclusive",
+  "claims": [
+    {
+      "claim_type": "significance",
+      "relation": "insignificant",
+      "subject_track": "original_method",
+      "comparison_line": null,
+      "text": "",
+      "evidence_keys": [
+        "derived.tracks.original_method.vs_paper.track_significant"
+      ],
+      "stage": null,
+      "identification_level": "observational",
+      "evidence_strength": "low",
+      "reason_layer": "config_sensitivity",
+      "analysis_stage": "vs_paper",
+      "rendered_sentence": "The original_method track's spread is not statistically significant by the deterministic significance threshold."
+    },
+    {
+      "claim_type": "config_divergence",
+      "relation": "differs",
+      "subject_track": "standardized_hxz",
+      "comparison_line": null,
+      "text": "",
+      "evidence_keys": [
+        "config_diff.pairs.standardized_hxz.details.rebalance_frequency.baseline_value",
+        "config_diff.pairs.standardized_hxz.details.rebalance_frequency.track_value"
+      ],
+      "stage": "portfolio",
+      "identification_level": "observational",
+      "evidence_strength": "low",
+      "reason_layer": "config_sensitivity",
+      "analysis_stage": "vs_paper",
+      "rendered_sentence": "The standardized_hxz track's configuration differs from the baseline track."
+    },
+    {
+      "claim_type": "implementation_robustness",
+      "relation": "fragile",
+      "subject_track": null,
+      "comparison_line": null,
+      "text": "",
+      "evidence_keys": [
+        "robustness_summary.robust"
+      ],
+      "stage": null,
+      "identification_level": "harmonized",
+      "evidence_strength": "medium",
+      "reason_layer": "config_sensitivity",
+      "analysis_stage": "auxiliary",
+      "rendered_sentence": "Across the one-at-a-time ablation tracks, the result flips sign or crosses the significance threshold relative to the baseline for at least one implementation choice."
+    },
+    {
+      "claim_type": "publication_decay",
+      "relation": "stable",
+      "subject_track": "original_method",
+      "comparison_line": null,
+      "text": "",
+      "evidence_keys": [
+        "publication_decay.tracks.original_method.decayed"
+      ],
+      "stage": null,
+      "identification_level": "observational",
+      "evidence_strength": "low",
+      "reason_layer": "temporal_pattern",
+      "analysis_stage": "auxiliary",
+      "rendered_sentence": "The original_method track's significance is stable across the in-sample/post-publication split."
+    },
+    {
+      "claim_type": "switch_significance",
+      "relation": "significant",
+      "subject_track": null,
+      "comparison_line": "to_cz",
+      "text": "",
+      "evidence_keys": [
+        "paired_tests.to_cz.per_switch.weighting.t_stat"
+      ],
+      "stage": null,
+      "identification_level": "harmonized",
+      "evidence_strength": "medium",
+      "reason_layer": "config_sensitivity",
+      "analysis_stage": "per_switch",
+      "rendered_sentence": "On the vs. C&Z actual config line, the weighting switch's own paired effect (vs. baseline) is statistically significant."
+    },
+    {
+      "claim_type": "evidence_limitation",
+      "relation": "unavailable",
+      "subject_track": null,
+      "comparison_line": null,
+      "text": "",
+      "evidence_keys": [
+        "gap_decomposition.available",
+        "gap_decomposition.reason"
+      ],
+      "stage": null,
+      "identification_level": "unidentified",
+      "evidence_strength": "low",
+      "reason_layer": "config_sensitivity",
+      "analysis_stage": "auxiliary",
+      "rendered_sentence": "The evidence needed to determine the requested comparison is not available."
+    }
+  ],
+  "rejected_claims": [],
+  "summary": [
+    {
+      "comparison_line": null,
+      "section": null,
+      "overall_tag": "inconclusive",
+      "per_switch_summary": {},
+      "joint_supported": null,
+      "dominant_switches": [],
+      "headline": "",
+      "intro": "",
+      "rows": [],
+      "narrative": [],
+      "footnote": "",
+      "glossary": {}
+    },
+    {
+      "comparison_line": "to_cz",
+      "section": "vs_cz",
+      "overall_tag": "inconclusive",
+      "per_switch_summary": {
+        "weighting": "significant"
+      },
+      "joint_supported": null,
+      "dominant_switches": [],
+      "headline": "Compared with C&Z's independent replication of this paper, at least one difference is NOT explained by paper ambiguity or a catalogued C&Z convention -- this warrants human review rather than being written off as expected variation.",
+      "intro": "Rows tagged \"C&Z convention\" are overridden by C&Z the same way for every factor, regardless of what this paper itself says -- not paper ambiguity, and not a likely implementation error.",
+      "rows": [
+        {
+          "label": "Portfolio weighting",
+          "ours": "value-weighted",
+          "theirs": "equal-weighted",
+          "effect": "-0.00258/month (t=-2.20), statistically significant",
+          "tag": "C&Z convention",
+          "note": ""
+        },
+        {
+          "label": "Rebalance frequency",
+          "ours": "monthly",
+          "theirs": "annual",
+          "effect": "-0.00068/month (t=-0.73), not statistically significant",
+          "tag": "unresolved",
+          "note": "Not explained by paper ambiguity or a catalogued C&Z convention -- an open question warranting human review."
+        },
+        {
+          "label": "Stock universe",
+          "ours": "the paper describes it as: \"All non-financial firms on the NYSE.\"",
+          "theirs": "ordinary common stock listed on the NYSE, AMEX, or Nasdaq exchanges -- C&Z's own fixed cross-factor universe convention, applied identically to every C&Z factor regardless of what any individual paper's own universe description says",
+          "effect": "-0.00023/month (t=-0.55), not statistically significant",
+          "tag": "C&Z convention",
+          "note": ""
+        },
+        {
+          "label": "Number of portfolio groups",
+          "ours": "10 groups (deciles)",
+          "theirs": "5 groups (quintiles)",
+          "effect": "+0.00007/month (t=0.07), not statistically significant",
+          "tag": "C&Z convention",
+          "note": ""
+        },
+        {
+          "label": "Accounting lag",
+          "ours": "1 month",
+          "theirs": "6 months",
+          "effect": "no paired-test evidence is available for this setting",
+          "tag": "C&Z convention",
+          "note": ""
+        },
+        {
+          "label": "Formation lag",
+          "ours": "0 months",
+          "theirs": "1 month",
+          "effect": "no paired-test evidence is available for this setting",
+          "tag": "C&Z convention",
+          "note": ""
+        },
+        {
+          "label": "Holding period",
+          "ours": "1",
+          "theirs": "12",
+          "effect": "no paired-test evidence is available for this setting",
+          "tag": "unresolved",
+          "note": "Not explained by paper ambiguity or a catalogued C&Z convention -- an open question warranting human review."
+        },
+        {
+          "label": "Sample start year",
+          "ours": "1963",
+          "theirs": "1962",
+          "effect": "no paired-test evidence is available for this setting",
+          "tag": "unresolved",
+          "note": "Not explained by paper ambiguity or a catalogued C&Z convention -- an open question warranting human review."
+        }
+      ],
+      "narrative": [],
+      "footnote": "Joint test unavailable on this line: HAC covariance matrix of the contrast means is singular. No C&Z signal bridge track was run for this factor, so any residual gap above cannot be attributed between a difference in how the signal formula itself was read and a difference in data or sample -- this report cannot separate the two.",
+      "glossary": {
+        "portfolio weighting": "whether bigger companies count for more in the portfolio, or every stock counts equally",
+        "rebalance frequency": "how often the portfolio is updated with new picks",
+        "stock universe": "which stocks are allowed into consideration at all",
+        "number of portfolio groups": "how many groups stocks are split into",
+        "accounting lag": "how many months we wait after a company's fiscal year ends before using its accounting data (real investors can't see the numbers the instant the year ends)",
+        "formation lag": "how long after picking which stocks go in a portfolio before that portfolio actually starts trading (a safety delay so the strategy can't accidentally use information before it was realistically available)",
+        "holding period": "how long each portfolio is held before being replaced",
+        "sample start year": "the first year of data used"
+      }
+    },
+    {
+      "comparison_line": "to_hxz",
+      "section": "robustness",
+      "overall_tag": "inconclusive",
+      "per_switch_summary": {},
+      "joint_supported": null,
+      "dominant_switches": [],
+      "headline": "Across 4 alternative implementation choice(s), the result is NOT fully stable: 1 sign flip(s), 0 significance-threshold crossing(s) (t-stat range 0.79).",
+      "intro": "",
+      "rows": [],
+      "narrative": [
+        "Post-publication decay is not identifiable here: our own replication was already not statistically significant in-sample.",
+        "The t-stat gap vs the standardized HXZ protocol is driven mainly by the volatility channel, not the others -- so it is not simply an artefact of a misaligned sample window."
+      ],
+      "footnote": "Used as sensitivity context, not itself the reproducibility question.",
+      "glossary": {}
+    }
+  ],
+  "vs_paper_summary": {
+    "section": "reproduction",
+    "headline": "",
+    "intro": "",
+    "rows": [],
+    "narrative": [],
+    "footnote": "",
+    "glossary": {}
+  },
+  "spec_quality_summary": {
+    "comparison_line": null,
+    "section": "spec_quality",
+    "overall_tag": "inconclusive",
+    "per_switch_summary": {},
+    "joint_supported": null,
+    "dominant_switches": [],
+    "headline": "13 setting(s) were flagged as weakly specified by the paper, and 1 setting(s) the paper required fall outside the engine's menu.",
+    "intro": "",
+    "rows": [
+      {
+        "label": "Timing.holding period, data.fields[0].source table, data.fields[0].source column, data.fields[1].source table, data.fields[1].source column, data.fields[2].source column, data.fields[3].source table, data.fields[3].source column, data.fields[4].source table, data.fields[4].source column",
+        "ours": "",
+        "theirs": "",
+        "effect": "evidence_status=inferred",
+        "tag": "needs_human_confirmation",
+        "note": ""
+      },
+      {
+        "label": "Portfolio.sorts[0].breakpoints.basis, portfolio.sorts[0].group type, portfolio.sorts[0].mode",
+        "ours": "",
+        "theirs": "",
+        "effect": "evidence_status=unspecified",
+        "tag": "needs_human_confirmation",
+        "note": ""
+      },
+      {
+        "label": "Portfolio.weighting",
+        "ours": "",
+        "theirs": "",
+        "effect": "paper's stated value ('both ew and vw are applied') not expressible by the engine's fixed menu",
+        "tag": "unsupported",
+        "note": "Clamped to the menu default rather than code-generated."
+      }
+    ],
+    "narrative": [],
+    "footnote": "",
+    "glossary": {}
+  },
+  "paper_verdict_agreement": {
+    "available": true,
+    "verdict": "conflict",
+    "headline": "C&Z's and HXZ's own published results for this factor DISAGREE with each other -- this is independent of anything our engine ran."
+  }
+}

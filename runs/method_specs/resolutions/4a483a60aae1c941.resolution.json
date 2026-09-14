@@ -1,0 +1,23 @@
+{
+  "schema_version": "resolution.v2",
+  "factor_id": "4a483a60aae1c941",
+  "concept_mapping": {
+    "sales": {
+      "source": "compustat_fundamental_annual",
+      "column": "sale"
+    },
+    "exchcd": {
+      "source": "crsp_msf",
+      "column": "exchcd"
+    },
+    "market_equity": {
+      "source": "crsp_msf",
+      "column": "me"
+    }
+  },
+  "returns_source": "us_equity_crsp",
+  "cz_acronym": null,
+  "llm_matched_concepts": [],
+  "entries": [],
+  "approved_substitutions": []
+}

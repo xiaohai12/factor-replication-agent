@@ -1,0 +1,733 @@
+{
+  "target_name": "MeanRankRevGrowth",
+  "paper": {
+    "document_id": "Contrarian investment, extrapolation, and risk.pdf",
+    "title": "Contrarian Investment, Extrapolation, and Risk",
+    "citation": "Lakonishok, Josef, Andrei Shleifer, and Robert W. Vishny (1993), NBER Working Paper No. 4360.",
+    "publication_year": 1993
+  },
+  "signal": {
+    "definition": {
+      "value": "The pre-formation five-year weighted average rank of annual sales growth, with more recent annual growth ranks receiving greater weight.",
+      "evidence": [
+        {
+          "location": "Section III, discussion preceding Table 4",
+          "quote": "Finally, we form deciles based on each stock's weighted average growth of sales rank.",
+          "table_ref": null,
+          "interpretation": ""
+        }
+      ],
+      "status": "clear",
+      "unsupported_value": null
+    },
+    "economic_intuition": {
+      "value": "Past sales growth identifies glamour versus value stocks: high past growth stocks are glamour stocks and low past growth stocks are out-of-favor or value stocks.",
+      "evidence": [
+        {
+          "location": "Section III, discussion of growth-in-sales strategy",
+          "quote": "The extrapolation story, as well as the evidence discussed above, suggests that stocks with high past growth are typically glamour stocks, and stocks with low past growth are out-of-favor or value stocks.",
+          "table_ref": null,
+          "interpretation": ""
+        }
+      ],
+      "status": "clear",
+      "unsupported_value": null
+    },
+    "direction": {
+      "value": "negative",
+      "evidence": [
+        {
+          "location": "Section III, discussion of Table 4",
+          "quote": "On average, over the S post-formation years, the low oS strategy earns an abnormal return of 2.2 percent, and the high GS strategy earns the abnormal return of -2.4 percent.",
+          "table_ref": null,
+          "interpretation": "Lower weighted average sales-growth ranks have higher subsequent size-adjusted returns."
+        }
+      ],
+      "status": "clear",
+      "unsupported_value": null
+    },
+    "category": "continuous",
+    "formula": {
+      "paper_expression": "For each company, calculate annual sales growth in each of years -1 through -5 relative to formation; rank all companies by sales growth separately in each year; compute a weighted average of those ranks with weights 5, 4, 3, 2, and 1 from year -1 through year -5.",
+      "steps": [
+        {
+          "step_id": "annual_sales_growth",
+          "description": "Calculate each firm's annual sales growth for each of the five pre-formation years.",
+          "expression": "sales_growth_year_k = (sales_year_k / sales_year_k_minus_1) - 1, for k in {-1, -2, -3, -4, -5}",
+          "status": "clear",
+          "evidence": [
+            {
+              "location": "Section III, discussion preceding Table 4",
+              "quote": "Specifically, for each company for each of years -1, -2, ..., -5 prior to formation we calculated the growth of sales in that year.",
+              "table_ref": null,
+              "interpretation": ""
+            }
+          ]
+        },
+        {
+          "step_id": "annual_sales_growth_rank",
+          "description": "Rank all companies by sales growth separately for each pre-formation year.",
+          "expression": "annual_sales_growth_rank_year_k = rank(annual_sales_growth_year_k), for k in {-1, -2, -3, -4, -5}",
+          "status": "clear",
+          "evidence": [
+            {
+              "location": "Section III, discussion preceding Table 4",
+              "quote": "Then, for each year, we rank all companies by growth in sales for thatyear.",
+              "table_ref": null,
+              "interpretation": ""
+            }
+          ]
+        },
+        {
+          "step_id": "weighted_average_sales_growth_rank",
+          "description": "Compute the weighted average sales-growth rank, assigning greater weight to more recent growth ranks.",
+          "expression": "weighted_average_sales_growth_rank = (5 * annual_sales_growth_rank_year_minus_1 + 4 * annual_sales_growth_rank_year_minus_2 + 3 * annual_sales_growth_rank_year_minus_3 + 2 * annual_sales_growth_rank_year_minus_4 + annual_sales_growth_rank_year_minus_5) / 15",
+          "status": "clear",
+          "evidence": [
+            {
+              "location": "Section III, discussion preceding Table 4",
+              "quote": "For each company, we then compute its weighted average rank, giving the weight of 5 to its growth rank in year -I, the weight of 4 to its growth rank in year -2, etc.",
+              "table_ref": null,
+              "interpretation": "The omitted weights are interpreted as descending by one per earlier year, yielding weights 5, 4, 3, 2, and 1."
+            }
+          ]
+        }
+      ],
+      "inputs": [
+        "sales"
+      ],
+      "constants": {
+        "weight_year_minus_1": 5.0,
+        "weight_year_minus_2": 4.0,
+        "weight_year_minus_3": 3.0,
+        "weight_year_minus_4": 2.0,
+        "weight_year_minus_5": 1.0
+      },
+      "output_concept": "weighted_average_sales_growth_rank",
+      "evidence": [
+        {
+          "location": "Table 4 caption",
+          "quote": "10 dec11. portfolios .10 formed based on hi pie-formation 5 year weighted average rank of sales growth.",
+          "table_ref": null,
+          "interpretation": ""
+        }
+      ]
+    },
+    "estimation": null
+  },
+  "data": {
+    "signal_frequency": {
+      "value": "year",
+      "evidence": [
+        {
+          "location": "Section III, discussion preceding Table 4",
+          "quote": "Specifically, for each company for each of years -1, -2, ..., -5 prior to formation we calculated the growth of sales in that year.",
+          "table_ref": null,
+          "interpretation": ""
+        }
+      ],
+      "status": "clear",
+      "unsupported_value": null
+    },
+    "return_frequency": {
+      "value": "year",
+      "evidence": [
+        {
+          "location": "Section II, Methodology",
+          "quote": "For each of our portfolios, we compute returns using a buy-and-hold strategy for years +1, +2,..., +5 relative to the time of formation.",
+          "table_ref": null,
+          "interpretation": ""
+        }
+      ],
+      "status": "clear",
+      "unsupported_value": null
+    },
+    "sources": [
+      {
+        "value": "CRSP",
+        "evidence": [
+          {
+            "location": "Section II, Methodology",
+            "quote": "We ex.mine subsequent performance and other characteristics of these portfolios for up tosyeazs after formationusing returns data from CRSP and accounting data from COMPUSTAT (including the research file).",
+            "table_ref": null,
+            "interpretation": ""
+          }
+        ],
+        "status": "clear",
+        "unsupported_value": null
+      },
+      {
+        "value": "COMPUSTAT",
+        "evidence": [
+          {
+            "location": "Section II, Methodology",
+            "quote": "All accounting variables are taken from COMPUSTAT.",
+            "table_ref": null,
+            "interpretation": ""
+          }
+        ],
+        "status": "clear",
+        "unsupported_value": null
+      }
+    ],
+    "fields": [
+      {
+        "concept_id": "sales",
+        "name_in_paper": "sales",
+        "description": "Net sales used to calculate annual pre-formation sales growth.",
+        "paper_source_hint": "COMPUSTAT accounting variable",
+        "roles": [
+          "signal_input"
+        ],
+        "evidence": [
+          {
+            "location": "Section III, discussion preceding Table 4",
+            "quote": "We measure past growth by growth in sales, GS",
+            "table_ref": null,
+            "interpretation": ""
+          }
+        ],
+        "source_table": {
+          "value": "compustat_fundamental_annual",
+          "evidence": [
+            {
+              "location": "Section II, Methodology",
+              "quote": "All accounting variables are taken from COMPUSTAT.",
+              "table_ref": null,
+              "interpretation": ""
+            }
+          ],
+          "status": "clear",
+          "unsupported_value": null
+        },
+        "source_column": {
+          "value": "sale",
+          "evidence": [
+            {
+              "location": "Section III, discussion preceding Table 4",
+              "quote": "We measure past growth by growth in sales, GS",
+              "table_ref": null,
+              "interpretation": "The registered Compustat annual column SALE is the catalog's net-sales measure matching the paper's sales variable."
+            }
+          ],
+          "status": "inferred",
+          "unsupported_value": null
+        }
+      },
+      {
+        "concept_id": "exchcd",
+        "name_in_paper": "NYSE and AMEX listing",
+        "description": "CRSP listing-exchange code used to restrict the stock universe to NYSE and AMEX.",
+        "paper_source_hint": "CRSP",
+        "roles": [
+          "universe_filter"
+        ],
+        "evidence": [
+          {
+            "location": "Section II, Methodology",
+            "quote": "The universe of stocks is NYSE and AMEX.",
+            "table_ref": null,
+            "interpretation": ""
+          }
+        ],
+        "source_table": {
+          "value": "crsp_msf",
+          "evidence": [
+            {
+              "location": "Section II, Methodology",
+              "quote": "We ex.mine subsequent performance and other characteristics of these portfolios for up tosyeazs after formationusing returns data from CRSP and accounting data from COMPUSTAT (including the research file).",
+              "table_ref": null,
+              "interpretation": ""
+            }
+          ],
+          "status": "clear",
+          "unsupported_value": null
+        },
+        "source_column": {
+          "value": "exchcd",
+          "evidence": [
+            {
+              "location": "Section II, Methodology",
+              "quote": "The universe of stocks is NYSE and AMEX.",
+              "table_ref": null,
+              "interpretation": "The registered CRSP exchange-code column maps NYSE to 1 and AMEX to 2."
+            }
+          ],
+          "status": "inferred",
+          "unsupported_value": null
+        }
+      },
+      {
+        "concept_id": "market_equity",
+        "name_in_paper": "market capitalization",
+        "description": "Market capitalization used for the size reference portfolio in size-adjusted returns.",
+        "paper_source_hint": "CRSP",
+        "roles": [
+          "benchmark_input"
+        ],
+        "evidence": [
+          {
+            "location": "Section II, Methodology",
+            "quote": "At the end of each year, we recompute the market capitalization for each stock and update its size affiliation to obtain a more current size benchmark.",
+            "table_ref": null,
+            "interpretation": ""
+          }
+        ],
+        "source_table": {
+          "value": "crsp_msf",
+          "evidence": [
+            {
+              "location": "Section II, Methodology",
+              "quote": "We ex.mine subsequent performance and other characteristics of these portfolios for up tosyeazs after formationusing returns data from CRSP and accounting data from COMPUSTAT (including the research file).",
+              "table_ref": null,
+              "interpretation": ""
+            }
+          ],
+          "status": "clear",
+          "unsupported_value": null
+        },
+        "source_column": {
+          "value": "me",
+          "evidence": [
+            {
+              "location": "Section II, Methodology",
+              "quote": "At the end of each year, we recompute the market capitalization for each stock and update its size affiliation to obtain a more current size benchmark.",
+              "table_ref": null,
+              "interpretation": "The registered CRSP ME column is the catalog's market-equity measure."
+            }
+          ],
+          "status": "inferred",
+          "unsupported_value": null
+        }
+      }
+    ],
+    "coverage_notes": [
+      "The paper requires five years of prior accounting data before a company is included.",
+      "The study uses CRSP returns and COMPUSTAT accounting data, including the COMPUSTAT research file."
+    ]
+  },
+  "sample": {
+    "data_coverage": {
+      "start_year": 1963,
+      "end_year": 1990,
+      "start_month": 4,
+      "end_month": 4,
+      "evidence": [
+        {
+          "location": "Section II, Methodology",
+          "quote": "The sample period covered in this study is from the end of April, 1963, to the end of April, 1990.",
+          "table_ref": null,
+          "interpretation": ""
+        }
+      ],
+      "status": "clear"
+    },
+    "formation": {
+      "start_year": 1968,
+      "end_year": 1989,
+      "start_month": 4,
+      "end_month": 4,
+      "evidence": [
+        {
+          "location": "Table 4 caption",
+          "quote": "Al the md of each April between 1968 and 1989. 10 dec11. portfolios .10 formed",
+          "table_ref": null,
+          "interpretation": ""
+        }
+      ],
+      "status": "clear"
+    },
+    "reported_returns": {
+      "start_year": 1968,
+      "end_year": 1989,
+      "start_month": 4,
+      "end_month": 4,
+      "evidence": [
+        {
+          "location": "Table 4 caption",
+          "quote": "All numbers preseriled in the table are averages over th\u2022 22 formation periods computed 1w corresponding portlolios.",
+          "table_ref": null,
+          "interpretation": "The Table 4 results average the annual April formation periods stated in its caption."
+        }
+      ],
+      "status": "table_only"
+    }
+  },
+  "timing": {
+    "formation_rule": {
+      "value": "Form portfolios at the end of each April using the preceding five years of annual sales-growth ranks.",
+      "evidence": [
+        {
+          "location": "Table 4 caption",
+          "quote": "Al the md of each April between 1968 and 1989. 10 dec11. portfolios .10 formed based on hi pie-formation 5 year weighted average rank of sales growth.",
+          "table_ref": null,
+          "interpretation": ""
+        }
+      ],
+      "status": "clear",
+      "unsupported_value": null
+    },
+    "formation_month": {
+      "value": 4,
+      "evidence": [
+        {
+          "location": "Table 4 caption",
+          "quote": "Al the md of each April between 1968 and 1989.",
+          "table_ref": null,
+          "interpretation": ""
+        }
+      ],
+      "status": "clear",
+      "unsupported_value": null
+    },
+    "rebalance_frequency": {
+      "value": "year",
+      "evidence": [
+        {
+          "location": "Section II, Methodology",
+          "quote": "At the end of the year, the portfolio is rebalanced and each surviving stock gets the same weight.",
+          "table_ref": null,
+          "interpretation": ""
+        }
+      ],
+      "status": "clear",
+      "unsupported_value": null
+    },
+    "holding_period": {
+      "value": 12,
+      "evidence": [
+        {
+          "location": "Section II, Methodology",
+          "quote": "For each of our portfolios, we compute returns using a buy-and-hold strategy for years +1, +2,..., +5 relative to the time of formation.",
+          "table_ref": null,
+          "interpretation": "The portfolio is held for one year between annual rebalances; 1 year is converted to 12 months."
+        }
+      ],
+      "status": "clear",
+      "unsupported_value": null
+    },
+    "return_window": {
+      "start_offset": 0,
+      "end_offset": 1,
+      "unit": "year",
+      "anchor": "formation_date",
+      "is_expanding": false
+    },
+    "data_availability": {
+      "lag_value": null,
+      "lag_unit": "month",
+      "anchor": "fiscal_period_end",
+      "basis": "fixed_calendar_lag",
+      "evidence": [
+        {
+          "location": "Section II, Methodology",
+          "quote": "Since werequire 5 years of past data before including a company in the sample",
+          "table_ref": null,
+          "interpretation": "The paper requires prior data but does not state a fixed accounting-data availability lag."
+        }
+      ]
+    }
+  },
+  "universe": {
+    "description": {
+      "value": "NYSE and AMEX stocks with five years of past data available before inclusion.",
+      "evidence": [
+        {
+          "location": "Section II, Methodology",
+          "quote": "The universe of stocks is NYSE and AMEX. Since werequire 5 years of past data before including a company in the sample",
+          "table_ref": null,
+          "interpretation": ""
+        }
+      ],
+      "status": "clear",
+      "unsupported_value": null
+    },
+    "filters": [
+      {
+        "concept_id": "exchcd",
+        "op": "in",
+        "value": [
+          1,
+          2
+        ],
+        "evidence": [
+          {
+            "location": "Section II, Methodology",
+            "quote": "The universe of stocks is NYSE and AMEX.",
+            "table_ref": null,
+            "interpretation": "CRSP exchange codes 1 and 2 correspond to NYSE and AMEX."
+          }
+        ],
+        "derivation": null,
+        "accepted_unapplied": false,
+        "unapplied_reason": ""
+      }
+    ]
+  },
+  "portfolio": {
+    "construction_type": {
+      "value": "characteristic_sort",
+      "evidence": [
+        {
+          "location": "Table 4 caption",
+          "quote": "10 dec11. portfolios .10 formed based on hi pie-formation 5 year weighted average rank of sales growth.",
+          "table_ref": null,
+          "interpretation": ""
+        }
+      ],
+      "status": "clear",
+      "unsupported_value": null
+    },
+    "sorts": [
+      {
+        "sort_id": "mean_rank_rev_growth",
+        "concept_id": "weighted_average_sales_growth_rank",
+        "role": "target",
+        "order": 1,
+        "mode": {
+          "value": "independent",
+          "evidence": [
+            {
+              "location": "Table 4 caption",
+              "quote": "10 dec11. portfolios .10 formed based on hi pie-formation 5 year weighted average rank of sales growth.",
+              "table_ref": null,
+              "interpretation": "This is a single-dimensional sort; no second sorting dimension is present."
+            }
+          ],
+          "status": "inferred",
+          "unsupported_value": null
+        },
+        "group_type": {
+          "value": "quantile",
+          "evidence": [
+            {
+              "location": "Table 4 caption",
+              "quote": "10 dec11. portfolios .10 formed based on hi pie-formation 5 year weighted average rank of sales growth.",
+              "table_ref": null,
+              "interpretation": ""
+            }
+          ],
+          "status": "clear",
+          "unsupported_value": null
+        },
+        "group_count": 10,
+        "breakpoints": {
+          "basis": {
+            "value": "full_sample",
+            "evidence": [
+              {
+                "location": "Section III, discussion preceding Table 4",
+                "quote": "Then, for each year, we rank all companies by growth in sales for thatyear.",
+                "table_ref": null,
+                "interpretation": "The rank is computed across all companies in the eligible sample."
+              }
+            ],
+            "status": "clear",
+            "unsupported_value": null
+          },
+          "values": []
+        },
+        "condition_on_sort_id": null,
+        "evidence": [
+          {
+            "location": "Table 4 caption",
+            "quote": "10 dec11. portfolios .10 formed based on hi pie-formation 5 year weighted average rank of sales growth.",
+            "table_ref": null,
+            "interpretation": ""
+          }
+        ]
+      }
+    ],
+    "legs": [
+      {
+        "leg_id": "value_low_sales_growth",
+        "side": "long",
+        "selector": {
+          "mean_rank_rev_growth": 0
+        },
+        "evidence": [
+          {
+            "location": "Table 4",
+            "quote": "",
+            "table_ref": {
+              "table": "Table 4: Portfolio Returns and Characteristics Based on Growth-in-Sale",
+              "row": "A. RETURNS",
+              "column": "Decile 1 (Value)"
+            },
+            "interpretation": "Table 4 labels the lowest sales-growth-rank decile as Value."
+          }
+        ]
+      },
+      {
+        "leg_id": "glamour_high_sales_growth",
+        "side": "short",
+        "selector": {
+          "mean_rank_rev_growth": 9
+        },
+        "evidence": [
+          {
+            "location": "Table 4",
+            "quote": "",
+            "table_ref": {
+              "table": "Table 4: Portfolio Returns and Characteristics Based on Growth-in-Sale",
+              "row": "A. RETURNS",
+              "column": "Decile 10 (Glamour)"
+            },
+            "interpretation": "Table 4 labels the highest sales-growth-rank decile as Glamour."
+          }
+        ]
+      }
+    ],
+    "weighting": {
+      "value": "ew",
+      "evidence": [
+        {
+          "location": "Section II, Methodology",
+          "quote": "Within each of our groups such as deciles based on book-to-market ratios, we equally weight all the stocks.",
+          "table_ref": null,
+          "interpretation": ""
+        }
+      ],
+      "status": "clear",
+      "unsupported_value": null
+    },
+    "return_combination": {
+      "value": "extreme_group_spread",
+      "evidence": [
+        {
+          "location": "Section III, discussion of Table 4",
+          "quote": "The value strategy outperforms the glamour strategy, on average, in each of the 5 post-formation years.",
+          "table_ref": null,
+          "interpretation": "The strategy is represented as long the lowest-rank value group and short the highest-rank glamour group."
+        }
+      ],
+      "status": "clear",
+      "unsupported_value": null
+    },
+    "missing_policies": [
+      {
+        "stage": "input",
+        "action": {
+          "value": "drop",
+          "evidence": [
+            {
+              "location": "Section II, Methodology",
+              "quote": "Since werequire 5 years of past data before including a company in the sample",
+              "table_ref": null,
+              "interpretation": "Firms lacking the required five-year sales history are excluded from the signal formation sample."
+            }
+          ],
+          "status": "clear",
+          "unsupported_value": null
+        },
+        "threshold": null
+      }
+    ],
+    "transforms": [
+      {
+        "kind": "rank",
+        "stage": "after_signal",
+        "bounds": null,
+        "evidence": [
+          {
+            "location": "Section III, discussion preceding Table 4",
+            "quote": "Then, for each year, we rank all companies by growth in sales for thatyear.",
+            "table_ref": null,
+            "interpretation": "Annual sales growth is transformed to ranks before the weighted average is computed."
+          }
+        ]
+      }
+    ]
+  },
+  "reported_results": {
+    "primary_metric_id": "gs_decile_1_aab",
+    "metrics": [
+      {
+        "metric_id": "gs_decile_1_aab",
+        "label": "Average five-post-formation-year size-adjusted return, GS Decile 1 (Value)",
+        "estimand": "mean_return",
+        "adjustment_model": "other",
+        "weighting": "ew",
+        "estimate": 0.022,
+        "unit": "decimal",
+        "frequency": "year",
+        "portfolio_selector": {
+          "mean_rank_rev_growth": 0
+        },
+        "statistic": null,
+        "sample_period": {
+          "start_year": 1968,
+          "end_year": 1989,
+          "start_month": 4,
+          "end_month": 4,
+          "evidence": [
+            {
+              "location": "Table 4 caption",
+              "quote": "All numbers preseriled in the table are averages over th\u2022 22 formation periods computed 1w corresponding portlolios.",
+              "table_ref": null,
+              "interpretation": ""
+            }
+          ],
+          "status": "table_only"
+        },
+        "evidence": [
+          {
+            "location": "Table 4",
+            "quote": "",
+            "table_ref": {
+              "table": "Table 4: Portfolio Returns and Characteristics Based on Growth-in-Sale",
+              "row": "AAB",
+              "column": "Decile 1 (Value)"
+            },
+            "interpretation": "The AAB cell is .022."
+          }
+        ],
+        "status": "table_only"
+      },
+      {
+        "metric_id": "gs_decile_10_aab",
+        "label": "Average five-post-formation-year size-adjusted return, GS Decile 10 (Glamour)",
+        "estimand": "mean_return",
+        "adjustment_model": "other",
+        "weighting": "ew",
+        "estimate": -0.024,
+        "unit": "decimal",
+        "frequency": "year",
+        "portfolio_selector": {
+          "mean_rank_rev_growth": 9
+        },
+        "statistic": null,
+        "sample_period": {
+          "start_year": 1968,
+          "end_year": 1989,
+          "start_month": 4,
+          "end_month": 4,
+          "evidence": [
+            {
+              "location": "Table 4 caption",
+              "quote": "All numbers preseriled in the table are averages over th\u2022 22 formation periods computed 1w corresponding portlolios.",
+              "table_ref": null,
+              "interpretation": ""
+            }
+          ],
+          "status": "table_only"
+        },
+        "evidence": [
+          {
+            "location": "Table 4",
+            "quote": "",
+            "table_ref": {
+              "table": "Table 4: Portfolio Returns and Characteristics Based on Growth-in-Sale",
+              "row": "AAB",
+              "column": "Decile 10 (Glamour)"
+            },
+            "interpretation": "The AAB cell is -.024."
+          }
+        ],
+        "status": "table_only"
+      }
+    ],
+    "comparison_derivation": null
+  },
+  "notes": "This MethodSpec targets the paper's simple univariate GS strategy in Table 4, based on the pre-formation five-year weighted average rank of sales growth. The paper also reports a separate bivariate GS x CP strategy in Table 5; it is not merged into this executable target."
+}

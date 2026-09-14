@@ -1,0 +1,402 @@
+{
+  "factor_id": "fae312b1730eefb6",
+  "schema_version": 2,
+  "generated_at": "2026-08-24T09:35:39.170394+00:00",
+  "llm_model": "gpt-5.6-terra",
+  "status": "llm_assisted_proposal",
+  "overall_tag": "reproduced",
+  "claims": [
+    {
+      "claim_type": "sign_agreement",
+      "relation": "agrees",
+      "subject_track": "original_method",
+      "comparison_line": null,
+      "text": "",
+      "evidence_keys": [
+        "derived.tracks.original_method.vs_paper.sign_agrees"
+      ],
+      "stage": null,
+      "identification_level": "observational",
+      "evidence_strength": "low",
+      "reason_layer": "config_sensitivity",
+      "analysis_stage": "vs_paper",
+      "rendered_sentence": "The original_method track's spread sign agrees with the paper's headline sign."
+    },
+    {
+      "claim_type": "magnitude_gap",
+      "relation": "similar",
+      "subject_track": "original_method",
+      "comparison_line": null,
+      "text": "",
+      "evidence_keys": [
+        "derived.tracks.original_method.vs_paper.abs_spread_ratio"
+      ],
+      "stage": null,
+      "identification_level": "observational",
+      "evidence_strength": "low",
+      "reason_layer": "config_sensitivity",
+      "analysis_stage": "vs_paper",
+      "rendered_sentence": "The original_method track's spread magnitude is similar to the paper's headline spread."
+    },
+    {
+      "claim_type": "significance",
+      "relation": "significant",
+      "subject_track": "original_method",
+      "comparison_line": null,
+      "text": "",
+      "evidence_keys": [
+        "derived.tracks.original_method.vs_paper.track_significant"
+      ],
+      "stage": null,
+      "identification_level": "observational",
+      "evidence_strength": "low",
+      "reason_layer": "config_sensitivity",
+      "analysis_stage": "vs_paper",
+      "rendered_sentence": "The original_method track's spread is statistically significant by the deterministic significance threshold."
+    },
+    {
+      "claim_type": "config_divergence",
+      "relation": "differs",
+      "subject_track": "standardized_hxz",
+      "comparison_line": null,
+      "text": "",
+      "evidence_keys": [
+        "config_diff.pairs.standardized_hxz.details.breakpoint_source.baseline_value",
+        "config_diff.pairs.standardized_hxz.details.breakpoint_source.track_value"
+      ],
+      "stage": "portfolio",
+      "identification_level": "observational",
+      "evidence_strength": "low",
+      "reason_layer": "config_sensitivity",
+      "analysis_stage": "vs_paper",
+      "rendered_sentence": "The standardized_hxz track's configuration differs from the baseline track."
+    },
+    {
+      "claim_type": "publication_decay",
+      "relation": "decayed",
+      "subject_track": "original_method",
+      "comparison_line": null,
+      "text": "",
+      "evidence_keys": [
+        "publication_decay.tracks.original_method.decayed"
+      ],
+      "stage": null,
+      "identification_level": "observational",
+      "evidence_strength": "low",
+      "reason_layer": "temporal_pattern",
+      "analysis_stage": "auxiliary",
+      "rendered_sentence": "The original_method track's spread is significant in-sample but not statistically significant post-publication."
+    },
+    {
+      "claim_type": "gap_attribution_shapley",
+      "relation": "associated_change",
+      "subject_track": null,
+      "comparison_line": "to_hxz",
+      "text": "",
+      "evidence_keys": [
+        "shapley_attribution.to_hxz.shapley_effects.breakpoint"
+      ],
+      "stage": "unclassified",
+      "identification_level": "controlled",
+      "evidence_strength": "low",
+      "reason_layer": "config_sensitivity",
+      "analysis_stage": "per_switch",
+      "rendered_sentence": "On the vs. HXZ standardized config line, a Shapley-attributed share of the mean-return gap is associated with the breakpoint switch (full-factorial evidence: the switches' Shapley effects sum exactly to the total gap, but this alone does not establish that the breakpoint switch's own effect is statistically distinguishable from noise)."
+    },
+    {
+      "claim_type": "gap_attribution_shapley",
+      "relation": "associated_change",
+      "subject_track": null,
+      "comparison_line": "to_cz",
+      "text": "",
+      "evidence_keys": [
+        "shapley_attribution.to_cz.shapley_effects.weighting"
+      ],
+      "stage": "unclassified",
+      "identification_level": "controlled",
+      "evidence_strength": "high",
+      "reason_layer": "config_sensitivity",
+      "analysis_stage": "per_switch",
+      "rendered_sentence": "On the vs. C&Z actual config line, a Shapley-attributed share of the mean-return gap is associated with the weighting switch (full-factorial evidence: the switches' Shapley effects sum exactly to the total gap, but this alone does not establish that the weighting switch's own effect is statistically distinguishable from noise)."
+    },
+    {
+      "claim_type": "switch_significance",
+      "relation": "significant",
+      "subject_track": null,
+      "comparison_line": "to_cz",
+      "text": "",
+      "evidence_keys": [
+        "paired_tests.to_cz.per_switch.weighting.t_stat"
+      ],
+      "stage": null,
+      "identification_level": "harmonized",
+      "evidence_strength": "medium",
+      "reason_layer": "config_sensitivity",
+      "analysis_stage": "per_switch",
+      "rendered_sentence": "On the vs. C&Z actual config line, the weighting switch's own paired effect (vs. baseline) is statistically significant."
+    },
+    {
+      "claim_type": "joint_attribution_support",
+      "relation": "significant",
+      "subject_track": null,
+      "comparison_line": "to_cz",
+      "text": "",
+      "evidence_keys": [
+        "joint_test.to_cz.p_value"
+      ],
+      "stage": null,
+      "identification_level": "harmonized",
+      "evidence_strength": "medium",
+      "reason_layer": "config_sensitivity",
+      "analysis_stage": "joint_gate",
+      "rendered_sentence": "On the vs. C&Z actual config line, the switches varied jointly explain a statistically significant share of the gap (joint Wald test)."
+    },
+    {
+      "claim_type": "joint_attribution_support",
+      "relation": "insignificant",
+      "subject_track": null,
+      "comparison_line": "to_hxz",
+      "text": "",
+      "evidence_keys": [
+        "joint_test.to_hxz.p_value"
+      ],
+      "stage": null,
+      "identification_level": "harmonized",
+      "evidence_strength": "medium",
+      "reason_layer": "config_sensitivity",
+      "analysis_stage": "joint_gate",
+      "rendered_sentence": "On the vs. HXZ standardized config line, the switches varied jointly do not explain a statistically significant share of the gap (joint Wald test) -- any single-switch Shapley attribution on this line lacks joint support."
+    }
+  ],
+  "rejected_claims": [],
+  "summary": [
+    {
+      "comparison_line": null,
+      "section": null,
+      "overall_tag": "reproduced",
+      "per_switch_summary": {},
+      "joint_supported": null,
+      "dominant_switches": [],
+      "headline": "",
+      "intro": "",
+      "rows": [],
+      "narrative": [],
+      "footnote": "",
+      "glossary": {}
+    },
+    {
+      "comparison_line": "to_cz",
+      "section": "vs_cz",
+      "overall_tag": "reproduced",
+      "per_switch_summary": {
+        "weighting": "significant"
+      },
+      "joint_supported": true,
+      "dominant_switches": [
+        "weighting"
+      ],
+      "headline": "Compared with C&Z's independent replication of this paper, the differences are explained by paper ambiguity or C&Z's own conventions, but at least one has a statistically significant effect.",
+      "intro": "Rows tagged \"C&Z convention\" are overridden by C&Z the same way for every factor, regardless of what this paper itself says -- not paper ambiguity, and not a likely implementation error.",
+      "rows": [
+        {
+          "label": "Portfolio weighting",
+          "ours": "value-weighted",
+          "theirs": "equal-weighted",
+          "effect": "-0.00763/month (t=-3.03), statistically significant",
+          "tag": "C&Z convention",
+          "note": ""
+        },
+        {
+          "label": "Stock universe",
+          "ours": "the paper describes it as: \"NYSE, Amex, and NASDAQ nonfinancial firms listed on CRSP monthly stock return files and Compustat annual industrial files, excluding firms with four-digit SIC codes from 6000 through 6999.\"",
+          "theirs": "ordinary common stock listed on the NYSE, AMEX, or Nasdaq exchanges -- C&Z's own fixed cross-factor universe convention, applied identically to every C&Z factor regardless of what any individual paper's own universe description says",
+          "effect": "+0.00043/month (t=0.56), not statistically significant",
+          "tag": "C&Z convention",
+          "note": ""
+        },
+        {
+          "label": "Formation lag",
+          "ours": "0 months",
+          "theirs": "1 month",
+          "effect": "no paired-test evidence is available for this setting",
+          "tag": "C&Z convention",
+          "note": ""
+        }
+      ],
+      "narrative": [
+        "Our spread: +0.00929/month (t=4.12). C&Z's: +0.01536/month (t=7.11). Total difference: -0.00607/month.",
+        "The catalogued setting(s) below have a combined isolated effect of -0.00721/month (119% of the total). The remaining +0.00114/month (-19%) is not produced by any of them -- one-at-a-time from a single baseline: contributions need not be additive, may depend on switch order, and do not identify interactions.",
+        "Running C&Z's exact config through our engine reproduces their own published number closely (0.89x their spread, same sign, both statistically significant) -- our reimplementation of their protocol is trustworthy.",
+        "For the setting(s) a full-factorial design covers (portfolio weighting -0.00706/month; stock universe +0.00099/month), a Shapley decomposition (exact, averaged over introduction order -- unlike the one-at-a-time figures above) attributes the entire combined effect of just those settings to the shares shown. This does NOT cover 1 other real difference(s) listed above (formation lag) -- they fall outside this attribution mechanism's tracked-switch vocabulary, so their own effect is neither included in nor excluded from this split; read this Shapley split as exact only among the settings it names, not as \"100% of the total gap explained.\""
+      ],
+      "footnote": "No C&Z signal bridge track was run for this factor, so any residual gap above cannot be attributed between a difference in how the signal formula itself was read and a difference in data or sample -- this report cannot separate the two.",
+      "glossary": {
+        "portfolio weighting": "whether bigger companies count for more in the portfolio, or every stock counts equally",
+        "stock universe": "which stocks are allowed into consideration at all",
+        "formation lag": "how long after picking which stocks go in a portfolio before that portfolio actually starts trading (a safety delay so the strategy can't accidentally use information before it was realistically available)"
+      }
+    },
+    {
+      "comparison_line": "to_hxz",
+      "section": "robustness",
+      "overall_tag": "reproduced",
+      "per_switch_summary": {},
+      "joint_supported": false,
+      "dominant_switches": [],
+      "headline": "Sensitivity/stability evidence for this replication:",
+      "intro": "Per-setting contribution shares are not shown below: the joint significance test does not confirm the total change is more than noise.",
+      "rows": [
+        {
+          "label": "Breakpoint source",
+          "ours": "",
+          "theirs": "",
+          "effect": "+0.00180/month (t=1.28), not statistically significant",
+          "tag": "",
+          "note": ""
+        },
+        {
+          "label": "Stock universe",
+          "ours": "",
+          "theirs": "",
+          "effect": "+0.00052/month (t=0.87), not statistically significant",
+          "tag": "",
+          "note": ""
+        }
+      ],
+      "narrative": [
+        "Standardized HXZ protocol (a named case, not a competing replication): compared with the fully standardized HXZ protocol, our implementation's effect differs by 0.0022/month, though a joint test does not confirm this.",
+        "Running HXZ's exact config through our engine reproduces their own published number closely (1.17x their spread, same sign, both statistically significant) -- our reimplementation of their protocol is trustworthy.",
+        "Our own replication DOES decay after publication (in-sample t=4.12, post-publication t=0.16).",
+        "The t-stat gap vs the standardized HXZ protocol is driven mainly by the mean-return channel, not the others -- so it is not simply an artefact of a misaligned sample window."
+      ],
+      "footnote": "Used as sensitivity context, not itself the reproducibility question.",
+      "glossary": {
+        "breakpoint source": "which group of stocks is used to decide the cutoffs between portfolio groups",
+        "stock universe": "which stocks are allowed into consideration at all"
+      }
+    },
+    {
+      "comparison_line": "cz",
+      "section": "gap_split",
+      "overall_tag": "reproduced",
+      "per_switch_summary": {},
+      "joint_supported": null,
+      "dominant_switches": [],
+      "headline": "C&Z's own published result differs from the paper's own reported spread by +0.0068 per month.",
+      "intro": "",
+      "rows": [
+        {
+          "label": "Portfolio-construction settings alone",
+          "ours": "",
+          "theirs": "",
+          "effect": "+0.0061 per month",
+          "tag": "largest",
+          "note": ""
+        },
+        {
+          "label": "How the signal itself was computed (plus data-vintage and engine differences)",
+          "ours": "",
+          "theirs": "",
+          "effect": "+0.0019 per month",
+          "tag": "",
+          "note": ""
+        },
+        {
+          "label": "Our own run's distance from the paper's number",
+          "ours": "",
+          "theirs": "",
+          "effect": "-0.0012 per month",
+          "tag": "",
+          "note": ""
+        }
+      ],
+      "narrative": [
+        "This is an exact arithmetic split of the total distance, not a controlled experiment: it shows where the distance sits, not what caused it.",
+        "C&Z's own published result is a fixed, hand-filled reference number (no underlying return series on file) -- its sensitivity to the choice of sample window cannot be checked, not because it was found to be zero."
+      ],
+      "footnote": "The three components are not equally clean: only the settings component holds the signal fixed on both sides. The first also absorbs data-vintage and engine differences, and the last is our own replication error rather than anything the paper left ambiguous. The four numbers being compared also do not share a common sample window or estimator.",
+      "glossary": {}
+    },
+    {
+      "comparison_line": "hxz",
+      "section": "gap_split",
+      "overall_tag": "reproduced",
+      "per_switch_summary": {},
+      "joint_supported": null,
+      "dominant_switches": [],
+      "headline": "HXZ's own published result differs from the paper's own reported spread by -0.0044 per month.",
+      "intro": "",
+      "rows": [
+        {
+          "label": "Portfolio-construction settings alone",
+          "ours": "",
+          "theirs": "",
+          "effect": "-0.0022 per month",
+          "tag": "largest",
+          "note": ""
+        },
+        {
+          "label": "Our own run's distance from the paper's number",
+          "ours": "",
+          "theirs": "",
+          "effect": "-0.0012 per month",
+          "tag": "",
+          "note": ""
+        },
+        {
+          "label": "How the signal itself was computed (plus data-vintage and engine differences)",
+          "ours": "",
+          "theirs": "",
+          "effect": "-0.0010 per month",
+          "tag": "",
+          "note": ""
+        }
+      ],
+      "narrative": [
+        "This is an exact arithmetic split of the total distance, not a controlled experiment: it shows where the distance sits, not what caused it.",
+        "Recomputing HXZ's own published result over its own paper's sample window instead of this paper's moves it by +0.0016 per month -- a measure of how much the choice of sample window alone matters here."
+      ],
+      "footnote": "The three components are not equally clean: only the settings component holds the signal fixed on both sides. The first also absorbs data-vintage and engine differences, and the last is our own replication error rather than anything the paper left ambiguous. The four numbers being compared also do not share a common sample window or estimator.",
+      "glossary": {}
+    }
+  ],
+  "vs_paper_summary": {
+    "section": "reproduction",
+    "headline": "Compared with the paper's own reported result, our reviewed implementation of the paper's method agrees in sign with it; its magnitude is 0.89x the paper's own reported spread. By this project's magnitude bands (clean: 0.5x-2.0x; partial: 0.2x-5.0x; outside that, or opposite sign: failed), this counts as a clean reproduction by magnitude.",
+    "intro": "",
+    "rows": [],
+    "narrative": [
+      "Our own replication's effect ALSO decays after the paper's own publication date (in-sample t=4.12, post-publication t=0.16) -- consistent with part of the gap from the paper being a genuinely fragile or decaying signal, not only a fixed implementation or config difference."
+    ],
+    "footnote": "",
+    "glossary": {}
+  },
+  "spec_quality_summary": {
+    "comparison_line": null,
+    "section": "spec_quality",
+    "overall_tag": "inconclusive",
+    "per_switch_summary": {},
+    "joint_supported": null,
+    "dominant_switches": [],
+    "headline": "1 setting(s) were flagged as weakly specified by the paper, and 0 setting(s) the paper required fall outside the engine's menu.",
+    "intro": "",
+    "rows": [
+      {
+        "label": "Data.fields[3].source column",
+        "ours": "",
+        "theirs": "",
+        "effect": "evidence_status=inferred",
+        "tag": "needs_human_confirmation",
+        "note": ""
+      }
+    ],
+    "narrative": [],
+    "footnote": "",
+    "glossary": {}
+  },
+  "paper_verdict_agreement": {
+    "available": true,
+    "verdict": "agree_significant",
+    "headline": "C&Z's and HXZ's own published results for this factor agree with each other: both report a statistically significant effect in the same direction."
+  }
+}

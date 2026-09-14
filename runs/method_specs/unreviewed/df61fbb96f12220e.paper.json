@@ -1,0 +1,710 @@
+{
+  "schema_version": "methodspec.v2",
+  "factor_id": "df61fbb96f12220e",
+  "target_name": "turnover",
+  "paper": {
+    "document_id": "Liquidity and stock returns- An alternative test.pdf",
+    "title": "Liquidity and stock returns: An alternative test",
+    "citation": "Datar, V. T., Naik, N. Y., and Radcliffe, R. (1998). Liquidity and stock returns: An alternative test. Journal of Financial Markets, 1, 203-219.",
+    "publication_year": 1998
+  },
+  "signal": {
+    "definition": {
+      "value": "Turnover rate: the number of shares traded divided by the number of shares outstanding, expressed as a percentage.",
+      "evidence": [
+        {
+          "location": "Section 4",
+          "quote": "We then express this ratio as a percentage to obtain our turnover rate variable.",
+          "table_ref": null,
+          "interpretation": ""
+        }
+      ],
+      "status": "clear",
+      "unsupported_value": null
+    },
+    "economic_intuition": {
+      "value": "Turnover is a proxy for liquidity; lower turnover indicates lower liquidity and is predicted to be associated with higher returns.",
+      "evidence": [
+        {
+          "location": "Section 2",
+          "quote": "the observed asset return must be a decreasing function of the turnover rate of that asset",
+          "table_ref": null,
+          "interpretation": ""
+        }
+      ],
+      "status": "clear",
+      "unsupported_value": null
+    },
+    "direction": {
+      "value": "negative",
+      "evidence": [
+        {
+          "location": "Section 5",
+          "quote": "We find that the turnover rate is significantly negatively related to stock returns.",
+          "table_ref": null,
+          "interpretation": ""
+        }
+      ],
+      "status": "clear",
+      "unsupported_value": null
+    },
+    "category": "continuous",
+    "formula": {
+      "paper_expression": "For every month t, calculate average monthly trading volume during months t-3, t-2, and t-1 and divide it by the firm's shares outstanding; express the ratio as a percentage.",
+      "steps": [
+        {
+          "step_id": "average_prior_volume",
+          "description": "Calculate average monthly trading volume over the three preceding months.",
+          "expression": "(trading_volume_t_minus_3 + trading_volume_t_minus_2 + trading_volume_t_minus_1) / 3",
+          "status": "clear",
+          "evidence": [
+            {
+              "location": "Section 4",
+              "quote": "we calculate the average monthly trading volume (the average number of shares traded during the previous three months, i.e., during months t!3, t!2 and t!1)",
+              "table_ref": null,
+              "interpretation": ""
+            }
+          ]
+        },
+        {
+          "step_id": "turnover_rate",
+          "description": "Divide average prior-three-month trading volume by shares outstanding and express as a percentage.",
+          "expression": "100 * average_prior_volume / shares_outstanding",
+          "status": "clear",
+          "evidence": [
+            {
+              "location": "Section 4",
+              "quote": "and divide it by the number of shares outstanding of that firm. We then express this ratio as a percentage to obtain our turnover rate variable.",
+              "table_ref": null,
+              "interpretation": ""
+            }
+          ]
+        }
+      ],
+      "inputs": [
+        "trading_volume",
+        "shares_outstanding"
+      ],
+      "constants": {},
+      "output_concept": "turnover",
+      "evidence": [
+        {
+          "location": "Section 4",
+          "quote": "We measure the turnover rate of every stock in the following way.",
+          "table_ref": null,
+          "interpretation": ""
+        }
+      ]
+    },
+    "estimation": null
+  },
+  "data": {
+    "signal_frequency": {
+      "value": "month",
+      "evidence": [
+        {
+          "location": "Introduction",
+          "quote": "it can be constructed from the CRSP tapes on a monthly basis",
+          "table_ref": null,
+          "interpretation": ""
+        }
+      ],
+      "status": "clear",
+      "unsupported_value": null
+    },
+    "return_frequency": {
+      "value": "month",
+      "evidence": [
+        {
+          "location": "Section 3",
+          "quote": "where Rit is the return on security i in month t",
+          "table_ref": null,
+          "interpretation": ""
+        }
+      ],
+      "status": "clear",
+      "unsupported_value": null
+    },
+    "sources": [
+      {
+        "value": "CRSP",
+        "evidence": [
+          {
+            "location": "Section 4",
+            "quote": "Monthly data on returns is collected from the Centre for Research in Security Prices (CRSP)",
+            "table_ref": null,
+            "interpretation": ""
+          }
+        ],
+        "status": "clear",
+        "unsupported_value": null
+      }
+    ],
+    "fields": [
+      {
+        "concept_id": "trading_volume",
+        "name_in_paper": "number of shares traded",
+        "description": "Monthly trading volume in shares.",
+        "paper_source_hint": "CRSP tapes",
+        "roles": [
+          "signal_input"
+        ],
+        "evidence": [
+          {
+            "location": "Section 4",
+            "quote": "the average number of shares traded during the previous three months",
+            "table_ref": null,
+            "interpretation": ""
+          }
+        ],
+        "source_table": {
+          "value": "crsp_msf",
+          "evidence": [
+            {
+              "location": "Introduction",
+              "quote": "it can be constructed from the CRSP tapes on a monthly basis",
+              "table_ref": null,
+              "interpretation": ""
+            }
+          ],
+          "status": "clear",
+          "unsupported_value": null
+        },
+        "source_column": {
+          "value": "mthvol",
+          "evidence": [
+            {
+              "location": "Section 4",
+              "quote": "the average number of shares traded during the previous three months",
+              "table_ref": null,
+              "interpretation": "The paper identifies the measure but not CRSP's field name."
+            }
+          ],
+          "status": "inferred",
+          "unsupported_value": null
+        }
+      },
+      {
+        "concept_id": "shares_outstanding",
+        "name_in_paper": "number of shares outstanding",
+        "description": "Shares outstanding used as the turnover denominator.",
+        "paper_source_hint": "CRSP tapes",
+        "roles": [
+          "signal_input"
+        ],
+        "evidence": [
+          {
+            "location": "Introduction",
+            "quote": "the number of shares traded divided by the number of shares outstanding",
+            "table_ref": null,
+            "interpretation": ""
+          }
+        ],
+        "source_table": {
+          "value": "crsp_msf",
+          "evidence": [
+            {
+              "location": "Introduction",
+              "quote": "it can be constructed from the CRSP tapes on a monthly basis",
+              "table_ref": null,
+              "interpretation": ""
+            }
+          ],
+          "status": "clear",
+          "unsupported_value": null
+        },
+        "source_column": {
+          "value": "shrout",
+          "evidence": [
+            {
+              "location": "Introduction",
+              "quote": "the number of shares traded divided by the number of shares outstanding",
+              "table_ref": null,
+              "interpretation": "The paper identifies the measure but not CRSP's field name."
+            }
+          ],
+          "status": "inferred",
+          "unsupported_value": null
+        }
+      },
+      {
+        "concept_id": "exchcd",
+        "name_in_paper": "NYSE listing",
+        "description": "Exchange listing code used to restrict the target sample to NYSE firms.",
+        "paper_source_hint": "NYSE",
+        "roles": [
+          "universe_filter"
+        ],
+        "evidence": [
+          {
+            "location": "Section 4",
+            "quote": "Our dataset consists of all non-financial firms on the NYSE",
+            "table_ref": null,
+            "interpretation": ""
+          }
+        ],
+        "source_table": {
+          "value": "crsp_msf",
+          "evidence": [
+            {
+              "location": "Section 4",
+              "quote": "Our dataset consists of all non-financial firms on the NYSE",
+              "table_ref": null,
+              "interpretation": ""
+            }
+          ],
+          "status": "clear",
+          "unsupported_value": null
+        },
+        "source_column": {
+          "value": "exchcd",
+          "evidence": [
+            {
+              "location": "Section 4",
+              "quote": "Our dataset consists of all non-financial firms on the NYSE",
+              "table_ref": null,
+              "interpretation": "The exchange-code mapping is a catalog implementation mapping."
+            }
+          ],
+          "status": "inferred",
+          "unsupported_value": null
+        }
+      },
+      {
+        "concept_id": "siccd",
+        "name_in_paper": "non-financial firms",
+        "description": "Industry classification required for the stated non-financial-firm restriction.",
+        "paper_source_hint": "non-financial firms",
+        "roles": [
+          "universe_filter"
+        ],
+        "evidence": [
+          {
+            "location": "Section 4",
+            "quote": "Our dataset consists of all non-financial firms on the NYSE",
+            "table_ref": null,
+            "interpretation": ""
+          }
+        ],
+        "source_table": {
+          "value": "crsp_msf",
+          "evidence": [
+            {
+              "location": "Section 4",
+              "quote": "Our dataset consists of all non-financial firms on the NYSE",
+              "table_ref": null,
+              "interpretation": "CRSP SIC is a plausible implementation source, but the paper does not name it."
+            }
+          ],
+          "status": "inferred",
+          "unsupported_value": null
+        },
+        "source_column": {
+          "value": "siccd",
+          "evidence": [
+            {
+              "location": "Section 4",
+              "quote": "Our dataset consists of all non-financial firms on the NYSE",
+              "table_ref": null,
+              "interpretation": "The paper does not state an industry-code definition."
+            }
+          ],
+          "status": "inferred",
+          "unsupported_value": null
+        }
+      }
+    ],
+    "coverage_notes": [
+      "The paper extends the raw dataset by one year because initial observations are used to estimate turnover."
+    ]
+  },
+  "sample": {
+    "data_coverage": {
+      "start_year": 1962,
+      "end_year": 1991,
+      "start_month": 7,
+      "end_month": 12,
+      "evidence": [
+        {
+          "location": "Section 4",
+          "quote": "Our dataset consists of all non-financial firms on the NYSE from July 31, 1962 through December 31, 1991.",
+          "table_ref": null,
+          "interpretation": ""
+        }
+      ],
+      "status": "clear"
+    },
+    "formation": {
+      "start_year": 1963,
+      "end_year": 1991,
+      "start_month": 7,
+      "end_month": 12,
+      "evidence": [
+        {
+          "location": "Section 5",
+          "quote": "In each month, starting from July 1963 to December 1991, we run a cross-sectional regression",
+          "table_ref": null,
+          "interpretation": ""
+        }
+      ],
+      "status": "clear"
+    },
+    "reported_returns": {
+      "start_year": 1963,
+      "end_year": 1991,
+      "start_month": 7,
+      "end_month": 12,
+      "evidence": [
+        {
+          "location": "Table 2",
+          "quote": "",
+          "table_ref": {
+            "table": "Table 2",
+            "row": "header",
+            "column": "From July 1963 to December 1991"
+          },
+          "interpretation": ""
+        }
+      ],
+      "status": "table_only"
+    }
+  },
+  "timing": {
+    "formation_rule": {
+      "value": "For each month t, use turnover based on the average trading volume in months t-3 through t-1 in a cross-sectional regression of month-t returns.",
+      "evidence": [
+        {
+          "location": "Section 4",
+          "quote": "For every month t, we calculate the average monthly trading volume (the average number of shares traded during the previous three months, i.e., during months t!3, t!2 and t!1)",
+          "table_ref": null,
+          "interpretation": "This defines the turnover signal used at month t."
+        },
+        {
+          "location": "Section 5",
+          "quote": "In each month, starting from July 1963 to December 1991, we run a cross-sectional regression",
+          "table_ref": null,
+          "interpretation": "This establishes the monthly cross-sectional regression timing."
+        }
+      ],
+      "status": "clear",
+      "unsupported_value": null
+    },
+    "formation_month": {
+      "value": null,
+      "evidence": [],
+      "status": "unspecified",
+      "unsupported_value": null
+    },
+    "rebalance_frequency": {
+      "value": "month",
+      "evidence": [
+        {
+          "location": "Section 5",
+          "quote": "In each month, starting from July 1963 to December 1991, we run a cross-sectional regression",
+          "table_ref": null,
+          "interpretation": ""
+        }
+      ],
+      "status": "clear",
+      "unsupported_value": null
+    },
+    "holding_period": {
+      "value": 1,
+      "evidence": [
+        {
+          "location": "Section 3",
+          "quote": "where Rit is the return on security i in month t",
+          "table_ref": null,
+          "interpretation": ""
+        }
+      ],
+      "status": "clear",
+      "unsupported_value": null
+    },
+    "return_window": {
+      "start_offset": 0,
+      "end_offset": 0,
+      "unit": "month",
+      "anchor": "observation_date",
+      "is_expanding": false
+    },
+    "data_availability": {
+      "lag_value": 1,
+      "lag_unit": "month",
+      "anchor": "formation_date",
+      "basis": "fixed_calendar_lag",
+      "evidence": [
+        {
+          "location": "Section 4",
+          "quote": "during the previous three months, i.e., during months t!3, t!2 and t!1",
+          "table_ref": null,
+          "interpretation": ""
+        }
+      ]
+    }
+  },
+  "universe": {
+    "description": {
+      "value": "All non-financial firms on the NYSE.",
+      "evidence": [
+        {
+          "location": "Section 4",
+          "quote": "Our dataset consists of all non-financial firms on the NYSE",
+          "table_ref": null,
+          "interpretation": ""
+        }
+      ],
+      "status": "clear",
+      "unsupported_value": null
+    },
+    "filters": [
+      {
+        "concept_id": "exchcd",
+        "op": "in",
+        "value": [
+          1
+        ],
+        "evidence": [
+          {
+            "location": "Section 4",
+            "quote": "Our dataset consists of all non-financial firms on the NYSE",
+            "table_ref": null,
+            "interpretation": ""
+          }
+        ],
+        "derivation": null,
+        "accepted_unapplied": false,
+        "unapplied_reason": ""
+      },
+      {
+        "concept_id": "siccd",
+        "op": "not_between",
+        "value": [
+          6000,
+          6799
+        ],
+        "evidence": [
+          {
+            "location": "Section 4",
+            "quote": "Our dataset consists of all non-financial firms on the NYSE",
+            "table_ref": null,
+            "interpretation": "The paper does not state the industry-code definition of financial firms."
+          },
+          {
+            "location": "",
+            "quote": "",
+            "table_ref": null,
+            "interpretation": "human correction"
+          }
+        ],
+        "derivation": null,
+        "accepted_unapplied": true,
+        "unapplied_reason": "The paper states a non-financial restriction but does not specify the industry-code ranges needed to implement it."
+      }
+    ]
+  },
+  "portfolio": {
+    "construction_type": {
+      "value": "characteristic_sort",
+      "evidence": [
+        {
+          "location": "Section 3",
+          "quote": "we use the methodology of Litzenberger and Ramaswamy (1979) which is a refinement of the Fama-MacBeth (1973) methodology",
+          "table_ref": null,
+          "interpretation": "The paper uses monthly cross-sectional regressions followed by pooled GLS aggregation."
+        },
+        {
+          "location": "",
+          "quote": "",
+          "table_ref": null,
+          "interpretation": "human correction"
+        }
+      ],
+      "status": "clear",
+      "unsupported_value": null
+    },
+    "sorts": [
+      {
+        "sort_id": "turnover_quintile",
+        "concept_id": "turnover",
+        "role": "target",
+        "order": 0,
+        "mode": {
+          "value": "independent",
+          "evidence": [],
+          "status": "unspecified",
+          "unsupported_value": null
+        },
+        "group_type": {
+          "value": "quantile",
+          "evidence": [],
+          "status": "unspecified",
+          "unsupported_value": null
+        },
+        "group_count": 5,
+        "breakpoints": {
+          "basis": {
+            "value": "full_sample",
+            "evidence": [],
+            "status": "unspecified",
+            "unsupported_value": null
+          },
+          "values": []
+        },
+        "condition_on_sort_id": null,
+        "evidence": [
+          {
+            "location": "",
+            "quote": "",
+            "table_ref": null,
+            "interpretation": "human correction: auto-filled default single sort (quintile, full-sample breakpoints) for signal concept 'turnover' -- paper's own portfolio.sorts was empty (e.g. a regression-based method being approximated with an equivalent quantile-sort portfolio)"
+          }
+        ]
+      }
+    ],
+    "legs": [
+      {
+        "leg_id": "low_turnover",
+        "side": "long",
+        "selector": {
+          "turnover_quintile": 0
+        },
+        "evidence": [
+          {
+            "location": "",
+            "quote": "",
+            "table_ref": null,
+            "interpretation": "human correction: auto-filled default single sort (quintile, full-sample breakpoints) for signal concept 'turnover' -- paper's own portfolio.sorts was empty (e.g. a regression-based method being approximated with an equivalent quantile-sort portfolio)"
+          }
+        ]
+      },
+      {
+        "leg_id": "high_turnover",
+        "side": "short",
+        "selector": {
+          "turnover_quintile": 4
+        },
+        "evidence": [
+          {
+            "location": "",
+            "quote": "",
+            "table_ref": null,
+            "interpretation": "human correction: auto-filled default single sort (quintile, full-sample breakpoints) for signal concept 'turnover' -- paper's own portfolio.sorts was empty (e.g. a regression-based method being approximated with an equivalent quantile-sort portfolio)"
+          }
+        ]
+      }
+    ],
+    "weighting": {
+      "value": "other",
+      "evidence": [
+        {
+          "location": "Section 3",
+          "quote": "the pooled GLS estimator",
+          "table_ref": null,
+          "interpretation": "This is a regression-based design, not a portfolio-weighting scheme."
+        },
+        {
+          "location": "",
+          "quote": "",
+          "table_ref": null,
+          "interpretation": "human correction"
+        }
+      ],
+      "status": "clear",
+      "unsupported_value": null
+    },
+    "return_combination": {
+      "value": "extreme_group_spread",
+      "evidence": [
+        {
+          "location": "Section 5",
+          "quote": "we run a cross-sectional regression",
+          "table_ref": null,
+          "interpretation": "The target is a regression coefficient rather than a portfolio return."
+        },
+        {
+          "location": "",
+          "quote": "",
+          "table_ref": null,
+          "interpretation": "human correction"
+        }
+      ],
+      "status": "clear",
+      "unsupported_value": null
+    },
+    "missing_policies": [
+      {
+        "stage": "signal",
+        "action": {
+          "value": "drop",
+          "evidence": [
+            {
+              "location": "Section 4",
+              "quote": "If the number of shares outstanding in a stock changes due to stock splits etc. then we exclude that stock for a period of three months.",
+              "table_ref": null,
+              "interpretation": ""
+            }
+          ],
+          "status": "clear",
+          "unsupported_value": null
+        },
+        "threshold": null
+      }
+    ],
+    "transforms": []
+  },
+  "reported_results": {
+    "primary_metric_id": "turnover_slope_univariate_gls",
+    "metrics": [
+      {
+        "metric_id": "turnover_slope_univariate_gls",
+        "label": "GLS average monthly cross-sectional turnover slope, complete dataset",
+        "estimand": "coefficient",
+        "adjustment_model": "raw",
+        "weighting": null,
+        "estimate": -0.04,
+        "unit": "percent",
+        "frequency": "month",
+        "portfolio_selector": {},
+        "statistic": {
+          "kind": "t_stat",
+          "value": -8.86
+        },
+        "sample_period": {
+          "start_year": 1963,
+          "end_year": 1991,
+          "start_month": 7,
+          "end_month": 12,
+          "evidence": [
+            {
+              "location": "Table 2",
+              "quote": "",
+              "table_ref": {
+                "table": "Table 2",
+                "row": "Panel A, univariate turnover regression",
+                "column": "Turnover"
+              },
+              "interpretation": ""
+            }
+          ],
+          "status": "table_only"
+        },
+        "evidence": [
+          {
+            "location": "Table 2",
+            "quote": "",
+            "table_ref": {
+              "table": "Table 2",
+              "row": "Panel A, univariate turnover regression",
+              "column": "Turnover"
+            },
+            "interpretation": "Estimate -0.04 with t-statistic -8.86."
+          }
+        ],
+        "status": "table_only"
+      }
+    ],
+    "comparison_derivation": null
+  },
+  "notes": "This paper's executable target is the turnover coefficient in monthly cross-sectional regressions, pooled using GLS; it does not construct a turnover-sorted long-short portfolio. The reported primary result uses the complete dataset in Table 2, Panel A."
+}

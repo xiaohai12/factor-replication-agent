@@ -1,0 +1,749 @@
+{
+  "target_name": "ShareVol",
+  "paper": {
+    "document_id": "Liquidity and stock returns- An alternative test.pdf",
+    "title": "Liquidity and stock returns: An alternative test",
+    "citation": "Datar, V. T., Naik, N. Y., and Radcliffe, R. (1998). Liquidity and stock returns: An alternative test. Journal of Financial Markets, 1, 203-219.",
+    "publication_year": 1998
+  },
+  "signal": {
+    "definition": {
+      "value": "A share-volume-based turnover measure: each stock's average monthly number of shares traded over the prior three months, scaled by its shares outstanding and expressed as a percentage.",
+      "evidence": [
+        {
+          "location": "Section 4, Description of data (p.208)",
+          "quote": "We measure the turnover rate of every stock in the following way. For every month t, we calculate the average monthly trading volume (the average number of shares traded during the previous three months, i.e., during months t-3, t-2 and t-1) and divide it by the number of shares outstanding of that firm. We then express this ratio as a percentage to obtain our turnover rate variable.",
+          "table_ref": null,
+          "interpretation": ""
+        }
+      ],
+      "status": "clear",
+      "unsupported_value": null
+    },
+    "economic_intuition": {
+      "value": "Number of shares traded relative to shares outstanding is used as a tractable, CRSP-derived proxy for a stock's expected holding period; by Amihud and Mendelson's (1986) equilibrium result that returns rise with expected holding period, returns should fall with this share-volume-based turnover measure.",
+      "evidence": [
+        {
+          "location": "Section 2, Turnover rate, liquidity and asset returns (p.206)",
+          "quote": "Since A&M's model implies that the observed (gross) asset return must be an increasing function of the expected holding periods, it also implies that the observed asset return must be a decreasing function of the turnover rate of that asset.",
+          "table_ref": null,
+          "interpretation": ""
+        },
+        {
+          "location": "Introduction (p.205)",
+          "quote": "the data on turnover rates is relatively easy to obtain (it can be constructed from the CRSP tapes on a monthly basis)",
+          "table_ref": null,
+          "interpretation": "Motivates share volume / shares outstanding specifically because both series are directly available on CRSP, unlike the bid-ask spread used by prior studies."
+        }
+      ],
+      "status": "clear",
+      "unsupported_value": null
+    },
+    "direction": {
+      "value": "negative",
+      "evidence": [
+        {
+          "location": "Section 6, Concluding remarks (p.216)",
+          "quote": "we find that the stock returns are strongly negatively related to their turnover rates confirming the notion that illiquid stocks provide higher average returns",
+          "table_ref": null,
+          "interpretation": ""
+        }
+      ],
+      "status": "clear",
+      "unsupported_value": null
+    },
+    "category": "continuous",
+    "formula": {
+      "paper_expression": "share_volume_turnover_t = 100 * [(shares_traded_{t-3} + shares_traded_{t-2} + shares_traded_{t-1}) / 3] / shares_outstanding_t",
+      "steps": [
+        {
+          "step_id": "avg_prior_3m_shares_traded",
+          "description": "Average the monthly number of shares traded across the three months preceding month t.",
+          "expression": "avg_prior_3m_shares_traded = (shares_traded_t_minus_3 + shares_traded_t_minus_2 + shares_traded_t_minus_1) / 3",
+          "status": "clear",
+          "evidence": [
+            {
+              "location": "Section 4, Description of data (p.208)",
+              "quote": "the average number of shares traded during the previous three months, i.e., during months t-3, t-2 and t-1",
+              "table_ref": null,
+              "interpretation": ""
+            }
+          ]
+        },
+        {
+          "step_id": "share_volume_turnover_pct",
+          "description": "Scale the 3-month average shares traded by shares outstanding and express in percent.",
+          "expression": "share_volume_turnover_pct = 100 * avg_prior_3m_shares_traded / shares_outstanding",
+          "status": "clear",
+          "evidence": [
+            {
+              "location": "Section 4, Description of data (p.208)",
+              "quote": "divide it by the number of shares outstanding of that firm. We then express this ratio as a percentage to obtain our turnover rate variable.",
+              "table_ref": null,
+              "interpretation": ""
+            }
+          ]
+        }
+      ],
+      "inputs": ["shares_traded", "shares_outstanding"],
+      "constants": {
+        "lookback_months": 3.0,
+        "percentage_scale": 100.0
+      },
+      "output_concept": "share_volume_turnover_pct",
+      "evidence": [
+        {
+          "location": "Section 4, Description of data (p.208)",
+          "quote": "We measure the turnover rate of every stock in the following way.",
+          "table_ref": null,
+          "interpretation": ""
+        }
+      ]
+    },
+    "estimation": null
+  },
+  "data": {
+    "signal_frequency": {
+      "value": "month",
+      "evidence": [
+        {
+          "location": "Introduction (p.205)",
+          "quote": "This enables us to capture month by month variation in the liquidity of assets",
+          "table_ref": null,
+          "interpretation": ""
+        }
+      ],
+      "status": "clear",
+      "unsupported_value": null
+    },
+    "return_frequency": {
+      "value": "month",
+      "evidence": [
+        {
+          "location": "Section 4, Description of data (p.208)",
+          "quote": "We calculate the monthly return as a percentage change in the value of one dollar of investment in that stock during month t.",
+          "table_ref": null,
+          "interpretation": ""
+        }
+      ],
+      "status": "clear",
+      "unsupported_value": null
+    },
+    "sources": [
+      {
+        "value": "CRSP",
+        "evidence": [
+          {
+            "location": "Section 4, Description of data (p.208)",
+            "quote": "Monthly data on returns is collected from the Centre for Research in Security Prices (CRSP)",
+            "table_ref": null,
+            "interpretation": ""
+          }
+        ],
+        "status": "clear",
+        "unsupported_value": null
+      }
+    ],
+    "fields": [
+      {
+        "concept_id": "shares_traded",
+        "name_in_paper": "number of shares traded",
+        "description": "Monthly shares-traded volume per stock, the raw share-volume input averaged over the trailing three months.",
+        "paper_source_hint": "CRSP tapes, monthly volume",
+        "roles": ["signal_input"],
+        "evidence": [
+          {
+            "location": "Section 4, Description of data (p.208), footnote 6",
+            "quote": "The starting date is determined by availability of details of number of shares traded on the CRSP tapes.",
+            "table_ref": null,
+            "interpretation": ""
+          }
+        ],
+        "source_table": {
+          "value": "crsp_msf",
+          "evidence": [
+            {
+              "location": "Introduction (p.205)",
+              "quote": "it can be constructed from the CRSP tapes on a monthly basis",
+              "table_ref": null,
+              "interpretation": ""
+            }
+          ],
+          "status": "clear",
+          "unsupported_value": null
+        },
+        "source_column": {
+          "value": "mthvol",
+          "evidence": [
+            {
+              "location": "Section 4, Description of data (p.208)",
+              "quote": "the average number of shares traded during the previous three months",
+              "table_ref": null,
+              "interpretation": "The paper never names a CRSP mnemonic; mthvol is the standard monthly shares-traded field on the CRSP monthly stock file."
+            }
+          ],
+          "status": "inferred",
+          "unsupported_value": null
+        }
+      },
+      {
+        "concept_id": "shares_outstanding",
+        "name_in_paper": "number of shares outstanding",
+        "description": "Shares outstanding, the denominator that turns raw share volume into a turnover rate; excluded for three months around a split-driven change.",
+        "paper_source_hint": "CRSP tapes, shares outstanding",
+        "roles": ["signal_input"],
+        "evidence": [
+          {
+            "location": "Section 4, Description of data (p.208)",
+            "quote": "If the number of shares outstanding in a stock changes due to stock splits etc. then we exclude that stock for a period of three months.",
+            "table_ref": null,
+            "interpretation": ""
+          }
+        ],
+        "source_table": {
+          "value": "crsp_msf",
+          "evidence": [
+            {
+              "location": "Introduction (p.205)",
+              "quote": "it can be constructed from the CRSP tapes on a monthly basis",
+              "table_ref": null,
+              "interpretation": ""
+            }
+          ],
+          "status": "clear",
+          "unsupported_value": null
+        },
+        "source_column": {
+          "value": "shrout",
+          "evidence": [
+            {
+              "location": "Introduction (p.204)",
+              "quote": "the number of shares traded divided by the number of shares outstanding",
+              "table_ref": null,
+              "interpretation": "Standard CRSP shares-outstanding field; the paper does not name a mnemonic."
+            }
+          ],
+          "status": "inferred",
+          "unsupported_value": null
+        }
+      },
+      {
+        "concept_id": "exchcd",
+        "name_in_paper": "NYSE listing",
+        "description": "Exchange-listing code restricting the sample to NYSE stocks.",
+        "paper_source_hint": "NYSE",
+        "roles": ["universe_filter"],
+        "evidence": [
+          {
+            "location": "Section 4, Description of data (p.208)",
+            "quote": "Our dataset consists of all non-financial firms on the NYSE from July 31, 1962 through December 31, 1991.",
+            "table_ref": null,
+            "interpretation": ""
+          }
+        ],
+        "source_table": {
+          "value": "crsp_msf",
+          "evidence": [
+            {
+              "location": "Section 4, Description of data (p.208)",
+              "quote": "Our dataset consists of all non-financial firms on the NYSE",
+              "table_ref": null,
+              "interpretation": ""
+            }
+          ],
+          "status": "clear",
+          "unsupported_value": null
+        },
+        "source_column": {
+          "value": "exchcd",
+          "evidence": [
+            {
+              "location": "Section 4, Description of data (p.208)",
+              "quote": "Our dataset consists of all non-financial firms on the NYSE",
+              "table_ref": null,
+              "interpretation": "CRSP exchcd=1 identifies NYSE; the paper states the restriction verbally."
+            }
+          ],
+          "status": "inferred",
+          "unsupported_value": null
+        }
+      },
+      {
+        "concept_id": "siccd",
+        "name_in_paper": "non-financial firms",
+        "description": "SIC industry code, used to exclude financial firms from the sample.",
+        "paper_source_hint": "non-financial firms",
+        "roles": ["universe_filter"],
+        "evidence": [
+          {
+            "location": "Section 4, Description of data (p.208)",
+            "quote": "Our dataset consists of all non-financial firms on the NYSE",
+            "table_ref": null,
+            "interpretation": ""
+          }
+        ],
+        "source_table": {
+          "value": "crsp_msf",
+          "evidence": [
+            {
+              "location": "Section 4, Description of data (p.208)",
+              "quote": "Our dataset consists of all non-financial firms on the NYSE",
+              "table_ref": null,
+              "interpretation": ""
+            }
+          ],
+          "status": "clear",
+          "unsupported_value": null
+        },
+        "source_column": {
+          "value": "siccd",
+          "evidence": [
+            {
+              "location": "Section 4, Description of data (p.208)",
+              "quote": "Our dataset consists of all non-financial firms on the NYSE",
+              "table_ref": null,
+              "interpretation": "The paper never states the SIC range used to define 'non-financial'; the standard financial-sector block (6000-6999) is inferred."
+            }
+          ],
+          "status": "inferred",
+          "unsupported_value": null
+        }
+      }
+    ],
+    "coverage_notes": [
+      "Raw NYSE non-financial data spans July 31, 1962 to December 31, 1991; ~12 months are consumed building the trailing 3-month average before formation/regressions begin in July 1963 (footnote 6).",
+      "Book value (used only for the book-to-market control, not the signal itself) comes from COMPUSTAT."
+    ]
+  },
+  "sample": {
+    "data_coverage": {
+      "start_year": 1962,
+      "end_year": 1991,
+      "start_month": 7,
+      "end_month": 12,
+      "evidence": [
+        {
+          "location": "Section 4, Description of data (p.208)",
+          "quote": "Our dataset consists of all non-financial firms on the NYSE from July 31, 1962 through December 31, 1991.",
+          "table_ref": null,
+          "interpretation": ""
+        }
+      ],
+      "status": "clear"
+    },
+    "formation": {
+      "start_year": 1963,
+      "end_year": 1991,
+      "start_month": 7,
+      "end_month": 12,
+      "evidence": [
+        {
+          "location": "Section 5, Liquidity and stock returns (p.210)",
+          "quote": "In each month, starting from July 1963 to December 1991, we run a cross-sectional regression (individually and jointly) of stock returns on turnover rate, book-to-market, size and beta.",
+          "table_ref": null,
+          "interpretation": ""
+        }
+      ],
+      "status": "clear"
+    },
+    "reported_returns": {
+      "start_year": 1963,
+      "end_year": 1991,
+      "start_month": 7,
+      "end_month": 12,
+      "evidence": [
+        {
+          "location": "Table 2 (p.211)",
+          "quote": "Average slopes of monthly cross-sectional regressions of returns on turnover, book-to-market, log of size and beta. From July 1963 to December 1991 All months Including January.",
+          "table_ref": {
+            "table": "Table 2",
+            "row": "title",
+            "column": ""
+          },
+          "interpretation": ""
+        }
+      ],
+      "status": "table_only"
+    }
+  },
+  "timing": {
+    "formation_rule": {
+      "value": "Every calendar month t from July 1963 to December 1991, form the share-volume-based turnover signal from shares traded in months t-3 through t-1 relative to shares outstanding, and enter it into that month's cross-sectional regression of stock returns.",
+      "evidence": [
+        {
+          "location": "Section 4-5 (p.208, 210)",
+          "quote": "For every month t, we calculate the average monthly trading volume (the average number of shares traded during the previous three months, i.e., during months t-3, t-2 and t-1) ... In each month, starting from July 1963 to December 1991, we run a cross-sectional regression",
+          "table_ref": null,
+          "interpretation": ""
+        }
+      ],
+      "status": "clear",
+      "unsupported_value": null
+    },
+    "formation_month": {
+      "value": null,
+      "evidence": [],
+      "status": "unspecified",
+      "unsupported_value": null
+    },
+    "rebalance_frequency": {
+      "value": "month",
+      "evidence": [
+        {
+          "location": "Section 5, Liquidity and stock returns (p.210)",
+          "quote": "In each month, starting from July 1963 to December 1991, we run a cross-sectional regression",
+          "table_ref": null,
+          "interpretation": ""
+        }
+      ],
+      "status": "clear",
+      "unsupported_value": null
+    },
+    "holding_period": {
+      "value": 1,
+      "evidence": [
+        {
+          "location": "Section 4, Description of data (p.208)",
+          "quote": "We calculate the monthly return as a percentage change in the value of one dollar of investment in that stock during month t.",
+          "table_ref": null,
+          "interpretation": "Each monthly observation is matched to that same month's return, so the effective holding period between re-formations is one month."
+        }
+      ],
+      "status": "clear",
+      "unsupported_value": null
+    },
+    "return_window": {
+      "start_offset": 0,
+      "end_offset": 0,
+      "unit": "month",
+      "anchor": "observation_date",
+      "is_expanding": false
+    },
+    "data_availability": {
+      "lag_value": 1,
+      "lag_unit": "month",
+      "anchor": "formation_date",
+      "basis": "fixed_calendar_lag",
+      "evidence": [
+        {
+          "location": "Section 4, Description of data (p.208)",
+          "quote": "the average number of shares traded during the previous three months, i.e., during months t-3, t-2 and t-1",
+          "table_ref": null,
+          "interpretation": "The share-volume-based turnover used to explain month-t returns is built only from data through month t-1."
+        }
+      ]
+    }
+  },
+  "universe": {
+    "description": {
+      "value": "All non-financial common stocks listed on the NYSE, July 1962 through December 1991.",
+      "evidence": [
+        {
+          "location": "Section 4, Description of data (p.208)",
+          "quote": "Our dataset consists of all non-financial firms on the NYSE from July 31, 1962 through December 31, 1991.",
+          "table_ref": null,
+          "interpretation": ""
+        }
+      ],
+      "status": "clear",
+      "unsupported_value": null
+    },
+    "filters": [
+      {
+        "concept_id": "exchcd",
+        "op": "eq",
+        "value": 1,
+        "evidence": [
+          {
+            "location": "Section 4, Description of data (p.208)",
+            "quote": "Our dataset consists of all non-financial firms on the NYSE",
+            "table_ref": null,
+            "interpretation": "CRSP exchcd=1 identifies NYSE."
+          }
+        ],
+        "derivation": null,
+        "accepted_unapplied": false,
+        "unapplied_reason": ""
+      },
+      {
+        "concept_id": "siccd",
+        "op": "not_between",
+        "value": [6000, 6999],
+        "evidence": [
+          {
+            "location": "Section 4, Description of data (p.208)",
+            "quote": "Our dataset consists of all non-financial firms on the NYSE",
+            "table_ref": null,
+            "interpretation": "The paper states the non-financial restriction in prose but never gives a numeric SIC range; 6000-6999 is not a guess but the standard, near-universal financial-sector SIC block used throughout this literature (e.g. Fama and French, cited repeatedly in this paper, use the same block to exclude financial firms), so it is applied rather than left as an audit-only gap."
+          }
+        ],
+        "derivation": null,
+        "accepted_unapplied": false,
+        "unapplied_reason": "",
+        "human_confirmed_applied": true,
+        "applied_reason": "SIC 6000-6999 is not a paper-specific guess but the standard, near-universal financial-sector SIC block used throughout this literature (e.g. by Fama and French, cited repeatedly by this paper); confirmed appropriate to enforce despite the paper not stating a numeric range itself."
+      }
+    ]
+  },
+  "portfolio": {
+    "construction_type": {
+      "value": "fama_macbeth",
+      "evidence": [
+        {
+          "location": "Section 3, Econometric methodology (p.207)",
+          "quote": "we use the methodology of Litzenberger and Ramaswamy (1979) which is a refinement of the Fama-MacBeth (1973) methodology used widely in the analysis of cross-section of stock returns.",
+          "table_ref": null,
+          "interpretation": "Monthly cross-sectional regressions with GLS pooling of the slope time series, not a sorted long-short portfolio."
+        }
+      ],
+      "status": "clear",
+      "unsupported_value": null
+    },
+    "sorts": [],
+    "legs": [],
+    "weighting": {
+      "value": "other",
+      "evidence": [
+        {
+          "location": "Section 3, Econometric methodology (p.207)",
+          "quote": "we use the generalized least-squares (GLS) methodology to examine whether the observed cross-sectional variation in stock returns can be explained by the differences in the turnover rates",
+          "table_ref": null,
+          "interpretation": "No stock-level portfolio weighting scheme is used; the 342 monthly slope estimates are GLS-weighted by inverse variance when pooled over time."
+        }
+      ],
+      "status": "clear",
+      "unsupported_value": "Cross-sectional regression, not a portfolio; time-series pooling of monthly slopes uses inverse-variance GLS weights (Eqs. 2-3)."
+    },
+    "return_combination": {
+      "value": "other",
+      "evidence": [
+        {
+          "location": "Section 5, Liquidity and stock returns (p.210)",
+          "quote": "This gives us 342 monthly estimates of the slope coefficients along with the associated standard errors, for each of the explanatory variables. We then aggregate these slope coefficient estimates across time, using Eqs. (2) and (3).",
+          "table_ref": null,
+          "interpretation": ""
+        }
+      ],
+      "status": "clear",
+      "unsupported_value": "The reported result is a GLS-pooled monthly cross-sectional regression coefficient, not a combination of portfolio leg returns."
+    },
+    "missing_policies": [
+      {
+        "stage": "signal",
+        "action": {
+          "value": "drop",
+          "evidence": [
+            {
+              "location": "Section 4, Description of data (p.208)",
+              "quote": "If the number of shares outstanding in a stock changes due to stock splits etc. then we exclude that stock for a period of three months.",
+              "table_ref": null,
+              "interpretation": ""
+            }
+          ],
+          "status": "clear",
+          "unsupported_value": null
+        },
+        "threshold": null
+      }
+    ],
+    "transforms": [
+      {
+        "kind": "truncate",
+        "stage": "after_signal",
+        "bounds": [0.01, 0.99],
+        "evidence": [
+          {
+            "location": "Section 4, Description of data (p.208)",
+            "quote": "We therefore discard the lowest 1% and highest 1% observations of turnover from the (complete) dataset and re-examine the predicted relationship in the trimmed dataset.",
+            "table_ref": null,
+            "interpretation": "Robustness-only variant reported in Table 2, Panel B; the paper's primary (first-reported) results use the untrimmed complete dataset, Table 2 Panel A."
+          }
+        ]
+      }
+    ]
+  },
+  "reported_results": {
+    "primary_metric_id": "sharevol_turnover_slope_univariate_complete",
+    "metrics": [
+      {
+        "metric_id": "sharevol_turnover_slope_univariate_complete",
+        "label": "GLS-pooled average monthly slope of share-volume-based turnover, complete dataset, univariate regression",
+        "estimand": "coefficient",
+        "adjustment_model": "raw",
+        "weighting": null,
+        "estimate": -0.04,
+        "unit": "percent",
+        "frequency": "month",
+        "portfolio_selector": {},
+        "statistic": {
+          "kind": "t_stat",
+          "value": -8.86
+        },
+        "sample_period": {
+          "start_year": 1963,
+          "end_year": 1991,
+          "start_month": 7,
+          "end_month": 12,
+          "evidence": [
+            {
+              "location": "Table 2, Panel A (p.211)",
+              "quote": "",
+              "table_ref": {
+                "table": "Table 2",
+                "row": "Panel A, univariate turnover regression",
+                "column": "Turnover"
+              },
+              "interpretation": ""
+            }
+          ],
+          "status": "table_only"
+        },
+        "evidence": [
+          {
+            "location": "Table 2, Panel A (p.211)",
+            "quote": "0.73 !0.04 (32.51) (!8.86)",
+            "table_ref": {
+              "table": "Table 2",
+              "row": "Panel A, univariate turnover regression",
+              "column": "Turnover"
+            },
+            "interpretation": "First row of Table 2, Panel A: constant 0.73 (t=32.51), turnover slope -0.04 (t=-8.86)."
+          }
+        ],
+        "status": "table_only"
+      },
+      {
+        "metric_id": "sharevol_turnover_slope_full_controls_complete",
+        "label": "GLS-pooled average monthly slope of share-volume-based turnover, complete dataset, controlling for book-to-market, log size and beta",
+        "estimand": "coefficient",
+        "adjustment_model": "other",
+        "weighting": null,
+        "estimate": -0.04,
+        "unit": "percent",
+        "frequency": "month",
+        "portfolio_selector": {},
+        "statistic": {
+          "kind": "t_stat",
+          "value": -8.58
+        },
+        "sample_period": {
+          "start_year": 1963,
+          "end_year": 1991,
+          "start_month": 7,
+          "end_month": 12,
+          "evidence": [
+            {
+              "location": "Table 2, Panel A (p.211)",
+              "quote": "",
+              "table_ref": {
+                "table": "Table 2",
+                "row": "Panel A, turnover + book-to-market + log size + beta regression",
+                "column": "Turnover"
+              },
+              "interpretation": ""
+            }
+          ],
+          "status": "table_only"
+        },
+        "evidence": [
+          {
+            "location": "Table 2, Panel A (p.211)",
+            "quote": "2.30 !0.04 0.14 !0.05 !0.37 (9.70) (!8.58) (5.97) (!4.65) (!5.76)",
+            "table_ref": {
+              "table": "Table 2",
+              "row": "Panel A, turnover + book-to-market + log size + beta regression",
+              "column": "Turnover"
+            },
+            "interpretation": "Last row of Table 2, Panel A (all four explanatory variables): turnover slope -0.04 (t=-8.58)."
+          }
+        ],
+        "status": "table_only"
+      },
+      {
+        "metric_id": "sharevol_turnover_slope_univariate_trimmed",
+        "label": "GLS-pooled average monthly slope of share-volume-based turnover, trimmed dataset (1%/99% outliers discarded), univariate regression",
+        "estimand": "coefficient",
+        "adjustment_model": "raw",
+        "weighting": null,
+        "estimate": -0.04,
+        "unit": "percent",
+        "frequency": "month",
+        "portfolio_selector": {},
+        "statistic": {
+          "kind": "t_stat",
+          "value": -8.73
+        },
+        "sample_period": {
+          "start_year": 1963,
+          "end_year": 1991,
+          "start_month": 7,
+          "end_month": 12,
+          "evidence": [
+            {
+              "location": "Table 2, Panel B (p.211)",
+              "quote": "",
+              "table_ref": {
+                "table": "Table 2",
+                "row": "Panel B, univariate turnover regression",
+                "column": "Turnover"
+              },
+              "interpretation": ""
+            }
+          ],
+          "status": "table_only"
+        },
+        "evidence": [
+          {
+            "location": "Table 2, Panel B (p.211)",
+            "quote": "0.77 !0.04 (29.45) (!8.73)",
+            "table_ref": {
+              "table": "Table 2",
+              "row": "Panel B, univariate turnover regression",
+              "column": "Turnover"
+            },
+            "interpretation": "First row of Table 2, Panel B (trimmed dataset): constant 0.77 (t=29.45), turnover slope -0.04 (t=-8.73); reported as a robustness check, not the primary result."
+          }
+        ],
+        "status": "table_only"
+      },
+      {
+        "metric_id": "sharevol_implied_illiquidity_premium_monthly",
+        "label": "Implied monthly return premium of illiquid (10th percentile turnover) over liquid (90th percentile turnover) stocks",
+        "estimand": "spread",
+        "adjustment_model": "other",
+        "weighting": null,
+        "estimate": 27.0,
+        "unit": "basis_points",
+        "frequency": "month",
+        "portfolio_selector": null,
+        "statistic": null,
+        "sample_period": {
+          "start_year": 1963,
+          "end_year": 1991,
+          "start_month": 7,
+          "end_month": 12,
+          "evidence": [
+            {
+              "location": "Section 5, Liquidity and stock returns (p.213)",
+              "quote": "A slope coefficient of 4.5 basis points per month implies that in our sample the illiquid stocks earned a higher return of 27 basis points per month or about 3.25% per annum as compared to the liquid stocks.",
+              "table_ref": null,
+              "interpretation": ""
+            }
+          ],
+          "status": "clear"
+        },
+        "evidence": [
+          {
+            "location": "Section 5, Liquidity and stock returns (p.213)",
+            "quote": "we subtracted the turnover rate of an illiquid stock (the 10th percentile) from that of a liquid stock (the 90th percentile) and found the difference to be around 6%. A slope coefficient of 4.5 basis points per month implies that in our sample the illiquid stocks earned a higher return of 27 basis points per month or about 3.25% per annum as compared to the liquid stocks.",
+            "table_ref": null,
+            "interpretation": "A prose-stated economic magnitude (not a single table cell): the ~-0.045%-per-month average slope across Table 2 specifications, applied to a ~6-percentage-point gap in turnover between 10th- and 90th-percentile stocks."
+          }
+        ],
+        "status": "clear"
+      }
+    ],
+    "comparison_derivation": null
+  },
+  "notes": "Derived independently, directly from the paper's full text (data/paper_text_cache/Liquidity and stock returns- An alternative test.pdf.txt) -- Sections 2 (theoretical motivation), 3 (Litzenberger-Ramaswamy/Fama-MacBeth GLS methodology), 4 (data/turnover construction), and 5 (Table 2 results and the illiquidity-premium magnitude), plus Table 2 itself. Not derived from, or checked against, the LLM raw extraction already sitting in runs/method_specs/raw/; this file exists specifically to be an independent ground truth against which that (or any future) extraction can be scored. The paper has only one liquidity signal -- CRSP shares-traded scaled by shares outstanding -- so the content here is necessarily close to the companion 'turnover' target file in this same Eval directory; both were written independently from the paper text under this target's own name ('ShareVol'), not copied from one another or from the raw extraction. Construction is a Litzenberger-Ramaswamy/Fama-MacBeth-style GLS-pooled monthly cross-sectional regression slope, not a sorted long-short portfolio, so sorts/legs are intentionally empty. Primary result is the complete-dataset univariate slope (Table 2, Panel A, first row, -0.04, t=-8.86); the full-control and trimmed-dataset rows are secondary/robustness metrics, and the 27-bps/month implied illiquidity premium is a directly quoted, prose-stated economic magnitude."
+}

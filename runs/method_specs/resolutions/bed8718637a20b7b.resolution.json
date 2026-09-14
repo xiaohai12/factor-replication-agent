@@ -1,0 +1,31 @@
+{
+  "schema_version": "resolution.v2",
+  "factor_id": "bed8718637a20b7b",
+  "concept_mapping": {
+    "revenue": {
+      "source": "comp_funda",
+      "column": "revt"
+    },
+    "cost_of_goods_sold": {
+      "source": "comp_funda",
+      "column": "cogs"
+    },
+    "total_assets": {
+      "source": "comp_funda",
+      "column": "at"
+    },
+    "sic_code": {
+      "source": "crsp_msf",
+      "column": "siccd"
+    },
+    "market_equity": {
+      "source": "crsp_msf",
+      "column": "me"
+    }
+  },
+  "returns_source": "us_equity_crsp",
+  "cz_acronym": null,
+  "llm_matched_concepts": [],
+  "entries": [],
+  "approved_substitutions": []
+}

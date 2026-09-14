@@ -1,0 +1,2216 @@
+{
+  "paper": {
+    "schema_version": "methodspec.v2",
+    "factor_id": "4cd27ae719671ce1",
+    "target_name": "oscore",
+    "paper": {
+      "document_id": "Is the risk of bankruptcy a systematic risk.pdf",
+      "title": "Is the Risk of Bankruptcy a Systematic Risk?",
+      "citation": "Dichev, Ilia D. (1998), \"Is the Risk of Bankruptcy a Systematic Risk?\", The Journal of Finance 53(3), 1131-1147.",
+      "publication_year": 1998
+    },
+    "signal": {
+      "definition": {
+        "value": "Ohlson's (1980) Model 1 composite bankruptcy-risk score, denoted O; higher values signify higher probability of bankruptcy.",
+        "evidence": [
+          {
+            "location": "Table I, p. 1136",
+            "quote": "O is a measure of bankruptcy risk from Model 1 in Ohlson (1980). Higher values of 0 signify higher probability of bankruptcy.",
+            "table_ref": null,
+            "interpretation": ""
+          }
+        ],
+        "status": "clear",
+        "unsupported_value": null
+      },
+      "economic_intuition": {
+        "value": "The score measures ex ante probability of bankruptcy and is used as a proxy for firm distress.",
+        "evidence": [
+          {
+            "location": "Section I, p. 1134",
+            "quote": "The result is a single composite bankruptcy score that reflects the ex ante probability of bankruptcy for each firm at a given point in time.",
+            "table_ref": null,
+            "interpretation": ""
+          }
+        ],
+        "status": "clear",
+        "unsupported_value": null
+      },
+      "direction": {
+        "value": "negative",
+        "evidence": [
+          {
+            "location": "Section II.A, p. 1142",
+            "quote": "the regression results confirm the strong negative association between 0 and returns",
+            "table_ref": null,
+            "interpretation": ""
+          }
+        ],
+        "status": "clear",
+        "unsupported_value": null
+      },
+      "category": "continuous",
+      "formula": {
+        "paper_expression": "O = -1.32 - 0.407 log(total assets) + 6.03(total liabilities/total assets) - 1.43(working capital/total assets) + 0.076(current liabilities/current assets) - 1.72(1 if total liabilities > total assets, else 0) - 2.37(net income/total assets) - 1.83(funds from operations/total liabilities) + 0.285(1 if net loss for last two years, else 0) - 0.521(net income_t - net income_t_minus_1)/(|net income_t| + |net income_t_minus_1|). The GNP price-level-index adjustment in Ohlson's original specification is omitted.",
+        "steps": [
+          {
+            "step_id": "logged_assets",
+            "description": "Take the natural logarithm of total assets; the paper omits Ohlson's GNP price-level-index adjustment.",
+            "expression": "log(total_assets)",
+            "status": "clear",
+            "evidence": [
+              {
+                "location": "Footnote 4, p. 1133",
+                "quote": "I use this model without adjusting for the GNP price-level index because the tests in this study employ monthly cross sections, within which the index is the same.",
+                "table_ref": null,
+                "interpretation": ""
+              }
+            ]
+          },
+          {
+            "step_id": "liabilities_to_assets",
+            "description": "Compute total liabilities divided by total assets.",
+            "expression": "total_liabilities / total_assets",
+            "status": "clear",
+            "evidence": [
+              {
+                "location": "Footnote 4, p. 1133",
+                "quote": "6.03 (total liabilities/total assets)",
+                "table_ref": null,
+                "interpretation": ""
+              }
+            ]
+          },
+          {
+            "step_id": "working_capital_to_assets",
+            "description": "Compute working capital divided by total assets.",
+            "expression": "working_capital / total_assets",
+            "status": "clear",
+            "evidence": [
+              {
+                "location": "Footnote 4, p. 1133",
+                "quote": "- 1.43 (working capital/total assets)",
+                "table_ref": null,
+                "interpretation": ""
+              }
+            ]
+          },
+          {
+            "step_id": "current_liabilities_to_current_assets",
+            "description": "Compute current liabilities divided by current assets.",
+            "expression": "current_liabilities / current_assets",
+            "status": "clear",
+            "evidence": [
+              {
+                "location": "Footnote 4, p. 1133",
+                "quote": "+ 0.076 (current liabilities/current assets)",
+                "table_ref": null,
+                "interpretation": ""
+              }
+            ]
+          },
+          {
+            "step_id": "negative_net_worth_indicator",
+            "description": "Set an indicator to one when total liabilities exceed total assets, otherwise zero.",
+            "expression": "1 if total_liabilities > total_assets else 0",
+            "status": "clear",
+            "evidence": [
+              {
+                "location": "Footnote 4, p. 1133",
+                "quote": "- 1.72(1 if total liabilities > total assets, else 0)",
+                "table_ref": null,
+                "interpretation": ""
+              }
+            ]
+          },
+          {
+            "step_id": "net_income_to_assets",
+            "description": "Compute net income divided by total assets.",
+            "expression": "net_income / total_assets",
+            "status": "clear",
+            "evidence": [
+              {
+                "location": "Footnote 4, p. 1133",
+                "quote": "- 2.37(net income/total assets)",
+                "table_ref": null,
+                "interpretation": ""
+              }
+            ]
+          },
+          {
+            "step_id": "funds_from_operations_to_liabilities",
+            "description": "Compute funds from operations divided by total liabilities.",
+            "expression": "funds_from_operations / total_liabilities",
+            "status": "clear",
+            "evidence": [
+              {
+                "location": "Footnote 4, p. 1133",
+                "quote": "- 1.83(funds from operations/total liabilities)",
+                "table_ref": null,
+                "interpretation": ""
+              }
+            ]
+          },
+          {
+            "step_id": "two_year_loss_indicator",
+            "description": "Set an indicator to one when net income is negative in each of the last two years, otherwise zero.",
+            "expression": "1 if net_income < 0 and prior_net_income < 0 else 0",
+            "status": "clear",
+            "evidence": [
+              {
+                "location": "Footnote 4, p. 1133",
+                "quote": "+ 0.285(1 if net loss for last two years, else 0)",
+                "table_ref": null,
+                "interpretation": ""
+              }
+            ]
+          },
+          {
+            "step_id": "net_income_change",
+            "description": "Compute Ohlson's scaled change in net income.",
+            "expression": "(net_income - prior_net_income) / (abs(net_income) + abs(prior_net_income))",
+            "status": "clear",
+            "evidence": [
+              {
+                "location": "Footnote 4, p. 1133",
+                "quote": "- 0.521(net incomet - net incometi,)/(Inet incometi + Inet incomet-1l)",
+                "table_ref": null,
+                "interpretation": ""
+              }
+            ]
+          },
+          {
+            "step_id": "oscore",
+            "description": "Combine the intercept and weighted component terms to produce the O-score.",
+            "expression": "-1.32 - 0.407 * logged_assets + 6.03 * liabilities_to_assets - 1.43 * working_capital_to_assets + 0.076 * current_liabilities_to_current_assets - 1.72 * negative_net_worth_indicator - 2.37 * net_income_to_assets - 1.83 * funds_from_operations_to_liabilities + 0.285 * two_year_loss_indicator - 0.521 * net_income_change",
+            "status": "clear",
+            "evidence": [
+              {
+                "location": "Footnote 4, p. 1133",
+                "quote": "Ohlson's (1980) model 1 is:",
+                "table_ref": null,
+                "interpretation": ""
+              },
+              {
+                "location": "Footnote 4, p. 1133",
+                "quote": "I use this model without adjusting for the GNP price-level index because the tests in this study employ monthly cross sections, within which the index is the same.",
+                "table_ref": null,
+                "interpretation": ""
+              }
+            ]
+          }
+        ],
+        "inputs": [
+          "total_assets",
+          "total_liabilities",
+          "working_capital",
+          "current_liabilities",
+          "current_assets",
+          "net_income",
+          "prior_net_income",
+          "funds_from_operations"
+        ],
+        "constants": {},
+        "output_concept": "oscore",
+        "evidence": [
+          {
+            "location": "Footnote 4, p. 1133",
+            "quote": "Ohlson's (1980) model 1 is: 0 = -1.32 - 0.407 log(total assets/GNP price-level index) + 6.03 (total liabilities/total assets) - 1.43 (working capital/total assets) + 0.076 (current liabilities/current assets) - 1.72(1 if total liabilities > total assets, else 0) - 2.37(net income/total assets) - 1.83(funds from operations/total liabilities) + 0.285(1 if net loss for last two years, else 0) - 0.521(net incomet - net incometi,)/(Inet incometi + Inet incomet-1l).",
+            "table_ref": null,
+            "interpretation": ""
+          },
+          {
+            "location": "Footnote 4, p. 1133",
+            "quote": "I use this model without adjusting for the GNP price-level index because the tests in this study employ monthly cross sections, within which the index is the same.",
+            "table_ref": null,
+            "interpretation": ""
+          }
+        ]
+      },
+      "estimation": null
+    },
+    "data": {
+      "signal_frequency": {
+        "value": "year",
+        "evidence": [
+          {
+            "location": "Section I, p. 1135",
+            "quote": "Market value, book-to-market, and bankruptcy scores are cornputed from COMPUSTAT as of the fiscal year-end of a given year t.",
+            "table_ref": null,
+            "interpretation": ""
+          }
+        ],
+        "status": "clear",
+        "unsupported_value": null
+      },
+      "return_frequency": {
+        "value": "month",
+        "evidence": [
+          {
+            "location": "Section I, p. 1135",
+            "quote": "returns are monthly returns beginning six months after the fiscal year-end of year t.",
+            "table_ref": null,
+            "interpretation": ""
+          }
+        ],
+        "status": "clear",
+        "unsupported_value": null
+      },
+      "sources": [
+        {
+          "value": "CRSP",
+          "evidence": [
+            {
+              "location": "Section I, p. 1134",
+              "quote": "The sample consists of all industrial firms available simultaneously on the NYSE, AMEX, and Nasdaq Center for Research in Security Prices (CRSP) tapes",
+              "table_ref": null,
+              "interpretation": ""
+            }
+          ],
+          "status": "clear",
+          "unsupported_value": null
+        },
+        {
+          "value": "COMPUSTAT annual industrial and research tapes",
+          "evidence": [
+            {
+              "location": "Section I, p. 1134",
+              "quote": "the COMPUSTAT annual industrial and research tapes for the period 1981 to 1995.",
+              "table_ref": null,
+              "interpretation": ""
+            }
+          ],
+          "status": "clear",
+          "unsupported_value": null
+        }
+      ],
+      "fields": [
+        {
+          "concept_id": "total_assets",
+          "name_in_paper": "total assets",
+          "description": "Total assets used in Ohlson's Model 1.",
+          "paper_source_hint": "COMPUSTAT annual industrial and research tapes",
+          "roles": [
+            "signal_input"
+          ],
+          "evidence": [
+            {
+              "location": "Footnote 4, p. 1133",
+              "quote": "total assets",
+              "table_ref": null,
+              "interpretation": ""
+            }
+          ],
+          "source_table": {
+            "value": "compustat_fundamental_annual",
+            "evidence": [
+              {
+                "location": "Section I, p. 1134",
+                "quote": "COMPUSTAT annual industrial and research tapes",
+                "table_ref": null,
+                "interpretation": ""
+              }
+            ],
+            "status": "inferred",
+            "unsupported_value": null
+          },
+          "source_column": {
+            "value": "at",
+            "evidence": [
+              {
+                "location": "Footnote 4, p. 1133",
+                "quote": "total assets",
+                "table_ref": null,
+                "interpretation": ""
+              }
+            ],
+            "status": "inferred",
+            "unsupported_value": null
+          }
+        },
+        {
+          "concept_id": "total_liabilities",
+          "name_in_paper": "total liabilities",
+          "description": "Total liabilities used in Ohlson's Model 1.",
+          "paper_source_hint": "COMPUSTAT annual industrial and research tapes",
+          "roles": [
+            "signal_input"
+          ],
+          "evidence": [
+            {
+              "location": "Footnote 4, p. 1133",
+              "quote": "total liabilities",
+              "table_ref": null,
+              "interpretation": ""
+            }
+          ],
+          "source_table": {
+            "value": "compustat_fundamental_annual",
+            "evidence": [
+              {
+                "location": "Section I, p. 1134",
+                "quote": "COMPUSTAT annual industrial and research tapes",
+                "table_ref": null,
+                "interpretation": ""
+              }
+            ],
+            "status": "inferred",
+            "unsupported_value": null
+          },
+          "source_column": {
+            "value": "lt",
+            "evidence": [
+              {
+                "location": "Footnote 4, p. 1133",
+                "quote": "total liabilities",
+                "table_ref": null,
+                "interpretation": ""
+              }
+            ],
+            "status": "inferred",
+            "unsupported_value": null
+          }
+        },
+        {
+          "concept_id": "working_capital",
+          "name_in_paper": "working capital",
+          "description": "Working capital used in Ohlson's Model 1.",
+          "paper_source_hint": "COMPUSTAT annual industrial and research tapes",
+          "roles": [
+            "signal_input"
+          ],
+          "evidence": [
+            {
+              "location": "Footnote 4, p. 1133",
+              "quote": "working capital",
+              "table_ref": null,
+              "interpretation": ""
+            }
+          ],
+          "source_table": {
+            "value": "compustat_fundamental_annual",
+            "evidence": [
+              {
+                "location": "Section I, p. 1134",
+                "quote": "COMPUSTAT annual industrial and research tapes",
+                "table_ref": null,
+                "interpretation": ""
+              }
+            ],
+            "status": "inferred",
+            "unsupported_value": null
+          },
+          "source_column": {
+            "value": "wcap",
+            "evidence": [
+              {
+                "location": "Footnote 4, p. 1133",
+                "quote": "working capital",
+                "table_ref": null,
+                "interpretation": ""
+              }
+            ],
+            "status": "inferred",
+            "unsupported_value": null
+          }
+        },
+        {
+          "concept_id": "current_liabilities",
+          "name_in_paper": "current liabilities",
+          "description": "Current liabilities used in Ohlson's Model 1.",
+          "paper_source_hint": "COMPUSTAT annual industrial and research tapes",
+          "roles": [
+            "signal_input"
+          ],
+          "evidence": [
+            {
+              "location": "Footnote 4, p. 1133",
+              "quote": "current liabilities",
+              "table_ref": null,
+              "interpretation": ""
+            }
+          ],
+          "source_table": {
+            "value": "compustat_fundamental_annual",
+            "evidence": [
+              {
+                "location": "Section I, p. 1134",
+                "quote": "COMPUSTAT annual industrial and research tapes",
+                "table_ref": null,
+                "interpretation": ""
+              }
+            ],
+            "status": "inferred",
+            "unsupported_value": null
+          },
+          "source_column": {
+            "value": "lct",
+            "evidence": [
+              {
+                "location": "Footnote 4, p. 1133",
+                "quote": "current liabilities",
+                "table_ref": null,
+                "interpretation": ""
+              }
+            ],
+            "status": "inferred",
+            "unsupported_value": null
+          }
+        },
+        {
+          "concept_id": "current_assets",
+          "name_in_paper": "current assets",
+          "description": "Current assets used in Ohlson's Model 1.",
+          "paper_source_hint": "COMPUSTAT annual industrial and research tapes",
+          "roles": [
+            "signal_input"
+          ],
+          "evidence": [
+            {
+              "location": "Footnote 4, p. 1133",
+              "quote": "current assets",
+              "table_ref": null,
+              "interpretation": ""
+            }
+          ],
+          "source_table": {
+            "value": "compustat_fundamental_annual",
+            "evidence": [
+              {
+                "location": "Section I, p. 1134",
+                "quote": "COMPUSTAT annual industrial and research tapes",
+                "table_ref": null,
+                "interpretation": ""
+              }
+            ],
+            "status": "inferred",
+            "unsupported_value": null
+          },
+          "source_column": {
+            "value": "act",
+            "evidence": [
+              {
+                "location": "Footnote 4, p. 1133",
+                "quote": "current assets",
+                "table_ref": null,
+                "interpretation": ""
+              }
+            ],
+            "status": "inferred",
+            "unsupported_value": null
+          }
+        },
+        {
+          "concept_id": "net_income",
+          "name_in_paper": "net income",
+          "description": "Current-year net income used in Ohlson's Model 1.",
+          "paper_source_hint": "COMPUSTAT annual industrial and research tapes",
+          "roles": [
+            "signal_input"
+          ],
+          "evidence": [
+            {
+              "location": "Footnote 4, p. 1133",
+              "quote": "net income",
+              "table_ref": null,
+              "interpretation": ""
+            }
+          ],
+          "source_table": {
+            "value": "compustat_fundamental_annual",
+            "evidence": [
+              {
+                "location": "Section I, p. 1134",
+                "quote": "COMPUSTAT annual industrial and research tapes",
+                "table_ref": null,
+                "interpretation": ""
+              }
+            ],
+            "status": "inferred",
+            "unsupported_value": null
+          },
+          "source_column": {
+            "value": "ni",
+            "evidence": [
+              {
+                "location": "Footnote 4, p. 1133",
+                "quote": "net income",
+                "table_ref": null,
+                "interpretation": ""
+              }
+            ],
+            "status": "inferred",
+            "unsupported_value": null
+          }
+        },
+        {
+          "concept_id": "prior_net_income",
+          "name_in_paper": "net income in year t-1",
+          "description": "Prior-year net income used for Ohlson's two-year-loss indicator and scaled net-income change.",
+          "paper_source_hint": "COMPUSTAT annual industrial and research tapes",
+          "roles": [
+            "signal_input"
+          ],
+          "evidence": [
+            {
+              "location": "Footnote 4, p. 1133",
+              "quote": "net incomet-1",
+              "table_ref": null,
+              "interpretation": ""
+            }
+          ],
+          "source_table": {
+            "value": "compustat_fundamental_annual",
+            "evidence": [
+              {
+                "location": "Section I, p. 1134",
+                "quote": "COMPUSTAT annual industrial and research tapes",
+                "table_ref": null,
+                "interpretation": ""
+              }
+            ],
+            "status": "inferred",
+            "unsupported_value": null
+          },
+          "source_column": {
+            "value": "ni",
+            "evidence": [
+              {
+                "location": "Footnote 4, p. 1133",
+                "quote": "net incomet-1",
+                "table_ref": null,
+                "interpretation": ""
+              }
+            ],
+            "status": "inferred",
+            "unsupported_value": null
+          }
+        },
+        {
+          "concept_id": "funds_from_operations",
+          "name_in_paper": "funds from operations",
+          "description": "Funds from operations used in Ohlson's Model 1.",
+          "paper_source_hint": "COMPUSTAT annual industrial and research tapes",
+          "roles": [
+            "signal_input"
+          ],
+          "evidence": [
+            {
+              "location": "Footnote 4, p. 1133",
+              "quote": "funds from operations",
+              "table_ref": null,
+              "interpretation": ""
+            }
+          ],
+          "source_table": {
+            "value": "compustat_fundamental_annual",
+            "evidence": [
+              {
+                "location": "Section I, p. 1134",
+                "quote": "COMPUSTAT annual industrial and research tapes",
+                "table_ref": null,
+                "interpretation": ""
+              }
+            ],
+            "status": "inferred",
+            "unsupported_value": null
+          },
+          "source_column": {
+            "value": "fopt",
+            "evidence": [
+              {
+                "location": "Footnote 4, p. 1133",
+                "quote": "funds from operations",
+                "table_ref": null,
+                "interpretation": ""
+              }
+            ],
+            "status": "inferred",
+            "unsupported_value": null
+          }
+        },
+        {
+          "concept_id": "sic",
+          "name_in_paper": "COMPUSTAT Standard Industrial Classification (SIC) codes",
+          "description": "SIC code used to restrict the sample to industrial firms.",
+          "paper_source_hint": "COMPUSTAT annual industrial and research tapes",
+          "roles": [
+            "universe_filter"
+          ],
+          "evidence": [
+            {
+              "location": "Section I, p. 1134",
+              "quote": "I only include firms with COMPUSTAT Standard Industrial Classification (SIC) codes 1 to 3999 and 5000 to 5999.",
+              "table_ref": null,
+              "interpretation": ""
+            }
+          ],
+          "source_table": {
+            "value": "compustat_fundamental_annual",
+            "evidence": [
+              {
+                "location": "Section I, p. 1134",
+                "quote": "COMPUSTAT Standard Industrial Classification (SIC) codes",
+                "table_ref": null,
+                "interpretation": ""
+              }
+            ],
+            "status": "inferred",
+            "unsupported_value": null
+          },
+          "source_column": {
+            "value": "sic",
+            "evidence": [
+              {
+                "location": "Section I, p. 1134",
+                "quote": "COMPUSTAT Standard Industrial Classification (SIC) codes",
+                "table_ref": null,
+                "interpretation": ""
+              }
+            ],
+            "status": "inferred",
+            "unsupported_value": null
+          }
+        },
+        {
+          "concept_id": "exchcd",
+          "name_in_paper": "NYSE-AMEX firms",
+          "description": "CRSP exchange code used to select the NYSE-AMEX panel reported in Table IV.",
+          "paper_source_hint": "CRSP tapes",
+          "roles": [
+            "universe_filter"
+          ],
+          "evidence": [
+            {
+              "location": "Table IV, p. 1140",
+              "quote": "Panel A: NYSE-AMEX Firms",
+              "table_ref": null,
+              "interpretation": ""
+            }
+          ],
+          "source_table": {
+            "value": "crsp_msf",
+            "evidence": [
+              {
+                "location": "Table IV, p. 1140",
+                "quote": "Panel A: NYSE-AMEX Firms",
+                "table_ref": null,
+                "interpretation": ""
+              }
+            ],
+            "status": "inferred",
+            "unsupported_value": null
+          },
+          "source_column": {
+            "value": "exchcd",
+            "evidence": [
+              {
+                "location": "Table IV, p. 1140",
+                "quote": "Panel A: NYSE-AMEX Firms",
+                "table_ref": null,
+                "interpretation": ""
+              }
+            ],
+            "status": "inferred",
+            "unsupported_value": null
+          }
+        },
+        {
+          "concept_id": "crsp_compustat_matched",
+          "name_in_paper": "firms available simultaneously on CRSP and COMPUSTAT",
+          "description": "Availability in both the CRSP and COMPUSTAT datasets required by the paper's sample definition.",
+          "paper_source_hint": "Matched CRSP-COMPUSTAT sample",
+          "roles": [
+            "universe_filter"
+          ],
+          "evidence": [
+            {
+              "location": "Section I, p. 1134",
+              "quote": "The sample consists of all industrial firms available simultaneously on the NYSE, AMEX, and Nasdaq Center for Research in Security Prices (CRSP) tapes and the COMPUSTAT annual industrial and research tapes",
+              "table_ref": null,
+              "interpretation": ""
+            }
+          ],
+          "source_table": {
+            "value": "other",
+            "evidence": [
+              {
+                "location": "Section I, p. 1134",
+                "quote": "available simultaneously on the NYSE, AMEX, and Nasdaq Center for Research in Security Prices (CRSP) tapes and the COMPUSTAT annual industrial and research tapes",
+                "table_ref": null,
+                "interpretation": ""
+              }
+            ],
+            "status": "clear",
+            "unsupported_value": "Matched availability across CRSP tapes and COMPUSTAT annual industrial and research tapes"
+          },
+          "source_column": {
+            "value": null,
+            "evidence": [],
+            "status": "unspecified",
+            "unsupported_value": null
+          }
+        }
+      ],
+      "coverage_notes": [
+        "The paper uses Ohlson's original model without adjusting for the GNP price-level index because monthly cross sections share the same index value."
+      ]
+    },
+    "sample": {
+      "data_coverage": {
+        "start_year": 1981,
+        "end_year": 1995,
+        "start_month": 0,
+        "end_month": 0,
+        "evidence": [
+          {
+            "location": "Section I, p. 1134",
+            "quote": "the COMPUSTAT annual industrial and research tapes for the period 1981 to 1995.",
+            "table_ref": null,
+            "interpretation": ""
+          }
+        ],
+        "status": "clear"
+      },
+      "formation": {
+        "start_year": 1981,
+        "end_year": 1995,
+        "start_month": 0,
+        "end_month": 0,
+        "evidence": [
+          {
+            "location": "Table IV, p. 1140",
+            "quote": "during 1981 to 1995",
+            "table_ref": null,
+            "interpretation": ""
+          }
+        ],
+        "status": "clear"
+      },
+      "reported_returns": {
+        "start_year": 1981,
+        "end_year": 1995,
+        "start_month": 0,
+        "end_month": 0,
+        "evidence": [
+          {
+            "location": "Table IV, p. 1140",
+            "quote": "during 1981 to 1995",
+            "table_ref": null,
+            "interpretation": ""
+          }
+        ],
+        "status": "clear"
+      }
+    },
+    "timing": {
+      "formation_rule": {
+        "value": "Each month, assign firms to decile portfolios based on the O-score calculated from fiscal-year-end accounting data available six months after fiscal year-end.",
+        "evidence": [
+          {
+            "location": "Section I, p. 1135",
+            "quote": "For the portfolio results, each month firms are assigned to decile portfolios based on the magnitude of their bankruptcy score.",
+            "table_ref": null,
+            "interpretation": ""
+          },
+          {
+            "location": "Section I, p. 1135",
+            "quote": "returns are monthly returns beginning six months after the fiscal year-end of year t.",
+            "table_ref": null,
+            "interpretation": ""
+          }
+        ],
+        "status": "clear",
+        "unsupported_value": null
+      },
+      "formation_month": {
+        "value": null,
+        "evidence": [],
+        "status": "unspecified",
+        "unsupported_value": null
+      },
+      "rebalance_frequency": {
+        "value": "month",
+        "evidence": [
+          {
+            "location": "Section I, p. 1135",
+            "quote": "For the portfolio results, each month firms are assigned to decile portfolios",
+            "table_ref": null,
+            "interpretation": ""
+          }
+        ],
+        "status": "clear",
+        "unsupported_value": null
+      },
+      "holding_period": {
+        "value": 1,
+        "evidence": [
+          {
+            "location": "Table IV, p. 1140",
+            "quote": "Rets is one-year-ahead monthly returns (in percent), starting six months after fiscal-year-end.",
+            "table_ref": null,
+            "interpretation": ""
+          },
+          {
+            "location": "",
+            "quote": "",
+            "table_ref": null,
+            "interpretation": "human correction"
+          }
+        ],
+        "status": "clear",
+        "unsupported_value": null
+      },
+      "return_window": {
+        "start_offset": 0,
+        "end_offset": 11,
+        "unit": "month",
+        "anchor": "formation_date",
+        "is_expanding": false
+      },
+      "data_availability": {
+        "lag_value": 6,
+        "lag_unit": "month",
+        "anchor": "fiscal_period_end",
+        "basis": "fixed_calendar_lag",
+        "evidence": [
+          {
+            "location": "Section I, p. 1135",
+            "quote": "To ensure that the accounting data are available to calculate bankruptcy measures, returns are monthly returns beginning six months after the fiscal year-end of year t.",
+            "table_ref": null,
+            "interpretation": ""
+          }
+        ]
+      }
+    },
+    "universe": {
+      "description": {
+        "value": "NYSE-AMEX industrial firms in the matched CRSP-COMPUSTAT sample, restricted to SIC codes 1-3999 and 5000-5999.",
+        "evidence": [
+          {
+            "location": "Section I, p. 1134",
+            "quote": "The sample consists of all industrial firms available simultaneously on the NYSE, AMEX, and Nasdaq Center for Research in Security Prices (CRSP) tapes and the COMPUSTAT annual industrial and research tapes for the period 1981 to 1995.",
+            "table_ref": null,
+            "interpretation": ""
+          },
+          {
+            "location": "Section I, p. 1134",
+            "quote": "I only include firms with COMPUSTAT Standard Industrial Classification (SIC) codes 1 to 3999 and 5000 to 5999.",
+            "table_ref": null,
+            "interpretation": ""
+          },
+          {
+            "location": "Table IV, p. 1140",
+            "quote": "Panel A: NYSE-AMEX Firms",
+            "table_ref": null,
+            "interpretation": ""
+          }
+        ],
+        "status": "clear",
+        "unsupported_value": null
+      },
+      "filters": [
+        {
+          "concept_id": "sic",
+          "op": "intervals",
+          "value": [
+            [
+              1,
+              3999
+            ],
+            [
+              5000,
+              5999
+            ]
+          ],
+          "evidence": [
+            {
+              "location": "Section I, p. 1134",
+              "quote": "I only include firms with COMPUSTAT Standard Industrial Classification (SIC) codes 1 to 3999 and 5000 to 5999.",
+              "table_ref": null,
+              "interpretation": ""
+            }
+          ],
+          "derivation": null,
+          "accepted_unapplied": false,
+          "unapplied_reason": ""
+        },
+        {
+          "concept_id": "exchcd",
+          "op": "in",
+          "value": [
+            1,
+            2
+          ],
+          "evidence": [
+            {
+              "location": "Table IV, p. 1140",
+              "quote": "Panel A: NYSE-AMEX Firms",
+              "table_ref": null,
+              "interpretation": ""
+            }
+          ],
+          "derivation": null,
+          "accepted_unapplied": false,
+          "unapplied_reason": ""
+        }
+      ]
+    },
+    "portfolio": {
+      "construction_type": {
+        "value": "characteristic_sort",
+        "evidence": [
+          {
+            "location": "Section I, p. 1135",
+            "quote": "For the portfolio results, each month firms are assigned to decile portfolios based on the magnitude of their bankruptcy score.",
+            "table_ref": null,
+            "interpretation": ""
+          }
+        ],
+        "status": "clear",
+        "unsupported_value": null
+      },
+      "sorts": [
+        {
+          "sort_id": "oscore_decile",
+          "concept_id": "oscore",
+          "role": "target",
+          "order": 1,
+          "mode": {
+            "value": "independent",
+            "evidence": [
+              {
+                "location": "Section I, p. 1135",
+                "quote": "each month firms are assigned to decile portfolios based on the magnitude of their bankruptcy score.",
+                "table_ref": null,
+                "interpretation": ""
+              }
+            ],
+            "status": "clear",
+            "unsupported_value": null
+          },
+          "group_type": {
+            "value": "quantile",
+            "evidence": [
+              {
+                "location": "Section I, p. 1135",
+                "quote": "each month firms are assigned to decile portfolios",
+                "table_ref": null,
+                "interpretation": ""
+              }
+            ],
+            "status": "clear",
+            "unsupported_value": null
+          },
+          "group_count": 10,
+          "breakpoints": {
+            "basis": {
+              "value": "full_sample",
+              "evidence": [
+                {
+                  "location": "Table IV, p. 1140",
+                  "quote": "firms are assigned monthly into decile portfolios (Port) according to their probability of bankruptcy (0).",
+                  "table_ref": null,
+                  "interpretation": ""
+                }
+              ],
+              "status": "clear",
+              "unsupported_value": null
+            },
+            "values": []
+          },
+          "condition_on_sort_id": null,
+          "evidence": [
+            {
+              "location": "Table IV, p. 1140",
+              "quote": "firms are assigned monthly into decile portfolios (Port) according to their probability of bankruptcy (0).",
+              "table_ref": null,
+              "interpretation": ""
+            }
+          ]
+        }
+      ],
+      "legs": [],
+      "weighting": {
+        "value": "vw",
+        "evidence": [
+          {
+            "location": "Section I, p. 1135",
+            "quote": "Then I calculate mean bankruptcy score, mean subsequent realized monthly return, mean market value, and mean book-to-market for each portfolio.",
+            "table_ref": null,
+            "interpretation": ""
+          },
+          {
+            "location": "",
+            "quote": "",
+            "table_ref": null,
+            "interpretation": "human correction"
+          }
+        ],
+        "status": "clear",
+        "unsupported_value": null
+      },
+      "return_combination": {
+        "value": "extreme_group_spread",
+        "evidence": [
+          {
+            "location": "Table IV, p. 1140",
+            "quote": "Portfolio values for 0, Rets, MV, and BIM are means for the respective portfolio.",
+            "table_ref": null,
+            "interpretation": ""
+          },
+          {
+            "location": "",
+            "quote": "",
+            "table_ref": null,
+            "interpretation": "human correction"
+          }
+        ],
+        "status": "clear",
+        "unsupported_value": null
+      },
+      "missing_policies": [],
+      "transforms": [
+        {
+          "kind": "winsorize",
+          "stage": "after_signal",
+          "bounds": [
+            0.01,
+            0.99
+          ],
+          "evidence": [
+            {
+              "location": "Section I, p. 1135",
+              "quote": "the top and bottom 1 percent of observations for each variable, except market value, are set at the 1st and the 99th percentile respectively.",
+              "table_ref": null,
+              "interpretation": ""
+            }
+          ]
+        }
+      ]
+    },
+    "reported_results": {
+      "primary_metric_id": "nyse_amex_oscore_portfolio_10_return",
+      "metrics": [
+        {
+          "metric_id": "nyse_amex_oscore_portfolio_1_return",
+          "label": "NYSE-AMEX O-score portfolio 1 mean monthly return",
+          "estimand": "mean_return",
+          "adjustment_model": "raw",
+          "weighting": null,
+          "estimate": 1.18,
+          "unit": "percent",
+          "frequency": "month",
+          "portfolio_selector": {
+            "oscore_decile": 0
+          },
+          "statistic": null,
+          "sample_period": {
+            "start_year": 1981,
+            "end_year": 1995,
+            "start_month": 0,
+            "end_month": 0,
+            "evidence": [
+              {
+                "location": "Table IV, p. 1140",
+                "quote": "during 1981 to 1995",
+                "table_ref": null,
+                "interpretation": ""
+              }
+            ],
+            "status": "clear"
+          },
+          "evidence": [
+            {
+              "location": "Table IV",
+              "quote": "",
+              "table_ref": {
+                "table": "Table IV, Panel A: NYSE-AMEX Firms",
+                "row": "1",
+                "column": "Rets"
+              },
+              "interpretation": "Portfolio 1 has the lowest probability of bankruptcy."
+            }
+          ],
+          "status": "table_only"
+        },
+        {
+          "metric_id": "nyse_amex_oscore_portfolio_10_return",
+          "label": "NYSE-AMEX O-score portfolio 10 mean monthly return",
+          "estimand": "mean_return",
+          "adjustment_model": "raw",
+          "weighting": null,
+          "estimate": 0.6,
+          "unit": "percent",
+          "frequency": "month",
+          "portfolio_selector": {
+            "oscore_decile": 9
+          },
+          "statistic": null,
+          "sample_period": {
+            "start_year": 1981,
+            "end_year": 1995,
+            "start_month": 0,
+            "end_month": 0,
+            "evidence": [
+              {
+                "location": "Table IV, p. 1140",
+                "quote": "during 1981 to 1995",
+                "table_ref": null,
+                "interpretation": ""
+              }
+            ],
+            "status": "clear"
+          },
+          "evidence": [
+            {
+              "location": "Table IV",
+              "quote": "",
+              "table_ref": {
+                "table": "Table IV, Panel A: NYSE-AMEX Firms",
+                "row": "10",
+                "column": "Rets"
+              },
+              "interpretation": "Portfolio 10 has the highest probability of bankruptcy."
+            }
+          ],
+          "status": "table_only"
+        }
+      ],
+      "comparison_derivation": null
+    },
+    "notes": "This MethodSpec targets the Ohlson Model 1 O-score and the NYSE-AMEX panel of Table IV. Table IV also reports a separate Nasdaq panel; it is not included in this target. The paper reports decile-portfolio mean returns, not a long-short spread, so no portfolio legs or high-minus-low comparison are specified. The paper states that it uses Ohlson's model without adjusting for the GNP price-level index because the index is the same within each monthly cross section.\nRemoved universe filter (human correction): {\"concept_id\":\"crsp_compustat_matched\",\"op\":\"is_true\",\"value\":true}"
+  },
+  "review": {
+    "schema_version": "methodreview.v2",
+    "factor_id": "4cd27ae719671ce1",
+    "capability_version": "engine_capability.v1",
+    "findings": [
+      {
+        "field_path": "data.fields[0].source_table",
+        "kind": "ambiguous",
+        "reason": "evidence_status=inferred",
+        "empirical_impact": "high",
+        "disposition": "needs_human_confirmation",
+        "paper_value": "compustat_fundamental_annual",
+        "evidence": [
+          {
+            "location": "Section I, p. 1134",
+            "quote": "COMPUSTAT annual industrial and research tapes",
+            "table_ref": null,
+            "interpretation": ""
+          }
+        ]
+      },
+      {
+        "field_path": "data.fields[0].source_column",
+        "kind": "ambiguous",
+        "reason": "evidence_status=inferred",
+        "empirical_impact": "high",
+        "disposition": "needs_human_confirmation",
+        "paper_value": "at",
+        "evidence": [
+          {
+            "location": "Footnote 4, p. 1133",
+            "quote": "total assets",
+            "table_ref": null,
+            "interpretation": ""
+          }
+        ]
+      },
+      {
+        "field_path": "data.fields[1].source_table",
+        "kind": "ambiguous",
+        "reason": "evidence_status=inferred",
+        "empirical_impact": "high",
+        "disposition": "needs_human_confirmation",
+        "paper_value": "compustat_fundamental_annual",
+        "evidence": [
+          {
+            "location": "Section I, p. 1134",
+            "quote": "COMPUSTAT annual industrial and research tapes",
+            "table_ref": null,
+            "interpretation": ""
+          }
+        ]
+      },
+      {
+        "field_path": "data.fields[1].source_column",
+        "kind": "ambiguous",
+        "reason": "evidence_status=inferred",
+        "empirical_impact": "high",
+        "disposition": "needs_human_confirmation",
+        "paper_value": "lt",
+        "evidence": [
+          {
+            "location": "Footnote 4, p. 1133",
+            "quote": "total liabilities",
+            "table_ref": null,
+            "interpretation": ""
+          }
+        ]
+      },
+      {
+        "field_path": "data.fields[2].source_table",
+        "kind": "ambiguous",
+        "reason": "evidence_status=inferred",
+        "empirical_impact": "high",
+        "disposition": "needs_human_confirmation",
+        "paper_value": "compustat_fundamental_annual",
+        "evidence": [
+          {
+            "location": "Section I, p. 1134",
+            "quote": "COMPUSTAT annual industrial and research tapes",
+            "table_ref": null,
+            "interpretation": ""
+          }
+        ]
+      },
+      {
+        "field_path": "data.fields[2].source_column",
+        "kind": "ambiguous",
+        "reason": "evidence_status=inferred",
+        "empirical_impact": "high",
+        "disposition": "needs_human_confirmation",
+        "paper_value": "wcap",
+        "evidence": [
+          {
+            "location": "Footnote 4, p. 1133",
+            "quote": "working capital",
+            "table_ref": null,
+            "interpretation": ""
+          }
+        ]
+      },
+      {
+        "field_path": "data.fields[3].source_table",
+        "kind": "ambiguous",
+        "reason": "evidence_status=inferred",
+        "empirical_impact": "high",
+        "disposition": "needs_human_confirmation",
+        "paper_value": "compustat_fundamental_annual",
+        "evidence": [
+          {
+            "location": "Section I, p. 1134",
+            "quote": "COMPUSTAT annual industrial and research tapes",
+            "table_ref": null,
+            "interpretation": ""
+          }
+        ]
+      },
+      {
+        "field_path": "data.fields[3].source_column",
+        "kind": "ambiguous",
+        "reason": "evidence_status=inferred",
+        "empirical_impact": "high",
+        "disposition": "needs_human_confirmation",
+        "paper_value": "lct",
+        "evidence": [
+          {
+            "location": "Footnote 4, p. 1133",
+            "quote": "current liabilities",
+            "table_ref": null,
+            "interpretation": ""
+          }
+        ]
+      },
+      {
+        "field_path": "data.fields[4].source_table",
+        "kind": "ambiguous",
+        "reason": "evidence_status=inferred",
+        "empirical_impact": "high",
+        "disposition": "needs_human_confirmation",
+        "paper_value": "compustat_fundamental_annual",
+        "evidence": [
+          {
+            "location": "Section I, p. 1134",
+            "quote": "COMPUSTAT annual industrial and research tapes",
+            "table_ref": null,
+            "interpretation": ""
+          }
+        ]
+      },
+      {
+        "field_path": "data.fields[4].source_column",
+        "kind": "ambiguous",
+        "reason": "evidence_status=inferred",
+        "empirical_impact": "high",
+        "disposition": "needs_human_confirmation",
+        "paper_value": "act",
+        "evidence": [
+          {
+            "location": "Footnote 4, p. 1133",
+            "quote": "current assets",
+            "table_ref": null,
+            "interpretation": ""
+          }
+        ]
+      },
+      {
+        "field_path": "data.fields[5].source_table",
+        "kind": "ambiguous",
+        "reason": "evidence_status=inferred",
+        "empirical_impact": "high",
+        "disposition": "needs_human_confirmation",
+        "paper_value": "compustat_fundamental_annual",
+        "evidence": [
+          {
+            "location": "Section I, p. 1134",
+            "quote": "COMPUSTAT annual industrial and research tapes",
+            "table_ref": null,
+            "interpretation": ""
+          }
+        ]
+      },
+      {
+        "field_path": "data.fields[5].source_column",
+        "kind": "ambiguous",
+        "reason": "evidence_status=inferred",
+        "empirical_impact": "high",
+        "disposition": "needs_human_confirmation",
+        "paper_value": "ni",
+        "evidence": [
+          {
+            "location": "Footnote 4, p. 1133",
+            "quote": "net income",
+            "table_ref": null,
+            "interpretation": ""
+          }
+        ]
+      },
+      {
+        "field_path": "data.fields[6].source_table",
+        "kind": "ambiguous",
+        "reason": "evidence_status=inferred",
+        "empirical_impact": "high",
+        "disposition": "needs_human_confirmation",
+        "paper_value": "compustat_fundamental_annual",
+        "evidence": [
+          {
+            "location": "Section I, p. 1134",
+            "quote": "COMPUSTAT annual industrial and research tapes",
+            "table_ref": null,
+            "interpretation": ""
+          }
+        ]
+      },
+      {
+        "field_path": "data.fields[6].source_column",
+        "kind": "ambiguous",
+        "reason": "evidence_status=inferred",
+        "empirical_impact": "high",
+        "disposition": "needs_human_confirmation",
+        "paper_value": "ni",
+        "evidence": [
+          {
+            "location": "Footnote 4, p. 1133",
+            "quote": "net incomet-1",
+            "table_ref": null,
+            "interpretation": ""
+          }
+        ]
+      },
+      {
+        "field_path": "data.fields[7].source_table",
+        "kind": "ambiguous",
+        "reason": "evidence_status=inferred",
+        "empirical_impact": "high",
+        "disposition": "needs_human_confirmation",
+        "paper_value": "compustat_fundamental_annual",
+        "evidence": [
+          {
+            "location": "Section I, p. 1134",
+            "quote": "COMPUSTAT annual industrial and research tapes",
+            "table_ref": null,
+            "interpretation": ""
+          }
+        ]
+      },
+      {
+        "field_path": "data.fields[7].source_column",
+        "kind": "ambiguous",
+        "reason": "evidence_status=inferred",
+        "empirical_impact": "high",
+        "disposition": "needs_human_confirmation",
+        "paper_value": "fopt",
+        "evidence": [
+          {
+            "location": "Footnote 4, p. 1133",
+            "quote": "funds from operations",
+            "table_ref": null,
+            "interpretation": ""
+          }
+        ]
+      },
+      {
+        "field_path": "data.fields[8].source_table",
+        "kind": "ambiguous",
+        "reason": "evidence_status=inferred",
+        "empirical_impact": "high",
+        "disposition": "needs_human_confirmation",
+        "paper_value": "compustat_fundamental_annual",
+        "evidence": [
+          {
+            "location": "Section I, p. 1134",
+            "quote": "COMPUSTAT Standard Industrial Classification (SIC) codes",
+            "table_ref": null,
+            "interpretation": ""
+          }
+        ]
+      },
+      {
+        "field_path": "data.fields[8].source_column",
+        "kind": "ambiguous",
+        "reason": "evidence_status=inferred",
+        "empirical_impact": "high",
+        "disposition": "needs_human_confirmation",
+        "paper_value": "sic",
+        "evidence": [
+          {
+            "location": "Section I, p. 1134",
+            "quote": "COMPUSTAT Standard Industrial Classification (SIC) codes",
+            "table_ref": null,
+            "interpretation": ""
+          }
+        ]
+      },
+      {
+        "field_path": "data.fields[9].source_table",
+        "kind": "ambiguous",
+        "reason": "evidence_status=inferred",
+        "empirical_impact": "high",
+        "disposition": "needs_human_confirmation",
+        "paper_value": "crsp_msf",
+        "evidence": [
+          {
+            "location": "Table IV, p. 1140",
+            "quote": "Panel A: NYSE-AMEX Firms",
+            "table_ref": null,
+            "interpretation": ""
+          }
+        ]
+      },
+      {
+        "field_path": "data.fields[9].source_column",
+        "kind": "ambiguous",
+        "reason": "evidence_status=inferred",
+        "empirical_impact": "high",
+        "disposition": "needs_human_confirmation",
+        "paper_value": "exchcd",
+        "evidence": [
+          {
+            "location": "Table IV, p. 1140",
+            "quote": "Panel A: NYSE-AMEX Firms",
+            "table_ref": null,
+            "interpretation": ""
+          }
+        ]
+      },
+      {
+        "field_path": "data.fields[10].source_table",
+        "kind": "unsupported",
+        "reason": "paper's stated method ('Matched availability across CRSP tapes and COMPUSTAT annual industrial and research tapes') is not in the engine's menu; the backtest will use a documented default unless corrected (see resolved config's defaults_applied).",
+        "empirical_impact": "high",
+        "disposition": "needs_human_confirmation",
+        "paper_value": "Matched availability across CRSP tapes and COMPUSTAT annual industrial and research tapes",
+        "evidence": [
+          {
+            "location": "Section I, p. 1134",
+            "quote": "available simultaneously on the NYSE, AMEX, and Nasdaq Center for Research in Security Prices (CRSP) tapes and the COMPUSTAT annual industrial and research tapes",
+            "table_ref": null,
+            "interpretation": ""
+          }
+        ]
+      },
+      {
+        "field_path": "data.fields[10].source_column",
+        "kind": "ambiguous",
+        "reason": "evidence_status=unspecified",
+        "empirical_impact": "high",
+        "disposition": "needs_human_confirmation",
+        "paper_value": null,
+        "evidence": []
+      },
+      {
+        "field_path": "universe.description.evidence[0]",
+        "kind": "incomplete",
+        "reason": "Universe evidence is not attached to an executable universe.filters entry. Add a cited filter with a real data.fields source/column mapping, or record the stated restriction as accepted_unapplied with a reason.",
+        "empirical_impact": "high",
+        "disposition": "needs_human_confirmation",
+        "paper_value": "The sample consists of all industrial firms available simultaneously on the NYSE, AMEX, and Nasdaq Center for Research in Security Prices (CRSP) tapes and the COMPUSTAT annual industrial and research tapes for the period 1981 to 1995.",
+        "evidence": [
+          {
+            "location": "Section I, p. 1134",
+            "quote": "The sample consists of all industrial firms available simultaneously on the NYSE, AMEX, and Nasdaq Center for Research in Security Prices (CRSP) tapes and the COMPUSTAT annual industrial and research tapes for the period 1981 to 1995.",
+            "table_ref": null,
+            "interpretation": ""
+          }
+        ]
+      }
+    ],
+    "all_high_impact_fields": [
+      {
+        "field_path": "signal.direction",
+        "kind": "ambiguous",
+        "reason": "evidence_status=clear",
+        "empirical_impact": "high",
+        "disposition": "auto_approve",
+        "paper_value": "negative",
+        "evidence": [
+          {
+            "location": "Section II.A, p. 1142",
+            "quote": "the regression results confirm the strong negative association between 0 and returns",
+            "table_ref": null,
+            "interpretation": ""
+          }
+        ]
+      },
+      {
+        "field_path": "timing.formation_rule",
+        "kind": "ambiguous",
+        "reason": "evidence_status=clear",
+        "empirical_impact": "high",
+        "disposition": "auto_approve",
+        "paper_value": "Each month, assign firms to decile portfolios based on the O-score calculated from fiscal-year-end accounting data available six months after fiscal year-end.",
+        "evidence": [
+          {
+            "location": "Section I, p. 1135",
+            "quote": "For the portfolio results, each month firms are assigned to decile portfolios based on the magnitude of their bankruptcy score.",
+            "table_ref": null,
+            "interpretation": ""
+          },
+          {
+            "location": "Section I, p. 1135",
+            "quote": "returns are monthly returns beginning six months after the fiscal year-end of year t.",
+            "table_ref": null,
+            "interpretation": ""
+          }
+        ]
+      },
+      {
+        "field_path": "timing.rebalance_frequency",
+        "kind": "ambiguous",
+        "reason": "evidence_status=clear",
+        "empirical_impact": "high",
+        "disposition": "auto_approve",
+        "paper_value": "month",
+        "evidence": [
+          {
+            "location": "Section I, p. 1135",
+            "quote": "For the portfolio results, each month firms are assigned to decile portfolios",
+            "table_ref": null,
+            "interpretation": ""
+          }
+        ]
+      },
+      {
+        "field_path": "timing.holding_period",
+        "kind": "ambiguous",
+        "reason": "evidence_status=clear",
+        "empirical_impact": "high",
+        "disposition": "auto_approve",
+        "paper_value": 1,
+        "evidence": [
+          {
+            "location": "Table IV, p. 1140",
+            "quote": "Rets is one-year-ahead monthly returns (in percent), starting six months after fiscal-year-end.",
+            "table_ref": null,
+            "interpretation": ""
+          },
+          {
+            "location": "",
+            "quote": "",
+            "table_ref": null,
+            "interpretation": "human correction"
+          }
+        ]
+      },
+      {
+        "field_path": "portfolio.weighting",
+        "kind": "ambiguous",
+        "reason": "evidence_status=clear",
+        "empirical_impact": "high",
+        "disposition": "auto_approve",
+        "paper_value": "vw",
+        "evidence": [
+          {
+            "location": "Section I, p. 1135",
+            "quote": "Then I calculate mean bankruptcy score, mean subsequent realized monthly return, mean market value, and mean book-to-market for each portfolio.",
+            "table_ref": null,
+            "interpretation": ""
+          },
+          {
+            "location": "",
+            "quote": "",
+            "table_ref": null,
+            "interpretation": "human correction"
+          }
+        ]
+      },
+      {
+        "field_path": "portfolio.return_combination",
+        "kind": "ambiguous",
+        "reason": "evidence_status=clear",
+        "empirical_impact": "high",
+        "disposition": "auto_approve",
+        "paper_value": "extreme_group_spread",
+        "evidence": [
+          {
+            "location": "Table IV, p. 1140",
+            "quote": "Portfolio values for 0, Rets, MV, and BIM are means for the respective portfolio.",
+            "table_ref": null,
+            "interpretation": ""
+          },
+          {
+            "location": "",
+            "quote": "",
+            "table_ref": null,
+            "interpretation": "human correction"
+          }
+        ]
+      },
+      {
+        "field_path": "portfolio.construction_type",
+        "kind": "ambiguous",
+        "reason": "evidence_status=clear",
+        "empirical_impact": "high",
+        "disposition": "auto_approve",
+        "paper_value": "characteristic_sort",
+        "evidence": [
+          {
+            "location": "Section I, p. 1135",
+            "quote": "For the portfolio results, each month firms are assigned to decile portfolios based on the magnitude of their bankruptcy score.",
+            "table_ref": null,
+            "interpretation": ""
+          }
+        ]
+      },
+      {
+        "field_path": "universe.description",
+        "kind": "ambiguous",
+        "reason": "evidence_status=clear",
+        "empirical_impact": "high",
+        "disposition": "auto_approve",
+        "paper_value": "NYSE-AMEX industrial firms in the matched CRSP-COMPUSTAT sample, restricted to SIC codes 1-3999 and 5000-5999.",
+        "evidence": [
+          {
+            "location": "Section I, p. 1134",
+            "quote": "The sample consists of all industrial firms available simultaneously on the NYSE, AMEX, and Nasdaq Center for Research in Security Prices (CRSP) tapes and the COMPUSTAT annual industrial and research tapes for the period 1981 to 1995.",
+            "table_ref": null,
+            "interpretation": ""
+          },
+          {
+            "location": "Section I, p. 1134",
+            "quote": "I only include firms with COMPUSTAT Standard Industrial Classification (SIC) codes 1 to 3999 and 5000 to 5999.",
+            "table_ref": null,
+            "interpretation": ""
+          },
+          {
+            "location": "Table IV, p. 1140",
+            "quote": "Panel A: NYSE-AMEX Firms",
+            "table_ref": null,
+            "interpretation": ""
+          }
+        ]
+      },
+      {
+        "field_path": "portfolio.sorts[0].breakpoints.basis",
+        "kind": "ambiguous",
+        "reason": "evidence_status=clear",
+        "empirical_impact": "high",
+        "disposition": "auto_approve",
+        "paper_value": "full_sample",
+        "evidence": [
+          {
+            "location": "Table IV, p. 1140",
+            "quote": "firms are assigned monthly into decile portfolios (Port) according to their probability of bankruptcy (0).",
+            "table_ref": null,
+            "interpretation": ""
+          }
+        ]
+      },
+      {
+        "field_path": "portfolio.sorts[0].group_type",
+        "kind": "ambiguous",
+        "reason": "evidence_status=clear",
+        "empirical_impact": "high",
+        "disposition": "auto_approve",
+        "paper_value": "quantile",
+        "evidence": [
+          {
+            "location": "Section I, p. 1135",
+            "quote": "each month firms are assigned to decile portfolios",
+            "table_ref": null,
+            "interpretation": ""
+          }
+        ]
+      },
+      {
+        "field_path": "portfolio.sorts[0].mode",
+        "kind": "ambiguous",
+        "reason": "evidence_status=clear",
+        "empirical_impact": "high",
+        "disposition": "auto_approve",
+        "paper_value": "independent",
+        "evidence": [
+          {
+            "location": "Section I, p. 1135",
+            "quote": "each month firms are assigned to decile portfolios based on the magnitude of their bankruptcy score.",
+            "table_ref": null,
+            "interpretation": ""
+          }
+        ]
+      },
+      {
+        "field_path": "data.fields[0].source_table",
+        "kind": "ambiguous",
+        "reason": "evidence_status=inferred",
+        "empirical_impact": "high",
+        "disposition": "needs_human_confirmation",
+        "paper_value": "compustat_fundamental_annual",
+        "evidence": [
+          {
+            "location": "Section I, p. 1134",
+            "quote": "COMPUSTAT annual industrial and research tapes",
+            "table_ref": null,
+            "interpretation": ""
+          }
+        ]
+      },
+      {
+        "field_path": "data.fields[0].source_column",
+        "kind": "ambiguous",
+        "reason": "evidence_status=inferred",
+        "empirical_impact": "high",
+        "disposition": "needs_human_confirmation",
+        "paper_value": "at",
+        "evidence": [
+          {
+            "location": "Footnote 4, p. 1133",
+            "quote": "total assets",
+            "table_ref": null,
+            "interpretation": ""
+          }
+        ]
+      },
+      {
+        "field_path": "data.fields[1].source_table",
+        "kind": "ambiguous",
+        "reason": "evidence_status=inferred",
+        "empirical_impact": "high",
+        "disposition": "needs_human_confirmation",
+        "paper_value": "compustat_fundamental_annual",
+        "evidence": [
+          {
+            "location": "Section I, p. 1134",
+            "quote": "COMPUSTAT annual industrial and research tapes",
+            "table_ref": null,
+            "interpretation": ""
+          }
+        ]
+      },
+      {
+        "field_path": "data.fields[1].source_column",
+        "kind": "ambiguous",
+        "reason": "evidence_status=inferred",
+        "empirical_impact": "high",
+        "disposition": "needs_human_confirmation",
+        "paper_value": "lt",
+        "evidence": [
+          {
+            "location": "Footnote 4, p. 1133",
+            "quote": "total liabilities",
+            "table_ref": null,
+            "interpretation": ""
+          }
+        ]
+      },
+      {
+        "field_path": "data.fields[2].source_table",
+        "kind": "ambiguous",
+        "reason": "evidence_status=inferred",
+        "empirical_impact": "high",
+        "disposition": "needs_human_confirmation",
+        "paper_value": "compustat_fundamental_annual",
+        "evidence": [
+          {
+            "location": "Section I, p. 1134",
+            "quote": "COMPUSTAT annual industrial and research tapes",
+            "table_ref": null,
+            "interpretation": ""
+          }
+        ]
+      },
+      {
+        "field_path": "data.fields[2].source_column",
+        "kind": "ambiguous",
+        "reason": "evidence_status=inferred",
+        "empirical_impact": "high",
+        "disposition": "needs_human_confirmation",
+        "paper_value": "wcap",
+        "evidence": [
+          {
+            "location": "Footnote 4, p. 1133",
+            "quote": "working capital",
+            "table_ref": null,
+            "interpretation": ""
+          }
+        ]
+      },
+      {
+        "field_path": "data.fields[3].source_table",
+        "kind": "ambiguous",
+        "reason": "evidence_status=inferred",
+        "empirical_impact": "high",
+        "disposition": "needs_human_confirmation",
+        "paper_value": "compustat_fundamental_annual",
+        "evidence": [
+          {
+            "location": "Section I, p. 1134",
+            "quote": "COMPUSTAT annual industrial and research tapes",
+            "table_ref": null,
+            "interpretation": ""
+          }
+        ]
+      },
+      {
+        "field_path": "data.fields[3].source_column",
+        "kind": "ambiguous",
+        "reason": "evidence_status=inferred",
+        "empirical_impact": "high",
+        "disposition": "needs_human_confirmation",
+        "paper_value": "lct",
+        "evidence": [
+          {
+            "location": "Footnote 4, p. 1133",
+            "quote": "current liabilities",
+            "table_ref": null,
+            "interpretation": ""
+          }
+        ]
+      },
+      {
+        "field_path": "data.fields[4].source_table",
+        "kind": "ambiguous",
+        "reason": "evidence_status=inferred",
+        "empirical_impact": "high",
+        "disposition": "needs_human_confirmation",
+        "paper_value": "compustat_fundamental_annual",
+        "evidence": [
+          {
+            "location": "Section I, p. 1134",
+            "quote": "COMPUSTAT annual industrial and research tapes",
+            "table_ref": null,
+            "interpretation": ""
+          }
+        ]
+      },
+      {
+        "field_path": "data.fields[4].source_column",
+        "kind": "ambiguous",
+        "reason": "evidence_status=inferred",
+        "empirical_impact": "high",
+        "disposition": "needs_human_confirmation",
+        "paper_value": "act",
+        "evidence": [
+          {
+            "location": "Footnote 4, p. 1133",
+            "quote": "current assets",
+            "table_ref": null,
+            "interpretation": ""
+          }
+        ]
+      },
+      {
+        "field_path": "data.fields[5].source_table",
+        "kind": "ambiguous",
+        "reason": "evidence_status=inferred",
+        "empirical_impact": "high",
+        "disposition": "needs_human_confirmation",
+        "paper_value": "compustat_fundamental_annual",
+        "evidence": [
+          {
+            "location": "Section I, p. 1134",
+            "quote": "COMPUSTAT annual industrial and research tapes",
+            "table_ref": null,
+            "interpretation": ""
+          }
+        ]
+      },
+      {
+        "field_path": "data.fields[5].source_column",
+        "kind": "ambiguous",
+        "reason": "evidence_status=inferred",
+        "empirical_impact": "high",
+        "disposition": "needs_human_confirmation",
+        "paper_value": "ni",
+        "evidence": [
+          {
+            "location": "Footnote 4, p. 1133",
+            "quote": "net income",
+            "table_ref": null,
+            "interpretation": ""
+          }
+        ]
+      },
+      {
+        "field_path": "data.fields[6].source_table",
+        "kind": "ambiguous",
+        "reason": "evidence_status=inferred",
+        "empirical_impact": "high",
+        "disposition": "needs_human_confirmation",
+        "paper_value": "compustat_fundamental_annual",
+        "evidence": [
+          {
+            "location": "Section I, p. 1134",
+            "quote": "COMPUSTAT annual industrial and research tapes",
+            "table_ref": null,
+            "interpretation": ""
+          }
+        ]
+      },
+      {
+        "field_path": "data.fields[6].source_column",
+        "kind": "ambiguous",
+        "reason": "evidence_status=inferred",
+        "empirical_impact": "high",
+        "disposition": "needs_human_confirmation",
+        "paper_value": "ni",
+        "evidence": [
+          {
+            "location": "Footnote 4, p. 1133",
+            "quote": "net incomet-1",
+            "table_ref": null,
+            "interpretation": ""
+          }
+        ]
+      },
+      {
+        "field_path": "data.fields[7].source_table",
+        "kind": "ambiguous",
+        "reason": "evidence_status=inferred",
+        "empirical_impact": "high",
+        "disposition": "needs_human_confirmation",
+        "paper_value": "compustat_fundamental_annual",
+        "evidence": [
+          {
+            "location": "Section I, p. 1134",
+            "quote": "COMPUSTAT annual industrial and research tapes",
+            "table_ref": null,
+            "interpretation": ""
+          }
+        ]
+      },
+      {
+        "field_path": "data.fields[7].source_column",
+        "kind": "ambiguous",
+        "reason": "evidence_status=inferred",
+        "empirical_impact": "high",
+        "disposition": "needs_human_confirmation",
+        "paper_value": "fopt",
+        "evidence": [
+          {
+            "location": "Footnote 4, p. 1133",
+            "quote": "funds from operations",
+            "table_ref": null,
+            "interpretation": ""
+          }
+        ]
+      },
+      {
+        "field_path": "data.fields[8].source_table",
+        "kind": "ambiguous",
+        "reason": "evidence_status=inferred",
+        "empirical_impact": "high",
+        "disposition": "needs_human_confirmation",
+        "paper_value": "compustat_fundamental_annual",
+        "evidence": [
+          {
+            "location": "Section I, p. 1134",
+            "quote": "COMPUSTAT Standard Industrial Classification (SIC) codes",
+            "table_ref": null,
+            "interpretation": ""
+          }
+        ]
+      },
+      {
+        "field_path": "data.fields[8].source_column",
+        "kind": "ambiguous",
+        "reason": "evidence_status=inferred",
+        "empirical_impact": "high",
+        "disposition": "needs_human_confirmation",
+        "paper_value": "sic",
+        "evidence": [
+          {
+            "location": "Section I, p. 1134",
+            "quote": "COMPUSTAT Standard Industrial Classification (SIC) codes",
+            "table_ref": null,
+            "interpretation": ""
+          }
+        ]
+      },
+      {
+        "field_path": "data.fields[9].source_table",
+        "kind": "ambiguous",
+        "reason": "evidence_status=inferred",
+        "empirical_impact": "high",
+        "disposition": "needs_human_confirmation",
+        "paper_value": "crsp_msf",
+        "evidence": [
+          {
+            "location": "Table IV, p. 1140",
+            "quote": "Panel A: NYSE-AMEX Firms",
+            "table_ref": null,
+            "interpretation": ""
+          }
+        ]
+      },
+      {
+        "field_path": "data.fields[9].source_column",
+        "kind": "ambiguous",
+        "reason": "evidence_status=inferred",
+        "empirical_impact": "high",
+        "disposition": "needs_human_confirmation",
+        "paper_value": "exchcd",
+        "evidence": [
+          {
+            "location": "Table IV, p. 1140",
+            "quote": "Panel A: NYSE-AMEX Firms",
+            "table_ref": null,
+            "interpretation": ""
+          }
+        ]
+      },
+      {
+        "field_path": "data.fields[10].source_table",
+        "kind": "unsupported",
+        "reason": "paper's stated method ('Matched availability across CRSP tapes and COMPUSTAT annual industrial and research tapes') is not in the engine's menu; the backtest will use a documented default unless corrected (see resolved config's defaults_applied).",
+        "empirical_impact": "high",
+        "disposition": "needs_human_confirmation",
+        "paper_value": "Matched availability across CRSP tapes and COMPUSTAT annual industrial and research tapes",
+        "evidence": [
+          {
+            "location": "Section I, p. 1134",
+            "quote": "available simultaneously on the NYSE, AMEX, and Nasdaq Center for Research in Security Prices (CRSP) tapes and the COMPUSTAT annual industrial and research tapes",
+            "table_ref": null,
+            "interpretation": ""
+          }
+        ]
+      },
+      {
+        "field_path": "data.fields[10].source_column",
+        "kind": "ambiguous",
+        "reason": "evidence_status=unspecified",
+        "empirical_impact": "high",
+        "disposition": "needs_human_confirmation",
+        "paper_value": null,
+        "evidence": []
+      },
+      {
+        "field_path": "universe.filters[0]",
+        "kind": "universe_filter",
+        "reason": "Universe membership restriction; confirm its evidence and runtime applicability.",
+        "empirical_impact": "high",
+        "disposition": "needs_human_confirmation",
+        "paper_value": {
+          "concept_id": "sic",
+          "op": "intervals",
+          "value": [
+            [
+              1,
+              3999
+            ],
+            [
+              5000,
+              5999
+            ]
+          ]
+        },
+        "evidence": [
+          {
+            "location": "Section I, p. 1134",
+            "quote": "I only include firms with COMPUSTAT Standard Industrial Classification (SIC) codes 1 to 3999 and 5000 to 5999.",
+            "table_ref": null,
+            "interpretation": ""
+          }
+        ]
+      },
+      {
+        "field_path": "universe.filters[1]",
+        "kind": "universe_filter",
+        "reason": "Universe membership restriction; confirm its evidence and runtime applicability.",
+        "empirical_impact": "high",
+        "disposition": "needs_human_confirmation",
+        "paper_value": {
+          "concept_id": "exchcd",
+          "op": "in",
+          "value": [
+            1,
+            2
+          ]
+        },
+        "evidence": [
+          {
+            "location": "Table IV, p. 1140",
+            "quote": "Panel A: NYSE-AMEX Firms",
+            "table_ref": null,
+            "interpretation": ""
+          }
+        ]
+      }
+    ],
+    "status_overrides": {},
+    "reextraction_attempts": 0
+  },
+  "resolution": {
+    "schema_version": "resolution.v2",
+    "factor_id": "4cd27ae719671ce1",
+    "concept_mapping": {
+      "total_assets": {
+        "source": "compustat_fundamental_annual",
+        "column": "at"
+      },
+      "total_liabilities": {
+        "source": "compustat_fundamental_annual",
+        "column": "lt"
+      },
+      "working_capital": {
+        "source": "compustat_fundamental_annual",
+        "column": "wcap"
+      },
+      "current_liabilities": {
+        "source": "compustat_fundamental_annual",
+        "column": "lct"
+      },
+      "current_assets": {
+        "source": "compustat_fundamental_annual",
+        "column": "act"
+      },
+      "net_income": {
+        "source": "compustat_fundamental_annual",
+        "column": "ni"
+      },
+      "prior_net_income": {
+        "source": "compustat_fundamental_annual",
+        "column": "ni"
+      },
+      "funds_from_operations": {
+        "source": "compustat_fundamental_annual",
+        "column": "fopt"
+      },
+      "sic": {
+        "source": "compustat_fundamental_annual",
+        "column": "sic"
+      },
+      "exchcd": {
+        "source": "crsp_msf",
+        "column": "exchcd"
+      }
+    },
+    "returns_source": "us_equity_crsp",
+    "cz_acronym": null,
+    "llm_matched_concepts": [],
+    "entries": [],
+    "approved_substitutions": []
+  }
+}

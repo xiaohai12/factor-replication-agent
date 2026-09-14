@@ -1,0 +1,911 @@
+{
+  "schema_version": 1,
+  "session_id": "11c2aab1e8e74ceb93dcfb776d76b4a9",
+  "factor_id": "MeanRankRevGrowth",
+  "paper_id": null,
+  "state": "interrupted",
+  "revision": 76,
+  "created_at": "2026-08-22T07:09:27.745202",
+  "updated_at": "2026-08-24T20:13:22.410994",
+  "steps": {
+    "1": {
+      "step": 1,
+      "name": "extract",
+      "attempts": [
+        {
+          "attempt_index": 0,
+          "status": "success",
+          "started_at": "2026-08-22T07:10:15.605250",
+          "completed_at": "2026-08-22T07:12:36.261428",
+          "job_id": "90fab591-c5d6-40a5-97c1-c5a2ea657166",
+          "error": null,
+          "output_refs": {
+            "raw_spec_ref": "/Users/shengzhaolei/Desktop/shengzhao lei/projects/factor-replication-agent/runs/method_specs/raw/Contrarian investment, extrapolation, and risk.pdf__MeanRankRevGrowth.raw.json"
+          },
+          "diagnostics": {},
+          "input_ref_snapshot": {}
+        }
+      ],
+      "stale": false
+    },
+    "2": {
+      "step": 2,
+      "name": "review",
+      "attempts": [
+        {
+          "attempt_index": 0,
+          "status": "success",
+          "started_at": "2026-08-22T07:17:39.591817",
+          "completed_at": "2026-08-22T07:23:01.059015",
+          "job_id": "43890079-196f-41cf-8caa-46efc1adec9c",
+          "error": null,
+          "output_refs": {
+            "unreviewed_ref": "/Users/shengzhaolei/Desktop/shengzhao lei/projects/factor-replication-agent/runs/method_specs/unreviewed/4a483a60aae1c941.paper.json"
+          },
+          "diagnostics": {},
+          "input_ref_snapshot": {}
+        },
+        {
+          "attempt_index": 1,
+          "status": "success",
+          "started_at": "2026-08-22T10:46:09.570308",
+          "completed_at": "2026-08-22T10:52:53.405519",
+          "job_id": "be7d2438-4bb0-48f0-bbfc-f360528aab88",
+          "error": null,
+          "output_refs": {
+            "unreviewed_ref": "/Users/shengzhaolei/Desktop/shengzhao lei/projects/factor-replication-agent/runs/method_specs/unreviewed/4a483a60aae1c941.paper.json"
+          },
+          "diagnostics": {},
+          "input_ref_snapshot": {}
+        }
+      ],
+      "stale": false
+    },
+    "3": {
+      "step": 3,
+      "name": "codegen",
+      "attempts": [
+        {
+          "attempt_index": 0,
+          "status": "success",
+          "started_at": "2026-08-22T08:07:10.119940",
+          "completed_at": "2026-08-22T08:07:10.126034",
+          "job_id": null,
+          "error": null,
+          "output_refs": {
+            "plugin_ref": "af4163ca09961026c87863ed289d8aa1f6beaad89bb9ad4345701de28e7a5c00.plugin.json",
+            "script_ref": "af4163ca09961026c87863ed289d8aa1f6beaad89bb9ad4345701de28e7a5c00.py",
+            "script_sha256": "af4163ca09961026c87863ed289d8aa1f6beaad89bb9ad4345701de28e7a5c00",
+            "spec_ref": "af4163ca09961026c87863ed289d8aa1f6beaad89bb9ad4345701de28e7a5c00.spec.json",
+            "config_ref": "af4163ca09961026c87863ed289d8aa1f6beaad89bb9ad4345701de28e7a5c00.config.json"
+          },
+          "diagnostics": {
+            "readiness": "ready",
+            "counters": {
+              "repair_attempt_count": 0,
+              "substitution_count": 0,
+              "validation_status": "pending"
+            },
+            "flags": []
+          },
+          "input_ref_snapshot": {}
+        },
+        {
+          "attempt_index": 1,
+          "status": "success",
+          "started_at": "2026-08-22T08:12:28.227988",
+          "completed_at": "2026-08-22T08:12:28.232194",
+          "job_id": null,
+          "error": null,
+          "output_refs": {
+            "plugin_ref": "af4163ca09961026c87863ed289d8aa1f6beaad89bb9ad4345701de28e7a5c00.plugin.json",
+            "script_ref": "af4163ca09961026c87863ed289d8aa1f6beaad89bb9ad4345701de28e7a5c00.py",
+            "script_sha256": "af4163ca09961026c87863ed289d8aa1f6beaad89bb9ad4345701de28e7a5c00",
+            "spec_ref": "af4163ca09961026c87863ed289d8aa1f6beaad89bb9ad4345701de28e7a5c00.spec.json",
+            "config_ref": "af4163ca09961026c87863ed289d8aa1f6beaad89bb9ad4345701de28e7a5c00.config.json"
+          },
+          "diagnostics": {
+            "readiness": "ready",
+            "counters": {
+              "repair_attempt_count": 0,
+              "substitution_count": 0,
+              "validation_status": "pending"
+            },
+            "flags": []
+          },
+          "input_ref_snapshot": {}
+        },
+        {
+          "attempt_index": 2,
+          "status": "success",
+          "started_at": "2026-08-22T10:58:25.198801",
+          "completed_at": "2026-08-22T10:58:25.203802",
+          "job_id": null,
+          "error": null,
+          "output_refs": {
+            "plugin_ref": "2538c72a2e1537f1ee63bea679538e157fd6b46e1d8268c07d472f57507b3a26.plugin.json",
+            "script_ref": "2538c72a2e1537f1ee63bea679538e157fd6b46e1d8268c07d472f57507b3a26.py",
+            "script_sha256": "2538c72a2e1537f1ee63bea679538e157fd6b46e1d8268c07d472f57507b3a26",
+            "spec_ref": "2538c72a2e1537f1ee63bea679538e157fd6b46e1d8268c07d472f57507b3a26.spec.json",
+            "config_ref": "2538c72a2e1537f1ee63bea679538e157fd6b46e1d8268c07d472f57507b3a26.config.json"
+          },
+          "diagnostics": {
+            "readiness": "ready",
+            "counters": {
+              "repair_attempt_count": 0,
+              "substitution_count": 0,
+              "validation_status": "pending"
+            },
+            "flags": []
+          },
+          "input_ref_snapshot": {}
+        }
+      ],
+      "stale": false
+    },
+    "4": {
+      "step": 4,
+      "name": "validate",
+      "attempts": [
+        {
+          "attempt_index": 0,
+          "status": "success",
+          "started_at": "2026-08-22T08:20:29.114963",
+          "completed_at": "2026-08-22T08:20:31.427998",
+          "job_id": "90336d03-f7cb-46bd-8032-c0b8ca221806",
+          "error": null,
+          "output_refs": {
+            "validation_ref": "af4163ca09961026c87863ed289d8aa1f6beaad89bb9ad4345701de28e7a5c00.validation.json",
+            "validated_script_sha256": "af4163ca09961026c87863ed289d8aa1f6beaad89bb9ad4345701de28e7a5c00"
+          },
+          "diagnostics": {
+            "readiness": "ready",
+            "counters": {
+              "syntax_ok": true,
+              "schema_ok": true,
+              "no_future_leak": true,
+              "reproducible": true,
+              "executes_ok": "pass",
+              "error_count": 0,
+              "warning_count": 0
+            },
+            "flags": []
+          },
+          "input_ref_snapshot": {}
+        },
+        {
+          "attempt_index": 1,
+          "status": "success",
+          "started_at": "2026-08-22T10:58:30.340539",
+          "completed_at": "2026-08-22T10:58:32.392570",
+          "job_id": "fbed9d4f-2440-4375-9e8d-9503c578362e",
+          "error": null,
+          "output_refs": {
+            "validation_ref": "2538c72a2e1537f1ee63bea679538e157fd6b46e1d8268c07d472f57507b3a26.validation.json",
+            "validated_script_sha256": "2538c72a2e1537f1ee63bea679538e157fd6b46e1d8268c07d472f57507b3a26"
+          },
+          "diagnostics": {
+            "readiness": "ready",
+            "counters": {
+              "syntax_ok": true,
+              "schema_ok": true,
+              "no_future_leak": true,
+              "reproducible": true,
+              "executes_ok": "pass",
+              "error_count": 0,
+              "warning_count": 0
+            },
+            "flags": []
+          },
+          "input_ref_snapshot": {}
+        }
+      ],
+      "stale": false
+    },
+    "5": {
+      "step": 5,
+      "name": "execute",
+      "attempts": [
+        {
+          "attempt_index": 0,
+          "status": "success",
+          "started_at": "2026-08-22T08:20:36.895265",
+          "completed_at": "2026-08-22T08:23:18.771827",
+          "job_id": "8cb1cdae-de22-4add-8cde-01dda8222b41",
+          "error": null,
+          "output_refs": {
+            "execution_ids": "[\"4a483a60aae1c941__original_method__4cd59927__98a1b6e5\"]"
+          },
+          "diagnostics": {
+            "readiness": "ready",
+            "counters": {
+              "status": "success",
+              "coverage": null,
+              "n_months": 836,
+              "microcap_share": null,
+              "repair_attempt_count": 0
+            },
+            "flags": []
+          },
+          "input_ref_snapshot": {}
+        },
+        {
+          "attempt_index": 1,
+          "status": "success",
+          "started_at": "2026-08-22T10:58:58.236889",
+          "completed_at": "2026-08-22T11:01:07.317115",
+          "job_id": "cc4473e9-de79-4532-8f0c-63ca403d5db5",
+          "error": null,
+          "output_refs": {
+            "execution_ids": "[\"4a483a60aae1c941__original_method__a3a57a75__73975c34\"]"
+          },
+          "diagnostics": {
+            "readiness": "ready",
+            "counters": {
+              "status": "success",
+              "coverage": null,
+              "n_months": 836,
+              "microcap_share": null,
+              "repair_attempt_count": 0
+            },
+            "flags": []
+          },
+          "input_ref_snapshot": {}
+        },
+        {
+          "attempt_index": 2,
+          "status": "success",
+          "started_at": "2026-08-23T12:16:12.805646",
+          "completed_at": "2026-08-23T12:21:50.993423",
+          "job_id": "bfdf35c6-85ec-422b-ab39-c691d10169b4",
+          "error": null,
+          "output_refs": {
+            "execution_ids": "[\"4a483a60aae1c941__original_method__a3a57a75__73975c34\"]"
+          },
+          "diagnostics": {
+            "readiness": "ready",
+            "counters": {
+              "status": "success",
+              "coverage": null,
+              "n_months": 836,
+              "microcap_share": null,
+              "repair_attempt_count": 0
+            },
+            "flags": []
+          },
+          "input_ref_snapshot": {}
+        }
+      ],
+      "stale": false
+    },
+    "6": {
+      "step": 6,
+      "name": "experiment",
+      "attempts": [
+        {
+          "attempt_index": 0,
+          "status": "failed",
+          "started_at": "2026-08-22T09:07:59.569217",
+          "completed_at": "2026-08-22T09:12:38.831044",
+          "job_id": "9534160b-71f8-4892-a586-987ab1b485ab",
+          "error": "No columns to parse from file",
+          "output_refs": {},
+          "diagnostics": {},
+          "input_ref_snapshot": {}
+        },
+        {
+          "attempt_index": 1,
+          "status": "success",
+          "started_at": "2026-08-22T09:28:19.514937",
+          "completed_at": "2026-08-22T09:45:59.787710",
+          "job_id": "41f1eaa2-a4f9-4035-a0bb-1c6a1bcc9936",
+          "error": null,
+          "output_refs": {
+            "experiment_batch_id": "7def4ab1df35",
+            "execution_ids": "[\"4a483a60aae1c941__standardized_hxz__4cd59927__3775c6d7\", \"4a483a60aae1c941__cz_actual_config__4cd59927__4f8472d7\", \"4a483a60aae1c941__factorial_universe__4cd59927__303688dd\", \"4a483a60aae1c941__factorial_weighting__4cd59927__8c4ad2e5\", \"4a483a60aae1c941__factorial_weighting_universe__4cd59927__650039c9\", \"4a483a60aae1c941__factorial_breakpoint__4cd59927__22f896d0\", \"4a483a60aae1c941__factorial_breakpoint_universe__4cd59927__a895a965\", \"4a483a60aae1c941__factorial_breakpoint_weighting__4cd59927__06be1946\", \"4a483a60aae1c941__original_method__4cd59927__98a1b6e5__reused_4ea967fc\"]"
+          },
+          "diagnostics": {
+            "readiness": "ready",
+            "counters": {
+              "track_count": 9,
+              "success_count": 9,
+              "batch_invalidated": false
+            },
+            "flags": []
+          },
+          "input_ref_snapshot": {}
+        },
+        {
+          "attempt_index": 2,
+          "status": "failed",
+          "started_at": "2026-08-22T10:07:20.868254",
+          "completed_at": "2026-08-22T10:18:34.773061",
+          "job_id": "2cec6e02-1d5f-42ca-8b1f-b571cbab6fa4",
+          "error": "interrupted: backend restarted while this step was running",
+          "output_refs": {},
+          "diagnostics": {},
+          "input_ref_snapshot": {}
+        },
+        {
+          "attempt_index": 3,
+          "status": "success",
+          "started_at": "2026-08-22T11:02:08.043069",
+          "completed_at": "2026-08-22T11:24:43.395433",
+          "job_id": "4f6a8754-62d1-4c76-bdf6-7fa76eec1da8",
+          "error": null,
+          "output_refs": {
+            "experiment_batch_id": "e0eb5340ecc4",
+            "execution_ids": "[\"4a483a60aae1c941__standardized_hxz__a3a57a75__620385e6\", \"4a483a60aae1c941__cz_actual_config__a3a57a75__c0fb3e4f\", \"4a483a60aae1c941__factorial_universe__a3a57a75__93d04312\", \"4a483a60aae1c941__factorial_weighting__a3a57a75__87adafd3\", \"4a483a60aae1c941__factorial_weighting_universe__a3a57a75__0107fd15\", \"4a483a60aae1c941__factorial_breakpoint__a3a57a75__0adc2799\", \"4a483a60aae1c941__factorial_breakpoint_universe__a3a57a75__6cf58e1d\", \"4a483a60aae1c941__factorial_breakpoint_weighting__a3a57a75__98cb3049\", \"4a483a60aae1c941__cz_factorial_quantiles__a3a57a75__291896ae\", \"4a483a60aae1c941__cz_factorial_universe__a3a57a75__9392cf84\", \"4a483a60aae1c941__original_method__a3a57a75__73975c34__reused_329e9ce6\"]"
+          },
+          "diagnostics": {
+            "readiness": "ready",
+            "counters": {
+              "track_count": 11,
+              "success_count": 11,
+              "batch_invalidated": false
+            },
+            "flags": []
+          },
+          "input_ref_snapshot": {}
+        },
+        {
+          "attempt_index": 4,
+          "status": "success",
+          "started_at": "2026-08-23T12:23:35.282832",
+          "completed_at": "2026-08-23T13:29:17.543264",
+          "job_id": "41d3bb05-0a29-4bcb-aa7b-bbc2e106d970",
+          "error": null,
+          "output_refs": {
+            "experiment_batch_id": "d7673fcceef5",
+            "execution_ids": "[\"4a483a60aae1c941__standardized_hxz__a3a57a75__620385e6\", \"4a483a60aae1c941__cz_actual_config__a3a57a75__c0fb3e4f\", \"4a483a60aae1c941__factorial_universe__a3a57a75__93d04312\", \"4a483a60aae1c941__factorial_weighting__a3a57a75__87adafd3\", \"4a483a60aae1c941__factorial_weighting_universe__a3a57a75__0107fd15\", \"4a483a60aae1c941__factorial_breakpoint__a3a57a75__0adc2799\", \"4a483a60aae1c941__factorial_breakpoint_universe__a3a57a75__6cf58e1d\", \"4a483a60aae1c941__factorial_breakpoint_weighting__a3a57a75__98cb3049\", \"4a483a60aae1c941__cz_factorial_quantiles__a3a57a75__291896ae\", \"4a483a60aae1c941__cz_factorial_universe__a3a57a75__9392cf84\", \"4a483a60aae1c941__original_method__a3a57a75__73975c34__reused_b48c1d4d\"]"
+          },
+          "diagnostics": {
+            "readiness": "ready",
+            "counters": {
+              "track_count": 11,
+              "success_count": 11,
+              "batch_invalidated": false
+            },
+            "flags": []
+          },
+          "input_ref_snapshot": {}
+        }
+      ],
+      "stale": false
+    },
+    "7": {
+      "step": 7,
+      "name": "replication_diff",
+      "attempts": [
+        {
+          "attempt_index": 0,
+          "status": "success",
+          "started_at": "2026-08-22T09:48:23.141002",
+          "completed_at": "2026-08-22T09:48:23.141969",
+          "job_id": null,
+          "error": null,
+          "output_refs": {
+            "comparison_ref": "/Users/shengzhaolei/Desktop/shengzhao lei/projects/factor-replication-agent/runs/backtest_scripts/results/4a483a60aae1c941/comparison.json"
+          },
+          "diagnostics": {
+            "readiness": "ready",
+            "counters": {
+              "overall_tag": "reproduced",
+              "sign_agrees": null,
+              "significance_agrees": null,
+              "abs_spread_ratio": null,
+              "explained_fraction": null,
+              "residual": null
+            },
+            "flags": [
+              "gap decomposition unavailable for this batch"
+            ]
+          },
+          "input_ref_snapshot": {}
+        },
+        {
+          "attempt_index": 1,
+          "status": "success",
+          "started_at": "2026-08-22T11:28:27.061232",
+          "completed_at": "2026-08-22T11:28:27.062010",
+          "job_id": null,
+          "error": null,
+          "output_refs": {
+            "comparison_ref": "/Users/shengzhaolei/Desktop/shengzhao lei/projects/factor-replication-agent/runs/backtest_scripts/results/4a483a60aae1c941/comparison.json"
+          },
+          "diagnostics": {
+            "readiness": "ready",
+            "counters": {
+              "overall_tag": "reproduced",
+              "sign_agrees": null,
+              "significance_agrees": null,
+              "abs_spread_ratio": null,
+              "explained_fraction": null,
+              "residual": null
+            },
+            "flags": [
+              "gap decomposition unavailable for this batch"
+            ]
+          },
+          "input_ref_snapshot": {}
+        },
+        {
+          "attempt_index": 2,
+          "status": "success",
+          "started_at": "2026-08-22T18:16:51.416050",
+          "completed_at": "2026-08-22T18:16:51.417576",
+          "job_id": null,
+          "error": null,
+          "output_refs": {
+            "comparison_ref": "/Users/shengzhaolei/Desktop/shengzhao lei/projects/factor-replication-agent/runs/backtest_scripts/results/4a483a60aae1c941/comparison.json"
+          },
+          "diagnostics": {
+            "readiness": "ready",
+            "counters": {
+              "overall_tag": "reproduced",
+              "sign_agrees": null,
+              "significance_agrees": null,
+              "abs_spread_ratio": null,
+              "explained_fraction": null,
+              "residual": null
+            },
+            "flags": [
+              "gap decomposition unavailable for this batch"
+            ]
+          },
+          "input_ref_snapshot": {}
+        },
+        {
+          "attempt_index": 3,
+          "status": "success",
+          "started_at": "2026-08-22T18:31:02.376737",
+          "completed_at": "2026-08-22T18:31:02.378170",
+          "job_id": null,
+          "error": null,
+          "output_refs": {
+            "comparison_ref": "/Users/shengzhaolei/Desktop/shengzhao lei/projects/factor-replication-agent/runs/backtest_scripts/results/4a483a60aae1c941/comparison.json"
+          },
+          "diagnostics": {
+            "readiness": "ready",
+            "counters": {
+              "overall_tag": "reproduced",
+              "sign_agrees": null,
+              "significance_agrees": null,
+              "abs_spread_ratio": null,
+              "explained_fraction": null,
+              "residual": null
+            },
+            "flags": [
+              "gap decomposition unavailable for this batch"
+            ]
+          },
+          "input_ref_snapshot": {}
+        },
+        {
+          "attempt_index": 4,
+          "status": "success",
+          "started_at": "2026-08-23T11:40:34.666041",
+          "completed_at": "2026-08-23T11:40:34.668858",
+          "job_id": null,
+          "error": null,
+          "output_refs": {
+            "comparison_ref": "/Users/shengzhaolei/Desktop/shengzhao lei/projects/factor-replication-agent/runs/backtest_scripts/results/4a483a60aae1c941/comparison.json"
+          },
+          "diagnostics": {
+            "readiness": "ready",
+            "counters": {
+              "overall_tag": "reproduced",
+              "sign_agrees": null,
+              "significance_agrees": null,
+              "abs_spread_ratio": null,
+              "explained_fraction": null,
+              "residual": null
+            },
+            "flags": [
+              "gap decomposition unavailable for this batch"
+            ]
+          },
+          "input_ref_snapshot": {}
+        },
+        {
+          "attempt_index": 5,
+          "status": "success",
+          "started_at": "2026-08-23T13:36:57.636118",
+          "completed_at": "2026-08-23T13:36:57.637261",
+          "job_id": null,
+          "error": null,
+          "output_refs": {
+            "comparison_ref": "/Users/shengzhaolei/Desktop/shengzhao lei/projects/factor-replication-agent/runs/backtest_scripts/results/4a483a60aae1c941/comparison.json"
+          },
+          "diagnostics": {
+            "readiness": "ready",
+            "counters": {
+              "overall_tag": "reproduced",
+              "sign_agrees": null,
+              "significance_agrees": null,
+              "abs_spread_ratio": null,
+              "explained_fraction": null,
+              "residual": null
+            },
+            "flags": [
+              "gap decomposition unavailable for this batch"
+            ]
+          },
+          "input_ref_snapshot": {}
+        },
+        {
+          "attempt_index": 6,
+          "status": "success",
+          "started_at": "2026-08-24T11:28:44.886038",
+          "completed_at": "2026-08-24T11:28:44.887745",
+          "job_id": null,
+          "error": null,
+          "output_refs": {
+            "comparison_ref": "/Users/shengzhaolei/Desktop/shengzhao lei/projects/factor-replication-agent/runs/backtest_scripts/results/4a483a60aae1c941/comparison.json"
+          },
+          "diagnostics": {
+            "readiness": "ready",
+            "counters": {
+              "overall_tag": "reproduced",
+              "sign_agrees": null,
+              "significance_agrees": null,
+              "abs_spread_ratio": null,
+              "explained_fraction": null,
+              "residual": null
+            },
+            "flags": [
+              "gap decomposition unavailable for this batch"
+            ]
+          },
+          "input_ref_snapshot": {}
+        },
+        {
+          "attempt_index": 7,
+          "status": "success",
+          "started_at": "2026-08-24T11:30:59.269652",
+          "completed_at": "2026-08-24T11:30:59.271013",
+          "job_id": null,
+          "error": null,
+          "output_refs": {
+            "comparison_ref": "/Users/shengzhaolei/Desktop/shengzhao lei/projects/factor-replication-agent/runs/backtest_scripts/results/4a483a60aae1c941/comparison.json"
+          },
+          "diagnostics": {
+            "readiness": "ready",
+            "counters": {
+              "overall_tag": "reproduced",
+              "sign_agrees": null,
+              "significance_agrees": null,
+              "abs_spread_ratio": null,
+              "explained_fraction": null,
+              "residual": null
+            },
+            "flags": [
+              "gap decomposition unavailable for this batch"
+            ]
+          },
+          "input_ref_snapshot": {}
+        },
+        {
+          "attempt_index": 8,
+          "status": "success",
+          "started_at": "2026-08-24T11:35:43.130116",
+          "completed_at": "2026-08-24T11:35:43.132685",
+          "job_id": null,
+          "error": null,
+          "output_refs": {
+            "comparison_ref": "/Users/shengzhaolei/Desktop/shengzhao lei/projects/factor-replication-agent/runs/backtest_scripts/results/4a483a60aae1c941/comparison.json"
+          },
+          "diagnostics": {
+            "readiness": "ready",
+            "counters": {
+              "overall_tag": "reproduced",
+              "sign_agrees": null,
+              "significance_agrees": null,
+              "abs_spread_ratio": null,
+              "explained_fraction": null,
+              "residual": null
+            },
+            "flags": [
+              "gap decomposition unavailable for this batch"
+            ]
+          },
+          "input_ref_snapshot": {}
+        },
+        {
+          "attempt_index": 9,
+          "status": "success",
+          "started_at": "2026-08-24T20:08:40.804568",
+          "completed_at": "2026-08-24T20:08:40.806143",
+          "job_id": null,
+          "error": null,
+          "output_refs": {
+            "comparison_ref": "/Users/shengzhaolei/Desktop/shengzhao lei/projects/factor-replication-agent/runs/backtest_scripts/results/4a483a60aae1c941/comparison.json"
+          },
+          "diagnostics": {
+            "readiness": "ready",
+            "counters": {
+              "overall_tag": "reproduced",
+              "sign_agrees": null,
+              "significance_agrees": null,
+              "abs_spread_ratio": null,
+              "explained_fraction": null,
+              "residual": null
+            },
+            "flags": [
+              "gap decomposition unavailable for this batch"
+            ]
+          },
+          "input_ref_snapshot": {}
+        },
+        {
+          "attempt_index": 10,
+          "status": "success",
+          "started_at": "2026-08-24T20:08:59.822497",
+          "completed_at": "2026-08-24T20:08:59.823623",
+          "job_id": null,
+          "error": null,
+          "output_refs": {
+            "comparison_ref": "/Users/shengzhaolei/Desktop/shengzhao lei/projects/factor-replication-agent/runs/backtest_scripts/results/4a483a60aae1c941/comparison.json"
+          },
+          "diagnostics": {
+            "readiness": "ready",
+            "counters": {
+              "overall_tag": "reproduced",
+              "sign_agrees": null,
+              "significance_agrees": null,
+              "abs_spread_ratio": null,
+              "explained_fraction": null,
+              "residual": null
+            },
+            "flags": [
+              "gap decomposition unavailable for this batch"
+            ]
+          },
+          "input_ref_snapshot": {}
+        },
+        {
+          "attempt_index": 11,
+          "status": "success",
+          "started_at": "2026-08-24T20:12:49.942250",
+          "completed_at": "2026-08-24T20:12:49.946167",
+          "job_id": null,
+          "error": null,
+          "output_refs": {
+            "comparison_ref": "/Users/shengzhaolei/Desktop/shengzhao lei/projects/factor-replication-agent/runs/backtest_scripts/results/4a483a60aae1c941/comparison.json"
+          },
+          "diagnostics": {
+            "readiness": "ready",
+            "counters": {
+              "overall_tag": "reproduced",
+              "sign_agrees": null,
+              "significance_agrees": null,
+              "abs_spread_ratio": null,
+              "explained_fraction": null,
+              "residual": null
+            },
+            "flags": [
+              "gap decomposition unavailable for this batch"
+            ]
+          },
+          "input_ref_snapshot": {}
+        }
+      ],
+      "stale": false
+    },
+    "8": {
+      "step": 8,
+      "name": "diagnosis",
+      "attempts": [
+        {
+          "attempt_index": 0,
+          "status": "success",
+          "started_at": "2026-08-22T18:16:57.462312",
+          "completed_at": "2026-08-22T18:17:17.604360",
+          "job_id": "7ea3b2f0-e656-4f7d-9e21-c120c70d9671",
+          "error": null,
+          "output_refs": {
+            "diagnosis_ref": "/Users/shengzhaolei/Desktop/shengzhao lei/projects/factor-replication-agent/runs/backtest_scripts/results/4a483a60aae1c941/diagnosis.json"
+          },
+          "diagnostics": {
+            "readiness": "ready",
+            "counters": {
+              "accepted_claim_count": 10,
+              "rejected_claim_count": 0
+            },
+            "flags": []
+          },
+          "input_ref_snapshot": {}
+        },
+        {
+          "attempt_index": 1,
+          "status": "success",
+          "started_at": "2026-08-22T18:31:04.615283",
+          "completed_at": "2026-08-22T18:31:26.913806",
+          "job_id": "3c0d9eb8-3593-4958-89cf-03cd22850ba0",
+          "error": null,
+          "output_refs": {
+            "diagnosis_ref": "/Users/shengzhaolei/Desktop/shengzhao lei/projects/factor-replication-agent/runs/backtest_scripts/results/4a483a60aae1c941/diagnosis.json"
+          },
+          "diagnostics": {
+            "readiness": "ready",
+            "counters": {
+              "accepted_claim_count": 9,
+              "rejected_claim_count": 0
+            },
+            "flags": []
+          },
+          "input_ref_snapshot": {}
+        },
+        {
+          "attempt_index": 2,
+          "status": "success",
+          "started_at": "2026-08-22T19:08:29.234509",
+          "completed_at": "2026-08-22T19:08:51.854345",
+          "job_id": "289c2161-e72f-4bfc-97e0-339ee789d282",
+          "error": null,
+          "output_refs": {
+            "diagnosis_ref": "/Users/shengzhaolei/Desktop/shengzhao lei/projects/factor-replication-agent/runs/backtest_scripts/results/4a483a60aae1c941/diagnosis.json"
+          },
+          "diagnostics": {
+            "readiness": "ready",
+            "counters": {
+              "accepted_claim_count": 9,
+              "rejected_claim_count": 0
+            },
+            "flags": []
+          },
+          "input_ref_snapshot": {}
+        },
+        {
+          "attempt_index": 3,
+          "status": "success",
+          "started_at": "2026-08-22T20:26:16.626642",
+          "completed_at": "2026-08-22T20:26:29.754036",
+          "job_id": "6c5a79b4-345a-486a-91a3-10147f9dc389",
+          "error": null,
+          "output_refs": {
+            "diagnosis_ref": "/Users/shengzhaolei/Desktop/shengzhao lei/projects/factor-replication-agent/runs/backtest_scripts/results/4a483a60aae1c941/diagnosis.json"
+          },
+          "diagnostics": {
+            "readiness": "ready",
+            "counters": {
+              "accepted_claim_count": 10,
+              "rejected_claim_count": 0
+            },
+            "flags": []
+          },
+          "input_ref_snapshot": {}
+        },
+        {
+          "attempt_index": 4,
+          "status": "success",
+          "started_at": "2026-08-22T22:36:36.161285",
+          "completed_at": "2026-08-22T22:36:57.034619",
+          "job_id": "bdb181f1-1886-4e93-8351-8e4c4d3fca11",
+          "error": null,
+          "output_refs": {
+            "diagnosis_ref": "/Users/shengzhaolei/Desktop/shengzhao lei/projects/factor-replication-agent/runs/backtest_scripts/results/4a483a60aae1c941/diagnosis.json"
+          },
+          "diagnostics": {
+            "readiness": "ready",
+            "counters": {
+              "accepted_claim_count": 10,
+              "rejected_claim_count": 0
+            },
+            "flags": []
+          },
+          "input_ref_snapshot": {}
+        },
+        {
+          "attempt_index": 5,
+          "status": "success",
+          "started_at": "2026-08-23T11:40:36.786920",
+          "completed_at": "2026-08-23T11:40:53.004849",
+          "job_id": "57f5eb42-3f71-4da3-856f-5cc628be3395",
+          "error": null,
+          "output_refs": {
+            "diagnosis_ref": "/Users/shengzhaolei/Desktop/shengzhao lei/projects/factor-replication-agent/runs/backtest_scripts/results/4a483a60aae1c941/diagnosis.json"
+          },
+          "diagnostics": {
+            "readiness": "ready",
+            "counters": {
+              "accepted_claim_count": 10,
+              "rejected_claim_count": 0
+            },
+            "flags": []
+          },
+          "input_ref_snapshot": {}
+        },
+        {
+          "attempt_index": 6,
+          "status": "success",
+          "started_at": "2026-08-23T13:37:00.720006",
+          "completed_at": "2026-08-23T13:37:22.720145",
+          "job_id": "72832522-a317-42b6-88d9-5414206d3447",
+          "error": null,
+          "output_refs": {
+            "diagnosis_ref": "/Users/shengzhaolei/Desktop/shengzhao lei/projects/factor-replication-agent/runs/backtest_scripts/results/4a483a60aae1c941/diagnosis.json"
+          },
+          "diagnostics": {
+            "readiness": "ready",
+            "counters": {
+              "accepted_claim_count": 9,
+              "rejected_claim_count": 0
+            },
+            "flags": []
+          },
+          "input_ref_snapshot": {}
+        },
+        {
+          "attempt_index": 7,
+          "status": "success",
+          "started_at": "2026-08-24T11:28:47.465304",
+          "completed_at": "2026-08-24T11:29:09.308660",
+          "job_id": "aa302119-ff37-4da9-8f78-4575c5307a2b",
+          "error": null,
+          "output_refs": {
+            "diagnosis_ref": "/Users/shengzhaolei/Desktop/shengzhao lei/projects/factor-replication-agent/runs/backtest_scripts/results/4a483a60aae1c941/diagnosis.json"
+          },
+          "diagnostics": {
+            "readiness": "ready",
+            "counters": {
+              "accepted_claim_count": 9,
+              "rejected_claim_count": 0
+            },
+            "flags": []
+          },
+          "input_ref_snapshot": {}
+        },
+        {
+          "attempt_index": 8,
+          "status": "success",
+          "started_at": "2026-08-24T11:35:45.267296",
+          "completed_at": "2026-08-24T11:36:10.068561",
+          "job_id": "132fff6e-8164-43a2-9492-822a143c775a",
+          "error": null,
+          "output_refs": {
+            "diagnosis_ref": "/Users/shengzhaolei/Desktop/shengzhao lei/projects/factor-replication-agent/runs/backtest_scripts/results/4a483a60aae1c941/diagnosis.json"
+          },
+          "diagnostics": {
+            "readiness": "ready",
+            "counters": {
+              "accepted_claim_count": 9,
+              "rejected_claim_count": 0
+            },
+            "flags": []
+          },
+          "input_ref_snapshot": {}
+        },
+        {
+          "attempt_index": 9,
+          "status": "success",
+          "started_at": "2026-08-24T20:12:59.238222",
+          "completed_at": "2026-08-24T20:13:22.410977",
+          "job_id": "0332dea7-2566-4c3e-ba20-39957dcd15b8",
+          "error": null,
+          "output_refs": {
+            "diagnosis_ref": "/Users/shengzhaolei/Desktop/shengzhao lei/projects/factor-replication-agent/runs/backtest_scripts/results/4a483a60aae1c941/diagnosis.json"
+          },
+          "diagnostics": {
+            "readiness": "ready",
+            "counters": {
+              "accepted_claim_count": 9,
+              "rejected_claim_count": 0
+            },
+            "flags": []
+          },
+          "input_ref_snapshot": {}
+        }
+      ],
+      "stale": false
+    }
+  },
+  "transition_log": [
+    {
+      "at": "2026-08-22T10:18:34.773078",
+      "from": "created",
+      "to": "interrupted",
+      "reason": "backend restart reconciliation"
+    }
+  ]
+}
