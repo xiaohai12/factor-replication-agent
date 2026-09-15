@@ -1,0 +1,149 @@
+{
+  "run_id": "9cd20acefe17604e__cz_factorial_universe__3146bdef__02f1b6b3",
+  "factor_id": "9cd20acefe17604e",
+  "plugin_id": "9cd20acefe17604e",
+  "track": "cz_factorial_universe",
+  "method_spec_hash": "41babb84e447cdd0aabf87362a14c9f8131377dd59b8d294ff7cdb5485279cc2",
+  "code_hash": "3146bdef221d3858",
+  "lifecycle_commit": "d4074f1acd576b80b95c9bc2c1847d37b6ee6880-dirty",
+  "data_snapshot_hash": "5deb10764d71a37b0e498d390c39d237d87847792ab32cfbc5ec7a27f208cf3b",
+  "config_hash": "02f1b6b37cdd7738",
+  "runtime_provenance": {
+    "git_commit": "d4074f1acd576b80b95c9bc2c1847d37b6ee6880",
+    "git_dirty": true,
+    "engine_source_hash": "b794ac738754ff7189776e15e6b1223b00fb0775c10c3a0a162e1f861f541cd9",
+    "python_version": "3.11.13",
+    "package_versions": {
+      "pandas": "2.2.3",
+      "numpy": "2.4.6",
+      "statsmodels": "0.14.6",
+      "linearmodels": "not_installed"
+    },
+    "ff_factors_hash": "bfc216e95682647791541224633da1ea806d7ba208331353813ee7103415888b",
+    "liquidity_factors_hash": "bb0569547854ced13cfb08960650137282a2c6656d840d9e730c927e7b8f3fbe"
+  },
+  "experiment_batch_id": "c781f2d57e92",
+  "frozen_plugin_hash": "3146bdef221d3858",
+  "batch_invalidated": false,
+  "batch_invalidation_reason": "",
+  "is_bridge_track": false,
+  "switches_flipped": {
+    "universe": [
+      {
+        "field": "shrcd",
+        "op": "in",
+        "value": [
+          10,
+          11,
+          12
+        ]
+      },
+      {
+        "field": "exchcd",
+        "op": "in",
+        "value": [
+          1,
+          2,
+          3
+        ]
+      }
+    ]
+  },
+  "metrics": {
+    "mean_return": 0.0038325553879918536,
+    "t_stat": 2.5705533835844308,
+    "sharpe_ratio": 0.34140741899955257,
+    "alpha_capm": 0.005306983663338731,
+    "alpha_ff3": 0.002811561555140281,
+    "alpha_ff5": 0.001701665512295904,
+    "coverage": null,
+    "microcap_share": null,
+    "n_months": 882,
+    "by_sample_period": {
+      "insamp": {
+        "mean_monthly_return": 0.008867782439490459,
+        "annualized_return": 0.10641338927388551,
+        "t_stat": 3.9862671020400273,
+        "n_months": 432,
+        "sharpe_ratio": 0.7315876064560916,
+        "alpha_capm": 0.009781924869104687,
+        "alpha_capm_tstat": 4.360574076283433,
+        "beta_capm_mktrf": -0.2059287321235573,
+        "alpha_ff3": 0.0050976994519128845,
+        "alpha_ff3_tstat": 2.61429292695245,
+        "beta_ff3_mktrf": -0.1160499114455654,
+        "beta_ff3_smb": 0.521153851233753,
+        "beta_ff3_hml": 0.712532335905629,
+        "alpha_ff5": 0.0026324115438839148,
+        "alpha_ff5_tstat": 1.3943720149082888,
+        "beta_ff5_mktrf": -0.012689755485082433,
+        "beta_ff5_smb": 0.4407198246417924,
+        "beta_ff5_hml": 0.1532275867509844,
+        "beta_ff5_rmw": -0.16225110206865245,
+        "beta_ff5_cma": 1.1430217037854689,
+        "alpha_liq": 0.008767636206321618,
+        "alpha_liq_tstat": 3.9982520165018713,
+        "beta_liq_ps_vwf": 0.02320627769328984
+      },
+      "between": {
+        "mean_monthly_return": 0.0015050289552952353,
+        "annualized_return": 0.018060347463542823,
+        "t_stat": 0.41079326109791653,
+        "n_months": 60,
+        "sharpe_ratio": 0.18830341034086956,
+        "alpha_capm": 0.0016418815758584573,
+        "alpha_capm_tstat": 0.45115892241808186,
+        "beta_capm_mktrf": 0.0433993511299857,
+        "alpha_ff3": 0.0006465038184161195,
+        "alpha_ff3_tstat": 0.23215910902568573,
+        "beta_ff3_mktrf": -0.059610937339269095,
+        "beta_ff3_smb": 0.40847827806427384,
+        "beta_ff3_hml": 0.3240103508231801,
+        "alpha_ff5": 0.0023353301158047656,
+        "alpha_ff5_tstat": 1.0825968489304822,
+        "beta_ff5_mktrf": 0.04990388627723889,
+        "beta_ff5_smb": 0.3347527161849187,
+        "beta_ff5_hml": 0.17040312236335795,
+        "beta_ff5_rmw": 0.019683295713689895,
+        "beta_ff5_cma": 1.0878639226420372,
+        "alpha_liq": 0.002565933717242212,
+        "alpha_liq_tstat": 0.7865451137804848,
+        "beta_liq_ps_vwf": -0.1420996374344013
+      },
+      "postpub": {
+        "mean_monthly_return": -9.658802022255768e-05,
+        "annualized_return": -0.0011590562426706922,
+        "t_stat": -0.028775242151362356,
+        "n_months": 204,
+        "sharpe_ratio": -0.00812904063963517,
+        "alpha_capm": -2.4884574747604518e-05,
+        "alpha_capm_tstat": -0.006702464887357563,
+        "beta_capm_mktrf": -0.006203351516917019,
+        "alpha_ff3": 0.0016126722819776555,
+        "alpha_ff3_tstat": 0.6080732699033571,
+        "beta_ff3_mktrf": -0.09126666720514555,
+        "beta_ff3_smb": 0.043193747989991614,
+        "beta_ff3_hml": 0.6579213828615103,
+        "alpha_ff5": 0.0006391623644836448,
+        "alpha_ff5_tstat": 0.3013391197911006,
+        "beta_ff5_mktrf": 0.00916966697268505,
+        "beta_ff5_smb": 0.008174042310700468,
+        "beta_ff5_hml": 0.20247734534939552,
+        "beta_ff5_rmw": -0.3008866634386445,
+        "beta_ff5_cma": 1.1957151134533994,
+        "alpha_liq": -0.0003773662102641009,
+        "alpha_liq_tstat": -0.11827584180448782,
+        "beta_liq_ps_vwf": -0.2357694447597982
+      }
+    }
+  },
+  "return_series_path": "/Users/shengzhaolei/Desktop/Shengzhao_Lei/sideProject/factor-replication-agent/runs/evidence/9cd20acefe17604e/9cd20acefe17604e__cz_factorial_universe__3146bdef__02f1b6b3/return_series.csv",
+  "signal_series_path": "/Users/shengzhaolei/Desktop/Shengzhao_Lei/sideProject/factor-replication-agent/runs/evidence/9cd20acefe17604e/9cd20acefe17604e__cz_factorial_universe__3146bdef__02f1b6b3/signal_series.parquet",
+  "status": "success",
+  "created_at": "2026-08-18T16:04:28.110965",
+  "logs": [
+    "experiment_matrix: family='portfolio_ablation' identification_level='controlled'",
+    "artifact_sha256: {\"return_series.csv\": \"70ab2ea6e760c6f2115033f02beea76a74aa048feca8f01352c79fcf846ada9d\", \"signal_series.parquet\": \"a3c02d50bc88ea4e36892e891244a2675b070f0531a3e6e4e118f5396a3cd777\"}"
+  ],
+  "repair_history": []
+}

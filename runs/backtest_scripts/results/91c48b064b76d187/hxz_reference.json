@@ -1,0 +1,19 @@
+{
+  "acronym": "AssetGrowth",
+  "original_insample": {
+    "mean_return": 0.006105624999999999,
+    "t_stat": 3.2029502304553286,
+    "n_months": 432,
+    "start_year": 1968,
+    "end_year": 2003,
+    "label": "HXZ (low I/A \u2212 high I/A)"
+  },
+  "hxz_paper_sample": {
+    "mean_return": 0.0044633983333333335,
+    "t_stat": 2.9248166436064174,
+    "n_months": 600,
+    "start_year": 1967,
+    "end_year": 2016,
+    "label": "HXZ (low I/A \u2212 high I/A)"
+  }
+}

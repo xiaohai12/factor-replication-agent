@@ -1,0 +1,76 @@
+{
+  "run_id": "ce8a2fdbb9ec12f2__original_method__1001f4cc__9b6bfdbc",
+  "factor_id": "ce8a2fdbb9ec12f2",
+  "plugin_id": "ce8a2fdbb9ec12f2",
+  "track": "original_method",
+  "method_spec_hash": "795324708ad076fd90dfb8e3fb6fffbf6fac9bbf2ea6896bb4e6894862ee7ada",
+  "code_hash": "1001f4ccf5475ae3",
+  "lifecycle_commit": "2fb1e78bce14ae22a888358f62fe7f474b9c6bfc-dirty",
+  "data_snapshot_hash": "251cf87e3f215810e74958f4f7f4cd666077b92477d661211508261a383be0a1",
+  "config_hash": "9b6bfdbc2e86c76c",
+  "runtime_provenance": {
+    "git_commit": "2fb1e78bce14ae22a888358f62fe7f474b9c6bfc",
+    "git_dirty": true,
+    "engine_source_hash": "b794ac738754ff7189776e15e6b1223b00fb0775c10c3a0a162e1f861f541cd9",
+    "python_version": "3.11.13",
+    "package_versions": {
+      "pandas": "2.2.3",
+      "numpy": "2.4.6",
+      "statsmodels": "0.14.6",
+      "linearmodels": "not_installed"
+    },
+    "ff_factors_hash": "bfc216e95682647791541224633da1ea806d7ba208331353813ee7103415888b",
+    "liquidity_factors_hash": "bb0569547854ced13cfb08960650137282a2c6656d840d9e730c927e7b8f3fbe"
+  },
+  "experiment_batch_id": "",
+  "frozen_plugin_hash": "",
+  "batch_invalidated": false,
+  "batch_invalidation_reason": "",
+  "switches_flipped": null,
+  "metrics": {
+    "mean_return": 0.006071924410608821,
+    "t_stat": 1.3453966595199107,
+    "sharpe_ratio": 0.2752925470333221,
+    "alpha_capm": -0.002593578185428799,
+    "alpha_ff3": -0.0021774559278866807,
+    "alpha_ff5": 0.001002475873787346,
+    "coverage": null,
+    "microcap_share": null,
+    "n_months": 324,
+    "by_sample_period": {
+      "postpub": {
+        "mean_monthly_return": 0.006071924410608821,
+        "annualized_return": 0.07286309292730585,
+        "t_stat": 1.3453966595199107,
+        "n_months": 324,
+        "sharpe_ratio": 0.2752925470333221,
+        "alpha_capm": -0.002593578185428799,
+        "alpha_capm_tstat": -0.9333680320201424,
+        "beta_capm_mktrf": 1.335627630044331,
+        "alpha_ff3": -0.0021774559278866807,
+        "alpha_ff3_tstat": -1.143599089863235,
+        "beta_ff3_mktrf": 1.1368728968079478,
+        "beta_ff3_smb": 0.9595418811716623,
+        "beta_ff3_hml": -0.39817192615092994,
+        "alpha_ff5": 0.001002475873787346,
+        "alpha_ff5_tstat": 0.573679612034928,
+        "beta_ff5_mktrf": 1.0196198086388915,
+        "beta_ff5_smb": 0.7152926698009445,
+        "beta_ff5_hml": -0.14820286820826245,
+        "beta_ff5_rmw": -0.6251216416799377,
+        "beta_ff5_cma": -0.24692419878474198,
+        "alpha_liq": 0.0047466624276663524,
+        "alpha_liq_tstat": 1.0317541472261427,
+        "beta_liq_ps_vwf": 0.38416646155000633
+      }
+    }
+  },
+  "return_series_path": "/Users/shengzhaolei/Desktop/Shengzhao_Lei/sideProject/factor-replication-agent/runs/evidence/ce8a2fdbb9ec12f2/ce8a2fdbb9ec12f2__original_method__1001f4cc__9b6bfdbc/return_series.csv",
+  "signal_series_path": "/Users/shengzhaolei/Desktop/Shengzhao_Lei/sideProject/factor-replication-agent/runs/evidence/ce8a2fdbb9ec12f2/ce8a2fdbb9ec12f2__original_method__1001f4cc__9b6bfdbc/signal_series.parquet",
+  "status": "success",
+  "created_at": "2026-08-20T11:31:08.108050",
+  "logs": [
+    "artifact_sha256: {\"return_series.csv\": \"f904fabc57f126749b36b99f459b472d79fe72e5a5a747fb00f8bfc0347f1479\", \"signal_series.parquet\": \"fa7979ff2fcac677998d83eb4579f95c229f2d2fdf776fa301cba3300e33e756\"}"
+  ],
+  "repair_history": []
+}

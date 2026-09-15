@@ -1,0 +1,210 @@
+{
+  "factor_id": "099f6e1136bd316c",
+  "schema_version": 2,
+  "generated_at": "2026-08-18T05:51:11.263970+00:00",
+  "llm_model": "gpt-5.6-terra",
+  "status": "llm_assisted_proposal",
+  "overall_tag": "sign_agrees_magnitude_differs",
+  "claims": [
+    {
+      "claim_type": "sign_agreement",
+      "relation": "agrees",
+      "subject_track": "original_method",
+      "comparison_line": null,
+      "text": "",
+      "evidence_keys": [
+        "derived.tracks.original_method.vs_paper.sign_agrees"
+      ],
+      "stage": null,
+      "identification_level": "observational",
+      "evidence_strength": "low",
+      "reason_layer": "config_sensitivity",
+      "analysis_stage": "vs_paper",
+      "rendered_sentence": "The original_method track's spread sign agrees with the paper's headline sign."
+    },
+    {
+      "claim_type": "magnitude_gap",
+      "relation": "larger",
+      "subject_track": "original_method",
+      "comparison_line": null,
+      "text": "",
+      "evidence_keys": [
+        "derived.tracks.original_method.vs_paper.abs_spread_ratio"
+      ],
+      "stage": null,
+      "identification_level": "observational",
+      "evidence_strength": "low",
+      "reason_layer": "config_sensitivity",
+      "analysis_stage": "vs_paper",
+      "rendered_sentence": "The original_method track's spread magnitude is larger than the paper's headline spread."
+    },
+    {
+      "claim_type": "significance",
+      "relation": "significant",
+      "subject_track": "original_method",
+      "comparison_line": null,
+      "text": "",
+      "evidence_keys": [
+        "derived.tracks.original_method.vs_paper.track_significant"
+      ],
+      "stage": null,
+      "identification_level": "observational",
+      "evidence_strength": "low",
+      "reason_layer": "config_sensitivity",
+      "analysis_stage": "vs_paper",
+      "rendered_sentence": "The original_method track's spread is statistically significant by the deterministic significance threshold."
+    },
+    {
+      "claim_type": "config_divergence",
+      "relation": "differs",
+      "subject_track": "standardized_hxz",
+      "comparison_line": null,
+      "text": "",
+      "evidence_keys": [
+        "config_diff.pairs.standardized_hxz.details.weighting_rule.baseline_value",
+        "config_diff.pairs.standardized_hxz.details.weighting_rule.track_value"
+      ],
+      "stage": "portfolio",
+      "identification_level": "observational",
+      "evidence_strength": "low",
+      "reason_layer": "config_sensitivity",
+      "analysis_stage": "vs_paper",
+      "rendered_sentence": "The standardized_hxz track's configuration differs from the baseline track."
+    },
+    {
+      "claim_type": "evidence_limitation",
+      "relation": "unavailable",
+      "subject_track": null,
+      "comparison_line": null,
+      "text": "",
+      "evidence_keys": [
+        "gap_decomposition.available",
+        "gap_decomposition.reason"
+      ],
+      "stage": null,
+      "identification_level": "unidentified",
+      "evidence_strength": "low",
+      "reason_layer": "config_sensitivity",
+      "analysis_stage": "auxiliary",
+      "rendered_sentence": "The evidence needed to determine the requested comparison is not available."
+    },
+    {
+      "claim_type": "publication_decay",
+      "relation": "decayed",
+      "subject_track": "original_method",
+      "comparison_line": null,
+      "text": "",
+      "evidence_keys": [
+        "publication_decay.tracks.original_method.decayed"
+      ],
+      "stage": null,
+      "identification_level": "observational",
+      "evidence_strength": "low",
+      "reason_layer": "temporal_pattern",
+      "analysis_stage": "auxiliary",
+      "rendered_sentence": "The original_method track's spread is significant in-sample but not statistically significant post-publication."
+    },
+    {
+      "claim_type": "gap_attribution_shapley",
+      "relation": "associated_change",
+      "subject_track": null,
+      "comparison_line": "to_hxz",
+      "text": "",
+      "evidence_keys": [
+        "shapley_attribution.to_hxz.shapley_effects.weighting"
+      ],
+      "stage": "unclassified",
+      "identification_level": "controlled",
+      "evidence_strength": "high",
+      "reason_layer": "config_sensitivity",
+      "analysis_stage": "per_switch",
+      "rendered_sentence": "On the vs. HXZ standardized config line, a Shapley-attributed share of the mean-return gap is associated with the weighting switch (full-factorial evidence: the switches' Shapley effects sum exactly to the total gap, but this alone does not establish that the weighting switch's own effect is statistically distinguishable from noise)."
+    },
+    {
+      "claim_type": "switch_significance",
+      "relation": "significant",
+      "subject_track": null,
+      "comparison_line": "to_hxz",
+      "text": "",
+      "evidence_keys": [
+        "paired_tests.to_hxz.per_switch.weighting.t_stat"
+      ],
+      "stage": null,
+      "identification_level": "harmonized",
+      "evidence_strength": "medium",
+      "reason_layer": "config_sensitivity",
+      "analysis_stage": "per_switch",
+      "rendered_sentence": "On the vs. HXZ standardized config line, the weighting switch's own paired effect (vs. baseline) is statistically significant."
+    },
+    {
+      "claim_type": "joint_attribution_support",
+      "relation": "significant",
+      "subject_track": null,
+      "comparison_line": "to_hxz",
+      "text": "",
+      "evidence_keys": [
+        "joint_test.to_hxz.p_value"
+      ],
+      "stage": null,
+      "identification_level": "harmonized",
+      "evidence_strength": "medium",
+      "reason_layer": "config_sensitivity",
+      "analysis_stage": "joint_gate",
+      "rendered_sentence": "On the vs. HXZ standardized config line, the switches varied jointly explain a statistically significant share of the gap (joint Wald test)."
+    }
+  ],
+  "rejected_claims": [],
+  "summary": [
+    {
+      "comparison_line": null,
+      "overall_tag": "sign_agrees_magnitude_differs",
+      "per_switch_summary": {},
+      "joint_supported": null,
+      "dominant_switches": [],
+      "headline": "",
+      "details": [],
+      "footnote": ""
+    },
+    {
+      "comparison_line": "to_cz",
+      "overall_tag": "sign_agrees_magnitude_differs",
+      "per_switch_summary": {},
+      "joint_supported": null,
+      "dominant_switches": [],
+      "headline": "Compared with C&Z's independent replication of this paper, the only differences are explained by paper ambiguity or C&Z's own conventions, and none has a statistically significant effect.",
+      "details": [
+        "How long after picking which stocks go in a portfolio before that portfolio actually starts trading (a safety delay so the strategy can't accidentally use information before it was realistically available): we use 0 months, C&Z uses 1 month -- is one of the settings C&Z always overrides with their own cross-factor house convention, regardless of what this paper's own description says -- this divergence reflects C&Z's own standardization choice, not an ambiguity in the paper or a likely implementation error. Effect: no paired-test evidence is available for this setting.",
+        "Which stocks are allowed into consideration at all: our version excludes financial companies such as banks, insurers, and real estate firms (identified by SIC industry codes 6000-6999), C&Z's version is ordinary common stock listed on the NYSE, AMEX, or Nasdaq exchanges -- C&Z's own fixed cross-factor universe convention, applied identically to every C&Z factor regardless of what any individual paper's own universe description says -- is one of the settings C&Z always overrides with their own cross-factor house convention, regardless of what this paper's own description says -- this divergence reflects C&Z's own standardization choice, not an ambiguity in the paper or a likely implementation error. Effect: +0.00087/month (t=1.78), not statistically significant. On the standardized-HXZ comparison, this same setting's isolated effect does NOT decay after publication."
+      ],
+      "footnote": "Joint test unavailable on this line: need >=2 single-switch tracks with a loadable return series for a joint test, found 1."
+    },
+    {
+      "comparison_line": "to_hxz",
+      "overall_tag": "sign_agrees_magnitude_differs",
+      "per_switch_summary": {
+        "weighting": "significant"
+      },
+      "joint_supported": true,
+      "dominant_switches": [
+        "weighting"
+      ],
+      "headline": "Compared with the fully standardized HXZ protocol, our implementation's effect differs by 0.0059/month, confirmed by a joint significance test (p=7.8e-05).",
+      "details": [
+        "Whether bigger companies count for more in the portfolio, or every stock counts equally: accounts for 96% of the change. Effect: +0.00702/month (t=2.74), statistically significant.",
+        "Which group of stocks is used to decide the cutoffs between portfolio groups: accounts for 31% of the change. Effect: +0.00363/month (t=4.15), statistically significant.",
+        "Which stocks are allowed into consideration at all: accounts for -27% of the change. Effect: -0.00021/month (t=-0.52), not statistically significant.",
+        "LLM-reviewed per-setting significance: whether bigger companies count for more in the portfolio, or every stock counts equally (significant).",
+        "LLM-reviewed joint-significance conclusion: supported by the data.",
+        "LLM flagged as dominant driver(s): whether bigger companies count for more in the portfolio, or every stock counts equally."
+      ],
+      "footnote": "Used as sensitivity context, not itself the reproducibility question."
+    }
+  ],
+  "vs_paper_summary": {
+    "headline": "Compared with the paper's own reported result, our reviewed implementation of the paper's method agrees in sign with it; its magnitude is 2.11x larger.",
+    "details": [
+      "2 setting(s) were never specified by the paper at all and were filled by an engine default: how many months we wait after a company's fiscal year ends before using its accounting data (real investors can't see the numbers the instant the year ends), what to do with a stock that's missing a required data point."
+    ],
+    "footnote": "Part of this magnitude gap may reflect these silent defaults rather than a difference in how the paper's stated method was implemented -- this comparison cannot separate the two."
+  }
+}

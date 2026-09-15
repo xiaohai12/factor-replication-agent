@@ -1,0 +1,51 @@
+{
+  "run_id": "099f6e1136bd316c_factorial_breakpoint_universe_9b948e60_18b9e08f_failed",
+  "factor_id": "099f6e1136bd316c",
+  "plugin_id": "099f6e1136bd316c",
+  "track": "factorial_breakpoint_universe",
+  "method_spec_hash": "a43573a9f7a27947c02c0f7ab1f1a961b16ba1924ef42e9d3cd9c2e7affdc97e",
+  "code_hash": "9b948e6057b56317",
+  "lifecycle_commit": "b858e4befa525259d7415a986c76721a387ee52c-dirty",
+  "data_snapshot_hash": "",
+  "config_hash": "18b9e08f95229e56",
+  "runtime_provenance": {
+    "git_commit": "b858e4befa525259d7415a986c76721a387ee52c",
+    "git_dirty": true,
+    "engine_source_hash": "b794ac738754ff7189776e15e6b1223b00fb0775c10c3a0a162e1f861f541cd9",
+    "python_version": "3.11.13",
+    "package_versions": {
+      "pandas": "2.2.3",
+      "numpy": "2.4.6",
+      "statsmodels": "0.14.6",
+      "linearmodels": "not_installed"
+    },
+    "ff_factors_hash": null,
+    "liquidity_factors_hash": null
+  },
+  "experiment_batch_id": "2f52f58a929e",
+  "frozen_plugin_hash": "9b948e6057b56317",
+  "batch_invalidated": false,
+  "batch_invalidation_reason": "",
+  "is_bridge_track": false,
+  "metrics": {
+    "mean_return": null,
+    "t_stat": null,
+    "sharpe_ratio": null,
+    "alpha_capm": null,
+    "alpha_ff3": null,
+    "alpha_ff5": null,
+    "coverage": null,
+    "microcap_share": null,
+    "n_months": null,
+    "by_sample_period": null
+  },
+  "return_series_path": null,
+  "signal_series_path": null,
+  "status": "failed",
+  "created_at": "2026-08-17T06:41:40.774453",
+  "logs": [
+    "Backtest script /Users/shengzhaolei/Desktop/Shengzhao_Lei/sideProject/factor-replication-agent/runs/backtest_scripts/099f6e1136bd316c__factorial_breakpoint_universe_backtest.py failed (exit 1):\n--- stdout/stderr ---\n=== Backtest: 099f6e1136bd316c ===\nSignal input mode: compustat\n\nComputing signal...\n  Signal: 285,429 observations, 24,731 unique firms\n  Date range: 195112 - 202611\n  Signal series saved to: /Users/shengzhaolei/Desktop/Shengzhao_Lei/sideProject/factor-replication-agent/runs/backtest_scripts/results/099f6e1136bd316c/factorial_breakpoint_universe.signal.parquet\nRunning BacktestExecutor...\nTraceback (most recent call last):\n  File \"/Users/shengzhaolei/Desktop/Shengzhao_Lei/sideProject/factor-replication-agent/runs/backtest_scripts/099f6e1136bd316c__factorial_breakpoint_universe_backtest.py\", line 291, in <module>\n    main()\n  File \"/Users/shengzhaolei/Desktop/Shengzhao_Lei/sideProject/factor-replication-agent/runs/backtest_scripts/099f6e1136bd316c__factorial_breakpoint_universe_backtest.py\", line 258, in main\n    result = engine.run_with_config(signal, CONFIG, plugin=plugin, data=msf, factors=factors)\n             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/Users/shengzhaolei/Desktop/Shengzhao_Lei/sideProject/factor-replication-agent/src/infra/backtest_engine/__init__.py\", line 224, in run_with_config\n    self.filter_universe()\n  File \"/Users/shengzhaolei/Desktop/Shengzhao_Lei/sideProject/factor-replication-agent/src/infra/backtest_engine/__init__.py\", line 375, in filter_universe\n    out = self.apply_universe_filters(df, config.get(\"universe_filters\") or [])\n          ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/Users/shengzhaolei/Desktop/Shengzhao_Lei/sideProject/factor-replication-agent/src/infra/backtest_engine/__init__.py\", line 404, in apply_universe_filters\n    raise ValueError(\nValueError: Universe filter references field 'ceq', which the loaded returns panel does not ",
+    "experiment_matrix: family='portfolio_ablation' identification_level='unidentified'"
+  ],
+  "repair_history": []
+}

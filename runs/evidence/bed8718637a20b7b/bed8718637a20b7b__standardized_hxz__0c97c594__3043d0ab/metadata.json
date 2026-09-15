@@ -1,0 +1,152 @@
+{
+  "run_id": "bed8718637a20b7b__standardized_hxz__0c97c594__3043d0ab",
+  "factor_id": "bed8718637a20b7b",
+  "plugin_id": "bed8718637a20b7b",
+  "track": "standardized_hxz",
+  "method_spec_hash": "c40632a1e8dcff237fb14bd6cacefe71abaeb467b71253016890a046892320ba",
+  "code_hash": "0c97c5949243a308",
+  "lifecycle_commit": "d4074f1acd576b80b95c9bc2c1847d37b6ee6880-dirty",
+  "data_snapshot_hash": "251cf87e3f215810e74958f4f7f4cd666077b92477d661211508261a383be0a1",
+  "config_hash": "3043d0ab80a409b1",
+  "runtime_provenance": {
+    "git_commit": "d4074f1acd576b80b95c9bc2c1847d37b6ee6880",
+    "git_dirty": true,
+    "engine_source_hash": "b794ac738754ff7189776e15e6b1223b00fb0775c10c3a0a162e1f861f541cd9",
+    "python_version": "3.11.13",
+    "package_versions": {
+      "pandas": "2.2.3",
+      "numpy": "2.4.6",
+      "statsmodels": "0.14.6",
+      "linearmodels": "not_installed"
+    },
+    "ff_factors_hash": "bfc216e95682647791541224633da1ea806d7ba208331353813ee7103415888b",
+    "liquidity_factors_hash": "bb0569547854ced13cfb08960650137282a2c6656d840d9e730c927e7b8f3fbe"
+  },
+  "experiment_batch_id": "ad6f75aca0ac",
+  "frozen_plugin_hash": "0c97c5949243a308",
+  "batch_invalidated": false,
+  "batch_invalidation_reason": "",
+  "switches_flipped": {
+    "universe": [
+      {
+        "field": "exchcd",
+        "op": "in",
+        "value": [
+          1,
+          2,
+          3
+        ]
+      },
+      {
+        "field": "siccd",
+        "op": "not_between",
+        "value": [
+          6000,
+          6999
+        ]
+      },
+      {
+        "field": "ceq",
+        "op": "gt",
+        "value": 0
+      }
+    ]
+  },
+  "metrics": {
+    "mean_return": 0.0024788712342842588,
+    "t_stat": 2.0402265665723402,
+    "sharpe_ratio": 0.2748997157903151,
+    "alpha_capm": 0.0020947531201268898,
+    "alpha_ff3": 0.0020792095509239096,
+    "alpha_ff5": -0.00017874594070666627,
+    "coverage": null,
+    "microcap_share": null,
+    "n_months": 762,
+    "by_sample_period": {
+      "insamp": {
+        "mean_monthly_return": 0.0018935755214586213,
+        "annualized_return": 0.022722906257503457,
+        "t_stat": 1.3215078742132662,
+        "n_months": 576,
+        "sharpe_ratio": 0.2110890788867575,
+        "alpha_capm": 0.0017787235130397015,
+        "alpha_capm_tstat": 1.2339855156738726,
+        "beta_capm_mktrf": 0.024936769893059447,
+        "alpha_ff3": 0.0016530678994621318,
+        "alpha_ff3_tstat": 1.093627160353265,
+        "beta_ff3_mktrf": 0.06735892669168586,
+        "beta_ff3_smb": -0.1493721650217317,
+        "beta_ff3_hml": 0.06962126783654685,
+        "alpha_ff5": -0.0013076057411204535,
+        "alpha_ff5_tstat": -0.961552105041294,
+        "beta_ff5_mktrf": 0.13954026893261778,
+        "beta_ff5_smb": 0.010802766835773553,
+        "beta_ff5_hml": -0.085554236850198,
+        "beta_ff5_rmw": 0.6147294658504274,
+        "beta_ff5_cma": 0.3641665129998346,
+        "alpha_liq": 0.0015359978171156365,
+        "alpha_liq_tstat": 0.9972805353041955,
+        "beta_liq_ps_vwf": 0.03126032458132818
+      },
+      "between": {
+        "mean_monthly_return": 0.006206571471349186,
+        "annualized_return": 0.07447885765619024,
+        "t_stat": 2.716960929734994,
+        "n_months": 36,
+        "sharpe_ratio": 1.2005184512675326,
+        "alpha_capm": 0.004311507151986525,
+        "alpha_capm_tstat": 1.7035927251282112,
+        "beta_capm_mktrf": 0.14127627976197082,
+        "alpha_ff3": 0.005272095486018919,
+        "alpha_ff3_tstat": 1.9444924272730106,
+        "beta_ff3_mktrf": 0.06213162841643928,
+        "beta_ff3_smb": 0.2712273711148149,
+        "beta_ff3_hml": 0.12069329101336633,
+        "alpha_ff5": 0.005480936175070972,
+        "alpha_ff5_tstat": 3.1832200752584825,
+        "beta_ff5_mktrf": 0.09546107465502955,
+        "beta_ff5_smb": 0.33324528520947805,
+        "beta_ff5_hml": 0.6893852820712798,
+        "beta_ff5_rmw": 0.46521138982815785,
+        "beta_ff5_cma": -0.7848759890728261,
+        "alpha_liq": 0.006773481515721222,
+        "alpha_liq_tstat": 2.864809535768675,
+        "beta_liq_ps_vwf": 0.06470046762918832
+      },
+      "postpub": {
+        "mean_monthly_return": 0.003934070365904289,
+        "annualized_return": 0.04720884439085147,
+        "t_stat": 1.380032305822347,
+        "n_months": 144,
+        "sharpe_ratio": 0.3913013905941971,
+        "alpha_capm": 0.0019355517828040577,
+        "alpha_capm_tstat": 0.7129564952520736,
+        "beta_capm_mktrf": 0.20260960008901244,
+        "alpha_ff3": 0.00113062828779305,
+        "alpha_ff3_tstat": 0.45199370035469794,
+        "beta_ff3_mktrf": 0.23217938434352164,
+        "beta_ff3_smb": -0.15081655674238395,
+        "beta_ff3_hml": -0.1668782462404209,
+        "alpha_ff5": 0.0004348599882673845,
+        "alpha_ff5_tstat": 0.18571875145268824,
+        "beta_ff5_mktrf": 0.20535684217474626,
+        "beta_ff5_smb": 0.07921796051505144,
+        "beta_ff5_hml": -0.28093843197853524,
+        "beta_ff5_rmw": 0.5790491278943213,
+        "beta_ff5_cma": 0.12003939987523754,
+        "alpha_liq": 0.003998535813067152,
+        "alpha_liq_tstat": 1.4213063008102416,
+        "beta_liq_ps_vwf": 0.08489874816473103
+      }
+    }
+  },
+  "return_series_path": "/Users/shengzhaolei/Desktop/Shengzhao_Lei/sideProject/factor-replication-agent/runs/evidence/bed8718637a20b7b/bed8718637a20b7b__standardized_hxz__0c97c594__3043d0ab/return_series.csv",
+  "signal_series_path": "/Users/shengzhaolei/Desktop/Shengzhao_Lei/sideProject/factor-replication-agent/runs/evidence/bed8718637a20b7b/bed8718637a20b7b__standardized_hxz__0c97c594__3043d0ab/signal_series.parquet",
+  "status": "success",
+  "created_at": "2026-08-19T18:50:21.107599",
+  "logs": [
+    "experiment_matrix: family='portfolio_ablation' identification_level='unidentified'",
+    "artifact_sha256: {\"return_series.csv\": \"b0e7e9371e704faea0d028baf017496bdd43ab5b2bb83182941d36ee4f47a8d4\", \"signal_series.parquet\": \"32fc2f1a629fb5fb390fbf3ea2e8ef342e1dd25ec99a5d0211edfe9a73949e36\"}"
+  ],
+  "repair_history": []
+}

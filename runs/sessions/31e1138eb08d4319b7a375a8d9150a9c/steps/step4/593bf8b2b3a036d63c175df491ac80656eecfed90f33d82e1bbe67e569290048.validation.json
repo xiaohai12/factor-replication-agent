@@ -1,0 +1,18 @@
+{
+  "passed": true,
+  "syntax_ok": true,
+  "schema_ok": true,
+  "no_future_leak": true,
+  "reproducible": true,
+  "executes_ok": true,
+  "faithful_ok": true,
+  "errors": [],
+  "warnings": [],
+  "technical_metrics": {
+    "nan_ratio": 0.0,
+    "n_permno": 40,
+    "n_months": 393,
+    "missing_columns": [],
+    "dtype": "float64"
+  }
+}

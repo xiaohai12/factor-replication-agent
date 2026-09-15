@@ -1,0 +1,24 @@
+{
+  "passed": true,
+  "syntax_ok": true,
+  "schema_ok": true,
+  "no_future_leak": true,
+  "reproducible": true,
+  "executes_ok": true,
+  "faithful_ok": true,
+  "errors": [],
+  "warnings": [],
+  "technical_metrics": {
+    "nan_ratio": 0.0,
+    "n_permno": 40,
+    "n_months": 403,
+    "missing_columns": [],
+    "dtype": "float64",
+    "median_distinct_value_ratio": 1.0,
+    "low_cardinality_month_frac": 0.0,
+    "empty_leg_month_frac": 0.0,
+    "empty_any_group_month_frac": 0.0,
+    "degenerate_breakpoint_month_frac": 0.0,
+    "leg_check_sampled_months": 75
+  }
+}

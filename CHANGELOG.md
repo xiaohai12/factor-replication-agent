@@ -2,6 +2,21 @@
 
 ## Unreleased
 
+### docs: plan general paper-benchmark extraction and comparability (2026-09-15)
+
+Added `docs/benchmark-result-extraction-plan.md`, defining a paper-result
+selection policy that supports arbitrary estimands, explicit direct/contextual
+comparability states, spread orientation metadata, and clean re-execution from
+Step 1 rather than mutation of completed session artifacts.
+
+### fix: keep staged universe-filter decisions aligned after range-union edits (2026-09-15)
+
+`SessionDetailPage` now remaps every index-keyed pending universe-filter draft
+when several filters are converted into one `intervals` union. It also refuses
+to submit a stale draft whose target filter no longer exists. This prevents the
+review UI from constructing partial filter objects containing only status flags
+and receiving a backend `422` for a missing `concept_id`.
+
 - Rewrite and condense the thesis abstract, introduction, and conclusion
   around the research problem, controlled design, empirical findings, and
   practical implications for both factor research and investment

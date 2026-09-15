@@ -1595,10 +1595,20 @@ function MethodSpecWorkflowPanel({
       return paper as Record<string, unknown> | undefined
     }
     const nextFilters = [...filters]
+    // All filter drafts are keyed by the filter's current array index.  A
+    // structural edit can change that array between the click which stages a
+    // draft and this submit.  Never spread `undefined` here: doing so creates
+    // an object containing only the newly-written status fields, which then
+    // reaches the API without FilterSpec.concept_id.
+    const hasFilterAt = (index: number) => Number.isInteger(index) && index >= 0 && index < nextFilters.length
     setDerivationError(null)
     try {
       for (const [indexStr, text] of Object.entries(derivationDrafts)) {
         const i = Number(indexStr)
+        if (!hasFilterAt(i)) {
+          setDerivationError("A universe filter changed while this edit was pending. Please review the filter and apply the edit again.")
+          return undefined
+        }
         nextFilters[i] = { ...nextFilters[i], derivation: text.trim() === "" ? null : JSON.parse(text) }
       }
     } catch (e) {
@@ -1608,6 +1618,10 @@ function MethodSpecWorkflowPanel({
     try {
       for (const [indexStr, draft] of Object.entries(filterFieldDrafts)) {
         const i = Number(indexStr)
+        if (!hasFilterAt(i)) {
+          setFilterFieldError("A universe filter changed while this edit was pending. Please review the filter and apply the edit again.")
+          return undefined
+        }
         const next = { ...nextFilters[i] }
         if (draft.concept_id !== undefined) next.concept_id = draft.concept_id
         if (draft.op !== undefined) next.op = draft.op
@@ -1625,6 +1639,10 @@ function MethodSpecWorkflowPanel({
       // decision can't trip that validator on submit.
       for (const [indexStr, draft] of Object.entries(filterStatusDrafts)) {
         const i = Number(indexStr)
+        if (!hasFilterAt(i)) {
+          setFilterFieldError("A universe filter changed while this decision was pending. Please review the filter and apply the decision again.")
+          return undefined
+        }
         const next = { ...nextFilters[i] }
         if (draft.action === "mark_unapplied") {
           next.accepted_unapplied = true
@@ -1884,6 +1902,29 @@ function MethodSpecWorkflowPanel({
       evidence,
     })
     setStagedPaperOverride({ ...paper, universe: { ...paper.universe, filters: nextFilters } })
+
+    // This replaces several filters with one, so every index-keyed pending
+    // draft must follow its original filter.  Keep drafts for the first
+    // selected filter (the combined filter inherits it), drop drafts for the
+    // other consumed filters, and shift every surviving later filter.
+    const selected = new Set(suggestion.indexes)
+    const remapAfterRangeUnion = <T,>(prev: Record<number, T>): Record<number, T> => {
+      const next: Record<number, T> = {}
+      for (const [key, value] of Object.entries(prev)) {
+        const oldIndex = Number(key)
+        if (!Number.isInteger(oldIndex) || (selected.has(oldIndex) && oldIndex !== firstIndex)) continue
+        const unselectedBefore = filters.slice(0, oldIndex).filter((_, i) => !selected.has(i)).length
+        const newIndex = oldIndex === firstIndex ? firstIndex : unselectedBefore + (oldIndex > firstIndex ? 1 : 0)
+        next[newIndex] = value
+      }
+      return next
+    }
+    setFilterFieldDrafts(remapAfterRangeUnion)
+    setFilterReasonDrafts(remapAfterRangeUnion)
+    setFilterStatusDrafts(remapAfterRangeUnion)
+    setUnappliedReasonDrafts(remapAfterRangeUnion)
+    setAppliedReasonDrafts(remapAfterRangeUnion)
+    setDerivationDrafts(remapAfterRangeUnion)
   }
 
   const resolveMutation = useMutation({

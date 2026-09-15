@@ -3,15 +3,19 @@
   "factor_id": "099f6e1136bd316c",
   "concept_mapping": {
     "total_assets": {
-      "source": "comp_funda",
+      "source": "compustat_fundamental_annual",
       "column": "at"
     },
-    "sic_code": {
+    "siccd": {
       "source": "crsp_msf",
       "column": "siccd"
     },
-    "compustat_fiscal_year_end": {
-      "source": "comp_funda",
+    "exchcd": {
+      "source": "crsp_msf",
+      "column": "exchcd"
+    },
+    "compustat_listing_years": {
+      "source": "compustat_fundamental_annual",
       "column": "datadate"
     }
   },

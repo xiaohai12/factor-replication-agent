@@ -1,0 +1,153 @@
+{
+  "run_id": "dd915ef49fd849f0__factorial_lag_universe__767e5948__ac8dfa45",
+  "factor_id": "dd915ef49fd849f0",
+  "plugin_id": "dd915ef49fd849f0",
+  "track": "factorial_lag_universe",
+  "method_spec_hash": "c992fef5f3b1113602882b7ff10f4061748fac6c53ddd76faa76697164cbcde7",
+  "code_hash": "767e594841519378",
+  "lifecycle_commit": "420252aba56dced4bf24b28a1c59320bf672f2b6-dirty",
+  "data_snapshot_hash": "251cf87e3f215810e74958f4f7f4cd666077b92477d661211508261a383be0a1",
+  "config_hash": "ac8dfa45689727ed",
+  "runtime_provenance": {
+    "git_commit": "420252aba56dced4bf24b28a1c59320bf672f2b6",
+    "git_dirty": true,
+    "engine_source_hash": "b794ac738754ff7189776e15e6b1223b00fb0775c10c3a0a162e1f861f541cd9",
+    "python_version": "3.11.13",
+    "package_versions": {
+      "pandas": "2.2.3",
+      "numpy": "2.4.6",
+      "statsmodels": "0.14.6",
+      "linearmodels": "not_installed"
+    },
+    "ff_factors_hash": "bfc216e95682647791541224633da1ea806d7ba208331353813ee7103415888b",
+    "liquidity_factors_hash": "bb0569547854ced13cfb08960650137282a2c6656d840d9e730c927e7b8f3fbe"
+  },
+  "experiment_batch_id": "7efe9d17a32d",
+  "frozen_plugin_hash": "767e594841519378",
+  "batch_invalidated": true,
+  "batch_invalidation_reason": "A track-local repair changed the plugin code (code_hash) away from this batch's frozen hash '767e5948' on track(s): original_method. Cross-track config comparisons in this batch are no longer attributable to config alone -- see docs/multi-config-evidence-plan.md Phase 0.6.",
+  "switches_flipped": {
+    "lag": 6,
+    "universe": [
+      {
+        "field": "exchcd",
+        "op": "in",
+        "value": [
+          1,
+          2,
+          3
+        ]
+      },
+      {
+        "field": "siccd",
+        "op": "not_between",
+        "value": [
+          6000,
+          6999
+        ]
+      },
+      {
+        "field": "ceq",
+        "op": "gt",
+        "value": 0
+      }
+    ]
+  },
+  "metrics": {
+    "mean_return": 0.00488459064277771,
+    "t_stat": 0.49530017413534544,
+    "sharpe_ratio": 0.0588006057026143,
+    "alpha_capm": 0.004740364761738542,
+    "alpha_ff3": 0.005830907072322199,
+    "alpha_ff5": 0.006242969846612087,
+    "coverage": null,
+    "microcap_share": null,
+    "n_months": 600,
+    "by_sample_period": {
+      "insamp": {
+        "mean_monthly_return": 0.008835180201621766,
+        "annualized_return": 0.10602216241946119,
+        "t_stat": 1.4228697895770916,
+        "n_months": 239,
+        "sharpe_ratio": 0.2799952824691564,
+        "alpha_capm": 0.008923783385802773,
+        "alpha_capm_tstat": 1.457379052532958,
+        "beta_capm_mktrf": -0.019906148730268136,
+        "alpha_ff3": 0.013795194629304557,
+        "alpha_ff3_tstat": 2.263478347767359,
+        "beta_ff3_mktrf": -0.17879972930913993,
+        "beta_ff3_smb": -0.024904551404399924,
+        "beta_ff3_hml": -0.8518629046811169,
+        "alpha_ff5": 0.01182997381814634,
+        "alpha_ff5_tstat": 1.569331774725172,
+        "beta_ff5_mktrf": -0.1358655040082745,
+        "beta_ff5_smb": 0.015848654879525442,
+        "beta_ff5_hml": -1.493841570866654,
+        "beta_ff5_rmw": -0.30593506836658396,
+        "beta_ff5_cma": 1.0813070276358954,
+        "alpha_liq": 0.008237610164864087,
+        "alpha_liq_tstat": 1.243440555692573,
+        "beta_liq_ps_vwf": -0.3315715054698858
+      },
+      "between": {
+        "mean_monthly_return": -0.03005570451989176,
+        "annualized_return": -0.36066845423870114,
+        "t_stat": -0.9983252445578796,
+        "n_months": 46,
+        "sharpe_ratio": -0.6742303863855407,
+        "alpha_capm": -0.03038249096244064,
+        "alpha_capm_tstat": -1.0900594526323555,
+        "beta_capm_mktrf": 0.08314256834760814,
+        "alpha_ff3": -0.02713204879898689,
+        "alpha_ff3_tstat": -1.118418387913231,
+        "beta_ff3_mktrf": 0.06684956913775764,
+        "beta_ff3_smb": -1.2766000418797911,
+        "beta_ff3_hml": -0.8163785762048346,
+        "alpha_ff5": -0.012727859699124832,
+        "alpha_ff5_tstat": -0.562531469607488,
+        "beta_ff5_mktrf": -0.4191604253087491,
+        "beta_ff5_smb": -2.054965532298131,
+        "beta_ff5_hml": 0.32176564036546323,
+        "beta_ff5_rmw": -2.615709568195351,
+        "beta_ff5_cma": -3.8327167791762466,
+        "alpha_liq": -0.02813091876410999,
+        "alpha_liq_tstat": -1.0048344070325317,
+        "beta_liq_ps_vwf": 1.0851130281241805
+      },
+      "postpub": {
+        "mean_monthly_return": 0.00683133088459792,
+        "annualized_return": 0.08197597061517505,
+        "t_stat": 0.36311231608719763,
+        "n_months": 294,
+        "sharpe_ratio": 0.05997576901598864,
+        "alpha_capm": 0.006405598630941919,
+        "alpha_capm_tstat": 0.34292166002201874,
+        "beta_capm_mktrf": 0.0561581490375377,
+        "alpha_ff3": 0.0054178385202578415,
+        "alpha_ff3_tstat": 0.3142921216583033,
+        "beta_ff3_mktrf": -0.0825874433827278,
+        "beta_ff3_smb": 0.9544994661697932,
+        "beta_ff3_hml": 0.07338507594849536,
+        "alpha_ff5": 0.009740169609158928,
+        "alpha_ff5_tstat": 0.39421853976425497,
+        "beta_ff5_mktrf": -0.2556064589544398,
+        "beta_ff5_smb": 0.4818580511108456,
+        "beta_ff5_hml": 0.10417957814883816,
+        "beta_ff5_rmw": -1.1293922305577455,
+        "beta_ff5_cma": 0.5548368723187163,
+        "alpha_liq": 0.00348763717614297,
+        "alpha_liq_tstat": 0.20576005660747887,
+        "beta_liq_ps_vwf": 0.6039340206602962
+      }
+    }
+  },
+  "return_series_path": "/Users/shengzhaolei/Desktop/Shengzhao_Lei/sideProject/factor-replication-agent/runs/evidence/dd915ef49fd849f0/dd915ef49fd849f0__factorial_lag_universe__767e5948__ac8dfa45/return_series.csv",
+  "signal_series_path": "/Users/shengzhaolei/Desktop/Shengzhao_Lei/sideProject/factor-replication-agent/runs/evidence/dd915ef49fd849f0/dd915ef49fd849f0__factorial_lag_universe__767e5948__ac8dfa45/signal_series.parquet",
+  "status": "success",
+  "created_at": "2026-08-20T09:50:26.061496",
+  "logs": [
+    "experiment_matrix: family='portfolio_ablation' identification_level='unidentified'",
+    "artifact_sha256: {\"return_series.csv\": \"cb91d1c8b470c1cee1f14b2c5215bcf8fe7fe5de53da4f5cbceec15fe6818e9c\", \"signal_series.parquet\": \"8a6ab621238737bc426aec608eefb55d1003e0329dd7e1de6f54d0187d360509\"}"
+  ],
+  "repair_history": []
+}
